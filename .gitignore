@@ -1,0 +1,19 @@
+/datas
+/resources
+/output
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs
+.vscode/
+.idea/
+.project
+.pydevproject
+.settings/
+
+# Misc
+.DS_Store
+*.log
