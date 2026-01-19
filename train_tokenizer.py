@@ -1,50 +1,19 @@
 import os
 import json
 import argparse
+import shutil
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from IO.dataset import build_dataset_from_config
-from model.NeuroRVQ.modeling_tokenizer import NeuroRVQTokenizer
-from model.LaBraM.modeling_tokenizer import LaBraMTokenizer
+from IO.dataset import build_dataset_from_config, TokenizerWrapperDataset
+from model.factory import build_model_from_config
 from model.NeuroRVQ.preprocessing import NeuroRVQProcessing
 from utils.reconstruction import visualize_reconstruction
 from utils.plotter import Plotter
 
-class TokenizerWrapperDataset(Dataset):
-    """
-    Wraps the standard EEGDataset to yield 1-second patches (200 samples)
-    instead of full trials. Returns coordinates directly.
-    """
-    def __init__(self, base_dataset, patch_len=200):
-        self.base_dataset = base_dataset
-        self.patch_len = patch_len
-        
-        sample_x, _ = self.base_dataset[0]
-        self.total_len = sample_x.shape[-1]
-        self.patches_per_trial = self.total_len // patch_len
-        
-        # Pre-convert coords to tensor for efficiency
-        self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
-        
-        print(f"Tokenizer Dataset: {len(self.base_dataset)} trials, {self.patches_per_trial} patches each.")
-
-    def __len__(self):
-        return len(self.base_dataset) * self.patches_per_trial
-
-    def __getitem__(self, index):
-        trial_idx = index // self.patches_per_trial
-        patch_offset = (index % self.patches_per_trial) * self.patch_len
-        
-        x, _ = self.base_dataset[trial_idx]
-        patch = x[:, patch_offset : patch_offset + self.patch_len]
-        
-        # Return full channel coordinates directly
-        return patch, self.coords_tensor
-
-def train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, log_freq=10):
+def train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, output_dir, log_freq=10):
     model.train()
     total_loss = 0
     total_vq_loss = 0
@@ -119,7 +88,8 @@ def train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, lo
 
     # End of Epoch Visualization
     if model_type == "NeuroRVQ" and last_batch_x is not None:
-        visualize_reconstruction(last_batch_x, last_x_recon, epoch)
+        recon_dir = os.path.join(output_dir, 'reconstruction')
+        visualize_reconstruction(last_batch_x, last_x_recon, epoch, output_dir=recon_dir)
 
     avg_loss = total_loss / len(data_loader)
     avg_mse_epoch = total_mse / len(data_loader)
@@ -157,9 +127,13 @@ def main():
     
     # Override from config
     device = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    model_type = train_params.get('model_name', 'NeuroRVQ')
-    output_dir = f"output/checkpoints/tokenizer/{model_type.lower()}"
+    model_type = train_params.get('model_type', 'NeuroRVQ')
+    model_name = train_params.get('model_name', 'default_run')
+    output_dir = f"output/checkpoints/tokenizer/{model_name}"
     os.makedirs(output_dir, exist_ok=True)
+    
+    # Copy config for reproducibility
+    shutil.copy(args.config, os.path.join(output_dir, 'config.json'))
     
     # 2. Dataset
     dataset_path = config['dataset_params']['dataset_path']
@@ -182,34 +156,9 @@ def main():
 
     # 3. Initialize Model
     Nc = base_dataset.Nc
-    print(f"Initializing {model_type} Tokenizer for {Nc} channels...")
+    print(f"Initializing {model_type} Tokenizer for {Nc} channels (Run: {model_name})...")
     
-    if model_type == "NeuroRVQ":
-        params = model_params['NeuroRVQ']
-        model = NeuroRVQTokenizer(
-            in_chans=1,
-            embed_dim=params['embed_dim'],
-            enc_depth=params['enc_depth'],
-            enc_heads=params['enc_heads'],
-            dec_depth=params['dec_depth'],
-            vocab_size=params['vocab_size'],
-            n_codebooks=params['num_codebooks'],
-            freq_resolution=params.get('freq_resolution', 1.0),
-            min_freq=params.get('min_freq', 0.0),
-            max_freq=params.get('max_freq', 100.0),
-            fs=preprocess_params['target_freq']
-        )
-    elif model_type == "LaBraM":
-        params = model_params['LaBraM']
-        model = LaBraMTokenizer(
-            in_chans=1,
-            embed_dim=params['embed_dim'],
-            enc_depth=params['enc_depth'],
-            dec_depth=params['dec_depth'],
-            n_code=params['vocab_size']
-        )
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    model = build_model_from_config(config)
         
     model.to(device)
 
@@ -237,12 +186,13 @@ def main():
         milestones=[train_params['warmup_epochs']]
     )
 
-    plotter = Plotter(output_dir=f"output/visualization/{model_type.lower()}_tokenizer_curves")
+    vis_dir = f"output/visualization/{model_name}"
+    plotter = Plotter(output_dir=vis_dir)
 
     # 5. Training Loop
     best_loss = float('inf')
     for epoch in range(train_params['epochs']):
-        avg_loss, avg_recon, avg_vq, avg_mse = train_one_epoch(model, model_type, data_loader, optimizer, device, epoch)
+        avg_loss, avg_recon, avg_vq, avg_mse = train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, output_dir=vis_dir)
         
         # Step the scheduler at the end of each epoch
         scheduler.step()

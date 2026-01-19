@@ -172,8 +172,10 @@ class NeuroRVQTokenizer(nn.Module):
         embed_dim=200,
         enc_depth=4,
         enc_heads=10,
+        enc_mlp_ratio=4.,
         dec_depth=3, 
         dec_heads=10,
+        dec_mlp_ratio=4.,
         num_scales=4,
         n_codebooks=8, 
         vocab_size=512,
@@ -210,7 +212,7 @@ class NeuroRVQTokenizer(nn.Module):
         nn.init.zeros_(self.spatial_mlp[-1].bias)
         
         # 2. Transformer Encoder (Shared)
-        self.transformer_encoder = TransformerEncoder(embed_dim, enc_depth, enc_heads)
+        self.transformer_encoder = TransformerEncoder(embed_dim, enc_depth, enc_heads, mlp_ratio=enc_mlp_ratio)
         
         # 3. Multi-Branch RVQ
         self.rvqs = nn.ModuleList([
@@ -218,7 +220,7 @@ class NeuroRVQTokenizer(nn.Module):
         ])
         
         # 4. Decoder
-        self.transformer_decoder = TransformerEncoder(embed_dim, dec_depth, dec_heads) 
+        self.transformer_decoder = TransformerEncoder(embed_dim, dec_depth, dec_heads, mlp_ratio=dec_mlp_ratio) 
         
         self.head_amp = nn.Linear(embed_dim, self.fft_dim)
         self.head_sin = nn.Linear(embed_dim, self.fft_dim)
@@ -305,7 +307,7 @@ class NeuroRVQTokenizer(nn.Module):
         # Differentiable Reconstruction using the same logic as inference
         x_recon = self.reconstruct(pred_amp, pred_sin, pred_cos, n_samples=x.shape[-1])
         
-        loss_temp = F.l1_loss(x_recon, x)
+        loss_temp = F.mse_loss(x_recon, x)
         
         # Total Loss
         total_loss = loss_amp + loss_phase + loss_temp

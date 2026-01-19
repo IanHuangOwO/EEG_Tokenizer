@@ -439,3 +439,64 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         window_size=window_size,
         transform=transform
     )
+
+# --- Tokenizer Specific Wrappers ---
+
+class TokenizerWrapperDataset(Dataset):
+    """
+    Wraps the standard EEGDataset to yield fixed-length patches (e.g., 1s)
+    instead of full trials. Returns (patch, coordinates).
+    """
+    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200):
+        self.base_dataset = base_dataset
+        self.patch_len = patch_len
+        
+        # Determine patches per trial
+        sample_x, _ = self.base_dataset[0]
+        self.total_len = sample_x.shape[-1]
+        self.patches_per_trial = self.total_len // patch_len
+        
+        # Pre-convert coords to tensor for efficiency
+        self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
+        
+        print(f"Tokenizer Wrapper: {len(self.base_dataset)} trials -> {len(self)} patches ({self.patches_per_trial} per trial)")
+
+    def __len__(self):
+        return len(self.base_dataset) * self.patches_per_trial
+
+    def __getitem__(self, index):
+        trial_idx = index // self.patches_per_trial
+        patch_offset = (index % self.patches_per_trial) * self.patch_len
+        
+        x, _ = self.base_dataset[trial_idx]
+        patch = x[:, patch_offset : patch_offset + self.patch_len]
+        
+        return patch, self.coords_tensor
+
+
+class TokenizerWrapperDatasetWithLabels(Dataset):
+    """
+    Similar to TokenizerWrapperDataset, but also returns the trial label.
+    Used for visualization (t-SNE) where class info is needed.
+    """
+    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200):
+        self.base_dataset = base_dataset
+        self.patch_len = patch_len
+        
+        sample_x, _ = self.base_dataset[0]
+        self.total_len = sample_x.shape[-1]
+        self.patches_per_trial = self.total_len // patch_len
+        
+        self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
+
+    def __len__(self):
+        return len(self.base_dataset) * self.patches_per_trial
+
+    def __getitem__(self, index):
+        trial_idx = index // self.patches_per_trial
+        patch_offset = (index % self.patches_per_trial) * self.patch_len
+        
+        x, y = self.base_dataset[trial_idx]
+        patch = x[:, patch_offset : patch_offset + self.patch_len]
+        
+        return patch, self.coords_tensor, y

@@ -11,44 +11,9 @@ from tqdm import tqdm
 # Ensure we can import from local modules
 sys.path.append(os.getcwd())
 
-from IO.dataset import build_dataset_from_config
-from model.NeuroRVQ.modeling_tokenizer import NeuroRVQTokenizer
+from IO.dataset import build_dataset_from_config, TokenizerWrapperDatasetWithLabels
+from model.factory import build_model_from_config
 from model.NeuroRVQ.preprocessing import NeuroRVQProcessing
-
-class TokenizerWrapperDatasetWithLabels(Dataset):
-    """
-    Wraps the standard EEGDataset to yield 1-second patches (200 samples)
-    instead of full trials, INCLUDING LABELS and dynamic coordinates.
-    """
-    def __init__(self, base_dataset, patch_len=200):
-        self.base_dataset = base_dataset
-        self.patch_len = patch_len
-        
-        # Check first sample to determine length
-        if len(self.base_dataset) > 0:
-            sample_x, _ = self.base_dataset[0]
-            self.total_len = sample_x.shape[-1]
-            self.patches_per_trial = self.total_len // patch_len
-        else:
-            self.total_len = 0
-            self.patches_per_trial = 0
-        
-        # Pre-convert coords to tensor
-        self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
-        
-        print(f"Tokenizer Dataset: {len(self.base_dataset)} trials, {self.patches_per_trial} patches each.")
-
-    def __len__(self):
-        return len(self.base_dataset) * self.patches_per_trial
-
-    def __getitem__(self, index):
-        trial_idx = index // self.patches_per_trial
-        patch_offset = (index % self.patches_per_trial) * self.patch_len
-        
-        x, y = self.base_dataset[trial_idx]
-        patch = x[:, patch_offset : patch_offset + self.patch_len]
-        
-        return patch, self.coords_tensor, y
 
 def get_latent_embeddings(model, x, coords):
     """
@@ -78,21 +43,20 @@ def get_latent_embeddings(model, x, coords):
     return z_fused
 
 def main():
-    config_path = 'config/config.json'
-    ckpt_path = 'output/checkpoints/tokenizer/neurorvq/tokenizer_best.pth'
-    output_dir = 'output/visualization'
-    os.makedirs(output_dir, exist_ok=True)
-    
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"Using device: {device}")
-
     # 1. Load Config
+    config_path = 'config/config.json'
     with open(config_path, 'r') as f:
         config = json.load(f)
     
     m_params = config['model_params']['NeuroRVQ']
+    train_params = config['training_params']
+    model_type = train_params.get('model_type', 'NeuroRVQ')
+    model_name = train_params.get('model_name', 'neurorvq_v1')
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    MAX_SAMPLES = 2000
     
-    # 2. Load Dataset
+    # 2. Setup Dataset (using a small subset for speed)
+    print("Loading dataset for usage analysis...")
     dataset_path = config['dataset_params']['dataset_path']
     with open(os.path.join(dataset_path, 'metadata.json'), 'r') as f:
         meta = json.load(f)
@@ -108,43 +72,19 @@ def main():
     )
     
     base_dataset = build_dataset_from_config(config, transform=transform)
-    tokenizer_dataset = TokenizerWrapperDatasetWithLabels(base_dataset, patch_len=200)
-    
-    # Limit to N samples for t-SNE (it's slow on large N)
-    MAX_SAMPLES = 2000 
-    data_loader = DataLoader(tokenizer_dataset, batch_size=32, shuffle=True, num_workers=0)
+    tokenizer_dataset = TokenizerWrapperDatasetWithLabels(base_dataset, patch_len=200) # patch_len = 1 sec
+    data_loader = DataLoader(tokenizer_dataset, batch_size=train_params['batch_size'], shuffle=True, num_workers=4)
 
-    # 3. Initialize Model
-    print(f"Initializing NeuroRVQ Tokenizer for {base_dataset.Nc} channels...")
-    
-    model = NeuroRVQTokenizer(
-        embed_dim=m_params['embed_dim'],
-        enc_depth=m_params['enc_depth'],
-        enc_heads=m_params['enc_heads'],
-        dec_depth=m_params['dec_depth'],
-        vocab_size=m_params['vocab_size'],
-        freq_resolution=m_params['freq_resolution'],
-        min_freq=m_params['min_freq'],
-        max_freq=m_params['max_freq']
-    )
-    
+    # 3. Initialize Model and Load Checkpoint via Factory
+    model = build_model_from_config(config).to(device)
+
+    ckpt_path = f'output/checkpoints/tokenizer/{model_name}/tokenizer_best.pth'
     if os.path.exists(ckpt_path):
         print(f"Loading checkpoint: {ckpt_path}")
-        state_dict = torch.load(ckpt_path, map_location=device)
-        
-        # Map old rvqs.0 weights to new rvq if needed
-        new_state_dict = {}
-        for k, v in state_dict.items():
-            if k.startswith("rvqs.0."):
-                new_state_dict[k.replace("rvqs.0.", "rvq.")] = v
-            else:
-                new_state_dict[k] = v
-        
-        model.load_state_dict(new_state_dict, strict=False)
+        model.load_state_dict(torch.load(ckpt_path, map_location=device), strict=False)
     else:
-        print(f"Checkpoint not found at {ckpt_path}. Running with random weights.")
-
-    model.to(device)
+        print(f"No checkpoint found at {ckpt_path}. Analyzing RANDOM weights.")
+        
     model.eval()
 
     # 4. Extract Embeddings
@@ -198,9 +138,9 @@ def main():
     plt.ylabel('t-SNE Dim 2')
     plt.tight_layout()
     
-    save_path = os.path.join(output_dir, 'tsne_input_embeddings.png')
-    plt.savefig(save_path)
-    print(f"Plot saved to {save_path}")
+    output_path = f'output/visualization/{model_name}/tsne_input_embeddings.png'
+    plt.savefig(output_path)
+    print(f"Plot saved to {output_path}")
 
 if __name__ == '__main__':
     main()
