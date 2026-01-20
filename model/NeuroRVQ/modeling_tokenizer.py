@@ -294,7 +294,7 @@ class NeuroRVQTokenizer(nn.Module):
         # Differentiable Reconstruction using the same logic as inference
         x_recon = self.reconstruct(pred_amp, pred_sin, pred_cos, n_samples=x.shape[-1])
         
-        loss_temp = F.mse_loss(x_recon, x)
+        loss_temp = F.l1_loss(x_recon, x)
         
         # Total Loss
         total_loss = loss_amp + loss_phase + loss_temp
