@@ -27,10 +27,11 @@ class ResBlock1D(nn.Module):
 
 class TemporalEncoder(nn.Module):
     """
-    Extracts features from 1-second EEG patches using a hierarchical ResNet.
+    Dynamically extracts features from EEG patches across multiple scales.
     """
-    def __init__(self, in_chans=1, embed_dim=200, base_filters=8):
+    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4):
         super().__init__()
+        self.num_scales = num_scales
         
         # Stem
         self.stem = nn.Sequential(
@@ -39,47 +40,33 @@ class TemporalEncoder(nn.Module):
             nn.GELU()
         )
         
-        # Stages (Hierarchical)
-        self.layer1 = ResBlock1D(base_filters, base_filters, stride=1)
-        self.layer2 = ResBlock1D(base_filters, base_filters*2, stride=2)
-        self.layer3 = ResBlock1D(base_filters*2, base_filters*4, stride=2)
-        self.layer4 = ResBlock1D(base_filters*4, base_filters*8, stride=2)
+        self.layers = nn.ModuleList()
+        self.projections = nn.ModuleList()
         
-        # Projections to embed_dim (Dynamically calculated)
-        # Assuming T=200, but structured to be flexible
-        dims = [base_filters * 200, base_filters * 2 * 100, base_filters * 4 * 50, base_filters * 8 * 25]
+        current_filters = base_filters
+        current_t = 200 
         
-        self.projections = nn.ModuleList([
-            nn.Linear(d, embed_dim) for d in dims
-        ])
+        for i in range(num_scales):
+            stride = 1 if i == 0 else 2
+            out_filters = current_filters if i == 0 else current_filters * 2
+            self.layers.append(ResBlock1D(current_filters, out_filters, stride=stride))
+            current_filters = out_filters
+            current_t = current_t // stride
+            self.projections.append(nn.Linear(current_filters * current_t, embed_dim))
 
     def forward(self, x):
         B, N, T = x.shape
         x = x.view(B * N, 1, T)
-        
-        outputs = []
         x = self.stem(x)
         
-        f1 = self.layer1(x)
-        outputs.append(f1)
-        
-        f2 = self.layer2(f1)
-        outputs.append(f2)
-        
-        f3 = self.layer3(f2)
-        outputs.append(f3)
-        
-        f4 = self.layer4(f3)
-        outputs.append(f4)
-        
-        final_outputs = []
-        for feat, proj in zip(outputs, self.projections):
+        outputs = []
+        feat = x
+        for layer, proj in zip(self.layers, self.projections):
+            feat = layer(feat)
             flat = feat.flatten(1) 
-            emb = proj(flat)       
-            emb = emb.view(B, N, -1) 
-            final_outputs.append(emb)
-            
-        return final_outputs 
+            emb = proj(flat).view(B, N, -1) 
+            outputs.append(emb)
+        return outputs 
 
 # --- 2. Transformer Encoder ---
 
