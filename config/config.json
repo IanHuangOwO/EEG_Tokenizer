@@ -11,7 +11,7 @@
       "embed_dim": 256,
       "num_scales": 4,
       "num_codebooks": 8,
-      "vocab_size": 8192,
+      "vocab_size": 512,
       "freq_resolution": 0.2,
       "min_freq": 0.0,
       "max_freq": 80.0
@@ -25,8 +25,9 @@
       "dec_heads": 8,
       "dec_mlp_ratio": 4.0,
       "embed_dim": 256,
-      "num_codebooks": 8,
-      "vocab_size": 512,
+      "num_scales": 4,
+      "num_recurrent_steps": 8,
+      "vocab_size": 4096,
       "freq_resolution": 0.2,
       "min_freq": 0.0,
       "max_freq": 80.0
@@ -56,7 +57,7 @@
   },
   "training_params": {
     "model_type": "NeuroRVQ",
-    "model_name": "neurorvq_v0",
+    "model_name": "neurorvq_v1",
     "learning_rate": 5e-5,
     "min_learning_rate": 1e-5,
     "epochs": 100,

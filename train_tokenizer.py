@@ -10,6 +10,7 @@ from tqdm import tqdm
 from IO.dataset import build_dataset_from_config, TokenizerWrapperDataset
 from model.factory import build_model_from_config
 from model.NeuroRVQ.preprocessing import NeuroRVQProcessing
+from model.RecurrentVQ.preprocessing import RecurrentVQProcessing
 from utils.reconstruction import visualize_reconstruction
 from utils.plotter import Plotter
 
@@ -35,6 +36,12 @@ def train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, ou
         
         # Forward & Loss
         if model_type == "NeuroRVQ":
+            # Pass coordinates directly
+            pred_amp, pred_sin, pred_cos, vq_loss = model(batch_x, batch_coords)
+            recon_loss, l_amp, l_phase, l_temp = model.get_loss(batch_x, pred_amp, pred_sin, pred_cos)
+            total_amp_loss += l_amp.item()
+            total_phase_loss += l_phase.item()
+        elif model_type == "RecurrentVQ":
             # Pass coordinates directly
             pred_amp, pred_sin, pred_cos, vq_loss = model(batch_x, batch_coords)
             recon_loss, l_amp, l_phase, l_temp = model.get_loss(batch_x, pred_amp, pred_sin, pred_cos)
@@ -69,6 +76,11 @@ def train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, ou
                 batch_mse = l_temp.item()
                 last_batch_x = batch_x
                 last_x_recon = x_recon
+            elif model_type == "RecurrentVQ":
+                x_recon = model.reconstruct(pred_amp, pred_sin, pred_cos)
+                batch_mse = l_temp.item()
+                last_batch_x = batch_x
+                last_x_recon = x_recon
             elif model_type == "LaBraM":
                 batch_mse = 0.0 
             else:
@@ -81,6 +93,8 @@ def train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, ou
         postfix = {'L': f"{loss_val:.2f}", 'VQ': f"{vq_val:.2f}", 'lr': f"{current_lr:.1e}"}
         if model_type == "NeuroRVQ":
             postfix.update({'Amp': f"{l_amp.item():.2f}", 'Phs': f"{l_phase.item():.2f}", 'Tmp': f"{l_temp.item():.2f}"})
+        elif model_type == "RecurrentVQ":
+            postfix.update({'Amp': f"{l_amp.item():.2f}", 'Phs': f"{l_phase.item():.2f}", 'Tmp': f"{l_temp.item():.2f}"})
         elif model_type == "LaBraM":
             postfix.update({'Recon': f"{recon_val:.2f}"})
             
@@ -88,6 +102,9 @@ def train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, ou
 
     # End of Epoch Visualization
     if model_type == "NeuroRVQ" and last_batch_x is not None:
+        recon_dir = os.path.join(output_dir, 'reconstruction')
+        visualize_reconstruction(last_batch_x, last_x_recon, epoch, output_dir=recon_dir)
+    elif model_type == "RecurrentVQ" and last_batch_x is not None:
         recon_dir = os.path.join(output_dir, 'reconstruction')
         visualize_reconstruction(last_batch_x, last_x_recon, epoch, output_dir=recon_dir)
 
@@ -100,6 +117,11 @@ def train_one_epoch(model, model_type, data_loader, optimizer, device, epoch, ou
     print(f"  > Avg VQ Loss: {total_vq_loss / len(data_loader):.4f}")
 
     if model_type == "NeuroRVQ":
+        avg_amp = total_amp_loss / len(data_loader)
+        avg_phase = total_phase_loss / len(data_loader)
+        # avg_mse_epoch is the temporal loss
+        print(f"  > Avg Recon Loss: {total_recon_loss / len(data_loader):.4f} (Amp: {avg_amp:.4f}, Phs: {avg_phase:.4f}, Tmp: {avg_mse_epoch:.4f})")
+    elif model_type == "RecurrentVQ":
         avg_amp = total_amp_loss / len(data_loader)
         avg_phase = total_phase_loss / len(data_loader)
         # avg_mse_epoch is the temporal loss
@@ -142,13 +164,22 @@ def main():
     config['data_metadata'] = meta['data_metadata']
     
     fs_orig = meta['data_metadata']['Sample_Frequency']
-    transform = NeuroRVQProcessing(
-        original_freq=fs_orig, 
-        target_freq=preprocess_params['target_freq'], 
-        l_freq=preprocess_params['l_freq'], 
-        h_freq=preprocess_params['h_freq'], 
-        normalization_type=preprocess_params['normalization_type']
-    )
+    if model_type == 'RecurrentVQ':
+        transform = RecurrentVQProcessing(
+            original_freq=fs_orig, 
+            target_freq=preprocess_params['target_freq'], 
+            l_freq=preprocess_params['l_freq'], 
+            h_freq=preprocess_params['h_freq'], 
+            normalization_type=preprocess_params['normalization_type']
+        )
+    else:
+        transform = NeuroRVQProcessing(
+            original_freq=fs_orig, 
+            target_freq=preprocess_params['target_freq'], 
+            l_freq=preprocess_params['l_freq'], 
+            h_freq=preprocess_params['h_freq'], 
+            normalization_type=preprocess_params['normalization_type']
+        )
     base_dataset = build_dataset_from_config(config, transform=transform)
     
     tokenizer_dataset = TokenizerWrapperDataset(base_dataset, patch_len=preprocess_params['target_freq']) # patch_len = 1 sec

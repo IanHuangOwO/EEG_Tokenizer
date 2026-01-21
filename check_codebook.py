@@ -10,15 +10,25 @@ from tqdm import tqdm
 from model.factory import build_model_from_config
 from IO.dataset import build_dataset_from_config
 from model.NeuroRVQ.preprocessing import NeuroRVQProcessing
+from model.RecurrentVQ.preprocessing import RecurrentVQProcessing
 
 class CodebookAnalyzer:
     def __init__(self, model, config, device="cuda"):
         self.model = model
         self.config = config
         self.device = device
-        self.m_params = config['model_params']['NeuroRVQ']
+        
+        self.model_type = config['training_params'].get('model_type', 'NeuroRVQ')
+        if self.model_type == 'RecurrentVQ':
+            self.m_params = config['model_params']['RecurrentVQ']
+            self.n_layers = self.m_params['num_recurrent_steps']
+            self.is_shared_codebook = True
+        else:
+            self.m_params = config['model_params']['NeuroRVQ']
+            self.n_layers = self.m_params['num_codebooks']
+            self.is_shared_codebook = False
+            
         self.embed_dim = self.m_params['embed_dim']
-        self.n_layers = self.m_params['num_codebooks']
         self.vocab_size = self.m_params['vocab_size']
         self.model.eval()
 
@@ -54,6 +64,16 @@ class CodebookAnalyzer:
         lambdas = S**2
         pr = (torch.sum(lambdas)**2) / (torch.sum(lambdas**2) + 1e-8)
         return pr.item()
+
+    def compute_atom_similarity(self, codebook):
+        """Computes Cosine Similarity matrix between atoms (vocab x vocab)."""
+        # codebook: (Vocab, Dim)
+        # Normalize rows
+        norms = torch.norm(codebook, dim=1, keepdim=True)
+        normed_cb = codebook / (norms + 1e-8)
+        # Cosine Sim = (A . B) / (|A|*|B|) -> (Normed . Normed^T)
+        sim_matrix = torch.matmul(normed_cb, normed_cb.t())
+        return sim_matrix.cpu().numpy()
 
     # --- 2. Usage Analysis Methods ---
 
@@ -136,6 +156,42 @@ class CodebookAnalyzer:
 
     # --- 4. Full Report Generation ---
 
+    def plot_atom_similarities(self, codebooks, save_dir):
+        """Generates a grid of Atom-Atom Similarity matrices for all codebooks."""
+        n = len(codebooks)
+        # Determine grid size dynamically to avoid empty subplots
+        cols = min(n, 4)
+        rows = int(np.ceil(n / cols))
+        
+        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
+        if n == 1: axes = [axes] # Handle single plot case (returns Axes object, not array)
+        axes = np.array(axes).flatten()
+        
+        print("Computing atom-wise similarities...")
+        for i, cb in enumerate(codebooks):
+            sim = self.compute_atom_similarity(cb)
+            # Use interpolation='nearest' to prevent blurring of diagonal values
+            im = axes[i].imshow(sim, cmap='coolwarm', vmin=-1, vmax=1, interpolation='nearest')
+            axes[i].set_title(f"Layer {i+1} Self-Sim")
+            axes[i].axis('off')
+            
+        # Hide unused subplots
+        for j in range(i + 1, len(axes)):
+            axes[j].axis('off')
+            
+        plt.tight_layout()
+        # Add common colorbar only if there's space/need, or per plot. 
+        # For simplicity in grid, adding to figure edge is fine.
+        cb_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7]) 
+        fig.colorbar(im, cax=cb_ax, label='Cosine Similarity')
+        
+        save_path = os.path.join(save_dir, "atom_similarity.png")
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close(fig)
+        print(f"Atom similarity report saved to {save_path}")
+
+    # --- 4. Full Report Generation ---
+
     def run_full_analysis(self, data_loader, scale_idx=0, save_dir="output/visualization"):
         os.makedirs(save_dir, exist_ok=True)
         
@@ -143,55 +199,78 @@ class CodebookAnalyzer:
         perplexities, _ = self.collect_usage_stats(data_loader, scale_idx)
         
         # B. Structure
-        if hasattr(self.model.rvqs[scale_idx], 'layers'):
-            # ResidualVQ case
-            codebooks = [self.model.rvqs[scale_idx].layers[i].embedding.weight.data for i in range(self.n_layers)]
+        unique_codebooks = [] # For atom sim plot
+        if self.is_shared_codebook:
+            # RecurrentVQ case - single shared codebook
+            cb = self.model.rvqs[scale_idx].vq.embedding.weight.data
+            codebooks = [cb]
+            unique_codebooks = [cb]
         else:
-            # RecurrentVQ case - only one codebook, so we 'replicate' it for the matrix 
-            # or just handle it as a special case. Let's replicate for the code to keep running.
-            single_cb = self.model.rvqs[scale_idx].vq.embedding.weight.data
-            codebooks = [single_cb for _ in range(self.n_layers)]
-        cka_mtx = np.zeros((self.n_layers, self.n_layers))
-        ovl_mtx = np.zeros((self.n_layers, self.n_layers))
-        ranks = []
+            # NeuroRVQ case - list of layers
+            if hasattr(self.model.rvqs[scale_idx], 'layers'):
+                 codebooks = [self.model.rvqs[scale_idx].layers[i].embedding.weight.data for i in range(self.n_layers)]
+                 unique_codebooks = codebooks
+            else:
+                 # Fallback
+                 cb = self.model.rvqs[scale_idx].vq.embedding.weight.data
+                 codebooks = [cb]
+                 unique_codebooks = [cb]
 
-        print("Computing structural metrics...")
-        for i in range(self.n_layers):
-            ranks.append(self.compute_effective_rank(codebooks[i]))
-            for j in range(self.n_layers):
-                cka_mtx[i, j] = self.compute_cka(codebooks[i], codebooks[j])
-                ovl_mtx[i, j] = self.compute_subspace_overlap(codebooks[i], codebooks[j])
-
-        # C. Visualization
-        fig, axes = plt.subplots(2, 2, figsize=(18, 14))
+        ranks = [self.compute_effective_rank(cb) for cb in codebooks]
         
+        # NEW: Generate Separate Atom Similarity Report
+        self.plot_atom_similarities(unique_codebooks, save_dir)
+
+        if not self.is_shared_codebook:
+            cka_mtx = np.zeros((self.n_layers, self.n_layers))
+            ovl_mtx = np.zeros((self.n_layers, self.n_layers))
+
+            print("Computing structural metrics...")
+            for i in range(self.n_layers):
+                for j in range(self.n_layers):
+                    cka_mtx[i, j] = self.compute_cka(codebooks[i], codebooks[j])
+                    ovl_mtx[i, j] = self.compute_subspace_overlap(codebooks[i], codebooks[j])
+
+        # C. Visualization (Summary Report)
+        if self.is_shared_codebook:
+            fig, axes = plt.subplots(1, 2, figsize=(16, 6)) # Revert to 1x2 for summary
+            ax_perp, ax_rank = axes[0], axes[1]
+            plot_ranks = ranks * self.n_layers 
+        else:
+            fig, axes = plt.subplots(2, 2, figsize=(18, 14))
+            ax_perp, ax_rank = axes[0,0], axes[0,1]
+            plot_ranks = ranks
+
         # 1. Perplexity
-        axes[0,0].bar(range(1, self.n_layers+1), perplexities, color='teal')
-        axes[0,0].axhline(y=self.vocab_size, color='r', linestyle='--', label='Max')
-        axes[0,0].set_title("Perplexity (Usage)")
-        axes[0,0].set_ylabel("Effective Vocab Size")
+        ax_perp.bar(range(1, self.n_layers+1), perplexities, color='teal')
+        ax_perp.axhline(y=self.vocab_size, color='r', linestyle='--', label='Max')
+        ax_perp.set_title("Perplexity (Usage per Step)")
+        ax_perp.set_ylabel("Effective Vocab Size")
         
         # 2. Effective Rank
-        axes[0,1].bar(range(1, self.n_layers+1), ranks, color='salmon')
-        axes[0,1].axhline(y=self.embed_dim, color='gray', linestyle='--', label='Max Dim')
-        axes[0,1].set_title("Effective Rank (Expressivity)")
-        axes[0,1].set_ylabel("Participating Dimensions")
+        ax_rank.bar(range(1, len(plot_ranks)+1), plot_ranks, color='salmon')
+        ax_rank.axhline(y=self.embed_dim, color='gray', linestyle='--', label='Max Dim')
+        ax_rank.set_title("Effective Rank (Expressivity)")
+        ax_rank.set_ylabel("Participating Dimensions")
+        
+        if self.is_shared_codebook:
+             ax_rank.set_title("Effective Rank (Shared Codebook)")
+        else:
+            # 3. CKA Matrix
+            im3 = axes[1,0].imshow(cka_mtx, cmap='magma', vmin=0, vmax=1)
+            plt.colorbar(im3, ax=axes[1,0], label='CKA')
+            axes[1,0].set_title("Relational Similarity (CKA)")
 
-        # 3. CKA Matrix
-        im3 = axes[1,0].imshow(cka_mtx, cmap='magma', vmin=0, vmax=1)
-        plt.colorbar(im3, ax=axes[1,0], label='CKA')
-        axes[1,0].set_title("Relational Similarity (CKA)")
+            # 4. Overlap Matrix
+            im4 = axes[1,1].imshow(ovl_mtx, cmap='viridis', vmin=0, vmax=1)
+            plt.colorbar(im4, ax=axes[1,1], label='Overlap')
+            axes[1,1].set_title("Subspace Overlap")
 
-        # 4. Overlap Matrix
-        im4 = axes[1,1].imshow(ovl_mtx, cmap='viridis', vmin=0, vmax=1)
-        plt.colorbar(im4, ax=axes[1,1], label='Overlap')
-        axes[1,1].set_title("Subspace Overlap")
-
-        for ax in axes[1]:
-            ax.set_xticks(range(self.n_layers))
-            ax.set_yticks(range(self.n_layers))
-            ax.set_xticklabels(range(1, self.n_layers+1))
-            ax.set_yticklabels(range(1, self.n_layers+1))
+            for ax in axes[1]:
+                ax.set_xticks(range(self.n_layers))
+                ax.set_yticks(range(self.n_layers))
+                ax.set_xticklabels(range(1, self.n_layers+1))
+                ax.set_yticklabels(range(1, self.n_layers+1))
 
         plt.tight_layout()
         save_path = os.path.join(save_dir, "codebook_report.png")
@@ -202,21 +281,30 @@ class CodebookAnalyzer:
         print("\n" + "="*50)
         print("CODEBOOK ANALYSIS SUMMARY")
         print("="*50)
-        print(f"{'Layer':<8} | {'Perplexity':<12} | {'Eff. Rank':<10}")
-        print("-" * 35)
-        for i in range(self.n_layers):
-            print(f"L{i+1:<7} | {perplexities[i]:<12.1f} | {ranks[i]:<10.1f}")
-
-        def print_mtx(mtx, name):
-            print(f"\n{name}:")
-            header = "      " + "".join([f"L{i+1:<5}" for i in range(self.n_layers)])
-            print(header)
+        
+        if self.is_shared_codebook:
+             print(f"Shared Codebook Rank: {ranks[0]:.1f}")
+             print(f"{'Step':<8} | {'Perplexity':<12}")
+             print("-" * 25)
+             for i in range(self.n_layers):
+                print(f"S{i+1:<7} | {perplexities[i]:<12.1f}")
+        else:
+            print(f"{'Layer':<8} | {'Perplexity':<12} | {'Eff. Rank':<10}")
+            print("-" * 35)
             for i in range(self.n_layers):
-                row = f"L{i+1:<4} | " + "".join([f"{mtx[i,j]:.3f} " for j in range(self.n_layers)])
-                print(row)
+                print(f"L{i+1:<7} | {perplexities[i]:<12.1f} | {ranks[i]:<10.1f}")
 
-        print_mtx(cka_mtx, "Linear CKA Matrix (Relational Similarity)")
-        print_mtx(ovl_mtx, "Subspace Overlap Matrix (Directional Alignment)")
+            def print_mtx(mtx, name):
+                print(f"\n{name}:")
+                header = "      " + "".join([f"L{i+1:<5}" for i in range(self.n_layers)])
+                print(header)
+                for i in range(self.n_layers):
+                    row = f"L{i+1:<4} | " + "".join([f"{mtx[i,j]:.3f} " for j in range(self.n_layers)])
+                    print(row)
+
+            print_mtx(cka_mtx, "Linear CKA Matrix (Relational Similarity)")
+            print_mtx(ovl_mtx, "Subspace Overlap Matrix (Directional Alignment)")
+            
         print("\n" + "="*50)
 
 def main():
@@ -226,6 +314,7 @@ def main():
     
     train_params = config['training_params']
     model_name = train_params.get('model_name', 'neurorvq_v0')
+    model_type = train_params.get('model_type', 'NeuroRVQ')
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Load Model
@@ -241,7 +330,11 @@ def main():
         meta = json.load(f)
     config['data_metadata'] = meta['data_metadata']
     
-    transform = NeuroRVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
+    if model_type == 'RecurrentVQ':
+        transform = RecurrentVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
+    else:
+        transform = NeuroRVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
+        
     dataset = build_dataset_from_config(config, transform=transform)
     loader = DataLoader(dataset, batch_size=16, shuffle=True)
 
