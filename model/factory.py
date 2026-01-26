@@ -1,6 +1,7 @@
 import torch
 from model.NeuroRVQ.modeling_tokenizer import NeuroRVQTokenizer
 from model.RecurrentVQ.modeling_tokenizer import RecurrentVQTokenizer
+from model.RecurrentFSQ.modeling_tokenizer import RecurrentFSQTokenizer
 from model.LaBraM.modeling_tokenizer import LaBraMTokenizer
 
 def build_model_from_config(config):
@@ -48,6 +49,25 @@ def build_model_from_config(config):
             num_scales=params.get('num_scales', 4),
             vocab_size=params['vocab_size'],
             num_recurrent_steps=params['num_recurrent_steps'],
+            freq_resolution=params.get('freq_resolution', 1.0),
+            min_freq=params.get('min_freq', 0.0),
+            max_freq=params.get('max_freq', 100.0),
+            fs=preprocess_params['target_freq']
+        )
+    elif model_type == "RecurrentFSQ":
+        params = model_params['RecurrentFSQ']
+        model = RecurrentFSQTokenizer(
+            in_chans=params.get('in_chans', 1),
+            embed_dim=params['embed_dim'],
+            enc_depth=params['enc_depth'],
+            enc_heads=params['enc_heads'],
+            enc_mlp_ratio=params.get('enc_mlp_ratio', 4.0),
+            dec_depth=params['dec_depth'],
+            dec_heads=params.get('dec_heads', params['enc_heads']),
+            dec_mlp_ratio=params.get('dec_mlp_ratio', 4.0),
+            num_scales=params.get('num_scales', 4),
+            num_recurrent_steps=params['num_recurrent_steps'],
+            fsq_levels=params.get('fsq_levels', [8, 5, 5, 5]),
             freq_resolution=params.get('freq_resolution', 1.0),
             min_freq=params.get('min_freq', 0.0),
             max_freq=params.get('max_freq', 100.0),

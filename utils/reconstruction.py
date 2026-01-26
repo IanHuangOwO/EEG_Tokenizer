@@ -5,23 +5,34 @@ import matplotlib.pyplot as plt
 import numpy as np
 import mne
 
-def visualize_reconstruction(original, reconstruction, epoch, step=None, output_dir='output/visualization/reconstruction', ch=0):
+def visualize_reconstruction(train_batch, val_batch, epoch, output_dir='output/visualization/reconstruction', ch=0):
     """
     Plots original vs reconstructed signal for a single channel, decomposed into bands.
-    original, reconstruction: (B, N, T) tensors
+    Plots Train (Left) and Validation (Right) side-by-side.
+    batch: tuple (original, reconstruction) where tensors are (B, N, T)
     """
     os.makedirs(output_dir, exist_ok=True)
     
-    # Take first batch item and specified channel
-    orig_np = original[0, ch].detach().cpu().numpy()
-    recon_np = reconstruction[0, ch].detach().cpu().numpy()
+    # Unpack
+    train_orig, train_recon = train_batch
+    val_orig, val_recon = val_batch
     
-    # Ensure shape (1, T) for MNE
-    orig_mne = orig_np.reshape(1, -1).astype(np.float64)
-    recon_mne = recon_np.reshape(1, -1).astype(np.float64)
+    # Helper to prep data
+    def prep_data(orig_t, recon_t):
+        if orig_t is None or recon_t is None: return None, None
+        o = orig_t[0, ch].detach().cpu().numpy()
+        r = recon_t[0, ch].detach().cpu().numpy()
+        return o, r
+
+    t_orig, t_recon = prep_data(train_orig, train_recon)
+    v_orig, v_recon = prep_data(val_orig, val_recon)
     
+    if t_orig is None or v_orig is None:
+        print("Skipping visualization due to missing data")
+        return
+
     fs = 200.0
-    time_vec = np.arange(len(orig_np)) / fs
+    time_vec = np.arange(len(t_orig)) / fs
     
     bands = {
         'Raw': None,
@@ -32,49 +43,48 @@ def visualize_reconstruction(original, reconstruction, epoch, step=None, output_
         'Gamma (30-80 Hz)': (30, 80)
     }
     
-    fig, axes = plt.subplots(len(bands), 1, figsize=(10, 15), sharex=True)
+    fig, axes = plt.subplots(len(bands), 2, figsize=(16, 18), sharex=True)
+    fig.suptitle(f"Reconstruction Analysis - Epoch {epoch}", fontsize=16)
     
-    if step is not None:
-        fig.suptitle(f"Reconstruction Analysis - Epoch {epoch}, Step {step}")
-    else:
-        fig.suptitle(f"Reconstruction Analysis - Epoch {epoch}")
-    
-    for i, (name, freqs) in enumerate(bands.items()):
-        ax = axes[i]
-        
-        if freqs is None:
-            # Plot Raw
-            y_orig = orig_np
-            y_recon = recon_np
-        else:
-            # Filter
-            l_freq, h_freq = freqs
-            # Use IIR for short signals
-            try:
-                y_orig = mne.filter.filter_data(orig_mne, fs, l_freq, h_freq, method='iir', verbose=False)[0]
-                y_recon = mne.filter.filter_data(recon_mne, fs, l_freq, h_freq, method='iir', verbose=False)[0]
-            except Exception as e:
-                print(f"Filtering failed for {name}: {e}")
-                y_orig = np.zeros_like(orig_np)
-                y_recon = np.zeros_like(recon_np)
+    # Column headers
+    axes[0, 0].set_title(f"Training Sample (Ch {ch}) - Raw")
+    axes[0, 1].set_title(f"Validation Sample (Ch {ch}) - Raw")
 
-        ax.plot(time_vec, y_orig, label='Original', color='black', alpha=0.7, linewidth=1.0)
-        ax.plot(time_vec, y_recon, label='Reconstructed', color='red', alpha=0.7, linestyle='--', linewidth=1.0)
-        
-        ax.set_title(name)
-        ax.set_ylabel("Amp")
-        ax.grid(True, alpha=0.3)
-        if i == 0:
-            ax.legend(loc='upper right', fontsize='small')
+    for i, (band_name, freqs) in enumerate(bands.items()):
+        # Process both Train (col 0) and Val (col 1)
+        for col, (orig, recon) in enumerate([(t_orig, t_recon), (v_orig, v_recon)]):
+            ax = axes[i, col]
+            
+            # Prepare MNE compatible
+            o_mne = orig.reshape(1, -1).astype(np.float64)
+            r_mne = recon.reshape(1, -1).astype(np.float64)
 
-    axes[-1].set_xlabel("Time (s)")
-    plt.tight_layout(rect=[0, 0.03, 1, 0.97]) # Adjust for suptitle
+            if freqs is None:
+                y_o, y_r = orig, recon
+            else:
+                l_f, h_f = freqs
+                try:
+                    y_o = mne.filter.filter_data(o_mne, fs, l_f, h_f, method='iir', verbose=False)[0]
+                    y_r = mne.filter.filter_data(r_mne, fs, l_f, h_f, method='iir', verbose=False)[0]
+                except Exception:
+                    y_o, y_r = np.zeros_like(orig), np.zeros_like(recon)
+            
+            ax.plot(time_vec, y_o, 'k', alpha=0.6, linewidth=1.0, label='Original')
+            ax.plot(time_vec, y_r, 'r--', alpha=0.7, linewidth=1.0, label='Recon')
+            
+            if col == 0:
+                ax.set_ylabel(band_name)
+            
+            ax.grid(True, alpha=0.3)
+            if i == 0 and col == 1: # Legend on top right only
+                ax.legend(loc='upper right')
+
+    axes[-1, 0].set_xlabel("Time (s)")
+    axes[-1, 1].set_xlabel("Time (s)")
     
-    if step is not None:
-        filename = f'recon_epoch_{epoch}_step_{step}.png'
-    else:
-        filename = f'recon_epoch_{epoch}.png'
-        
+    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
+    
+    filename = f'recon_epoch_{epoch}.png'
     save_path = os.path.join(output_dir, filename)
     plt.savefig(save_path)
     plt.close()

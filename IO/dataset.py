@@ -445,11 +445,12 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
 class TokenizerWrapperDataset(Dataset):
     """
     Wraps the standard EEGDataset to yield fixed-length patches (e.g., 1s)
-    instead of full trials. Returns (patch, coordinates).
+    instead of full trials. Returns (patch, fft, coordinates) if n_fft is set.
     """
-    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200):
+    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200, n_fft: int = None):
         self.base_dataset = base_dataset
         self.patch_len = patch_len
+        self.n_fft = n_fft
         
         # Determine patches per trial
         sample_x, _ = self.base_dataset[0]
@@ -470,6 +471,11 @@ class TokenizerWrapperDataset(Dataset):
         
         x, _ = self.base_dataset[trial_idx]
         patch = x[:, patch_offset : patch_offset + self.patch_len]
+        
+        if self.n_fft is not None:
+            # Compute FFT (this handles padding if n_fft > patch_len)
+            x_fft = torch.fft.rfft(patch, n=self.n_fft, dim=-1)
+            return patch, x_fft, self.coords_tensor
         
         return patch, self.coords_tensor
 

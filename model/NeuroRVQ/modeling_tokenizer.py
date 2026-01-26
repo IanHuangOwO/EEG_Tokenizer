@@ -44,14 +44,17 @@ class TemporalEncoder(nn.Module):
         self.projections = nn.ModuleList()
         
         current_filters = base_filters
-        current_t = 200 
+        current_t = 200 # Base assumption for 1s patch at 200Hz
         
         for i in range(num_scales):
             stride = 1 if i == 0 else 2
             out_filters = current_filters if i == 0 else current_filters * 2
+            
             self.layers.append(ResBlock1D(current_filters, out_filters, stride=stride))
+            
             current_filters = out_filters
             current_t = current_t // stride
+            
             self.projections.append(nn.Linear(current_filters * current_t, embed_dim))
 
     def forward(self, x):
@@ -64,17 +67,15 @@ class TemporalEncoder(nn.Module):
         for layer, proj in zip(self.layers, self.projections):
             feat = layer(feat)
             flat = feat.flatten(1) 
-            emb = proj(flat).view(B, N, -1) 
+            emb = proj(flat)       
+            emb = emb.view(B, N, -1) 
             outputs.append(emb)
+            
         return outputs 
 
 # --- 2. Transformer Encoder ---
 
 class TransformerEncoder(nn.Module):
-    """
-    Standard Transformer Encoder.
-    Processes features across the channel dimension.
-    """
     def __init__(self, embed_dim, depth, num_heads, mlp_ratio=4., drop_rate=0.):
         super().__init__()
         self.blocks = nn.ModuleList([
@@ -93,9 +94,6 @@ class TransformerEncoder(nn.Module):
 # --- 3. Residual VQ (RVQ) ---
 
 class VectorQuantizer(nn.Module):
-    """
-    Efficient VQ layer.
-    """
     def __init__(self, n_e, e_dim, beta=0.25):
         super().__init__()
         self.n_e = n_e
@@ -106,10 +104,8 @@ class VectorQuantizer(nn.Module):
         self.embedding.weight.data.normal_(mean=0.0, std=0.02)
 
     def forward(self, z):
-        # z: (Batch, Channels, D)
         z_flattened = z.view(-1, self.e_dim)
         
-        # Distances
         d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
             torch.sum(self.embedding.weight**2, dim=1) - \
             2 * torch.matmul(z_flattened, self.embedding.weight.t())
@@ -117,18 +113,12 @@ class VectorQuantizer(nn.Module):
         indices = torch.argmin(d, dim=1)
         z_q = self.embedding(indices).view(z.shape)
 
-        # Loss
         loss = torch.mean((z_q.detach() - z) ** 2) + self.beta * torch.mean((z_q - z.detach()) ** 2)
-
-        # Preserve gradients
         z_q = z + (z_q - z).detach()
 
         return z_q, loss, indices.view(z.shape[0], z.shape[1], 1)
 
 class ResidualVQ(nn.Module):
-    """
-    Residual Vector Quantizer.
-    """
     def __init__(self, num_quantizers, n_e, e_dim, beta=0.25):
         super().__init__()
         self.layers = nn.ModuleList([
@@ -136,7 +126,7 @@ class ResidualVQ(nn.Module):
         ])
 
     def forward(self, z):
-        quantized_out = 0
+        quantized_out = torch.zeros_like(z)
         residual = z
         total_loss = 0
         all_indices = []
@@ -147,6 +137,9 @@ class ResidualVQ(nn.Module):
             quantized_out = quantized_out + quantized
             total_loss += loss
             all_indices.append(indices)
+
+        # Global Straight-Through Estimator
+        quantized_out = z + (quantized_out - z).detach()
 
         return quantized_out, total_loss, torch.cat(all_indices, dim=-1)
 
@@ -186,10 +179,10 @@ class NeuroRVQTokenizer(nn.Module):
         
         self.n_fft = int(self.fs / freq_resolution)
         
-        # 1. Temporal Encoder
-        self.temporal_encoder = TemporalEncoder(in_chans, embed_dim)
+        # 1. Dynamic Temporal Encoder
+        self.temporal_encoder = TemporalEncoder(in_chans, embed_dim, num_scales=num_scales)
         
-        # Fixed Spatial Embeddings
+        # Spatial Embeddings
         self.spatial_mlp = nn.Sequential(
             nn.Linear(3, embed_dim),
             nn.GELU(),
@@ -217,13 +210,11 @@ class NeuroRVQTokenizer(nn.Module):
         B, N, T = x.shape
         S = self.num_scales
         
-        # 1. Extract Multi-Scale Features
         ms_features = self.temporal_encoder(x) 
         spatial_emb = self.spatial_mlp(coords) 
         
-        # 2. Shared Transformer Pass (Batch Optimized)
         # Combine scales and add spatial embeddings
-        h_all = torch.stack(ms_features, dim=0) + spatial_emb.unsqueeze(0) # (S, B, N, D)
+        h_all = torch.stack(ms_features, dim=0) + spatial_emb.unsqueeze(0) 
         h_all = h_all.view(S * B, N, -1)
         
         h_encoded = self.transformer_encoder(h_all)
@@ -249,96 +240,57 @@ class NeuroRVQTokenizer(nn.Module):
         
         return pred_amp, pred_sin, pred_cos, total_vq_loss
 
-    def get_loss(self, x, pred_amp, pred_sin, pred_cos):
-        # x: (B, N, 200)
-        # Compute Ground Truth FFT with target resolution
-        # n_fft determines the frequency spacing
-        x_fft = torch.fft.rfft(x, n=self.n_fft, dim=-1) # (B, N, n_fft//2 + 1)
-        
-        # Get Frequencies
+    def get_loss(self, x, pred_amp, pred_sin, pred_cos, x_fft=None):
+        if x_fft is None:
+            x_fft = torch.fft.rfft(x, n=self.n_fft, dim=-1)
         freqs = torch.fft.rfftfreq(self.n_fft, d=1.0/self.fs).to(x.device)
-        
-        # Select Indices in range [min_freq, max_freq]
-        # We use a tolerance because of float comparison
         mask = (freqs >= self.min_freq - 1e-5) & (freqs <= self.max_freq + 1e-5)
-        
-        # Filter GT
         target_fft = x_fft[..., mask]
         
-        # Check shapes (Debugging safety)
-        if target_fft.shape[-1] != pred_amp.shape[-1]:
-             # If mismatch (e.g. due to rounding), simple interpolation or cropping
-             # For now, let's assume calc is correct, or slice to match
-             min_len = min(target_fft.shape[-1], pred_amp.shape[-1])
-             target_fft = target_fft[..., :min_len]
-             pred_amp = pred_amp[..., :min_len]
-             pred_sin = pred_sin[..., :min_len]
-             pred_cos = pred_cos[..., :min_len]
+        min_len = min(target_fft.shape[-1], pred_amp.shape[-1])
+        target_fft = target_fft[..., :min_len]
+        pred_amp = pred_amp[..., :min_len]
+        pred_sin = pred_sin[..., :min_len]
+        pred_cos = pred_cos[..., :min_len]
              
         gt_amp = torch.abs(target_fft)
         gt_phase = torch.angle(target_fft)
         
-        # 1. Log-Amplitude Loss
         target_log_amp = torch.log1p(gt_amp)
         loss_amp = F.mse_loss(pred_amp, target_log_amp)
         
-        # 2. Phase Loss (Amplitude-Weighted Cosine Similarity)
-        # Target vectors
         target_sin = torch.sin(gt_phase)
         target_cos = torch.cos(gt_phase)
-        
-        # Phase Loss using MSE on Sin/Cos components
         loss_phase = F.mse_loss(pred_sin, target_sin) + F.mse_loss(pred_cos, target_cos)
         
-        # 3. Temporal Loss
-        # Differentiable Reconstruction using the same logic as inference
         x_recon = self.reconstruct(pred_amp, pred_sin, pred_cos, n_samples=x.shape[-1])
+        loss_temp = F.mse_loss(x_recon, x)
         
-        loss_temp = F.l1_loss(x_recon, x)
-        
-        # Total Loss
-        total_loss = loss_amp + loss_phase + loss_temp
-        
-        return total_loss, loss_amp, loss_phase, loss_temp
+        return loss_amp + loss_phase + loss_temp, loss_amp, loss_phase, loss_temp
 
     def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200):
-        """
-        Reconstructs the time-domain signal from predicted coefficients.
-        """
-        # 1. Recover Amplitude
         amp = torch.exp(pred_amp) - 1
-        amp = torch.clamp(amp, min=0) # Ensure non-negative
+        amp = torch.clamp(amp, min=0)
         
-        # 2. Normalize Phase
         pred_norm = torch.sqrt(pred_cos**2 + pred_sin**2 + 1e-8)
         norm_cos = pred_cos / pred_norm
         norm_sin = pred_sin / pred_norm
 
-        # 3. Form Complex Coefficients (Predicted Part)
         real = amp * norm_cos
         imag = amp * norm_sin
         z_pred = torch.complex(real, imag)
         
-        # 4. Embed into Full Spectrum
-        # We need to construct the full spectrum (size n_fft//2 + 1)
-        # and fill the indices corresponding to [min_freq, max_freq]
         full_fft_dim = self.n_fft // 2 + 1
         full_z = torch.zeros((z_pred.shape[0], z_pred.shape[1], full_fft_dim), dtype=z_pred.dtype, device=z_pred.device)
         
         freqs = torch.fft.rfftfreq(self.n_fft, d=1.0/self.fs).to(z_pred.device)
         mask = (freqs >= self.min_freq - 1e-5) & (freqs <= self.max_freq + 1e-5)
         
-        # Handle potential shape mismatch by slicing mask or prediction
         indices = torch.where(mask)[0]
         count = min(len(indices), z_pred.shape[-1])
         full_z[..., indices[:count]] = z_pred[..., :count]
         
-        # 5. Inverse Real FFT
-        # Reconstruct to n_fft length first (padded length)
         x_recon_padded = torch.fft.irfft(full_z, n=self.n_fft, dim=-1)
-        
-        # 6. Crop to original length
         x_recon = x_recon_padded[..., :n_samples]
         
         return x_recon
-

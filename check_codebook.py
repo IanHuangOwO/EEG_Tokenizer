@@ -19,17 +19,30 @@ class CodebookAnalyzer:
         self.device = device
         
         self.model_type = config['training_params'].get('model_type', 'NeuroRVQ')
+        
+        # Check for vectorized architecture (RVQ or FSQ)
+        self.is_vectorized = hasattr(self.model, 'rvq') or hasattr(self.model, 'fsq')
+        self.is_fsq = (self.model_type == 'RecurrentFSQ')
+        
         if self.model_type == 'RecurrentVQ':
             self.m_params = config['model_params']['RecurrentVQ']
             self.n_layers = self.m_params['num_recurrent_steps']
+            self.is_shared_codebook = True 
+            self.vocab_size = self.m_params['vocab_size']
+        elif self.model_type == 'RecurrentFSQ':
+            self.m_params = config['model_params']['RecurrentFSQ']
+            self.n_layers = self.m_params['num_recurrent_steps']
             self.is_shared_codebook = True
+            # FSQ vocab size is product of levels
+            levels = self.m_params.get('fsq_levels', [8, 5, 5, 5])
+            self.vocab_size = np.prod(levels)
         else:
             self.m_params = config['model_params']['NeuroRVQ']
             self.n_layers = self.m_params['num_codebooks']
             self.is_shared_codebook = False
+            self.vocab_size = self.m_params['vocab_size']
             
         self.embed_dim = self.m_params['embed_dim']
-        self.vocab_size = self.m_params['vocab_size']
         self.model.eval()
 
     # --- 1. Structural Analysis Methods ---
@@ -83,9 +96,22 @@ class CodebookAnalyzer:
         indices_buffer = []
 
         def hook_fn(module, input, output):
-            indices_buffer.append(output[2].detach())
+            # output signature varies:
+            # FSQ module: (z_out, indices) -> Index 1
+            # RVQ module: (z_out, loss, indices) -> Index 2
+            idx_pos = 1 if self.is_fsq else 2
+            indices_buffer.append(output[idx_pos].detach())
 
-        handle = self.model.rvqs[scale_idx].register_forward_hook(hook_fn)
+        if self.is_vectorized:
+            if self.is_fsq:
+                # FSQ has separate modules per scale in self.model.fsq.fsqs
+                target_module = self.model.fsq.fsqs[scale_idx]
+            else:
+                target_module = self.model.rvq
+        else:
+            target_module = self.model.rvqs[scale_idx]
+            
+        handle = target_module.register_forward_hook(hook_fn)
         coords = torch.from_numpy(data_loader.dataset.coords).float().to(self.device)
 
         print(f"Collecting usage statistics for Scale {scale_idx}...")
@@ -93,12 +119,44 @@ class CodebookAnalyzer:
             for i, (batch_x, _) in enumerate(tqdm(data_loader, total=max_batches)):
                 if i >= max_batches: break
                 patch = batch_x[..., :200].to(self.device)
+                
+                # Clear buffer before forward pass to ensure clean state
+                indices_buffer.clear()
+                
                 self.model(patch, coords)
-                if indices_buffer:
-                    idx = indices_buffer.pop()
-                    for l in range(self.n_layers):
-                        l_idx = idx[..., l].flatten()
-                        usage_counts[l].put_(l_idx, torch.ones_like(l_idx, dtype=torch.float), accumulate=True)
+                
+                if self.is_fsq:
+                    # FSQ: Hook fires once per recurrent step. Buffer has [Step1, Step2, ...]
+                    # We iterate through the buffer directly.
+                    if len(indices_buffer) != self.n_layers:
+                        # Safety check: might happen if hook logic is wrong or partial
+                        # For now, just take what we have or skip
+                        pass
+                    
+                    for l, idx in enumerate(indices_buffer):
+                        if l < self.n_layers:
+                            # idx shape: (B*N, 1) or (B*N,)
+                            l_idx = idx.flatten()
+                            usage_counts[l].put_(l_idx.long(), torch.ones_like(l_idx, dtype=torch.float), accumulate=True)
+                    
+                    indices_buffer.clear()
+                    
+                elif indices_buffer:
+                    # RVQ: Hook fires once at end. Buffer has [Stacked_Indices]
+                    all_inds = indices_buffer.pop() 
+                    
+                    if self.is_vectorized:
+                        # RVQ case: (S, B, N, Steps)
+                        scale_inds = all_inds[scale_idx] # (B, N, Steps)
+                        for l in range(self.n_layers):
+                            l_idx = scale_inds[..., l].flatten()
+                            usage_counts[l].put_(l_idx, torch.ones_like(l_idx, dtype=torch.float), accumulate=True)
+                    else:
+                        # Old NeuroRVQ case
+                        idx = all_inds
+                        for l in range(self.n_layers):
+                            l_idx = idx[..., l].flatten()
+                            usage_counts[l].put_(l_idx, torch.ones_like(l_idx, dtype=torch.float), accumulate=True)
         
         handle.remove()
         
@@ -114,18 +172,38 @@ class CodebookAnalyzer:
     # --- 3. Multi-Scale Comparison ---
 
     def run_multiscale_analysis(self, save_dir="output/visualization"):
-        n_scales = len(self.model.rvqs)
+        if self.is_fsq:
+            print("Skipping Multi-Scale Codebook Analysis for FSQ (No learned codebooks).")
+            return
+
+        if self.is_vectorized:
+             n_scales = self.model.rvq.num_scales
+        else:
+             n_scales = len(self.model.rvqs)
+             
         cross_cka = np.zeros((n_scales, n_scales))
         cross_ovl = np.zeros((n_scales, n_scales))
         
         # We compare the FIRST layer of each scale (the primary representation)
         print(f"Comparing {n_scales} scales...")
         scale_codebooks = []
-        for s in range(n_scales):
-            if hasattr(self.model.rvqs[s], 'layers'):
-                scale_codebooks.append(self.model.rvqs[s].layers[0].embedding.weight.data)
+        
+        if self.is_vectorized:
+            # self.model.rvq.embedding: (S, N_E, D) or (N_E, D) if shared
+            if self.model.rvq.embedding.dim() == 2:
+                # Shared codebook across all scales
+                cb = self.model.rvq.embedding.data
+                for s in range(n_scales):
+                    scale_codebooks.append(cb)
             else:
-                scale_codebooks.append(self.model.rvqs[s].vq.embedding.weight.data)
+                for s in range(n_scales):
+                    scale_codebooks.append(self.model.rvq.embedding.data[s])
+        else:
+            for s in range(n_scales):
+                if hasattr(self.model.rvqs[s], 'layers'):
+                    scale_codebooks.append(self.model.rvqs[s].layers[0].embedding.weight.data)
+                else:
+                    scale_codebooks.append(self.model.rvqs[s].vq.embedding.weight.data)
         
         for i in range(n_scales):
             for j in range(n_scales):
@@ -198,11 +276,33 @@ class CodebookAnalyzer:
         # A. Usage
         perplexities, _ = self.collect_usage_stats(data_loader, scale_idx)
         
+        if self.is_fsq:
+            print(f"Skipping structural analysis for FSQ (Implicit Codebook).")
+            # Minimal plotting for FSQ
+            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+            ax.bar(range(1, self.n_layers+1), perplexities, color='teal')
+            ax.axhline(y=self.vocab_size, color='r', linestyle='--', label='Max (Total Levels)')
+            ax.set_title("FSQ Perplexity (Effective Vocab Usage)")
+            ax.set_ylabel("Effective Vocab Size")
+            ax.set_xlabel("Recurrent Step")
+            plt.legend()
+            plt.tight_layout()
+            save_path = os.path.join(save_dir, "codebook_report.png")
+            plt.savefig(save_path)
+            print(f"Report saved to {save_path}")
+            return
+
         # B. Structure
         unique_codebooks = [] # For atom sim plot
         if self.is_shared_codebook:
-            # RecurrentVQ case - single shared codebook
-            cb = self.model.rvqs[scale_idx].vq.embedding.weight.data
+            # RecurrentVQ case - single shared codebook (per scale)
+            if self.is_vectorized:
+                 if self.model.rvq.embedding.dim() == 2:
+                     cb = self.model.rvq.embedding.data
+                 else:
+                     cb = self.model.rvq.embedding.data[scale_idx]
+            else:
+                 cb = self.model.rvqs[scale_idx].vq.embedding.weight.data
             codebooks = [cb]
             unique_codebooks = [cb]
         else:
@@ -321,7 +421,16 @@ def main():
     model = build_model_from_config(config).to(device)
     ckpt_path = f'output/checkpoints/tokenizer/{model_name}/tokenizer_best.pth'
     if os.path.exists(ckpt_path):
-        model.load_state_dict(torch.load(ckpt_path, map_location=device), strict=False)
+        state_dict = torch.load(ckpt_path, map_location=device)
+        
+        # Handle shape mismatch for shared codebook transition
+        if 'rvq.embedding' in state_dict:
+            ckpt_emb = state_dict['rvq.embedding']
+            if hasattr(model, 'rvq') and model.rvq.embedding.dim() == 2 and ckpt_emb.dim() == 3:
+                print("Detected checkpoint with separate codebooks. Averaging for shared initialization...")
+                state_dict['rvq.embedding'] = ckpt_emb.mean(dim=0)
+                
+        model.load_state_dict(state_dict, strict=False)
         print(f"Loaded {ckpt_path}")
     
     # Load Data (Small subset)
@@ -331,6 +440,9 @@ def main():
     config['data_metadata'] = meta['data_metadata']
     
     if model_type == 'RecurrentVQ':
+        transform = RecurrentVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
+    elif model_type == 'RecurrentFSQ':
+        # Same preprocessing as RecurrentVQ
         transform = RecurrentVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
     else:
         transform = NeuroRVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
