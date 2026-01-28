@@ -187,7 +187,9 @@ class BETALoader(BaseSubjectLoader):
     def __getitem__(self, index):
         sample = self.data[index] # (Channels, Time)
         sample = self.pad_or_crop(sample)
-        return torch.from_numpy(sample).float(), self.labels[index]
+        if isinstance(sample, np.ndarray):
+            sample = torch.from_numpy(sample).float()
+        return sample, self.labels[index]
 
     def __len__(self):
         return len(self.labels) if self.labels is not None else 0
@@ -278,7 +280,9 @@ class DialLoader(BaseSubjectLoader):
     def __getitem__(self, index):
         sample = self.data[index]
         sample = self.pad_or_crop(sample)
-        return torch.from_numpy(sample).float(), int(self.labels[index])
+        if isinstance(sample, np.ndarray):
+            sample = torch.from_numpy(sample).float()
+        return sample, int(self.labels[index])
 
     def __len__(self):
         return len(self.labels) if self.labels is not None else 0
@@ -361,6 +365,30 @@ class EEGDataset(Dataset):
         self.label_data = torch.cat(self.all_labels)
         self.subject_data = torch.cat(self.all_subject_ids)
 
+        # --- OPTIMIZATION: Pre-process data in memory ---
+        if self.transform is not None:
+            from tqdm import tqdm
+            print("Applying preprocessing to all trials (Memory optimized)...")
+            for loader in tqdm(self.datasets, desc="Preprocessing Subjects"):
+                # loader.data shape: (Trials, Channels, Time)
+                processed_data = []
+                for trial_idx in range(len(loader.data)):
+                    trial = loader.data[trial_idx]
+                    # Apply transform (Preprocessing)
+                    # Note: transform returns a torch.Tensor
+                    processed_trial = self.transform(trial)
+                    processed_data.append(processed_trial)
+                
+                # Replace raw numpy data with processed torch tensors
+                # Shape: (Trials, Channels, New_Time)
+                loader.data = torch.stack(processed_data)
+                
+                # Update target_points so pad_or_crop doesn't undo the resampling
+                loader.target_points = loader.data.shape[-1]
+            
+            # Disable on-the-fly transform since we've already applied it
+            self.transform = None
+
     def _map_channels(self, desired_channels: List[str], channel_config: Dict) -> List[int]:
         """Converts list of channel names to their corresponding 0-based indices."""
         name_to_index = {}
@@ -387,11 +415,17 @@ class EEGDataset(Dataset):
         return len(self.full_dataset)
     
 
-def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None) -> EEGDataset:
+def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None, mode: str = 'tokenizer') -> Dataset:
     """
-    Factory function to build an EEGDataset from a configuration dictionary.
+    Factory function to build a Dataset from a configuration dictionary.
+    
+    Args:
+        config_dict: The configuration dictionary.
+        transform: Optional transform to apply to the data.
+        mode: 'base' (returns EEGDataset) or 'tokenizer' (returns TokenizerWrapperDataset).
     """
     params = config_dict.get('dataset_params', {})
+    preprocess_params = config_dict.get('preprocess_params', {'target_freq': 200})
     
     # Extract Parameters
     data_root = params.get('dataset_path')
@@ -428,8 +462,8 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     else:
         raise ValueError(f"Unknown dataset_name in metadata: {dataset_name}")
 
-    # 4. Instantiate Dataset
-    return EEGDataset(
+    # 4. Instantiate Base Dataset
+    base_dataset = EEGDataset(
         data_root=data_root,
         metadata_json=metadata,
         subject_list=subjects,
@@ -439,18 +473,27 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         window_size=window_size,
         transform=transform
     )
+    
+    # 5. Apply Mode Wrapper
+    if mode == 'base':
+        return base_dataset
+    elif mode == 'tokenizer':
+        patch_len = preprocess_params.get('target_freq', 200)
+        return TokenizerWrapperDataset(base_dataset, patch_len=patch_len)
+    else:
+        raise ValueError(f"Unknown dataset mode: {mode}. Use 'base' or 'tokenizer'.")
 
 # --- Tokenizer Specific Wrappers ---
 
 class TokenizerWrapperDataset(Dataset):
     """
     Wraps the standard EEGDataset to yield fixed-length patches (e.g., 1s)
-    instead of full trials. Returns (patch, fft, coordinates) if n_fft is set.
+    instead of full trials. Always returns (patch, coords, label).
     """
     def __init__(self, base_dataset: EEGDataset, patch_len: int = 200, n_fft: int = None):
+        # n_fft arg kept for backward compatibility but ignored
         self.base_dataset = base_dataset
         self.patch_len = patch_len
-        self.n_fft = n_fft
         
         # Determine patches per trial
         sample_x, _ = self.base_dataset[0]
@@ -461,39 +504,6 @@ class TokenizerWrapperDataset(Dataset):
         self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
         
         print(f"Tokenizer Wrapper: {len(self.base_dataset)} trials -> {len(self)} patches ({self.patches_per_trial} per trial)")
-
-    def __len__(self):
-        return len(self.base_dataset) * self.patches_per_trial
-
-    def __getitem__(self, index):
-        trial_idx = index // self.patches_per_trial
-        patch_offset = (index % self.patches_per_trial) * self.patch_len
-        
-        x, _ = self.base_dataset[trial_idx]
-        patch = x[:, patch_offset : patch_offset + self.patch_len]
-        
-        if self.n_fft is not None:
-            # Compute FFT (this handles padding if n_fft > patch_len)
-            x_fft = torch.fft.rfft(patch, n=self.n_fft, dim=-1)
-            return patch, x_fft, self.coords_tensor
-        
-        return patch, self.coords_tensor
-
-
-class TokenizerWrapperDatasetWithLabels(Dataset):
-    """
-    Similar to TokenizerWrapperDataset, but also returns the trial label.
-    Used for visualization (t-SNE) where class info is needed.
-    """
-    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200):
-        self.base_dataset = base_dataset
-        self.patch_len = patch_len
-        
-        sample_x, _ = self.base_dataset[0]
-        self.total_len = sample_x.shape[-1]
-        self.patches_per_trial = self.total_len // patch_len
-        
-        self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
 
     def __len__(self):
         return len(self.base_dataset) * self.patches_per_trial

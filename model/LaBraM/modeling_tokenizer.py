@@ -167,7 +167,7 @@ class LaBraMTokenizer(nn.Module):
             nn.Linear(embed_dim, 200)
         )
 
-    def forward(self, x, channel_indices=None):
+    def forward(self, x, coords=None):
         # x: (Batch, N, 200)
         
         # 1. Embed
@@ -189,14 +189,18 @@ class LaBraMTokenizer(nn.Module):
         pred_amp = self.head_amp(dec_h)
         pred_angle = self.head_angle(dec_h)
         
-        return pred_amp, pred_angle, vq_loss
+        # Return 5 values to match NeuroRVQ/RecurrentVQ
+        # pred_1, pred_2, pred_3, vq_loss, indices
+        return pred_amp, pred_angle, None, vq_loss, indices
 
-    def get_loss(self, x, pred_amp, pred_angle):
+    def get_loss(self, x, pred_amp, pred_angle, pred_dummy=None, x_fft=None):
         # LaBraM computes loss on 200-point FFT?
         # modeling_vqnsp.py: x_fft = torch.fft.fft(x, dim=-1) -> amplitude, angle
         # It seems they use the full complex FFT size.
         
-        x_fft = torch.fft.fft(x, dim=-1)
+        if x_fft is None:
+            x_fft = torch.fft.fft(x, dim=-1)
+            
         target_amp = torch.abs(x_fft)
         target_angle = torch.angle(x_fft)
         
@@ -213,4 +217,41 @@ class LaBraMTokenizer(nn.Module):
         loss_amp = F.mse_loss(pred_amp, target_amp)
         loss_angle = F.mse_loss(pred_angle, target_angle)
         
-        return loss_amp + loss_angle
+        return loss_amp + loss_angle, loss_amp, loss_angle, torch.tensor(0.0)
+
+    def reconstruct(self, pred_amp, pred_angle, pred_dummy=None, x=None):
+        """
+        Reconstructs the time-domain signal.
+        If x (ground truth) is provided, we use its statistics to denormalize the prediction.
+        Otherwise, we assume standard normal statistics.
+        """
+        if x is not None:
+            # Oracle Denormalization
+            x_fft = torch.fft.fft(x, dim=-1)
+            gt_amp = torch.abs(x_fft)
+            gt_angle = torch.angle(x_fft)
+            
+            amp_mean = torch.mean(gt_amp, dim=(1,2), keepdim=True)
+            amp_std = torch.std(gt_amp, dim=(1,2), keepdim=True)
+            
+            angle_mean = torch.mean(gt_angle, dim=(1,2), keepdim=True)
+            angle_std = torch.std(gt_angle, dim=(1,2), keepdim=True)
+            
+            # Denormalize
+            rec_amp = pred_amp * (amp_std + 1e-6) + amp_mean
+            rec_angle = pred_angle * (angle_std + 1e-6) + angle_mean
+        else:
+            # Blind Reconstruction (likely poor amplitude scaling)
+            rec_amp = pred_amp
+            rec_angle = pred_angle
+            
+        # Polar to Cartesian
+        # z = amp * e^(j * angle)
+        real = rec_amp * torch.cos(rec_angle)
+        imag = rec_amp * torch.sin(rec_angle)
+        z = torch.complex(real, imag)
+        
+        # Inverse FFT
+        x_recon = torch.fft.ifft(z, dim=-1).real
+        
+        return x_recon

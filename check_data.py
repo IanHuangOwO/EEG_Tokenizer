@@ -5,7 +5,7 @@ import sys
 sys.path.append(os.getcwd())
 
 from IO.dataset import build_dataset_from_config
-from model.LaBraM.preprocessing import LaBraMProcessing
+from model.factory import build_preprocessing_from_config
 from utils.visualization import visualize_raw_eeg, visualize_psd_grid, visualize_topo_grid, visualize_band_time_series
 
 def run_viz():
@@ -17,9 +17,13 @@ def run_viz():
         meta = json.load(f)
     config['data_metadata'] = meta['data_metadata']
     
+    # Model/Output Info
+    model_name = config['training_params'].get('model_name', 'default_run')
+    viz_dir = f"output/{model_name}/visualization/data_analysis"
+    os.makedirs(viz_dir, exist_ok=True)
+    
     # Dataset
-    fs_orig = meta['data_metadata']['Sample_Frequency']
-    transform = LaBraMProcessing(original_freq=fs_orig, target_freq=200, normalization_type='none')
+    transform = build_preprocessing_from_config(config)
     dataset = build_dataset_from_config(config, transform=transform)
     
     if len(dataset.subject_list) == 0: return
@@ -29,18 +33,18 @@ def run_viz():
     print(f"Running visualizations for Subject {subj}...")
     
     # 1. Raw EEG (Single Trial)
-    visualize_raw_eeg(dataset, subj)
+    visualize_raw_eeg(dataset, subj, output_dir=viz_dir)
     
     # 2. PSD Grid (All Classes)
-    visualize_psd_grid(dataset, subj, config)
+    visualize_psd_grid(dataset, subj, config, output_dir=viz_dir)
     
     # 3. Topo Grid (All Classes)
-    visualize_topo_grid(dataset, subj, config)
+    visualize_topo_grid(dataset, subj, config, output_dir=viz_dir)
 
     # 4. Band Time Series (Delta, Theta, Alpha, Beta, Gamma)
     # Using 'Oz' as it's a standard visual channel, or 'POz' if Oz is missing.
     # The function defaults to Oz or falls back safely.
-    visualize_band_time_series(dataset, subj, channel_label='Oz')
+    visualize_band_time_series(dataset, subj, channel_label='Oz', output_dir=viz_dir)
     
 if __name__ == "__main__":
     run_viz()

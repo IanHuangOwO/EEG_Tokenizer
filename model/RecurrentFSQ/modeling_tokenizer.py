@@ -290,7 +290,7 @@ class RecurrentFSQTokenizer(nn.Module):
         h_scales = h_encoded.view(S, B, N, -1)
         
         # 3. Vectorized FSQ Pass
-        all_z_q, _, _ = self.fsq(h_scales)
+        all_z_q, vq_loss, all_indices = self.fsq(h_scales)
             
         # 4. Latent Fusion
         z_fused = torch.sum(all_z_q, dim=0)
@@ -301,7 +301,7 @@ class RecurrentFSQTokenizer(nn.Module):
         pred_sin = self.head_sin(dec_h)
         pred_cos = self.head_cos(dec_h)
         
-        return pred_amp, pred_sin, pred_cos, torch.tensor(0.0, device=x.device)
+        return pred_amp, pred_sin, pred_cos, vq_loss, all_indices
 
     def get_loss(self, x, pred_amp, pred_sin, pred_cos, x_fft=None):
         if x_fft is None:
@@ -327,7 +327,7 @@ class RecurrentFSQTokenizer(nn.Module):
         total_loss = loss_amp + loss_phase + loss_temp
         return total_loss, loss_amp, loss_phase, loss_temp
 
-    def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200):
+    def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200, x=None):
         amp = torch.exp(pred_amp) - 1
         amp = torch.clamp(amp, min=0)
         pred_norm = torch.sqrt(pred_cos**2 + pred_sin**2 + 1e-8)

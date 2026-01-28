@@ -7,10 +7,8 @@ import os
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from model.factory import build_model_from_config
+from model.factory import build_model_from_config, build_preprocessing_from_config
 from IO.dataset import build_dataset_from_config
-from model.NeuroRVQ.preprocessing import NeuroRVQProcessing
-from model.RecurrentVQ.preprocessing import RecurrentVQProcessing
 
 class CodebookAnalyzer:
     def __init__(self, model, config, device="cuda"):
@@ -112,18 +110,21 @@ class CodebookAnalyzer:
             target_module = self.model.rvqs[scale_idx]
             
         handle = target_module.register_forward_hook(hook_fn)
-        coords = torch.from_numpy(data_loader.dataset.coords).float().to(self.device)
-
+        
         print(f"Collecting usage statistics for Scale {scale_idx}...")
         with torch.no_grad():
-            for i, (batch_x, _) in enumerate(tqdm(data_loader, total=max_batches)):
+            for i, batch in enumerate(tqdm(data_loader, total=max_batches)):
                 if i >= max_batches: break
-                patch = batch_x[..., :200].to(self.device)
+                
+                # Unpack batch: (patch, coords, label)
+                batch_x, batch_coords, _ = [t.to(self.device) for t in batch]
                 
                 # Clear buffer before forward pass to ensure clean state
                 indices_buffer.clear()
                 
-                self.model(patch, coords)
+                # Forward pass
+                # model expects x: (B, N, T), coords: (B, N, 3)
+                self.model(batch_x, batch_coords)
                 
                 if self.is_fsq:
                     # FSQ: Hook fires once per recurrent step. Buffer has [Step1, Step2, ...]
@@ -419,10 +420,18 @@ def main():
 
     # Load Model
     model = build_model_from_config(config).to(device)
-    ckpt_path = f'output/checkpoints/tokenizer/{model_name}/tokenizer_best.pth'
+    
+    # New structured path: ./output/{model_name}/checkpoints/best_model.pth
+    ckpt_path = f'output/{model_name}/checkpoints/best_model.pth'
     if os.path.exists(ckpt_path):
-        state_dict = torch.load(ckpt_path, map_location=device)
+        checkpoint = torch.load(ckpt_path, map_location=device)
         
+        # Support both old direct state_dict and new dict format
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            state_dict = checkpoint['model_state_dict']
+        else:
+            state_dict = checkpoint
+            
         # Handle shape mismatch for shared codebook transition
         if 'rvq.embedding' in state_dict:
             ckpt_emb = state_dict['rvq.embedding']
@@ -439,22 +448,16 @@ def main():
         meta = json.load(f)
     config['data_metadata'] = meta['data_metadata']
     
-    if model_type == 'RecurrentVQ':
-        transform = RecurrentVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
-    elif model_type == 'RecurrentFSQ':
-        # Same preprocessing as RecurrentVQ
-        transform = RecurrentVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
-    else:
-        transform = NeuroRVQProcessing(meta['data_metadata']['Sample_Frequency'], 200)
-        
+    transform = build_preprocessing_from_config(config)
     dataset = build_dataset_from_config(config, transform=transform)
     loader = DataLoader(dataset, batch_size=16, shuffle=True)
 
     # Analyze
     analyzer = CodebookAnalyzer(model, config, device)
-    save_path = f"output/visualization/{model_name}"
-    analyzer.run_full_analysis(loader, scale_idx=0, save_dir=save_path)
-    analyzer.run_multiscale_analysis(save_dir=save_path)
+    # New structured path: ./output/{model_name}/visualization
+    viz_dir = f"output/{model_name}/visualization"
+    analyzer.run_full_analysis(loader, scale_idx=0, save_dir=viz_dir)
+    analyzer.run_multiscale_analysis(save_dir=viz_dir)
 
 if __name__ == "__main__":
     main()

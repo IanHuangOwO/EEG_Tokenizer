@@ -257,6 +257,12 @@ class RecurrentVQTokenizer(nn.Module):
         
         self.n_fft = int(self.fs / freq_resolution)
         
+        # Precompute Frequency Mask (Optimization)
+        freqs = torch.fft.rfftfreq(self.n_fft, d=1.0/self.fs)
+        mask = (freqs >= self.min_freq - 1e-5) & (freqs <= self.max_freq + 1e-5)
+        self.register_buffer('freq_mask', mask)
+        self.register_buffer('freq_indices', torch.where(mask)[0])
+        
         # 1. Temporal Encoder
         self.temporal_encoder = MultiScaleTemporalEncoder(
             in_chans, embed_dim, num_scales=num_scales, input_length=input_length
@@ -306,7 +312,7 @@ class RecurrentVQTokenizer(nn.Module):
         h_scales = h_encoded.view(S, B, N, -1)
         
         # 3. Vectorized VQ Pass (Process all scales at once)
-        all_z_q, total_vq_loss, _ = self.rvq(h_scales)
+        all_z_q, total_vq_loss, all_indices = self.rvq(h_scales)
             
         # 4. Latent Fusion
         z_fused = torch.sum(all_z_q, dim=0)
@@ -318,7 +324,7 @@ class RecurrentVQTokenizer(nn.Module):
         pred_sin = self.head_sin(dec_h)
         pred_cos = self.head_cos(dec_h)
         
-        return pred_amp, pred_sin, pred_cos, total_vq_loss
+        return pred_amp, pred_sin, pred_cos, total_vq_loss, all_indices
 
     def get_loss(self, x, pred_amp, pred_sin, pred_cos, x_fft=None):
         # x: (B, N, 200)
@@ -327,15 +333,8 @@ class RecurrentVQTokenizer(nn.Module):
         if x_fft is None:
             x_fft = torch.fft.rfft(x, n=self.n_fft, dim=-1) # (B, N, n_fft//2 + 1)
         
-        # Get Frequencies
-        freqs = torch.fft.rfftfreq(self.n_fft, d=1.0/self.fs).to(x.device)
-        
-        # Select Indices in range [min_freq, max_freq]
-        # We use a tolerance because of float comparison
-        mask = (freqs >= self.min_freq - 1e-5) & (freqs <= self.max_freq + 1e-5)
-        
-        # Filter GT
-        target_fft = x_fft[..., mask]
+        # Filter GT using precomputed mask
+        target_fft = x_fft[..., self.freq_mask]
         
         # Check shapes (Debugging safety)
         if target_fft.shape[-1] != pred_amp.shape[-1]:
@@ -373,7 +372,7 @@ class RecurrentVQTokenizer(nn.Module):
         
         return total_loss, loss_amp, loss_phase, loss_temp
 
-    def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200):
+    def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200, x=None):
         """
         Reconstructs the time-domain signal from predicted coefficients.
         """
@@ -397,11 +396,8 @@ class RecurrentVQTokenizer(nn.Module):
         full_fft_dim = self.n_fft // 2 + 1
         full_z = torch.zeros((z_pred.shape[0], z_pred.shape[1], full_fft_dim), dtype=z_pred.dtype, device=z_pred.device)
         
-        freqs = torch.fft.rfftfreq(self.n_fft, d=1.0/self.fs).to(z_pred.device)
-        mask = (freqs >= self.min_freq - 1e-5) & (freqs <= self.max_freq + 1e-5)
-        
-        # Handle potential shape mismatch by slicing mask or prediction
-        indices = torch.where(mask)[0]
+        # Use precomputed indices
+        indices = self.freq_indices
         count = min(len(indices), z_pred.shape[-1])
         full_z[..., indices[:count]] = z_pred[..., :count]
         

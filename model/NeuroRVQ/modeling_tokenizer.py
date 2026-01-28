@@ -222,10 +222,12 @@ class NeuroRVQTokenizer(nn.Module):
         
         # 3. Encode each scale with dedicated RVQ
         all_z_q = []
+        all_indices = []
         total_vq_loss = 0
         for i in range(S):
-            z_q, loss, _ = self.rvqs[i](h_scales[i])
+            z_q, loss, indices = self.rvqs[i](h_scales[i])
             all_z_q.append(z_q)
+            all_indices.append(indices)
             total_vq_loss += loss
             
         # 4. Latent Fusion
@@ -238,7 +240,7 @@ class NeuroRVQTokenizer(nn.Module):
         pred_sin = self.head_sin(dec_h)
         pred_cos = self.head_cos(dec_h)
         
-        return pred_amp, pred_sin, pred_cos, total_vq_loss
+        return pred_amp, pred_sin, pred_cos, total_vq_loss, all_indices
 
     def get_loss(self, x, pred_amp, pred_sin, pred_cos, x_fft=None):
         if x_fft is None:
@@ -268,7 +270,7 @@ class NeuroRVQTokenizer(nn.Module):
         
         return loss_amp + loss_phase + loss_temp, loss_amp, loss_phase, loss_temp
 
-    def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200):
+    def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200, x=None):
         amp = torch.exp(pred_amp) - 1
         amp = torch.clamp(amp, min=0)
         

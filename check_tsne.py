@@ -5,40 +5,61 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 # Ensure we can import from local modules
 sys.path.append(os.getcwd())
 
-from IO.dataset import build_dataset_from_config, TokenizerWrapperDatasetWithLabels
-from model.factory import build_model_from_config
-from model.NeuroRVQ.preprocessing import NeuroRVQProcessing
+from IO.dataset import build_dataset_from_config
+from model.factory import build_model_from_config, build_preprocessing_from_config
 
 def get_latent_embeddings(model, x, coords):
     """
-    Runs the encoder part of NeuroRVQTokenizer to get the combined quantized embeddings.
-    Matches the updated 'Late Fusion' architecture.
+    Runs the encoder part of the model to get the combined quantized embeddings.
     """
     model.eval()
     with torch.no_grad():
-        # 1. Extract Multi-Scale Features
+        # 1. Extract Features
+        # Note: This logic assumes Neuro/Recurrent architectures. LaBraM is different.
+        if hasattr(model, 'patch_embed'): # LaBraM
+             x_emb = model.patch_embed(x)
+             h = model.encoder(x_emb)
+             z = model.encode_task_layer(h)
+             z_q, _, _ = model.quantize(z)
+             return z_q
+             
+        # NeuroRVQ / RecurrentVQ / RecurrentFSQ
         ms_features = model.temporal_encoder(x) 
-        spatial_emb = model.spatial_mlp(coords) # (B, N, D)
+        spatial_emb = model.spatial_mlp(coords) 
         
-        all_z_q = []
+        S = model.num_scales
+        B, N, _ = x.shape
         
-        # 2. Encode each scale separately
-        for i, feat in enumerate(ms_features):
-            h = feat + spatial_emb
-            h = model.transformer_encoder(h)
+        # Combine scales
+        h_all = torch.stack(ms_features, dim=0) + spatial_emb.unsqueeze(0) 
+        h_all = h_all.view(S * B, N, -1)
+        
+        h_encoded = model.transformer_encoder(h_all)
+        h_scales = h_encoded.view(S, B, N, -1)
+        
+        # Quantize
+        if hasattr(model, 'fsq'):
+             # RecurrentFSQ
+             all_z_q, _, _ = model.fsq(h_scales)
+        elif hasattr(model, 'rvq'):
+             # RecurrentVQ
+             all_z_q, _, _ = model.rvq(h_scales)
+        else:
+             # NeuroRVQ
+             all_z_q = []
+             for i in range(S):
+                 z_q, _, _ = model.rvqs[i](h_scales[i])
+                 all_z_q.append(z_q)
+             all_z_q = torch.stack(all_z_q, dim=0)
             
-            # RVQ for this specific scale
-            z_q, _, _ = model.rvqs[i](h)
-            all_z_q.append(z_q)
-            
-        # 3. Combine Scales using summation
-        z_fused = torch.sum(torch.stack(all_z_q, dim=0), dim=0)
+        # Fusion
+        z_fused = torch.sum(all_z_q, dim=0)
         
     return z_fused
 
@@ -48,10 +69,8 @@ def main():
     with open(config_path, 'r') as f:
         config = json.load(f)
     
-    m_params = config['model_params']['NeuroRVQ']
     train_params = config['training_params']
-    model_type = train_params.get('model_type', 'NeuroRVQ')
-    model_name = train_params.get('model_name', 'neurorvq_v1')
+    model_name = train_params.get('model_name', 'default_run')
     device = "cuda" if torch.cuda.is_available() else "cpu"
     MAX_SAMPLES = 2000
     
@@ -62,26 +81,22 @@ def main():
         meta = json.load(f)
     config['data_metadata'] = meta['data_metadata']
     
-    fs_orig = meta['data_metadata']['Sample_Frequency']
-    transform = NeuroRVQProcessing(
-        original_freq=fs_orig, 
-        target_freq=200, 
-        l_freq=0.1, 
-        h_freq=80.0, 
-        normalization_type='zscore'
-    )
+    transform = build_preprocessing_from_config(config)
     
-    base_dataset = build_dataset_from_config(config, transform=transform)
-    tokenizer_dataset = TokenizerWrapperDatasetWithLabels(base_dataset, patch_len=200) # patch_len = 1 sec
+    tokenizer_dataset = build_dataset_from_config(config, transform=transform, mode='tokenizer')
     data_loader = DataLoader(tokenizer_dataset, batch_size=train_params['batch_size'], shuffle=True, num_workers=4)
 
     # 3. Initialize Model and Load Checkpoint via Factory
     model = build_model_from_config(config).to(device)
 
-    ckpt_path = f'output/checkpoints/tokenizer/{model_name}/tokenizer_best.pth'
+    ckpt_path = f'output/{model_name}/checkpoints/best_model.pth'
     if os.path.exists(ckpt_path):
         print(f"Loading checkpoint: {ckpt_path}")
-        model.load_state_dict(torch.load(ckpt_path, map_location=device), strict=False)
+        checkpoint = torch.load(ckpt_path, map_location=device)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+        else:
+            model.load_state_dict(checkpoint, strict=False)
     else:
         print(f"No checkpoint found at {ckpt_path}. Analyzing RANDOM weights.")
         
@@ -133,12 +148,14 @@ def main():
     plt.figure(figsize=(10, 8))
     scatter = plt.scatter(X_embedded[:, 0], X_embedded[:, 1], c=Y, cmap='nipy_spectral', alpha=0.6, s=10)
     plt.colorbar(scatter, label='Class Label')
-    plt.title(f't-SNE of NeuroRVQ Latent Space ({len(X)} tokens)')
+    plt.title(f't-SNE of {model_name} Latent Space ({len(X)} tokens)')
     plt.xlabel('t-SNE Dim 1')
     plt.ylabel('t-SNE Dim 2')
     plt.tight_layout()
     
-    output_path = f'output/visualization/{model_name}/tsne_input_embeddings.png'
+    viz_dir = f'output/{model_name}/visualization'
+    os.makedirs(viz_dir, exist_ok=True)
+    output_path = os.path.join(viz_dir, 'tsne_latent_space.png')
     plt.savefig(output_path)
     print(f"Plot saved to {output_path}")
 
