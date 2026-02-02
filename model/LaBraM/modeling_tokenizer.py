@@ -14,6 +14,7 @@ class LaBraMTemporalConv(nn.Module):
     """
     def __init__(self, in_chans=1, out_chans=8):
         super().__init__()
+        self.in_chans = in_chans
         # Based on original 'TemporalConv' in modeling_pretrain.py
         self.conv1 = nn.Conv2d(in_chans, out_chans, kernel_size=(1, 15), stride=(1, 8), padding=(0, 7))
         self.gelu1 = nn.GELU()
@@ -26,12 +27,12 @@ class LaBraMTemporalConv(nn.Module):
         self.gelu3 = nn.GELU()
 
     def forward(self, x):
-        # x: (Batch, N, T)
-        B, N, T = x.shape
-        
-        # Original logic: treat N as height in a 1-channel image
-        # x: (B, 1, N, T)
-        x = x.unsqueeze(1)
+        if x.dim() == 4:
+            B, N, C, T = x.shape
+            x = x.permute(0, 2, 1, 3) # (B, C, N, T)
+        else:
+            B, N, T = x.shape
+            x = x.unsqueeze(1) # (B, 1, N, T)
         
         x = self.gelu1(self.norm1(self.conv1(x)))
         x = self.gelu2(self.norm2(self.conv2(x)))
@@ -168,10 +169,13 @@ class LaBraMTokenizer(nn.Module):
         )
 
     def forward(self, x, coords=None):
-        # x: (Batch, N, 200)
+        if x.dim() == 4:
+            B, N, C, T = x.shape
+        else:
+            B, N, T = x.shape
+            C = 1
         
         # 1. Embed
-        # (B, N, 200)
         x_emb = self.patch_embed(x) 
         
         # 2. Encode
@@ -255,3 +259,28 @@ class LaBraMTokenizer(nn.Module):
         x_recon = torch.fft.ifft(z, dim=-1).real
         
         return x_recon
+
+    # --- Analysis Helpers ---
+
+    def get_codebooks(self):
+        """
+        Returns (tensor, name) tuples.
+        LaBraM has 1 codebook.
+        """
+        # ema_w: (N_E, D)
+        cb = self.quantize.ema_w.detach().cpu()
+        return [(cb, "S0_L0_H0")]
+
+    def get_indices(self, x, coords):
+        """
+        Returns usage indices.
+        Target: (Batch*N, L=1, S=1, H=1, K=1)
+        """
+        with torch.no_grad():
+            # forward returns (..., indices)
+            # indices: (B, N) - Flattened index
+            _, _, _, _, indices = self.forward(x, coords)
+        
+        # (B, N) -> (B*N, 1, 1, 1, 1)
+        indices_flat = indices.flatten().view(-1, 1, 1, 1, 1)
+        return indices_flat

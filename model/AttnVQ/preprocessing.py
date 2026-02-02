@@ -2,9 +2,9 @@ import numpy as np
 import scipy.signal
 import torch
 
-class RecurrentFSQProcessing:
+class AttnVQProcessing:
     """
-    Preprocessing pipeline for RecurrentFSQ.
+    Preprocessing pipeline for AttnVQ.
     """
     def __init__(
         self, 

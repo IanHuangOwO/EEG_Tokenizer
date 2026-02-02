@@ -8,30 +8,32 @@ class Plotter:
         self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self.history = {
-            'train': {'total_loss': [], 'recon_loss': [], 'vq_loss': [], 'mse': [], 'amp_loss': [], 'phase_loss': []},
-            'val': {'total_loss': [], 'recon_loss': [], 'vq_loss': [], 'mse': [], 'amp_loss': [], 'phase_loss': []}
+            'train': {'total_loss': [], 'recon_loss': [], 'vq_loss': [], 'temp_loss': [], 'amp_loss': [], 'phase_loss': []},
+            'val': {'total_loss': [], 'recon_loss': [], 'vq_loss': [], 'temp_loss': [], 'amp_loss': [], 'phase_loss': []}
         }
 
     def update(self, train_metrics, val_metrics=None):
         """
         Adds a new set of loss values for the current epoch.
-        metrics should be a tuple: (total, recon, vq, mse, amp, phase)
+        metrics should be a tuple: (total, vq, recon, temp, amp, phase)
+        Note: The indices must match the order in train_tokenizer.py:
+        0: loss, 1: vq, 2: recon, 3: temp, 4: amp, 5: phase
         """
         # Unpack train tuple
-        t_total, t_recon, t_vq, t_mse, t_amp, t_phase = train_metrics
+        t_total, t_vq, t_recon, t_temp, t_amp, t_phase = train_metrics
         self.history['train']['total_loss'].append(t_total)
-        self.history['train']['recon_loss'].append(t_recon)
         self.history['train']['vq_loss'].append(t_vq)
-        self.history['train']['mse'].append(t_mse)
+        self.history['train']['recon_loss'].append(t_recon)
+        self.history['train']['temp_loss'].append(t_temp)
         self.history['train']['amp_loss'].append(t_amp)
         self.history['train']['phase_loss'].append(t_phase)
         
         if val_metrics:
-            v_total, v_recon, v_vq, v_mse, v_amp, v_phase = val_metrics
+            v_total, v_vq, v_recon, v_temp, v_amp, v_phase = val_metrics
             self.history['val']['total_loss'].append(v_total)
-            self.history['val']['recon_loss'].append(v_recon)
             self.history['val']['vq_loss'].append(v_vq)
-            self.history['val']['mse'].append(v_mse)
+            self.history['val']['recon_loss'].append(v_recon)
+            self.history['val']['temp_loss'].append(v_temp)
             self.history['val']['amp_loss'].append(v_amp)
             self.history['val']['phase_loss'].append(v_phase)
 
@@ -70,14 +72,14 @@ class Plotter:
         ax2.legend()
         ax2.grid(True)
 
-        # Plot MSE
-        ax3.plot(epochs, self.history['train']['mse'], 'm-', label='Train MSE')
+        # Plot Temporal
+        ax3.plot(epochs, self.history['train']['temp_loss'], 'm-', label='Train Temp')
         if has_val:
-            ax3.plot(epochs, self.history['val']['mse'], 'm--', alpha=0.7, label='Val MSE')
+            ax3.plot(epochs, self.history['val']['temp_loss'], 'm--', alpha=0.7, label='Val Temp')
             
-        ax3.set_title('Reconstruction MSE (Time Domain)')
+        ax3.set_title('Temporal Loss (Time Domain)')
         ax3.set_xlabel('Epoch')
-        ax3.set_ylabel('MSE')
+        ax3.set_ylabel('Loss')
         ax3.legend()
         ax3.grid(True)
         

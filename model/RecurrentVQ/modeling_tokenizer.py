@@ -8,10 +8,10 @@ class ResBlock1D(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
         super().__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.GroupNorm(4, out_channels) 
+        self.bn1 = nn.BatchNorm1d(out_channels) 
         self.act = nn.GELU()
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.GroupNorm(4, out_channels)
+        self.bn2 = nn.BatchNorm1d(out_channels)
         
         self.shortcut = nn.Identity()
         if stride != 1 or in_channels != out_channels:
@@ -33,11 +33,12 @@ class MultiScaleTemporalEncoder(nn.Module):
     def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4, input_length=200):
         super().__init__()
         self.num_scales = num_scales
+        self.in_chans = in_chans
         
         # --- 1. The Bottom-Up Pathway (Your original CNNs) ---
         self.stem = nn.Sequential(
             nn.Conv1d(in_chans, base_filters, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.GroupNorm(4, base_filters),
+            nn.BatchNorm1d(base_filters),
             nn.GELU()
         )
         
@@ -84,8 +85,13 @@ class MultiScaleTemporalEncoder(nn.Module):
 
 
     def forward(self, x):
-        B, N, T = x.shape
-        x = x.view(B * N, 1, T)
+        if x.dim() == 4:
+            B, N, C, T = x.shape
+        else:
+            B, N, T = x.shape
+            C = 1
+            
+        x = x.view(B * N, self.in_chans, T)
         x = self.stem(x)
         
         # --- Phase 1: Extract Raw Scales (Bottom-Up) ---
@@ -296,7 +302,11 @@ class RecurrentVQTokenizer(nn.Module):
         self.head_cos = nn.Linear(embed_dim, self.fft_dim)
 
     def forward(self, x, coords):
-        B, N, T = x.shape
+        if x.dim() == 4:
+            B, N, C, T = x.shape
+        else:
+            B, N, T = x.shape
+            C = 1
         S = self.num_scales
         
         # 1. Extract Multi-Scale Features
@@ -409,3 +419,43 @@ class RecurrentVQTokenizer(nn.Module):
         x_recon = x_recon_padded[..., :n_samples]
         
         return x_recon
+
+    # --- Analysis Helpers ---
+
+    def get_codebooks(self):
+        """
+        Returns (tensor, name) tuples.
+        RecurrentVQ shares codebooks across steps (L), but we return entries for each L
+        to analyze usage per step.
+        """
+        codebooks = []
+        # self.rvq.embedding: (S, N_E, D)
+        emb = self.rvq.embedding
+        steps = self.rvq.num_recurrent_steps
+        
+        for s in range(emb.shape[0]):
+            cb = emb[s].detach().cpu()
+            for l in range(steps):
+                name = f"S{s}_L{l}_H0"
+                codebooks.append((cb, name))
+                
+        return codebooks
+
+    def get_indices(self, x, coords):
+        """
+        Returns usage indices.
+        Target: (Batch*N, L(Steps), S, H=1, K=1)
+        """
+        with torch.no_grad():
+            # forward returns (..., all_indices)
+            # all_indices: (S, B, N, Steps)
+            _, _, _, _, all_indices = self.forward(x, coords)
+        
+        # Permute: (S, B, N, Steps) -> (B, N, Steps, S)
+        indices = all_indices.permute(1, 2, 3, 0)
+        
+        # Flatten Batch*N -> (T, L, S)
+        indices_flat = indices.flatten(0, 1)
+        
+        # Expand for H=1, K=1 -> (T, L, S, 1, 1)
+        return indices_flat.unsqueeze(-1).unsqueeze(-1)

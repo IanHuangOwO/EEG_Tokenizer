@@ -8,10 +8,10 @@ class ResBlock1D(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1):
         super().__init__()
         self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.GroupNorm(4, out_channels) 
+        self.bn1 = nn.BatchNorm1d(out_channels) 
         self.act = nn.GELU()
         self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.GroupNorm(4, out_channels)
+        self.bn2 = nn.BatchNorm1d(out_channels)
         
         self.shortcut = nn.Identity()
         if stride != 1 or in_channels != out_channels:
@@ -28,15 +28,17 @@ class ResBlock1D(nn.Module):
 class TemporalEncoder(nn.Module):
     """
     Dynamically extracts features from EEG patches across multiple scales.
+    Supports multivariate sensors.
     """
     def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4):
         super().__init__()
         self.num_scales = num_scales
+        self.in_chans = in_chans
         
         # Stem
         self.stem = nn.Sequential(
             nn.Conv1d(in_chans, base_filters, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.GroupNorm(4, base_filters),
+            nn.BatchNorm1d(base_filters),
             nn.GELU()
         )
         
@@ -58,8 +60,13 @@ class TemporalEncoder(nn.Module):
             self.projections.append(nn.Linear(current_filters * current_t, embed_dim))
 
     def forward(self, x):
-        B, N, T = x.shape
-        x = x.view(B * N, 1, T)
+        if x.dim() == 4:
+            B, N, C, T = x.shape
+        else:
+            B, N, T = x.shape
+            C = 1
+            
+        x = x.view(B * N, self.in_chans, T)
         x = self.stem(x)
         
         outputs = []
@@ -207,7 +214,12 @@ class NeuroRVQTokenizer(nn.Module):
         self.head_cos = nn.Linear(embed_dim, self.fft_dim)
 
     def forward(self, x, coords):
-        B, N, T = x.shape
+        if x.dim() == 4:
+            B, N, C, T = x.shape
+        else:
+            B, N, T = x.shape
+            C = 1
+            
         S = self.num_scales
         
         ms_features = self.temporal_encoder(x) 
@@ -271,6 +283,9 @@ class NeuroRVQTokenizer(nn.Module):
         return loss_amp + loss_phase + loss_temp, loss_amp, loss_phase, loss_temp
 
     def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200, x=None):
+        # Stability Fix: Clamp amplitude to prevent exp overflow
+        pred_amp = torch.clamp(pred_amp, max=10.0)
+        
         amp = torch.exp(pred_amp) - 1
         amp = torch.clamp(amp, min=0)
         
@@ -296,3 +311,37 @@ class NeuroRVQTokenizer(nn.Module):
         x_recon = x_recon_padded[..., :n_samples]
         
         return x_recon
+
+    # --- Analysis Helpers ---
+
+    def get_codebooks(self):
+        """
+        Returns (tensor, name) tuples.
+        """
+        codebooks = []
+        for s, rvq in enumerate(self.rvqs):
+            for l, layer in enumerate(rvq.layers):
+                cb = layer.embedding.weight.detach().cpu()
+                name = f"S{s}_L{l}_H0"
+                codebooks.append((cb, name))
+        return codebooks
+
+    def get_indices(self, x, coords):
+        """
+        Returns usage indices.
+        Target: (Batch*N, L, S, H=1, K=1)
+        """
+        with torch.no_grad():
+            _, _, _, _, all_indices = self.forward(x, coords)
+        
+        # Stack scales: (B, N, S, Steps)
+        indices = torch.stack(all_indices, dim=2)
+        
+        # Permute to (B, N, Steps, S) -> Matches L, S hierarchy
+        indices = indices.permute(0, 1, 3, 2)
+        
+        # Flatten Batch*N -> (T, L, S)
+        indices_flat = indices.flatten(0, 1)
+        
+        # Expand for H=1, K=1 -> (T, L, S, 1, 1)
+        return indices_flat.unsqueeze(-1).unsqueeze(-1)

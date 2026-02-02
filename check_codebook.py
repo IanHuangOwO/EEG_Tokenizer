@@ -4,460 +4,417 @@ import numpy as np
 import matplotlib.pyplot as plt
 import json
 import os
-from torch.utils.data import DataLoader
+import sys
+import re
 from tqdm import tqdm
+from torch.utils.data import DataLoader
 
 from model.factory import build_model_from_config, build_preprocessing_from_config
 from IO.dataset import build_dataset_from_config
 
-class CodebookAnalyzer:
-    def __init__(self, model, config, device="cuda"):
-        self.model = model
-        self.config = config
-        self.device = device
-        
-        self.model_type = config['training_params'].get('model_type', 'NeuroRVQ')
-        
-        # Check for vectorized architecture (RVQ or FSQ)
-        self.is_vectorized = hasattr(self.model, 'rvq') or hasattr(self.model, 'fsq')
-        self.is_fsq = (self.model_type == 'RecurrentFSQ')
-        
-        if self.model_type == 'RecurrentVQ':
-            self.m_params = config['model_params']['RecurrentVQ']
-            self.n_layers = self.m_params['num_recurrent_steps']
-            self.is_shared_codebook = True 
-            self.vocab_size = self.m_params['vocab_size']
-        elif self.model_type == 'RecurrentFSQ':
-            self.m_params = config['model_params']['RecurrentFSQ']
-            self.n_layers = self.m_params['num_recurrent_steps']
-            self.is_shared_codebook = True
-            # FSQ vocab size is product of levels
-            levels = self.m_params.get('fsq_levels', [8, 5, 5, 5])
-            self.vocab_size = np.prod(levels)
-        else:
-            self.m_params = config['model_params']['NeuroRVQ']
-            self.n_layers = self.m_params['num_codebooks']
-            self.is_shared_codebook = False
-            self.vocab_size = self.m_params['vocab_size']
-            
-        self.embed_dim = self.m_params['embed_dim']
-        self.model.eval()
+# =============================================================================
+# 1. Extraction (Polymorphic)
+# =============================================================================
 
-    # --- 1. Structural Analysis Methods ---
+def extract_codebooks(model):
+    """
+    Returns list of (tensor, name).
+    Example name: "L0_S1_H2" or "Shared" or "Scale1"
+    """
+    if hasattr(model, 'get_codebooks'):
+        return model.get_codebooks()
+    print(f"Model {type(model).__name__} missing get_codebooks().")
+    return []
 
-    def compute_cka(self, X, Y):
-        """Linear CKA: Similarity of the relational 'maps'."""
-        X = X - X.mean(dim=0, keepdim=True)
-        Y = Y - Y.mean(dim=0, keepdim=True)
-        dot_product = torch.norm(torch.matmul(X.t(), Y))**2
-        norm_x = torch.norm(torch.matmul(X.t(), X))
-        norm_y = torch.norm(torch.matmul(Y.t(), Y))
-        return (dot_product / (norm_x * norm_y + 1e-8)).item()
+def collect_indices(model, loader, device, max_batches=None):
+    """
+    Returns indices tensor or None.
+    Expected to return: (Total_Samples, ...)
+    """
+    if not hasattr(model, 'get_indices'):
+        return None
 
-    def compute_subspace_overlap(self, X, Y, threshold=0.95):
-        """How much of X is explained by Y's basis."""
-        X_c = X - X.mean(dim=0, keepdim=True)
-        Y_c = Y - Y.mean(dim=0, keepdim=True)
+    indices_acc = []
+    print(f"Collecting usage indices from {type(model).__name__} (Full Dataset)...")
+    
+    total_steps = max_batches if max_batches is not None else len(loader)
+    
+    with torch.no_grad():
+        for i, batch in enumerate(tqdm(loader, total=total_steps)):
+            if max_batches is not None and i >= max_batches: break
+            x, coords, _ = [t.to(device) for t in batch]
+            idx = model.get_indices(x, coords) # (B*N, ...)
+            if idx is not None:
+                indices_acc.append(idx.cpu())
+                
+    if indices_acc:
+        return torch.cat(indices_acc, dim=0)
+    return None
+
+# =============================================================================
+# 2. Analysis Metrics
+# =============================================================================
+
+def analyze_cka(cb1, cb2):
+    "Linear CKA between two codebooks." 
+    X = cb1.float() - cb1.float().mean(dim=0, keepdim=True)
+    Y = cb2.float() - cb2.float().mean(dim=0, keepdim=True)
+    
+    dot_product = torch.norm(torch.matmul(X.t(), Y))**2
+    norm_x = torch.norm(torch.matmul(X.t(), X))
+    norm_y = torch.norm(torch.matmul(Y.t(), Y))
+    
+    return (dot_product / (norm_x * norm_y + 1e-8)).item()
+
+def compute_subspace_overlap(X, Y, threshold=0.95):
+    """How much of X is explained by Y's basis."""
+    X_c = X.float() - X.float().mean(dim=0, keepdim=True)
+    Y_c = Y.float() - Y.float().mean(dim=0, keepdim=True)
+    
+    # PCA on Y to find basis
+    try:
         U, S, V = torch.pca_lowrank(Y_c, q=min(Y.shape))
-        sum_s = torch.cumsum(S**2, dim=0)
-        total_s = torch.sum(S**2)
-        n_comp = torch.where(sum_s / (total_s + 1e-8) >= threshold)[0]
-        n_comp = n_comp[0].item() + 1 if len(n_comp) > 0 else min(Y.shape)
-        basis_y = V[:, :n_comp]
-        X_proj_coords = torch.matmul(X_c, basis_y)
-        overlap = torch.norm(X_proj_coords)**2 / (torch.norm(X_c)**2 + 1e-8)
-        return overlap.item()
+    except:
+        return 0.0
+        
+    sum_s = torch.cumsum(S**2, dim=0)
+    total_s = torch.sum(S**2)
+    
+    # Determine n_comp for threshold variance
+    n_comp_indices = torch.where(sum_s / (total_s + 1e-8) >= threshold)[0]
+    n_comp = n_comp_indices[0].item() + 1 if len(n_comp_indices) > 0 else min(Y.shape)
+    
+    basis_y = V[:, :n_comp]
+    
+    # Project X onto Y's basis
+    X_proj_coords = torch.matmul(X_c, basis_y)
+    
+    # Ratio of projected energy to total energy
+    overlap = torch.norm(X_proj_coords)**2 / (torch.norm(X_c)**2 + 1e-8)
+    return overlap.item()
 
-    def compute_effective_rank(self, X):
-        """Participation Ratio: Dimensional expressivity."""
-        X_c = X - X.mean(dim=0, keepdim=True)
-        _, S, _ = torch.svd(X_c)
-        lambdas = S**2
-        pr = (torch.sum(lambdas)**2) / (torch.sum(lambdas**2) + 1e-8)
-        return pr.item()
-
-    def compute_atom_similarity(self, codebook):
-        """Computes Cosine Similarity matrix between atoms (vocab x vocab)."""
-        # codebook: (Vocab, Dim)
-        # Normalize rows
-        norms = torch.norm(codebook, dim=1, keepdim=True)
-        normed_cb = codebook / (norms + 1e-8)
-        # Cosine Sim = (A . B) / (|A|*|B|) -> (Normed . Normed^T)
-        sim_matrix = torch.matmul(normed_cb, normed_cb.t())
-        return sim_matrix.cpu().numpy()
-
-    # --- 2. Usage Analysis Methods ---
-
-    def collect_usage_stats(self, data_loader, scale_idx=0, max_batches=50):
-        """Inference pass to see which codewords are actually used."""
-        usage_counts = [torch.zeros(self.vocab_size, device=self.device) for _ in range(self.n_layers)]
-        indices_buffer = []
-
-        def hook_fn(module, input, output):
-            # output signature varies:
-            # FSQ module: (z_out, indices) -> Index 1
-            # RVQ module: (z_out, loss, indices) -> Index 2
-            idx_pos = 1 if self.is_fsq else 2
-            indices_buffer.append(output[idx_pos].detach())
-
-        if self.is_vectorized:
-            if self.is_fsq:
-                # FSQ has separate modules per scale in self.model.fsq.fsqs
-                target_module = self.model.fsq.fsqs[scale_idx]
-            else:
-                target_module = self.model.rvq
-        else:
-            target_module = self.model.rvqs[scale_idx]
+def compute_cross_scale_metrics(codebooks):
+    """Computes pairwise CKA and Overlap matrices."""
+    n = len(codebooks)
+    if n < 2: return None
+    
+    cka = np.zeros((n, n))
+    ovl = np.zeros((n, n))
+    labels = [cb[1] for cb in codebooks]
+    
+    print(f"\nComputing pairwise metrics for {n}x{n} matrix...")
+    for i in range(n):
+        for j in range(n):
+            cka[i, j] = analyze_cka(codebooks[i][0], codebooks[j][0])
+            ovl[i, j] = compute_subspace_overlap(codebooks[i][0], codebooks[j][0])
             
-        handle = target_module.register_forward_hook(hook_fn)
-        
-        print(f"Collecting usage statistics for Scale {scale_idx}...")
-        with torch.no_grad():
-            for i, batch in enumerate(tqdm(data_loader, total=max_batches)):
-                if i >= max_batches: break
-                
-                # Unpack batch: (patch, coords, label)
-                batch_x, batch_coords, _ = [t.to(self.device) for t in batch]
-                
-                # Clear buffer before forward pass to ensure clean state
-                indices_buffer.clear()
-                
-                # Forward pass
-                # model expects x: (B, N, T), coords: (B, N, 3)
-                self.model(batch_x, batch_coords)
-                
-                if self.is_fsq:
-                    # FSQ: Hook fires once per recurrent step. Buffer has [Step1, Step2, ...]
-                    # We iterate through the buffer directly.
-                    if len(indices_buffer) != self.n_layers:
-                        # Safety check: might happen if hook logic is wrong or partial
-                        # For now, just take what we have or skip
-                        pass
-                    
-                    for l, idx in enumerate(indices_buffer):
-                        if l < self.n_layers:
-                            # idx shape: (B*N, 1) or (B*N,)
-                            l_idx = idx.flatten()
-                            usage_counts[l].put_(l_idx.long(), torch.ones_like(l_idx, dtype=torch.float), accumulate=True)
-                    
-                    indices_buffer.clear()
-                    
-                elif indices_buffer:
-                    # RVQ: Hook fires once at end. Buffer has [Stacked_Indices]
-                    all_inds = indices_buffer.pop() 
-                    
-                    if self.is_vectorized:
-                        # RVQ case: (S, B, N, Steps)
-                        scale_inds = all_inds[scale_idx] # (B, N, Steps)
-                        for l in range(self.n_layers):
-                            l_idx = scale_inds[..., l].flatten()
-                            usage_counts[l].put_(l_idx, torch.ones_like(l_idx, dtype=torch.float), accumulate=True)
-                    else:
-                        # Old NeuroRVQ case
-                        idx = all_inds
-                        for l in range(self.n_layers):
-                            l_idx = idx[..., l].flatten()
-                            usage_counts[l].put_(l_idx, torch.ones_like(l_idx, dtype=torch.float), accumulate=True)
-        
-        handle.remove()
-        
-        perplexities = []
-        for counts in usage_counts:
-            probs = counts / (counts.sum() + 1e-8)
-            probs = probs[probs > 0]
-            entropy = -torch.sum(probs * torch.log(probs))
-            perplexities.append(torch.exp(entropy).item())
-        
-        return perplexities, usage_counts
+    return {'cka': cka, 'overlap': ovl, 'labels': labels}
 
-    # --- 3. Multi-Scale Comparison ---
-
-    def run_multiscale_analysis(self, save_dir="output/visualization"):
-        if self.is_fsq:
-            print("Skipping Multi-Scale Codebook Analysis for FSQ (No learned codebooks).")
-            return
-
-        if self.is_vectorized:
-             n_scales = self.model.rvq.num_scales
-        else:
-             n_scales = len(self.model.rvqs)
-             
-        cross_cka = np.zeros((n_scales, n_scales))
-        cross_ovl = np.zeros((n_scales, n_scales))
+def calc_perplexity_and_usage(indices, vocab_size):
+    """
+    indices: flat tensor of code ids
+    """
+    if indices.numel() == 0:
+        return 0.0, 0.0
         
-        # We compare the FIRST layer of each scale (the primary representation)
-        print(f"Comparing {n_scales} scales...")
-        scale_codebooks = []
+    indices = indices.flatten().long()
+    counts = torch.bincount(indices, minlength=vocab_size).float()
+    probs = counts / (counts.sum() + 1e-10)
+    
+    # Perplexity
+    p = probs[probs > 0]
+    entropy = -torch.sum(p * torch.log(p))
+    perplexity = torch.exp(entropy).item()
+    
+    # Usage %
+    used = (counts > 0).sum().item()
+    usage_pct = (used / vocab_size) * 100.0
+    
+    return perplexity, usage_pct
+
+def calc_structure_stats(codebook):
+    """
+    codebook: (Vocab, Dim)
+    """
+    cb = codebook.float()
+    
+    # Orthogonality (Avg Off-Diagonal Cosine Sim)
+    normed = F.normalize(cb, dim=1)
+    sim_matrix = torch.matmul(normed, normed.t())
+    n = sim_matrix.shape[0]
+    mask = torch.eye(n, device=cb.device).bool()
+    avg_sim = sim_matrix[~mask].abs().mean().item()
+    
+    # Norm consistency
+    norms = torch.norm(cb, dim=1)
+    avg_norm = norms.mean().item()
+    std_norm = norms.std().item()
+    
+    return avg_sim, avg_norm, std_norm
+
+def calc_effective_rank(codebook):
+    """
+    Computes the effective rank of the codebook using singular value distribution.
+    Ref: Roy & Vetterli, 'The effective rank: A measure of effective dimensionality'
+    """
+    if codebook.numel() == 0:
+        return 0.0
+    
+    # SVD
+    try:
+        # Compute singular values (S)
+        _, S, _ = torch.linalg.svd(codebook.float(), full_matrices=False)
+    except:
+        return 0.0
         
-        if self.is_vectorized:
-            # self.model.rvq.embedding: (S, N_E, D) or (N_E, D) if shared
-            if self.model.rvq.embedding.dim() == 2:
-                # Shared codebook across all scales
-                cb = self.model.rvq.embedding.data
-                for s in range(n_scales):
-                    scale_codebooks.append(cb)
-            else:
-                for s in range(n_scales):
-                    scale_codebooks.append(self.model.rvq.embedding.data[s])
-        else:
-            for s in range(n_scales):
-                if hasattr(self.model.rvqs[s], 'layers'):
-                    scale_codebooks.append(self.model.rvqs[s].layers[0].embedding.weight.data)
-                else:
-                    scale_codebooks.append(self.model.rvqs[s].vq.embedding.weight.data)
+    # Normalize to probability distribution
+    # We use L1 normalization of singular values
+    s_sum = torch.sum(S)
+    if s_sum == 0:
+        return 0.0
         
-        for i in range(n_scales):
-            for j in range(n_scales):
-                cross_cka[i, j] = self.compute_cka(scale_codebooks[i], scale_codebooks[j])
-                cross_ovl[i, j] = self.compute_subspace_overlap(scale_codebooks[i], scale_codebooks[j])
+    p = S / s_sum
+    p = p[p > 0] # Avoid log(0)
+    
+    entropy = -torch.sum(p * torch.log(p))
+    return torch.exp(entropy).item()
+
+# =============================================================================
+# 3. Aggregation & Reporting
+# =============================================================================
+
+def parse_codebook_name(name):
+    """
+    Parses S{}_L{}_H{} or L{}_S{}_H{} into dictionary {{L: int, S: int, H: int}}
+    Returns None if pattern doesn't match.
+    """
+    # Regex for S#_L#_H# (New Primary)
+    match = re.match(r"S(\d+)_L(\d+)_H(\d+)", name)
+    if match:
+        return {'S': int(match.group(1)), 'L': int(match.group(2)), 'H': int(match.group(3))}
+
+    # Regex for L#_S#_H# (Old format support)
+    match = re.match(r"L(\d+)_S(\d+)_H(\d+)", name)
+    if match:
+        return {'L': int(match.group(1)), 'S': int(match.group(2)), 'H': int(match.group(3))}
+    
+    # Fallback: Maybe just S# (AttnVQ)
+    match = re.match(r"S(\d+)", name)
+    if match:
+        return {'L': 0, 'S': int(match.group(1)), 'H': 0}
         
-        # Visualization
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7))
-        
-        im1 = ax1.imshow(cross_cka, cmap='plasma', vmin=0, vmax=1)
-        plt.colorbar(im1, ax=ax1, label='CKA')
-        ax1.set_title("Cross-Scale CKA\n(Similarity of Logic between Branches)")
-        
-        im2 = ax2.imshow(cross_ovl, cmap='viridis', vmin=0, vmax=1)
-        plt.colorbar(im2, ax=ax2, label='Overlap')
-        ax2.set_title("Cross-Scale Subspace Overlap\n(Shared vs. Unique Feature Spaces)")
-        
-        for ax in [ax1, ax2]:
-            ax.set_xticks(range(n_scales))
-            ax.set_yticks(range(n_scales))
-            ax.set_xticklabels([f"Scale {i}" for i in range(n_scales)])
-            ax.set_yticklabels([f"Scale {i}" for i in range(n_scales)])
-            
-        plt.tight_layout()
-        save_path = os.path.join(save_dir, "multiscale_comparison.png")
-        plt.savefig(save_path)
-        print(f"Multi-scale analysis saved to {save_path}")
-
-    # --- 4. Full Report Generation ---
-
-    def plot_atom_similarities(self, codebooks, save_dir):
-        """Generates a grid of Atom-Atom Similarity matrices for all codebooks."""
-        n = len(codebooks)
-        # Determine grid size dynamically to avoid empty subplots
-        cols = min(n, 4)
-        rows = int(np.ceil(n / cols))
-        
-        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
-        if n == 1: axes = [axes] # Handle single plot case (returns Axes object, not array)
-        axes = np.array(axes).flatten()
-        
-        print("Computing atom-wise similarities...")
-        for i, cb in enumerate(codebooks):
-            sim = self.compute_atom_similarity(cb)
-            # Use interpolation='nearest' to prevent blurring of diagonal values
-            im = axes[i].imshow(sim, cmap='coolwarm', vmin=-1, vmax=1, interpolation='nearest')
-            axes[i].set_title(f"Layer {i+1} Self-Sim")
-            axes[i].axis('off')
-            
-        # Hide unused subplots
-        for j in range(i + 1, len(axes)):
-            axes[j].axis('off')
-            
-        plt.tight_layout()
-        # Add common colorbar only if there's space/need, or per plot. 
-        # For simplicity in grid, adding to figure edge is fine.
-        cb_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7]) 
-        fig.colorbar(im, cax=cb_ax, label='Cosine Similarity')
-        
-        save_path = os.path.join(save_dir, "atom_similarity.png")
-        plt.savefig(save_path, bbox_inches='tight')
-        plt.close(fig)
-        print(f"Atom similarity report saved to {save_path}")
-
-    # --- 4. Full Report Generation ---
-
-    def run_full_analysis(self, data_loader, scale_idx=0, save_dir="output/visualization"):
-        os.makedirs(save_dir, exist_ok=True)
-        
-        # A. Usage
-        perplexities, _ = self.collect_usage_stats(data_loader, scale_idx)
-        
-        if self.is_fsq:
-            print(f"Skipping structural analysis for FSQ (Implicit Codebook).")
-            # Minimal plotting for FSQ
-            fig, ax = plt.subplots(1, 1, figsize=(8, 6))
-            ax.bar(range(1, self.n_layers+1), perplexities, color='teal')
-            ax.axhline(y=self.vocab_size, color='r', linestyle='--', label='Max (Total Levels)')
-            ax.set_title("FSQ Perplexity (Effective Vocab Usage)")
-            ax.set_ylabel("Effective Vocab Size")
-            ax.set_xlabel("Recurrent Step")
-            plt.legend()
-            plt.tight_layout()
-            save_path = os.path.join(save_dir, "codebook_report.png")
-            plt.savefig(save_path)
-            print(f"Report saved to {save_path}")
-            return
-
-        # B. Structure
-        unique_codebooks = [] # For atom sim plot
-        if self.is_shared_codebook:
-            # RecurrentVQ case - single shared codebook (per scale)
-            if self.is_vectorized:
-                 if self.model.rvq.embedding.dim() == 2:
-                     cb = self.model.rvq.embedding.data
-                 else:
-                     cb = self.model.rvq.embedding.data[scale_idx]
-            else:
-                 cb = self.model.rvqs[scale_idx].vq.embedding.weight.data
-            codebooks = [cb]
-            unique_codebooks = [cb]
-        else:
-            # NeuroRVQ case - list of layers
-            if hasattr(self.model.rvqs[scale_idx], 'layers'):
-                 codebooks = [self.model.rvqs[scale_idx].layers[i].embedding.weight.data for i in range(self.n_layers)]
-                 unique_codebooks = codebooks
-            else:
-                 # Fallback
-                 cb = self.model.rvqs[scale_idx].vq.embedding.weight.data
-                 codebooks = [cb]
-                 unique_codebooks = [cb]
-
-        ranks = [self.compute_effective_rank(cb) for cb in codebooks]
-        
-        # NEW: Generate Separate Atom Similarity Report
-        self.plot_atom_similarities(unique_codebooks, save_dir)
-
-        if not self.is_shared_codebook:
-            cka_mtx = np.zeros((self.n_layers, self.n_layers))
-            ovl_mtx = np.zeros((self.n_layers, self.n_layers))
-
-            print("Computing structural metrics...")
-            for i in range(self.n_layers):
-                for j in range(self.n_layers):
-                    cka_mtx[i, j] = self.compute_cka(codebooks[i], codebooks[j])
-                    ovl_mtx[i, j] = self.compute_subspace_overlap(codebooks[i], codebooks[j])
-
-        # C. Visualization (Summary Report)
-        if self.is_shared_codebook:
-            fig, axes = plt.subplots(1, 2, figsize=(16, 6)) # Revert to 1x2 for summary
-            ax_perp, ax_rank = axes[0], axes[1]
-            plot_ranks = ranks * self.n_layers 
-        else:
-            fig, axes = plt.subplots(2, 2, figsize=(18, 14))
-            ax_perp, ax_rank = axes[0,0], axes[0,1]
-            plot_ranks = ranks
-
-        # 1. Perplexity
-        ax_perp.bar(range(1, self.n_layers+1), perplexities, color='teal')
-        ax_perp.axhline(y=self.vocab_size, color='r', linestyle='--', label='Max')
-        ax_perp.set_title("Perplexity (Usage per Step)")
-        ax_perp.set_ylabel("Effective Vocab Size")
-        
-        # 2. Effective Rank
-        ax_rank.bar(range(1, len(plot_ranks)+1), plot_ranks, color='salmon')
-        ax_rank.axhline(y=self.embed_dim, color='gray', linestyle='--', label='Max Dim')
-        ax_rank.set_title("Effective Rank (Expressivity)")
-        ax_rank.set_ylabel("Participating Dimensions")
-        
-        if self.is_shared_codebook:
-             ax_rank.set_title("Effective Rank (Shared Codebook)")
-        else:
-            # 3. CKA Matrix
-            im3 = axes[1,0].imshow(cka_mtx, cmap='magma', vmin=0, vmax=1)
-            plt.colorbar(im3, ax=axes[1,0], label='CKA')
-            axes[1,0].set_title("Relational Similarity (CKA)")
-
-            # 4. Overlap Matrix
-            im4 = axes[1,1].imshow(ovl_mtx, cmap='viridis', vmin=0, vmax=1)
-            plt.colorbar(im4, ax=axes[1,1], label='Overlap')
-            axes[1,1].set_title("Subspace Overlap")
-
-            for ax in axes[1]:
-                ax.set_xticks(range(self.n_layers))
-                ax.set_yticks(range(self.n_layers))
-                ax.set_xticklabels(range(1, self.n_layers+1))
-                ax.set_yticklabels(range(1, self.n_layers+1))
-
-        plt.tight_layout()
-        save_path = os.path.join(save_dir, "codebook_report.png")
-        plt.savefig(save_path)
-        print(f"\nReport saved to {save_path}")
-
-        # Console Summary
-        print("\n" + "="*50)
-        print("CODEBOOK ANALYSIS SUMMARY")
-        print("="*50)
-        
-        if self.is_shared_codebook:
-             print(f"Shared Codebook Rank: {ranks[0]:.1f}")
-             print(f"{'Step':<8} | {'Perplexity':<12}")
-             print("-" * 25)
-             for i in range(self.n_layers):
-                print(f"S{i+1:<7} | {perplexities[i]:<12.1f}")
-        else:
-            print(f"{'Layer':<8} | {'Perplexity':<12} | {'Eff. Rank':<10}")
-            print("-" * 35)
-            for i in range(self.n_layers):
-                print(f"L{i+1:<7} | {perplexities[i]:<12.1f} | {ranks[i]:<10.1f}")
-
-            def print_mtx(mtx, name):
-                print(f"\n{name}:")
-                header = "      " + "".join([f"L{i+1:<5}" for i in range(self.n_layers)])
-                print(header)
-                for i in range(self.n_layers):
-                    row = f"L{i+1:<4} | " + "".join([f"{mtx[i,j]:.3f} " for j in range(self.n_layers)])
-                    print(row)
-
-            print_mtx(cka_mtx, "Linear CKA Matrix (Relational Similarity)")
-            print_mtx(ovl_mtx, "Subspace Overlap Matrix (Directional Alignment)")
-            
-        print("\n" + "="*50)
+    return None
 
 def main():
-    config_path = 'config/config.json'
-    with open(config_path, 'r') as f:
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # 1. Load Config & Model
+    with open('config/config.json', 'r') as f:
         config = json.load(f)
     
-    train_params = config['training_params']
-    model_name = train_params.get('model_name', 'neurorvq_v0')
-    model_type = train_params.get('model_type', 'NeuroRVQ')
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # Load Model
-    model = build_model_from_config(config).to(device)
+    model_name = config['training_params']['model_name']
+    model_type = config['training_params']['model_type']
+    vocab_size = config['model_params'].get(model_type, {}).get('vocab_size', 512)
+    embed_dim = config['model_params'].get(model_type, {}).get('embed_dim', 200)
     
-    # New structured path: ./output/{model_name}/checkpoints/best_model.pth
-    ckpt_path = f'output/{model_name}/checkpoints/best_model.pth'
-    if os.path.exists(ckpt_path):
-        checkpoint = torch.load(ckpt_path, map_location=device)
-        
-        # Support both old direct state_dict and new dict format
-        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-            state_dict = checkpoint['model_state_dict']
-        else:
-            state_dict = checkpoint
-            
-        # Handle shape mismatch for shared codebook transition
-        if 'rvq.embedding' in state_dict:
-            ckpt_emb = state_dict['rvq.embedding']
-            if hasattr(model, 'rvq') and model.rvq.embedding.dim() == 2 and ckpt_emb.dim() == 3:
-                print("Detected checkpoint with separate codebooks. Averaging for shared initialization...")
-                state_dict['rvq.embedding'] = ckpt_emb.mean(dim=0)
-                
-        model.load_state_dict(state_dict, strict=False)
-        print(f"Loaded {ckpt_path}")
-    
-    # Load Data (Small subset)
+    # Dataset
     dataset_path = config['dataset_params']['dataset_path']
     with open(os.path.join(dataset_path, 'metadata.json'), 'r') as f:
-        meta = json.load(f)
-    config['data_metadata'] = meta['data_metadata']
+        config['data_metadata'] = json.load(f)['data_metadata']
     
     transform = build_preprocessing_from_config(config)
-    dataset = build_dataset_from_config(config, transform=transform)
-    loader = DataLoader(dataset, batch_size=16, shuffle=True)
+    dataset = build_dataset_from_config(config, transform=transform, mode='tokenizer')
+    loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=0)
+    
+    model = build_model_from_config(config).to(device)
+    
+    # Load Weights
+    ckpt_path = f"output/{model_name}/checkpoints/best_model.pth"
+    if os.path.exists(ckpt_path):
+        print(f"Loading checkpoint: {ckpt_path}")
+        ckpt = torch.load(ckpt_path, map_location=device)
+        sd = ckpt['model_state_dict'] if 'model_state_dict' in ckpt else ckpt
+        msg = model.load_state_dict(sd, strict=False)
+        print(f"Loaded {len(sd)} keys. Missing: {len(msg.missing_keys)}, Unexpected: {len(msg.unexpected_keys)}")
+    else:
+        print("WARNING: Using random weights (no checkpoint found).")
+        
+    model.eval()
+    
+    # 2. Collect Data
+    codebooks = extract_codebooks(model) # List of (cb_tensor, name)
+    indices_tensor = collect_indices(model, loader, device) # Limit for speed
+    
+    # 3. Analyze & Correlate
+    # We want to create a unified table of: Name | Usage% | Perplex | Ortho | Norm
+    
+    stats_list = []
+    
+    print(f"\n=== Codebook Analysis: {model_name} ===")
+    print(f"{'Codebook Name':<15} | {'Usage%':<7} | {'Perplex':<8} | {'Ortho':<8} | {'Norm':<6} | {'EffRank':<7}")
+    print("-" * 75)
+    
+    # Prepare grids for heatmaps if structured
+    # Find max dims
+    max_l, max_s, max_h = 0, 0, 0
+    is_structured = True
+    
+    for cb, name in codebooks:
+        meta = parse_codebook_name(name)
+        
+        # Calculate Structure Stats
+        ortho, avg_norm, _ = calc_structure_stats(cb)
+        erank = calc_effective_rank(cb)
+        
+        # Calculate Usage Stats (if indices available)
+        usage_pct, perplex = 0.0, 0.0
+        
+        if indices_tensor is not None and meta:
+            # Try to map meta {L, S, H} to indices tensor dims
+            # AttnVQ Indices: (T, D, S, H, K)
+            try:
+                # Select specific slice
+                # Note: indices_tensor dimensions assumed [T, L, S, H, K]
+                idx_slice = indices_tensor[:, meta['L'], meta['S'], meta['H'], :]
+                perplex, usage_pct = calc_perplexity_and_usage(idx_slice, vocab_size)
+            except Exception:
+                pass # Indices structure might not match name structure perfectly
+        
+        stats_list.append({
+            'name': name,
+            'meta': meta,
+            'usage': usage_pct,
+            'perplex': perplex,
+            'ortho': ortho,
+            'norm': avg_norm,
+            'erank': erank
+        })
+        
+        print(f"{name:<15} | {usage_pct:<6.1f}% | {perplex:<8.1f} | {ortho:<8.3f} | {avg_norm:<6.2f} | {erank:<7.2f}")
+        
+        if meta:
+            max_l = max(max_l, meta['L'])
+            max_s = max(max_s, meta['S'])
+            max_h = max(max_h, meta['H'])
+        else:
+            is_structured = False
 
-    # Analyze
-    analyzer = CodebookAnalyzer(model, config, device)
-    # New structured path: ./output/{model_name}/visualization
+    # 4. Visualization (Heatmaps)
     viz_dir = f"output/{model_name}/visualization"
-    analyzer.run_full_analysis(loader, scale_idx=0, save_dir=viz_dir)
-    analyzer.run_multiscale_analysis(save_dir=viz_dir)
+    os.makedirs(viz_dir, exist_ok=True)
+    
+    if is_structured:
+        D, S, H = max_l + 1, max_s + 1, max_h + 1
+        
+        # Create Grids: (S, D, H) -> Scale-Major order
+        usage_grid = np.zeros((S, D, H))
+        perp_grid = np.zeros((S, D, H))
+        ortho_grid = np.zeros((S, D, H))
+        erank_grid = np.zeros((S, D, H))
+        
+        for s in stats_list:
+            m = s['meta']
+            if m:
+                # Store as [S, L, H]
+                usage_grid[m['S'], m['L'], m['H']] = s['usage']
+                perp_grid[m['S'], m['L'], m['H']] = s['perplex']
+                ortho_grid[m['S'], m['L'], m['H']] = s['ortho']
+                erank_grid[m['S'], m['L'], m['H']] = s['erank']
+        
+        # --- Visualization: Unrolled Heatmap (S*L vs H) ---
+        # Reshape (S, D, H) -> (S*D, H)
+        usage_unrolled = usage_grid.reshape(S * D, H)
+        perp_unrolled = perp_grid.reshape(S * D, H)
+        ortho_unrolled = ortho_grid.reshape(S * D, H)
+        erank_unrolled = erank_grid.reshape(S * D, H)
+        
+        # Create Row Labels: S0.L0, S0.L1...
+        row_labels = []
+        for s in range(S):
+            for d in range(D):
+                row_labels.append(f"S{s}.L{d}")
+        
+        # Increased width for 4 plots
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, S * D + 4)) 
+        
+        # 1. Plot Usage
+        im1 = ax1.imshow(usage_unrolled, cmap='viridis', vmin=0, vmax=100, aspect='auto')
+        plt.colorbar(im1, ax=ax1, label='Usage %')
+        ax1.set_title("Codebook Usage (%)")
+        ax1.set_xlabel("Head")
+        ax1.set_ylabel("Scale . Layer")
+        ax1.set_yticks(range(len(row_labels)))
+        ax1.set_yticklabels(row_labels)
+        ax1.set_xticks(range(H))
+        
+        # 2. Plot Perplexity
+        # Use theoretical max (vocab_size)
+        im2 = ax2.imshow(perp_unrolled, cmap='magma', vmin=0, vmax=vocab_size, aspect='auto')
+        plt.colorbar(im2, ax=ax2, label='Perplexity')
+        ax2.set_title("Codebook Perplexity")
+        ax2.set_xlabel("Head")
+        ax2.set_ylabel("Scale . Layer")
+        ax2.set_yticks(range(len(row_labels)))
+        ax2.set_yticklabels(row_labels)
+        ax2.set_xticks(range(H))
+
+        # 3. Plot Orthogonality
+        # Use theoretical max cosine similarity (1.0)
+        im3 = ax3.imshow(ortho_unrolled, cmap='plasma', vmin=0, vmax=1.0, aspect='auto')
+        plt.colorbar(im3, ax=ax3, label='Cos Sim')
+        ax3.set_title("Key Orthogonality (Avg CosSim)")
+        ax3.set_xlabel("Head")
+        ax3.set_ylabel("Scale . Layer")
+        ax3.set_yticks(range(len(row_labels)))
+        ax3.set_yticklabels(row_labels)
+        ax3.set_xticks(range(H))
+        
+        # 4. Plot Effective Rank
+        im4 = ax4.imshow(erank_unrolled, cmap='cividis', vmin=0, vmax=embed_dim, aspect='auto')
+        plt.colorbar(im4, ax=ax4, label='Eff. Rank')
+        ax4.set_title("Effective Rank")
+        ax4.set_xlabel("Head")
+        ax4.set_ylabel("Scale . Layer")
+        ax4.set_yticks(range(len(row_labels)))
+        ax4.set_yticklabels(row_labels)
+        ax4.set_xticks(range(H))
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(viz_dir, "codebook_comprehensive_matrix.png"))
+        print(f"\nComprehensive matrix plots saved to {viz_dir}/codebook_comprehensive_matrix.png")
+
+    # 5. Cross-Scale Analysis (The Big Matrix)
+    cross_metrics = compute_cross_scale_metrics(codebooks)
+    if cross_metrics:
+        n = len(cross_metrics['labels'])
+        labels = cross_metrics['labels']
+        
+        # Create large figure
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 10))
+        
+        # CKA
+        im1 = ax1.imshow(cross_metrics['cka'], cmap='inferno', vmin=0, vmax=1)
+        plt.colorbar(im1, ax=ax1, label='CKA')
+        ax1.set_title(f"Cross-Codebook CKA ({n}x{n})")
+        # Only label every Nth tick if too dense
+        step = max(1, n // 30)
+        ax1.set_xticks(range(0, n, step))
+        ax1.set_yticks(range(0, n, step))
+        ax1.set_xticklabels(labels[::step], rotation=90, fontsize=8)
+        ax1.set_yticklabels(labels[::step], fontsize=8)
+        
+        # Overlap
+        im2 = ax2.imshow(cross_metrics['overlap'], cmap='viridis', vmin=0, vmax=1)
+        plt.colorbar(im2, ax=ax2, label='Overlap')
+        ax2.set_title(f"Subspace Overlap ({n}x{n})")
+        ax2.set_xticks(range(0, n, step))
+        ax2.set_yticks(range(0, n, step))
+        ax2.set_xticklabels(labels[::step], rotation=90, fontsize=8)
+        ax2.set_yticklabels(labels[::step], fontsize=8)
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(viz_dir, "codebook_cross_correlation.png"))
+        print(f"Cross-Correlation plots saved to {viz_dir}/codebook_cross_correlation.png")
 
 if __name__ == "__main__":
     main()

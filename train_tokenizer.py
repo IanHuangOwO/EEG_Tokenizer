@@ -6,6 +6,8 @@ import shutil
 import copy
 import random
 import logging
+import matplotlib
+matplotlib.use('Agg') # Force non-interactive backend for server/multi-thread safety
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -15,6 +17,9 @@ from IO.dataset import build_dataset_from_config
 from model.factory import build_model_from_config, build_preprocessing_from_config
 from utils.reconstruction import visualize_reconstruction
 from utils.plotter import Plotter
+
+# Enable TF32 for faster matrix multiplication on Ampere+ GPUs
+torch.set_float32_matmul_precision('high')
 
 def setup_logger(output_dir):
     logger = logging.getLogger()
@@ -37,7 +42,7 @@ def setup_logger(output_dir):
 
 def train_one_epoch(model, data_loader, optimizer, device, epoch):
     model.train()
-    metrics = {"loss": 0.0, "vq": 0.0, "recon": 0.0, "mse": 0.0, "amp": 0.0, "phase": 0.0}
+    metrics = {"loss": 0.0, "vq": 0.0, "recon": 0.0, "temp": 0.0, "amp": 0.0, "phase": 0.0}
     last_x, last_recon = None, None
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}")
     
@@ -46,7 +51,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
         optimizer.zero_grad()
         
         p1, p2, p3, vq_loss, _ = model(x, coords)
-        recon_loss, l_amp, l_phs, l_mse = model.get_loss(x, p1, p2, p3, x_fft=None)
+        recon_loss, l_amp, l_phs, l_tmp = model.get_loss(x, p1, p2, p3, x_fft=None)
         
         loss = recon_loss + vq_loss
         loss.backward()
@@ -55,19 +60,19 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
         metrics["loss"] += loss.item()
         metrics["vq"] += vq_loss.item()
         metrics["recon"] += recon_loss.item()
-        metrics["mse"] += l_mse.item()
+        metrics["temp"] += l_tmp.item()
         metrics["amp"] += l_amp.item()
         metrics["phase"] += l_phs.item()
         
         last_x, last_recon = x, model.reconstruct(p1, p2, p3, x=x).detach()
-        pbar.set_postfix({'L': f"{loss.item():.2f}", 'A': f"{l_amp.item():.2f}", 'P': f"{l_phs.item():.2f}", 'MSE': f"{l_mse.item():.2f}"})
+        pbar.set_postfix({'L': f"{loss.item():.2f}", 'A': f"{l_amp.item():.2f}", 'P': f"{l_phs.item():.2f}", 'Temp': f"{l_tmp.item():.2f}"})
 
     N = len(data_loader)
     return tuple(v/N for v in metrics.values()), (last_x, last_recon)
 
 def validate_one_epoch(model, data_loader, device):
     model.eval()
-    metrics = {"loss": 0.0, "vq": 0.0, "recon": 0.0, "mse": 0.0, "amp": 0.0, "phase": 0.0}
+    metrics = {"loss": 0.0, "vq": 0.0, "recon": 0.0, "temp": 0.0, "amp": 0.0, "phase": 0.0}
     last_x, last_recon = None, None
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation")
     
@@ -75,17 +80,17 @@ def validate_one_epoch(model, data_loader, device):
         for batch in pbar:
             x, coords, _ = [t.to(device) for t in batch]
             p1, p2, p3, vq_loss, _ = model(x, coords)
-            recon_loss, l_amp, l_phs, l_mse = model.get_loss(x, p1, p2, p3, x_fft=None)
+            recon_loss, l_amp, l_phs, l_tmp = model.get_loss(x, p1, p2, p3, x_fft=None)
             
             metrics["loss"] += (recon_loss + vq_loss).item()
             metrics["vq"] += vq_loss.item()
             metrics["recon"] += recon_loss.item()
-            metrics["mse"] += l_mse.item()
+            metrics["temp"] += l_tmp.item()
             metrics["amp"] += l_amp.item()
             metrics["phase"] += l_phs.item()
             
             last_x, last_recon = x, model.reconstruct(p1, p2, p3, x=x)
-            pbar.set_postfix({'A': f"{l_amp.item():.2f}", 'P': f"{l_phs.item():.2f}", 'MSE': f"{l_mse.item():.2f}"})
+            pbar.set_postfix({'A': f"{l_amp.item():.2f}", 'P': f"{l_phs.item():.2f}", 'Temp': f"{l_tmp.item():.2f}"})
 
     N = len(data_loader)
     return tuple(v/N for v in metrics.values()), (last_x, last_recon)
@@ -232,8 +237,8 @@ def main():
         
         # Show metrics
         logger.info(f"Epoch {epoch}/{train_params['epochs']}:")
-        logger.info(f"  > Train [L:{train_metrics[0]:.4f}, Rec:{train_metrics[1]:.4f} (A:{train_metrics[4]:.4f}, P:{train_metrics[5]:.4f}), VQ:{train_metrics[2]:.4f}]")
-        logger.info(f"  > Val   [L:{val_metrics[0]:.4f}, Rec:{val_metrics[1]:.4f} (A:{val_metrics[4]:.4f}, P:{val_metrics[5]:.4f}), VQ:{val_metrics[2]:.4f}]")
+        logger.info(f"  > Train [L:{train_metrics[0]:.4f}, Rec:{train_metrics[2]:.4f} (A:{train_metrics[4]:.4f}, P:{train_metrics[5]:.4f}, Temp:{train_metrics[3]:.4f}), VQ:{train_metrics[1]:.4f}]")
+        logger.info(f"  > Val   [L:{val_metrics[0]:.4f}, Rec:{val_metrics[2]:.4f} (A:{val_metrics[4]:.4f}, P:{val_metrics[5]:.4f}, Temp:{val_metrics[3]:.4f}), VQ:{val_metrics[1]:.4f}]")
         
         # Save Best
         if val_metrics[0] < best_val_loss:
@@ -264,7 +269,7 @@ def main():
             }, ckpt_path)
         
         # Visualize Wave
-        if epoch % 10 == 0:
+        if epoch % 5 == 0:
             recon_dir = os.path.join(vis_dir, 'reconstruction')
             visualize_reconstruction(train_last_batch, val_last_batch, epoch, output_dir=recon_dir)
 

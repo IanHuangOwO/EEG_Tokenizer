@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from model.RecurrentVQ.modeling_tokenizer import MultiScaleTemporalEncoder, TransformerEncoder
+from model.RecurrentFSQ.modeling_tokenizer import MultiScaleTemporalEncoder, TransformerEncoder
 
 # --- Separate Block Classes for Clarity ---
 
@@ -62,37 +62,37 @@ class DecoderBlock(nn.Module):
 
 # --- Patch Embedding ---
 
-class RecurrentPatchEmbed(nn.Module):
+class RecurrentFSQPatchEmbed(nn.Module):
     """
-    Converts raw EEG signal into patches using the RecurrentVQ Multi-Scale approach.
+    Converts raw EEG signal into patches using the RecurrentFSQ Multi-Scale approach.
     """
     def __init__(self, in_chans=1, embed_dim=200):
         super().__init__()
         self.temporal_encoder = MultiScaleTemporalEncoder(in_chans, embed_dim)
         
     def forward(self, x):
-        # x: (Batch, Channels, Patches, Time=200)
-        B, C, P, T = x.shape
-        
-        # Flatten Batch, Channels, Patches to treat them as independent 1s windows
-        # for the temporal encoder
-        x = rearrange(x, 'b c p t -> (b p) c t')
+        # x: (Batch, Channels, Patches, Time=200) or 5D
+        if x.dim() == 5:
+            B, C, P, F, T = x.shape
+            x = rearrange(x, 'b c p f t -> (b p) c f t')
+        else:
+            B, C, P, T = x.shape
+            x = rearrange(x, 'b c p t -> (b p) c t')
         
         # Extract features (List of [BP, C, D])
         ms_features = self.temporal_encoder(x)
         
-        # Sum multi-scale features (standard RecurrentVQ approach)
+        # Sum multi-scale features (standard RecurrentFSQ approach)
         x_feat = sum(ms_features) # (BP, C, D)
         
         # Reshape back to (Batch, Total_Tokens, Dim)
-        # Total_Tokens = Channels * Patches
         x_feat = rearrange(x_feat, '(b p) c d -> b (c p) d', b=B, p=P)
         
         return x_feat
 
 # --- Main Foundation Model ---
 
-class RecurrentVQBackbone(nn.Module):
+class RecurrentFSQBackbone(nn.Module):
     def __init__(
         self,
         embed_dim=200,
@@ -100,25 +100,47 @@ class RecurrentVQBackbone(nn.Module):
         enc_heads=10,
         dec_depth=4,
         dec_heads=10,
-        vocab_size=8192,
+        vocab_size=1000, # Approx for [8,5,5,5]
         num_scales=4,
         num_recurrent_steps=8,
-        dropout=0.1
+        dropout=0.1,
+        in_chans=1
     ):
         super().__init__()
         
-        # 1. Patch Embedding (Spatial-Temporal)
-        self.patch_embed = RecurrentPatchEmbed(embed_dim=embed_dim)
+        # 1. Patch Embedding
+        self.patch_embed = RecurrentFSQPatchEmbed(in_chans=in_chans, embed_dim=embed_dim)
+        
+        # 2. Special Tokens
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        
+        # 3. Position & Channel Embeddings
+        self.spatial_embed = nn.Parameter(torch.zeros(1, 128, embed_dim))
+        self.temporal_embed = nn.Parameter(torch.zeros(1, 16, embed_dim))
+        
+        # 4. Encoder Stack
+        self.encoder = nn.ModuleList([
+            EncoderBlock(embed_dim, enc_heads, dropout=dropout) 
+            for _ in range(enc_depth)
+        ])
+        self.enc_norm = nn.LayerNorm(embed_dim)
+        
+        # 5. Decoder Stack
+        self.decoder = nn.ModuleList([
+            DecoderBlock(embed_dim, dec_heads, dropout=dropout)
+            for _ in range(dec_depth)
+        ])
         self.dec_norm = nn.LayerNorm(embed_dim)
         
         self.total_codes = num_scales * num_recurrent_steps
         
         # 6. Prediction Heads
-        # RecurrentVQ predicts RVQ codes. 
-        # Each token predicts 'num_recurrent_steps' indices.
         self.heads = nn.ModuleList([
             nn.Linear(embed_dim, vocab_size) for _ in range(self.total_codes)
         ])
+        
+        self._init_weights()
 
     def _init_weights(self):
         torch.nn.init.normal_(self.cls_token, std=.02)
@@ -132,35 +154,28 @@ class RecurrentVQBackbone(nn.Module):
         channel_indices: (Batch, Channels)
         bool_masked_pos: (Batch, Channels * Patches) - True for masked
         """
-        B, C, P, T = x.shape
+        if x.dim() == 5:
+            B, C, P, F, T = x.shape
+        else:
+            B, C, P, T = x.shape
         
         # 1. Embed Patches
         x = self.patch_embed(x) # (B, C*P, D)
         
         # 2. Add Positional/Spatial Information
-        # Get spatial embeddings for the specific channels used
-        # self.spatial_embed: (1, 128, D)
-        # s_emb: (B, C, D)
         s_emb = self.spatial_embed[0, channel_indices, :] 
-        
-        # Expand across patches: (B, C, 1, D) -> (B, C, P, D) -> (B, C*P, D)
         s_emb = s_emb.unsqueeze(2).expand(-1, -1, P, -1).flatten(1, 2)
         
-        # Get temporal embeddings for the time patches
-        # t_emb: (1, P, D) -> (B, 1, P, D) -> (B, C, P, D) -> (B, C*P, D)
         t_emb = self.temporal_embed[:, :P, :].unsqueeze(1).expand(B, C, -1, -1).flatten(1, 2)
         
         x = x + s_emb + t_emb
         
         # 3. Masking
         if bool_masked_pos is not None:
-            # Replace masked tokens with [MASK] embedding
-            # bool_masked_pos is [B, C*P]
             m = bool_masked_pos.unsqueeze(-1).type_as(x)
             x = x * (1 - m) + self.mask_token * m
             
         # 4. Encoder
-        # Prepend CLS token
         cls_tokens = self.cls_token.expand(B, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
         
@@ -169,7 +184,6 @@ class RecurrentVQBackbone(nn.Module):
         x = self.enc_norm(x)
         
         # 5. Decoder
-        # In pre-training MAE, decoder sees everything (visible + mask)
         for blk in self.decoder:
             x = blk(x)
         x = self.dec_norm(x)
@@ -177,18 +191,17 @@ class RecurrentVQBackbone(nn.Module):
         # Remove CLS token from predictions
         x_tokens = x[:, 1:, :] # (B, C*P, D)
         
-        # 6. Prediction Heads (Predicting Codebook Indices)
-        # Returns List of (B, C*P, VocabSize)
+        # 6. Prediction Heads
         logits = [head(x_tokens) for head in self.heads]
         
         return logits
 
-def recurrent_vq_base_patch200():
-    return RecurrentVQBackbone(
+def recurrent_fsq_base_patch200():
+    return RecurrentFSQBackbone(
         embed_dim=200,
         enc_depth=12,
         enc_heads=10,
         dec_depth=4,
-        vocab_size=8192,
+        vocab_size=1000,
         num_recurrent_steps=8
     )
