@@ -2,104 +2,75 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# --- 1. Multi-Scale Temporal Encoder ---
-
-class ResBlock1D(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1):
-        super().__init__()
-        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm1d(out_channels) 
-        self.act = nn.GELU()
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm1d(out_channels)
-        
-        self.shortcut = nn.Identity()
-        if stride != 1 or in_channels != out_channels:
-            self.shortcut = nn.Conv1d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False)
-
-    def forward(self, x):
-        res = self.shortcut(x)
-        x = self.act(self.bn1(self.conv1(x)))
-        x = self.bn2(self.conv2(x))
-        x += res
-        x = self.act(x)
-        return x
-
 class MultiScaleTemporalEncoder(nn.Module):
     """
-    Extracts features at multiple time-scales and fuses them via a Top-Down Bridge.
+    Fast Parallel Multi-Scale Encoder.
+    Different kernel sizes and strides per scale.
+    Features are fused via a lightweight parameter-free FPN (CumSum).
+    Heavier interaction is left to the Transformer.
     """
     def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4, input_length=200):
         super().__init__()
         self.num_scales = num_scales
-        
-        # --- 1. The Bottom-Up Pathway ---
-        self.stem = nn.Sequential(
-            nn.Conv1d(in_chans, base_filters, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm1d(base_filters),
-            nn.GELU()
-        )
-        
-        self.layers = nn.ModuleList()
+        self.branches = nn.ModuleList()
         self.projections = nn.ModuleList()
         
-        current_filters = base_filters
-        current_t = input_length 
+        # Kernel sizes: 3, 7, 15, 31, 63...
+        kernel_sizes = [3, 7, 15, 31, 63]
         
         for i in range(num_scales):
-            stride = 1 if i == 0 else 2
-            out_filters = current_filters if i == 0 else current_filters * 2
+            # Scale-specific parameters
+            k = kernel_sizes[min(i, len(kernel_sizes)-1)]
+            stride = 2**i # 1, 2, 4, 8...
+            padding = (k - 1) // 2
             
-            self.layers.append(ResBlock1D(current_filters, out_filters, stride=stride))
+            # Simple Conv Block
+            # We use a single robust convolution per scale
+            self.branches.append(nn.Sequential(
+                nn.Conv1d(in_chans, base_filters * (2**i), kernel_size=k, stride=stride, padding=padding, bias=False),
+                nn.BatchNorm1d(base_filters * (2**i)),
+                nn.GELU()
+            ))
             
-            current_filters = out_filters
-            current_t = (current_t - 1) // stride + 1
-            
-            # Simplified Single Linear Projection
-            input_dim = current_filters * current_t
+            # Calculate output length for projection
+            # L_out = floor((L_in + 2*pad - dilation*(kernel-1) - 1)/stride + 1)
+            # With stride S and padding P=(K-1)/2:
+            # L_out ~ L_in / S
+            # Exact math:
+            out_len = (input_length + 2*padding - k) // stride + 1
+            # Adjust for integer division quirks if needed, but standard padding usually keeps alignment
+            # For strict alignment, we calculate input_dim dynamically or force padding
+            # Here using calculated dimension:
+            flat_dim = (base_filters * (2**i)) * out_len
             
             self.projections.append(nn.Sequential(
-                nn.Linear(input_dim, embed_dim),
+                nn.Linear(flat_dim, embed_dim),
                 nn.LayerNorm(embed_dim)
             ))
-
-        # --- 2. The Top-Down Pathway ---
-        self.adapters = nn.ModuleList([
-            nn.Linear(embed_dim, embed_dim)
-            for _ in range(num_scales - 1)
-        ])
-        
-        # Learnable Gates
-        self.gates = nn.Parameter(torch.zeros(num_scales - 1)) 
 
     def forward(self, x):
         B, N, T = x.shape
         x = x.view(B * N, 1, T)
-        x = self.stem(x)
         
-        # Phase 1: Extract Raw Scales (Bottom-Up)
         raw_features = []
-        feat = x
-        for layer, proj in zip(self.layers, self.projections):
-            feat = layer(feat)
-            flat = feat.flatten(1) 
-            emb = proj(flat).view(B, N, -1) 
+        
+        # Parallel Execution (Python loop matches layer list, but ops are independent)
+        for branch, proj in zip(self.branches, self.projections):
+            feat = branch(x)
+            flat = feat.flatten(1)
+            emb = proj(flat).view(B, N, -1)
             raw_features.append(emb)
+            
+        # Lightweight FPN: Cumulative Sum from Coarse to Fine
+        # Stack: (S, B, N, D)
+        # Flip (S-1 to 0), Cumsum, Flip back
+        # This allows coarse scales (high stride) to inject info into fine scales (low stride)
+        # cheaply without learnable parameters.
+        ms_features = torch.stack(raw_features, dim=0)
+        ms_features = ms_features.flip(0).cumsum(dim=0).flip(0)
         
-        # Phase 2: Fuse Scales (Top-Down)
-        context = raw_features[-1] 
-        refined_features = [None] * self.num_scales
-        refined_features[-1] = context
-        
-        for i in range(self.num_scales - 2, -1, -1):
-            target = raw_features[i]
-            context_proj = self.adapters[i](context)
-            gate = torch.sigmoid(self.gates[i])
-            fused = target + (gate * context_proj)
-            refined_features[i] = fused
-            context = fused
-
-        return refined_features
+        # Return as list for compatibility with rest of pipeline
+        return list(ms_features.unbind(0))
 
 # --- 2. Transformer Encoder ---
 
@@ -123,106 +94,110 @@ class TransformerEncoder(nn.Module):
 
 class AttnVQ(nn.Module):
     """
-    AttnVQ: Replaces Iterative RVQ with Parallel Sparse Attention.
+    AttnVQ: Multi-Head Sparse Attention VQ.
     
     Mechanics:
-    1. Similarity: Dot Product (Attention)
-    2. Selection: Top-K
+    1. Similarity: Dot Product (Attention) per Head
+    2. Selection: Top-K per Head
     3. Reconstruction: Weighted Sum (Softmax weights)
-    4. Regularization: Orthogonal Loss
+    4. Regularization: Orthogonal Loss per Head
     """
-    def __init__(self, num_scales, n_e, e_dim, top_k=8, temperature=1.0):
+    def __init__(self, num_scales, num_heads, vocab_size, e_dim, top_k=8, temperature=1.0):
         super().__init__()
+        assert e_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
+        
         self.num_scales = num_scales
-        self.n_e = n_e
+        self.num_heads = num_heads
+        self.vocab_size = vocab_size
         self.e_dim = e_dim
+        self.head_dim = e_dim // num_heads
         self.top_k = top_k
         
-        # Learnable Temperature (controls how "sharp" the weights are)
-        # Start at 1.0, let the model tune it.
-        self.temperature = nn.Parameter(torch.ones(num_scales, 1, 1) * temperature)
+        # Learnable Temperature
+        # (S, H, 1, 1)
+        self.temperature = nn.Parameter(torch.ones(num_scales, num_heads, 1, 1) * temperature)
 
-        # Separate Codebooks for each scale: (S, N_E, D)
-        self.embedding = nn.Parameter(torch.empty(num_scales, n_e, e_dim))
+        # Codebooks: (S, H, Vocab_Size, Head_Dim)
+        self.embedding = nn.Parameter(torch.empty(num_scales, num_heads, vocab_size, self.head_dim))
         nn.init.xavier_uniform_(self.embedding)
 
     def forward(self, z):
         # z: (S, B, N, D)
         S, B, N, D = z.shape
+        H = self.num_heads
+        D_h = self.head_dim
         
-        # Flatten Batch and Channels: (S, B*N, D)
-        z_flat = z.view(S, B * N, D)
+        # Reshape for Multi-Head: (S, B, N, H, D_h)
+        z_reshaped = z.view(S, B, N, H, D_h)
         
         # --- 1. Attention Scores (Dot Product) ---
-        # (S, B*N, D) @ (S, D, N_E) -> (S, B*N, N_E)
-        logits = torch.matmul(z_flat, self.embedding.transpose(1, 2))
+        # z: (S, B, N, H, D_h)
+        # emb: (S, H, V, D_h)
+        # Einsum: sbnhd,shvd -> sbnhv
+        logits = torch.einsum('sbnhd,shvd->sbnhv', z_reshaped, self.embedding)
         
         # --- 2. Top-K Selection (Sparse) ---
-        # indices: (S, B*N, K)
-        # top_vals: (S, B*N, K)
+        # indices: (S, B, N, H, K)
         top_vals, indices = torch.topk(logits, k=self.top_k, dim=-1)
         
         # --- 3. Soft-Weighted Mixing ---
-        # Apply Softmax to get weights summing to 1.0 (over the K selected)
-        weights = F.softmax(top_vals / self.temperature, dim=-1) # (S, B*N, K)
+        # Temp: (S, H, 1, 1) -> (S, 1, 1, H, 1) to match (S, B, N, H, K)
+        temp_broadcast = self.temperature.view(S, 1, 1, H, 1)
+        weights = F.softmax(top_vals / temp_broadcast, dim=-1)
         
         # --- 4. Reconstruction ---
-        # We need to select from self.embedding (S, N_E, D) using indices (S, B*N, K)
+        # Gather vectors
+        # Indices: (S, B, N, H, K)
+        # We need to flatten to gather efficiently or use advanced indexing
         
-        # Efficient Gather Strategy:
-        # 1. View embedding as (S * N_E, D)
-        # 2. Adjust indices to point to the flattened embedding
-        scale_offsets = torch.arange(S, device=z.device).view(S, 1, 1) * self.n_e
-        flat_indices = (indices + scale_offsets).view(-1, self.top_k) # (S*B*N, K)
-        flat_embedding = self.embedding.view(-1, D) # (S*N_E, D)
+        # Offset strategy for independent heads
+        # S*H*V total vectors
+        # Scale offset: s * (H*V)
+        # Head offset: h * V
+        s_idx = torch.arange(S, device=z.device).view(S, 1, 1, 1, 1)
+        h_idx = torch.arange(H, device=z.device).view(1, 1, 1, H, 1)
         
-        # Gather: (S*B*N, K, D)
+        flat_offset = s_idx * (H * self.vocab_size) + h_idx * self.vocab_size
+        flat_indices = (indices + flat_offset).view(-1, self.top_k) # (S*B*N*H, K)
+        
+        flat_embedding = self.embedding.view(-1, D_h) # (S*H*V, D_h)
+        
+        # Gather: (S*B*N*H, K, D_h)
         selected_vectors = F.embedding(flat_indices, flat_embedding)
         
-        # Reshape back to (S, B*N, K, D)
-        selected_vectors = selected_vectors.view(S, B * N, self.top_k, D)
+        # Reshape: (S, B, N, H, K, D_h)
+        selected_vectors = selected_vectors.view(S, B, N, H, self.top_k, D_h)
         
-        # Weighted Sum: 
-        # Weights: (S, B*N, K) -> (S, B*N, 1, K)
-        # Vectors: (S, B*N, K, D)
-        # Matmul: (1, K) @ (K, D) -> (1, D)
-        z_q = torch.matmul(weights.unsqueeze(2), selected_vectors).squeeze(2) # (S, B*N, D)
+        # Weighted Sum: (S, B, N, H, D_h)
+        # weights: (S, B, N, H, K) -> (..., K, 1)
+        z_q_head = torch.sum(weights.unsqueeze(-1) * selected_vectors, dim=-2)
+        
+        # Concatenate Heads: (S, B, N, D)
+        z_q = z_q_head.view(S, B, N, D)
         
         # --- 5. Losses ---
-        # A. Commitment Loss (Standard VQ)
-        # Move encoder output (z) towards the weighted mixture (z_q)
-        # And move the mixture towards the encoder (to train codebook)
-        loss_commit = F.mse_loss(z_q.detach(), z_flat) + 0.25 * F.mse_loss(z_q, z_flat.detach())
-        
-        # B. Orthogonal Regularization Loss (CRITICAL)
+        loss_commit = F.mse_loss(z_q.detach(), z) + 0.25 * F.mse_loss(z_q, z.detach())
         loss_ortho = self.orthogonal_loss()
         
-        # Combine losses
-        total_loss = loss_commit + (0.1 *loss_ortho)
+        total_loss = loss_commit + loss_ortho
 
-        # Reshape outputs
-        z_q = z_q.view(S, B, N, D)
-        indices = indices.view(S, B, N, self.top_k) # Save these Top-K indices for storage
-
+        # Indices output for analysis: (S, B, N, H, K)
         return z_q, total_loss, indices
 
     def orthogonal_loss(self, threshold=0.1):
         """
-        Forces codebook vectors within each scale to be quasi-orthogonal.
-        Uses a threshold hinge loss to allow for packing when N_E > D.
+        Orthogonal loss per head.
         """
-        # 1. Normalize: (S, N_E, D)
+        # (S, H, V, D_h)
         vectors_norm = F.normalize(self.embedding, p=2, dim=-1)
         
-        # 2. Gram Matrix: (S, N_E, N_E)
-        gram = torch.matmul(vectors_norm, vectors_norm.transpose(1, 2))
+        # Gram: (S, H, V, V)
+        gram = torch.matmul(vectors_norm, vectors_norm.transpose(-1, -2))
         
-        # 3. Off-diagonal Mask
-        I = torch.eye(self.n_e, device=gram.device).unsqueeze(0)
+        # Identity
+        I = torch.eye(self.vocab_size, device=gram.device).view(1, 1, self.vocab_size, self.vocab_size)
         off_diag = gram * (1 - I)
         
-        # 4. Thresholded Loss
-        # Penalize only if similarity > threshold
         loss = F.relu(off_diag.abs() - threshold).pow(2).mean()
         
         return loss
@@ -242,6 +217,7 @@ class AttnVQTokenizer(nn.Module):
         dec_mlp_ratio=4.,
         num_scales=4,
         top_k=8,
+        vq_heads=None, # New param, defaults to enc_heads if None
         vocab_size=512,
         freq_resolution=1.0,
         min_freq=0.0,
@@ -253,6 +229,8 @@ class AttnVQTokenizer(nn.Module):
         
         self.num_scales = num_scales
         self.embed_dim = embed_dim
+        self.vocab_size = vocab_size
+        self.vq_heads = vq_heads if vq_heads is not None else enc_heads
         self.freq_resolution = freq_resolution
         self.min_freq = min_freq
         self.max_freq = max_freq
@@ -288,7 +266,8 @@ class AttnVQTokenizer(nn.Module):
         # 3. AttnVQ Module
         self.attnvq = AttnVQ(
             num_scales=num_scales,
-            n_e=vocab_size,
+            num_heads=self.vq_heads,
+            vocab_size=vocab_size,
             e_dim=embed_dim,
             top_k=top_k
         )
@@ -407,35 +386,36 @@ class AttnVQTokenizer(nn.Module):
         """
         Returns a list of (tensor, name) tuples for analysis.
         Extracts embedding from AttnVQ.
-        Name format: "S{scale}"
+        Name format: "S{scale}_H{head}"
         """
         codebooks = []
-        # embedding: (S, N_E, D)
+        # embedding: (S, H, N_E, D_h)
         for s in range(self.num_scales):
-            cb = self.attnvq.embedding[s].detach().cpu()
-            name = f"S{s}"
-            codebooks.append((cb, name))
+            for h in range(self.vq_heads):
+                cb = self.attnvq.embedding[s, h].detach().cpu()
+                name = f"S{s}_H{h}"
+                codebooks.append((cb, name))
                     
         return codebooks
 
     def get_indices(self, x, coords):
         """
         Runs forward pass and returns indices for analysis.
-        Returns: (Batch*N, Depth=1, Scales, Heads=1, Top-K) flat tensor structure logic.
-        AttnVQ indices: (S, B, N, K)
+        Returns: (Batch*N, Depth=1, Scales, Heads, Top-K) flat tensor structure logic.
+        AttnVQ indices: (S, B, N, H, K)
         """
         # Run forward pass (ignoring gradients)
         with torch.no_grad():
             _, _, _, _, indices = self.forward(x, coords)
         
-        # Indices: (S, B, N, K)
-        # Permute to (B, N, S, K)
-        indices = indices.permute(1, 2, 0, 3) 
+        # Indices: (S, B, N, H, K)
+        # Permute to (B, N, S, H, K)
+        indices = indices.permute(1, 2, 0, 3, 4) 
         
-        # Flatten Batch and N -> (Batch*N, S, K)
-        indices_flat = indices.reshape(-1, indices.shape[2], indices.shape[3])
+        # Flatten Batch and N -> (Batch*N, S, H, K)
+        indices_flat = indices.reshape(-1, indices.shape[2], indices.shape[3], indices.shape[4])
         
-        # Reshape to 5D for compatibility: (Batch*N, L=1, S, H=1, K)
-        indices_flat = indices_flat.unsqueeze(1).unsqueeze(3)
+        # Reshape to 5D for compatibility: (Batch*N, L=1, S, H, K)
+        indices_flat = indices_flat.unsqueeze(1)
         
         return indices_flat

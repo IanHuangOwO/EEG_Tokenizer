@@ -198,7 +198,12 @@ def parse_codebook_name(name):
     if match:
         return {'L': int(match.group(1)), 'S': int(match.group(2)), 'H': int(match.group(3))}
     
-    # Fallback: Maybe just S# (AttnVQ)
+    # Regex for S#_H# (AttnVQ Multi-Head)
+    match = re.match(r"S(\d+)_H(\d+)", name)
+    if match:
+        return {'L': 0, 'S': int(match.group(1)), 'H': int(match.group(2))}
+
+    # Fallback: Maybe just S# (Old AttnVQ)
     match = re.match(r"S(\d+)", name)
     if match:
         return {'L': 0, 'S': int(match.group(1)), 'H': 0}
@@ -216,6 +221,12 @@ def main():
     model_type = config['training_params']['model_type']
     vocab_size = config['model_params'].get(model_type, {}).get('vocab_size', 512)
     embed_dim = config['model_params'].get(model_type, {}).get('embed_dim', 200)
+    
+    # Determine max effective rank based on head structure
+    vq_heads = config['model_params'].get(model_type, {}).get('vq_heads', 1)
+    # Check if 'enc_heads' is used as fallback (typical for some models, but usually VQ is 1 head unless specified)
+    # For AttnVQ, we explicitly added vq_heads. For others, it might be 1.
+    eff_rank_max = embed_dim // vq_heads
     
     # Dataset
     dataset_path = config['dataset_params']['dataset_path']
@@ -362,7 +373,7 @@ def main():
         # Use theoretical max cosine similarity (1.0)
         im3 = ax3.imshow(ortho_unrolled, cmap='plasma', vmin=0, vmax=1.0, aspect='auto')
         plt.colorbar(im3, ax=ax3, label='Cos Sim')
-        ax3.set_title("Key Orthogonality (Avg CosSim)")
+        ax3.set_title("Avg Abs Cosine Sim (0=Ortho)")
         ax3.set_xlabel("Head")
         ax3.set_ylabel("Scale . Layer")
         ax3.set_yticks(range(len(row_labels)))
@@ -370,7 +381,7 @@ def main():
         ax3.set_xticks(range(H))
         
         # 4. Plot Effective Rank
-        im4 = ax4.imshow(erank_unrolled, cmap='cividis', vmin=0, vmax=embed_dim, aspect='auto')
+        im4 = ax4.imshow(erank_unrolled, cmap='cividis', vmin=0, vmax=eff_rank_max, aspect='auto')
         plt.colorbar(im4, ax=ax4, label='Eff. Rank')
         ax4.set_title("Effective Rank")
         ax4.set_xlabel("Head")

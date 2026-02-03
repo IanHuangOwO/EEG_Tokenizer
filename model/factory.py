@@ -98,6 +98,7 @@ def build_model_from_config(config, src_output_dir=None):
             dec_mlp_ratio=params.get('dec_mlp_ratio', 4.0),
             num_scales=params.get('num_scales', 4),
             top_k=params.get('top_k', 8),
+            vq_heads=params.get('vq_heads', 8),
             vocab_size=params['vocab_size'],
             freq_resolution=params.get('freq_resolution', 1.0),
             min_freq=params.get('min_freq', 0.0),

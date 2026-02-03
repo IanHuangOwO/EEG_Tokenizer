@@ -58,8 +58,9 @@
       "dec_mlp_ratio": 4.0,
       "embed_dim": 256,
       "num_scales": 3,
-      "top_k": 32,
-      "vocab_size": 2048,
+      "top_k": 8,
+      "vq_heads": 8,
+      "vocab_size": 64,
       "freq_resolution": 0.2,
       "min_freq": 0.0,
       "max_freq": 80.0
@@ -105,7 +106,7 @@
   },
   "training_params": {
     "model_type": "AttnVQ",
-    "model_name": "attnvq_v0",
+    "model_name": "attnvq_v4",
     "train_val_split": 0.92,
     "learning_rate": 5e-5,
     "min_learning_rate": 1e-5,
