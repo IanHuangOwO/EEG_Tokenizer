@@ -49,8 +49,8 @@ class MultiScaleTemporalEncoder(nn.Module):
             ))
 
     def forward(self, x):
-        B, N, T = x.shape
-        x = x.view(B * N, 1, T)
+        B, C, T = x.shape
+        x = x.view(B * C, 1, T)
         
         raw_features = []
         
@@ -58,7 +58,7 @@ class MultiScaleTemporalEncoder(nn.Module):
         for branch, proj in zip(self.branches, self.projections):
             feat = branch(x)
             flat = feat.flatten(1)
-            emb = proj(flat).view(B, N, -1)
+            emb = proj(flat).view(B, C, -1)
             raw_features.append(emb)
             
         # Lightweight FPN: Cumulative Sum from Coarse to Fine
@@ -122,32 +122,32 @@ class AttnVQ(nn.Module):
         nn.init.xavier_uniform_(self.embedding)
 
     def forward(self, z):
-        # z: (S, B, N, D)
-        S, B, N, D = z.shape
+        # z: (S, B, C, D)
+        S, B, C, D = z.shape
         H = self.num_heads
         D_h = self.head_dim
         
-        # Reshape for Multi-Head: (S, B, N, H, D_h)
-        z_reshaped = z.view(S, B, N, H, D_h)
+        # Reshape for Multi-Head: (S, B, C, H, D_h)
+        z_reshaped = z.view(S, B, C, H, D_h)
         
         # --- 1. Attention Scores (Dot Product) ---
-        # z: (S, B, N, H, D_h)
+        # z: (S, B, C, H, D_h)
         # emb: (S, H, V, D_h)
-        # Einsum: sbnhd,shvd -> sbnhv
-        logits = torch.einsum('sbnhd,shvd->sbnhv', z_reshaped, self.embedding)
+        # Einsum: sbchd,shvd -> sbchv
+        logits = torch.einsum('sbchd,shvd->sbchv', z_reshaped, self.embedding)
         
         # --- 2. Top-K Selection (Sparse) ---
-        # indices: (S, B, N, H, K)
+        # indices: (S, B, C, H, K)
         top_vals, indices = torch.topk(logits, k=self.top_k, dim=-1)
         
         # --- 3. Soft-Weighted Mixing ---
-        # Temp: (S, H, 1, 1) -> (S, 1, 1, H, 1) to match (S, B, N, H, K)
+        # Temp: (S, H, 1, 1) -> (S, 1, 1, H, 1) to match (S, B, C, H, K)
         temp_broadcast = self.temperature.view(S, 1, 1, H, 1)
         weights = F.softmax(top_vals / temp_broadcast, dim=-1)
         
         # --- 4. Reconstruction ---
         # Gather vectors
-        # Indices: (S, B, N, H, K)
+        # Indices: (S, B, C, H, K)
         # We need to flatten to gather efficiently or use advanced indexing
         
         # Offset strategy for independent heads
@@ -158,22 +158,22 @@ class AttnVQ(nn.Module):
         h_idx = torch.arange(H, device=z.device).view(1, 1, 1, H, 1)
         
         flat_offset = s_idx * (H * self.vocab_size) + h_idx * self.vocab_size
-        flat_indices = (indices + flat_offset).view(-1, self.top_k) # (S*B*N*H, K)
+        flat_indices = (indices + flat_offset).view(-1, self.top_k) # (S*B*C*H, K)
         
         flat_embedding = self.embedding.view(-1, D_h) # (S*H*V, D_h)
         
-        # Gather: (S*B*N*H, K, D_h)
+        # Gather: (S*B*C*H, K, D_h)
         selected_vectors = F.embedding(flat_indices, flat_embedding)
         
-        # Reshape: (S, B, N, H, K, D_h)
-        selected_vectors = selected_vectors.view(S, B, N, H, self.top_k, D_h)
+        # Reshape: (S, B, C, H, K, D_h)
+        selected_vectors = selected_vectors.view(S, B, C, H, self.top_k, D_h)
         
-        # Weighted Sum: (S, B, N, H, D_h)
-        # weights: (S, B, N, H, K) -> (..., K, 1)
+        # Weighted Sum: (S, B, C, H, D_h)
+        # weights: (S, B, C, H, K) -> (..., K, 1)
         z_q_head = torch.sum(weights.unsqueeze(-1) * selected_vectors, dim=-2)
         
-        # Concatenate Heads: (S, B, N, D)
-        z_q = z_q_head.view(S, B, N, D)
+        # Concatenate Heads: (S, B, C, D)
+        z_q = z_q_head.view(S, B, C, D)
         
         # --- 5. Losses ---
         loss_commit = F.mse_loss(z_q.detach(), z) + 0.25 * F.mse_loss(z_q, z.detach())
@@ -181,7 +181,7 @@ class AttnVQ(nn.Module):
         
         total_loss = loss_commit + loss_ortho
 
-        # Indices output for analysis: (S, B, N, H, K)
+        # Indices output for analysis: (S, B, C, H, K)
         return z_q, total_loss, indices
 
     def orthogonal_loss(self, threshold=0.1):
@@ -217,7 +217,7 @@ class AttnVQTokenizer(nn.Module):
         dec_mlp_ratio=4.,
         num_scales=4,
         top_k=8,
-        vq_heads=None, # New param, defaults to enc_heads if None
+        vq_heads=8,
         vocab_size=512,
         freq_resolution=1.0,
         min_freq=0.0,
@@ -230,7 +230,7 @@ class AttnVQTokenizer(nn.Module):
         self.num_scales = num_scales
         self.embed_dim = embed_dim
         self.vocab_size = vocab_size
-        self.vq_heads = vq_heads if vq_heads is not None else enc_heads
+        self.vq_heads = vq_heads 
         self.freq_resolution = freq_resolution
         self.min_freq = min_freq
         self.max_freq = max_freq
@@ -280,19 +280,19 @@ class AttnVQTokenizer(nn.Module):
         self.head_cos = nn.Linear(embed_dim, self.fft_dim)
 
     def forward(self, x, coords):
-        B, N, T = x.shape
+        B, C, T = x.shape
         S = self.num_scales
         
         # 1. Extract Multi-Scale Features
-        ms_features = self.temporal_encoder(x) 
-        spatial_emb = self.spatial_mlp(coords) 
+        ms_features = self.temporal_encoder(x) # List of (B, C, D)
+        spatial_emb = self.spatial_mlp(coords) # (B, C, D)
         
         # 2. Shared Transformer Pass
-        h_all = torch.stack(ms_features, dim=0) + spatial_emb.unsqueeze(0) # (S, B, N, D)
-        h_all = h_all.view(S * B, N, -1)
+        h_all = torch.stack(ms_features, dim=0) + spatial_emb.unsqueeze(0) # (S, B, C, D)
+        h_all = h_all.view(S * B, C, -1)
         
         h_encoded = self.transformer_encoder(h_all)
-        h_scales = h_encoded.view(S, B, N, -1)
+        h_scales = h_encoded.view(S, B, C, -1)
         
         # 3. AttnVQ Pass
         all_z_q, vq_loss, top_k_indices = self.attnvq(h_scales)
@@ -310,9 +310,9 @@ class AttnVQTokenizer(nn.Module):
         return pred_amp, pred_sin, pred_cos, vq_loss, top_k_indices
 
     def get_loss(self, x, pred_amp, pred_sin, pred_cos, x_fft=None):
-        # x: (B, N, 200)
+        # x: (B, C, 200)
         if x_fft is None:
-            x_fft = torch.fft.rfft(x, n=self.n_fft, dim=-1) # (B, N, n_fft//2 + 1)
+            x_fft = torch.fft.rfft(x, n=self.n_fft, dim=-1) # (B, C, n_fft//2 + 1)
         
         target_fft = x_fft[..., self.freq_mask]
         
@@ -401,21 +401,21 @@ class AttnVQTokenizer(nn.Module):
     def get_indices(self, x, coords):
         """
         Runs forward pass and returns indices for analysis.
-        Returns: (Batch*N, Depth=1, Scales, Heads, Top-K) flat tensor structure logic.
-        AttnVQ indices: (S, B, N, H, K)
+        Returns: (Batch*C, Depth=1, Scales, Heads, Top-K) flat tensor structure logic.
+        AttnVQ indices: (S, B, C, H, K)
         """
         # Run forward pass (ignoring gradients)
         with torch.no_grad():
             _, _, _, _, indices = self.forward(x, coords)
         
-        # Indices: (S, B, N, H, K)
-        # Permute to (B, N, S, H, K)
+        # Indices: (S, B, C, H, K)
+        # Permute to (B, C, S, H, K)
         indices = indices.permute(1, 2, 0, 3, 4) 
         
-        # Flatten Batch and N -> (Batch*N, S, H, K)
+        # Flatten Batch and C -> (Batch*C, S, H, K)
         indices_flat = indices.reshape(-1, indices.shape[2], indices.shape[3], indices.shape[4])
         
-        # Reshape to 5D for compatibility: (Batch*N, L=1, S, H, K)
+        # Reshape to 5D for compatibility: (Batch*C, L=1, S, H, K)
         indices_flat = indices_flat.unsqueeze(1)
         
         return indices_flat
