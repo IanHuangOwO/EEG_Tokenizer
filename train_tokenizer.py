@@ -175,14 +175,16 @@ def main():
         batch_size=train_params['batch_size'], 
         shuffle=True, 
         num_workers=4,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True
     )
     val_loader = DataLoader(
         val_dataset, 
         batch_size=train_params['batch_size'], 
         shuffle=False, 
         num_workers=4,
-        pin_memory=True
+        pin_memory=True,
+        persistent_workers=True
     )
 
     # 3. Initialize Model
