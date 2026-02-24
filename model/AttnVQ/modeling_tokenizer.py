@@ -182,7 +182,7 @@ class AttnVQ(nn.Module):
         total_loss = loss_commit + loss_ortho
 
         # Indices output for analysis: (S, B, C, H, K)
-        return z_q, total_loss, indices
+        return z_q, total_loss, indices, weights
 
     def orthogonal_loss(self, threshold=0.1):
         """
@@ -295,7 +295,7 @@ class AttnVQTokenizer(nn.Module):
         h_scales = h_encoded.view(S, B, C, -1)
         
         # 3. AttnVQ Pass
-        all_z_q, vq_loss, top_k_indices = self.attnvq(h_scales)
+        all_z_q, vq_loss, top_k_indices, weights = self.attnvq(h_scales)
             
         # 4. Latent Fusion
         z_fused = torch.sum(all_z_q, dim=0)
@@ -307,7 +307,7 @@ class AttnVQTokenizer(nn.Module):
         pred_sin = self.head_sin(dec_h)
         pred_cos = self.head_cos(dec_h)
         
-        return pred_amp, pred_sin, pred_cos, vq_loss, top_k_indices
+        return pred_amp, pred_sin, pred_cos, vq_loss, top_k_indices, weights
 
     def get_loss(self, x, pred_amp, pred_sin, pred_cos, x_fft=None):
         # x: (B, C, 200)
@@ -406,7 +406,7 @@ class AttnVQTokenizer(nn.Module):
         """
         # Run forward pass (ignoring gradients)
         with torch.no_grad():
-            _, _, _, _, indices = self.forward(x, coords)
+            _, _, _, _, indices, weights = self.forward(x, coords)
         
         # Indices: (S, B, C, H, K)
         # Permute to (B, C, S, H, K)
@@ -418,4 +418,14 @@ class AttnVQTokenizer(nn.Module):
         # Reshape to 5D for compatibility: (Batch*C, L=1, S, H, K)
         indices_flat = indices_flat.unsqueeze(1)
         
-        return indices_flat
+        # Weights: (S, B, C, H, K)
+        # Permute to (B, C, S, H, K)
+        weights = weights.permute(1, 2, 0, 3, 4)
+        
+        # Flatten Batch and C -> (Batch*C, S, H, K)
+        weights_flat = weights.reshape(-1, weights.shape[2], weights.shape[3], weights.shape[4])
+        
+        # Reshape to 5D for compatibility: (Batch*C, L=1, S, H, K)
+        weights_flat = weights_flat.unsqueeze(1)
+        
+        return indices_flat, weights_flat

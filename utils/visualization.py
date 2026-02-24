@@ -124,8 +124,8 @@ def visualize_psd_grid(dataset, subject_id, config, output_dir='output/visualiza
     unique_labels = sorted(torch.unique(subject_labels).tolist())
     
     # Config
-    model_name = config['training_params']['model_name']
-    params = config['model_params'][model_name]
+    model_type = config['training_params']['model_type']
+    params = config['model_params'][model_type]
     fs = 200
     f_start = params.get('start_freq', 0)
     f_end = params.get('end_freq', 20)

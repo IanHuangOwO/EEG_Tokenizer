@@ -219,14 +219,14 @@ def main():
     
     model_name = config['training_params']['model_name']
     model_type = config['training_params']['model_type']
-    vocab_size = config['model_params'].get(model_type, {}).get('vocab_size', 512)
+    vq_head_vocab_size = config['model_params'].get(model_type, {}).get('vq_head_vocab_size', 512)
     embed_dim = config['model_params'].get(model_type, {}).get('embed_dim', 200)
     
     # Determine max effective rank based on head structure
-    vq_heads = config['model_params'].get(model_type, {}).get('vq_heads', 1)
+    vq_head_num = config['model_params'].get(model_type, {}).get('vq_head_num', 1)
     # Check if 'enc_heads' is used as fallback (typical for some models, but usually VQ is 1 head unless specified)
     # For AttnVQ, we explicitly added vq_heads. For others, it might be 1.
-    eff_rank_max = embed_dim // vq_heads
+    eff_rank_max = embed_dim // vq_head_num
     
     # Dataset
     dataset_path = config['dataset_params']['dataset_path']
@@ -287,7 +287,7 @@ def main():
                 # Select specific slice
                 # Note: indices_tensor dimensions assumed [T, L, S, H, K]
                 idx_slice = indices_tensor[:, meta['L'], meta['S'], meta['H'], :]
-                perplex, usage_pct = calc_perplexity_and_usage(idx_slice, vocab_size)
+                perplex, usage_pct = calc_perplexity_and_usage(idx_slice, vq_head_vocab_size)
             except Exception:
                 pass # Indices structure might not match name structure perfectly
         
@@ -359,8 +359,8 @@ def main():
         ax1.set_xticks(range(H))
         
         # 2. Plot Perplexity
-        # Use theoretical max (vocab_size)
-        im2 = ax2.imshow(perp_unrolled, cmap='magma', vmin=0, vmax=vocab_size, aspect='auto')
+        # Use theoretical max (vq_head_vocab_size)
+        im2 = ax2.imshow(perp_unrolled, cmap='magma', vmin=0, vmax=vq_head_vocab_size, aspect='auto')
         plt.colorbar(im2, ax=ax2, label='Perplexity')
         ax2.set_title("Codebook Perplexity")
         ax2.set_xlabel("Head")

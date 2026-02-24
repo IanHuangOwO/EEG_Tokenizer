@@ -24,7 +24,7 @@ def run_viz():
     
     # Dataset
     transform = build_preprocessing_from_config(config)
-    dataset = build_dataset_from_config(config, transform=transform)
+    dataset = build_dataset_from_config(config, transform=transform, mode='base')
     
     if len(dataset.subject_list) == 0: return
     
