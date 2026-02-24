@@ -262,7 +262,7 @@ def main():
         plotter.plot()
         
         # Periodic Checkpoint
-        if epoch % 10 == 0:
+        if epoch % 25 == 0:
             ckpt_path = os.path.join(checkpoint_dir, f'epoch_{epoch}.pth')
             torch.save({
                 'epoch': epoch,

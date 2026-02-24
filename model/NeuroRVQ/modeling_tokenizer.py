@@ -30,9 +30,9 @@ class TemporalEncoder(nn.Module):
     Dynamically extracts features from EEG patches across multiple scales.
     Supports multivariate sensors.
     """
-    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4):
+    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, in_scales=4):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.in_chans = in_chans
         
         # Stem
@@ -48,7 +48,7 @@ class TemporalEncoder(nn.Module):
         current_filters = base_filters
         current_t = 200 # Base assumption for 1s patch at 200Hz
         
-        for i in range(num_scales):
+        for i in range(in_scales):
             stride = 1 if i == 0 else 2
             out_filters = current_filters if i == 0 else current_filters * 2
             
@@ -101,13 +101,13 @@ class TransformerEncoder(nn.Module):
 # --- 3. Residual VQ (RVQ) ---
 
 class VectorQuantizer(nn.Module):
-    def __init__(self, n_e, e_dim, beta=0.25):
+    def __init__(self, vocab_size, e_dim, beta=0.25):
         super().__init__()
-        self.n_e = n_e
+        self.vocab_size = vocab_size
         self.e_dim = e_dim
         self.beta = beta
 
-        self.embedding = nn.Embedding(self.n_e, self.e_dim)
+        self.embedding = nn.Embedding(self.vocab_size, self.e_dim)
         self.embedding.weight.data.normal_(mean=0.0, std=0.02)
 
     def forward(self, z):
@@ -126,10 +126,10 @@ class VectorQuantizer(nn.Module):
         return z_q, loss, indices.view(z.shape[0], z.shape[1], 1)
 
 class ResidualVQ(nn.Module):
-    def __init__(self, num_quantizers, n_e, e_dim, beta=0.25):
+    def __init__(self, num_quantizers, vocab_size, e_dim, beta=0.25):
         super().__init__()
         self.layers = nn.ModuleList([
-            VectorQuantizer(n_e, e_dim, beta) for _ in range(num_quantizers)
+            VectorQuantizer(vocab_size, e_dim, beta) for _ in range(num_quantizers)
         ])
 
     def forward(self, z):
@@ -163,7 +163,7 @@ class NeuroRVQTokenizer(nn.Module):
         dec_depth=3, 
         dec_heads=10,
         dec_mlp_ratio=4.,
-        num_scales=4,
+        in_scales=4,
         n_codebooks=8, 
         vocab_size=512,
         freq_resolution=1.0,
@@ -173,7 +173,7 @@ class NeuroRVQTokenizer(nn.Module):
     ):
         super().__init__()
         
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.embed_dim = embed_dim
         self.freq_resolution = freq_resolution
         self.min_freq = min_freq
@@ -187,7 +187,7 @@ class NeuroRVQTokenizer(nn.Module):
         self.n_fft = int(self.fs / freq_resolution)
         
         # 1. Dynamic Temporal Encoder
-        self.temporal_encoder = TemporalEncoder(in_chans, embed_dim, num_scales=num_scales)
+        self.temporal_encoder = TemporalEncoder(in_chans, embed_dim, in_scales=in_scales)
         
         # Spatial Embeddings
         self.spatial_mlp = nn.Sequential(
@@ -203,7 +203,7 @@ class NeuroRVQTokenizer(nn.Module):
         
         # 3. Multi-Branch RVQ
         self.rvqs = nn.ModuleList([
-            ResidualVQ(n_codebooks, vocab_size, embed_dim) for _ in range(num_scales)
+            ResidualVQ(n_codebooks, vocab_size, embed_dim) for _ in range(in_scales)
         ])
         
         # 4. Decoder
@@ -220,7 +220,7 @@ class NeuroRVQTokenizer(nn.Module):
             B, N, T = x.shape
             C = 1
             
-        S = self.num_scales
+        S = self.in_scales
         
         ms_features = self.temporal_encoder(x) 
         spatial_emb = self.spatial_mlp(coords) 

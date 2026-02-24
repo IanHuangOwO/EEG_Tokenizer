@@ -33,7 +33,7 @@ def get_latent_embeddings(model, x, coords):
         ms_features = model.temporal_encoder(x) 
         spatial_emb = model.spatial_mlp(coords) 
         
-        S = model.num_scales
+        S = model.in_scales
         B, N, _ = x.shape
         
         # Combine scales

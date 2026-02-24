@@ -27,9 +27,9 @@ class ResBlock1D(nn.Module):
         return x
 
 class MultiScaleTemporalEncoder(nn.Module):
-    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4, input_length=200):
+    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, in_scales=4, input_length=200):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.in_chans = in_chans
         
         self.stem = nn.Sequential(
@@ -41,7 +41,7 @@ class MultiScaleTemporalEncoder(nn.Module):
         self.projections = nn.ModuleList()
         current_filters = base_filters
         current_t = input_length 
-        for i in range(num_scales):
+        for i in range(in_scales):
             stride = 1 if i == 0 else 2
             out_filters = current_filters if i == 0 else current_filters * 2
             self.layers.append(ResBlock1D(current_filters, out_filters, stride=stride))
@@ -57,9 +57,9 @@ class MultiScaleTemporalEncoder(nn.Module):
                 nn.Linear(embed_dim, embed_dim),
                 nn.SiLU(), 
                 nn.Linear(embed_dim, embed_dim)
-            ) for _ in range(num_scales - 1)
+            ) for _ in range(in_scales - 1)
         ])
-        self.gates = nn.Parameter(torch.zeros(num_scales - 1)) 
+        self.gates = nn.Parameter(torch.zeros(in_scales - 1)) 
 
     def forward(self, x):
         if x.dim() == 4:
@@ -78,9 +78,9 @@ class MultiScaleTemporalEncoder(nn.Module):
             emb = proj(flat).view(B, N, -1) 
             raw_features.append(emb)
         context = raw_features[-1] 
-        refined_features = [None] * self.num_scales
+        refined_features = [None] * self.in_scales
         refined_features[-1] = context
-        for i in range(self.num_scales - 2, -1, -1):
+        for i in range(self.in_scales - 2, -1, -1):
             target = raw_features[i]
             context_proj = self.adapters[i](context)
             gate = torch.sigmoid(self.gates[i])
@@ -114,14 +114,14 @@ class BatchLinear(nn.Module):
     Weight: (Scales, In_Dim, Out_Dim)
     Output: (Scales, Batch, Out_Dim)
     """
-    def __init__(self, num_scales, in_features, out_features):
+    def __init__(self, in_scales, in_features, out_features):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.in_features = in_features
         self.out_features = out_features
         
-        self.weight = nn.Parameter(torch.empty(num_scales, in_features, out_features))
-        self.bias = nn.Parameter(torch.empty(num_scales, out_features))
+        self.weight = nn.Parameter(torch.empty(in_scales, in_features, out_features))
+        self.bias = nn.Parameter(torch.empty(in_scales, out_features))
         
         # Init like nn.Linear
         nn.init.kaiming_uniform_(self.weight, a=5**0.5)
@@ -138,28 +138,28 @@ class VectorizedFiniteScalarQuantizer(nn.Module):
     """
     Vectorized FSQ that processes all scales in parallel.
     """
-    def __init__(self, num_scales, levels, embed_dim, dim):
+    def __init__(self, in_scales, levels, embed_dim, dim):
         super().__init__()
         self.register_buffer("levels", torch.tensor(levels, dtype=torch.int32))
         self.register_buffer("basis", torch.cumprod(torch.tensor([1] + levels[:-1]), dim=0, dtype=torch.int32))
         self.dim = dim
         self.embed_dim = embed_dim
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         
         hidden_dim = embed_dim * 2
         
         # Batch MLP Projection In
         self.project_in = nn.Sequential(
-            BatchLinear(num_scales, embed_dim, hidden_dim),
+            BatchLinear(in_scales, embed_dim, hidden_dim),
             nn.GELU(),
-            BatchLinear(num_scales, hidden_dim, dim)
+            BatchLinear(in_scales, hidden_dim, dim)
         )
         
         # Batch MLP Projection Out
         self.project_out = nn.Sequential(
-            BatchLinear(num_scales, dim, hidden_dim),
+            BatchLinear(in_scales, dim, hidden_dim),
             nn.GELU(),
-            BatchLinear(num_scales, hidden_dim, embed_dim)
+            BatchLinear(in_scales, hidden_dim, embed_dim)
         )
         
         self.register_buffer("half_width", (self.levels - 1) / 2)
@@ -188,14 +188,14 @@ class RecurrentFSQ(nn.Module):
     """
     Vectorized Recurrent FSQ.
     """
-    def __init__(self, num_scales, num_recurrent_steps, levels, embed_dim):
+    def __init__(self, in_scales, num_recurrent_steps, levels, embed_dim):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.num_recurrent_steps = num_recurrent_steps
         self.dim = len(levels)
         
         # Single Vectorized Module
-        self.fsq = VectorizedFiniteScalarQuantizer(num_scales, levels, embed_dim, self.dim)
+        self.fsq = VectorizedFiniteScalarQuantizer(in_scales, levels, embed_dim, self.dim)
 
     def forward(self, z):
         # z: (S, B, N, D)
@@ -238,7 +238,7 @@ class RecurrentFSQTokenizer(nn.Module):
         dec_depth=3, 
         dec_heads=10,
         dec_mlp_ratio=4.,
-        num_scales=4,
+        in_scales=4,
         num_recurrent_steps=8, 
         fsq_levels=[8, 5, 5, 5], # Example levels, total codebook size = 8*5*5*5 = 1000
         freq_resolution=1.0,
@@ -249,7 +249,7 @@ class RecurrentFSQTokenizer(nn.Module):
     ):
         super().__init__()
         
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.embed_dim = embed_dim
         self.freq_resolution = freq_resolution
         self.min_freq = min_freq
@@ -262,7 +262,7 @@ class RecurrentFSQTokenizer(nn.Module):
         
         # 1. Temporal Encoder
         self.temporal_encoder = MultiScaleTemporalEncoder(
-            in_chans, embed_dim, num_scales=num_scales, input_length=input_length
+            in_chans, embed_dim, in_scales=in_scales, input_length=input_length
         )
         
         # Fixed Spatial Embeddings
@@ -279,7 +279,7 @@ class RecurrentFSQTokenizer(nn.Module):
         
         # 3. Vectorized Multi-Scale Recurrent FSQ
         self.fsq = RecurrentFSQ(
-            num_scales=num_scales,
+            in_scales=in_scales,
             num_recurrent_steps=num_recurrent_steps,
             levels=fsq_levels,
             embed_dim=embed_dim
@@ -298,7 +298,7 @@ class RecurrentFSQTokenizer(nn.Module):
         else:
             B, N, T = x.shape
             C = 1
-        S = self.num_scales
+        S = self.in_scales
         ms_features = self.temporal_encoder(x) 
         spatial_emb = self.spatial_mlp(coords) 
         h_all = torch.stack(ms_features, dim=0) + spatial_emb.unsqueeze(0) 

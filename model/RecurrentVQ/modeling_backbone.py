@@ -101,7 +101,7 @@ class RecurrentVQBackbone(nn.Module):
         dec_depth=4,
         dec_heads=10,
         vocab_size=8192,
-        num_scales=4,
+        in_scales=4,
         num_recurrent_steps=8,
         dropout=0.1,
         in_chans=1
@@ -133,7 +133,7 @@ class RecurrentVQBackbone(nn.Module):
         ])
         self.dec_norm = nn.LayerNorm(embed_dim)
         
-        self.total_codes = num_scales * num_recurrent_steps
+        self.total_codes = in_scales * num_recurrent_steps
         
         # 6. Prediction Heads
         self.heads = nn.ModuleList([

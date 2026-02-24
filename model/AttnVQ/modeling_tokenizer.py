@@ -9,16 +9,16 @@ class MultiScaleTemporalEncoder(nn.Module):
     Features are fused via a lightweight parameter-free FPN (CumSum).
     Heavier interaction is left to the Transformer.
     """
-    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4, input_length=200):
+    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, in_scales=4, input_length=200):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.branches = nn.ModuleList()
         self.projections = nn.ModuleList()
         
         # Kernel sizes: 3, 7, 15, 31, 63...
         kernel_sizes = [3, 7, 15, 31, 63]
         
-        for i in range(num_scales):
+        for i in range(in_scales):
             # Scale-specific parameters
             k = kernel_sizes[min(i, len(kernel_sizes)-1)]
             stride = 2**i # 1, 2, 4, 8...
@@ -102,23 +102,23 @@ class AttnVQ(nn.Module):
     3. Reconstruction: Weighted Sum (Softmax weights)
     4. Regularization: Orthogonal Loss per Head
     """
-    def __init__(self, num_scales, num_heads, vocab_size, e_dim, top_k=8, temperature=1.0):
+    def __init__(self, in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k=8, temperature=1.0):
         super().__init__()
         assert e_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
         
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.num_heads = num_heads
-        self.vocab_size = vocab_size
+        self.vq_head_vocab_size = vq_head_vocab_size
         self.e_dim = e_dim
         self.head_dim = e_dim // num_heads
-        self.top_k = top_k
+        self.vq_head_top_k = vq_head_top_k
         
         # Learnable Temperature
         # (S, H, 1, 1)
-        self.temperature = nn.Parameter(torch.ones(num_scales, num_heads, 1, 1) * temperature)
+        self.temperature = nn.Parameter(torch.ones(in_scales, num_heads, 1, 1) * temperature)
 
         # Codebooks: (S, H, Vocab_Size, Head_Dim)
-        self.embedding = nn.Parameter(torch.empty(num_scales, num_heads, vocab_size, self.head_dim))
+        self.embedding = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
         nn.init.xavier_uniform_(self.embedding)
 
     def forward(self, z):
@@ -138,7 +138,7 @@ class AttnVQ(nn.Module):
         
         # --- 2. Top-K Selection (Sparse) ---
         # indices: (S, B, C, H, K)
-        top_vals, indices = torch.topk(logits, k=self.top_k, dim=-1)
+        top_vals, indices = torch.topk(logits, k=self.vq_head_top_k, dim=-1)
         
         # --- 3. Soft-Weighted Mixing ---
         # Temp: (S, H, 1, 1) -> (S, 1, 1, H, 1) to match (S, B, C, H, K)
@@ -157,8 +157,8 @@ class AttnVQ(nn.Module):
         s_idx = torch.arange(S, device=z.device).view(S, 1, 1, 1, 1)
         h_idx = torch.arange(H, device=z.device).view(1, 1, 1, H, 1)
         
-        flat_offset = s_idx * (H * self.vocab_size) + h_idx * self.vocab_size
-        flat_indices = (indices + flat_offset).view(-1, self.top_k) # (S*B*C*H, K)
+        flat_offset = s_idx * (H * self.vq_head_vocab_size) + h_idx * self.vq_head_vocab_size
+        flat_indices = (indices + flat_offset).view(-1, self.vq_head_top_k) # (S*B*C*H, K)
         
         flat_embedding = self.embedding.view(-1, D_h) # (S*H*V, D_h)
         
@@ -166,7 +166,7 @@ class AttnVQ(nn.Module):
         selected_vectors = F.embedding(flat_indices, flat_embedding)
         
         # Reshape: (S, B, C, H, K, D_h)
-        selected_vectors = selected_vectors.view(S, B, C, H, self.top_k, D_h)
+        selected_vectors = selected_vectors.view(S, B, C, H, self.vq_head_top_k, D_h)
         
         # Weighted Sum: (S, B, C, H, D_h)
         # weights: (S, B, C, H, K) -> (..., K, 1)
@@ -195,7 +195,7 @@ class AttnVQ(nn.Module):
         gram = torch.matmul(vectors_norm, vectors_norm.transpose(-1, -2))
         
         # Identity
-        I = torch.eye(self.vocab_size, device=gram.device).view(1, 1, self.vocab_size, self.vocab_size)
+        I = torch.eye(self.vq_head_vocab_size, device=gram.device).view(1, 1, self.vq_head_vocab_size, self.vq_head_vocab_size)
         off_diag = gram * (1 - I)
         
         loss = F.relu(off_diag.abs() - threshold).pow(2).mean()
@@ -215,10 +215,10 @@ class AttnVQTokenizer(nn.Module):
         dec_depth=3, 
         dec_heads=10,
         dec_mlp_ratio=4.,
-        num_scales=4,
-        top_k=8,
-        vq_heads=8,
-        vocab_size=512,
+        in_scales=4,
+        vq_head_top_k=8,
+        vq_head_num=8,
+        vq_head_vocab_size=512,
         freq_resolution=1.0,
         min_freq=0.0,
         max_freq=100.0,
@@ -227,10 +227,10 @@ class AttnVQTokenizer(nn.Module):
     ):
         super().__init__()
         
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.embed_dim = embed_dim
-        self.vocab_size = vocab_size
-        self.vq_heads = vq_heads 
+        self.vq_head_vocab_size = vq_head_vocab_size
+        self.vq_head_num = vq_head_num 
         self.freq_resolution = freq_resolution
         self.min_freq = min_freq
         self.max_freq = max_freq
@@ -248,7 +248,7 @@ class AttnVQTokenizer(nn.Module):
         
         # 1. Temporal Encoder
         self.temporal_encoder = MultiScaleTemporalEncoder(
-            in_chans, embed_dim, num_scales=num_scales, input_length=input_length
+            in_chans, embed_dim, in_scales=in_scales, input_length=input_length
         )
         
         # Fixed Spatial Embeddings
@@ -265,11 +265,11 @@ class AttnVQTokenizer(nn.Module):
         
         # 3. AttnVQ Module
         self.attnvq = AttnVQ(
-            num_scales=num_scales,
-            num_heads=self.vq_heads,
-            vocab_size=vocab_size,
+            in_scales=in_scales,
+            num_heads=self.vq_head_num,
+            vq_head_vocab_size=vq_head_vocab_size,
             e_dim=embed_dim,
-            top_k=top_k
+            vq_head_top_k=vq_head_top_k
         )
         
         # 4. Decoder
@@ -281,7 +281,7 @@ class AttnVQTokenizer(nn.Module):
 
     def forward(self, x, coords):
         B, C, T = x.shape
-        S = self.num_scales
+        S = self.in_scales
         
         # 1. Extract Multi-Scale Features
         ms_features = self.temporal_encoder(x) # List of (B, C, D)
@@ -390,8 +390,8 @@ class AttnVQTokenizer(nn.Module):
         """
         codebooks = []
         # embedding: (S, H, N_E, D_h)
-        for s in range(self.num_scales):
-            for h in range(self.vq_heads):
+        for s in range(self.in_scales):
+            for h in range(self.vq_head_num):
                 cb = self.attnvq.embedding[s, h].detach().cpu()
                 name = f"S{s}_H{h}"
                 codebooks.append((cb, name))

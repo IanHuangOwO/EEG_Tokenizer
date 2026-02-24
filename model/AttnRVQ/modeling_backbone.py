@@ -100,8 +100,8 @@ class AttnRVQBackbone(nn.Module):
         enc_heads=10,
         dec_depth=4,
         dec_heads=10,
-        vocab_size=8192,
-        num_scales=4,
+        vq_head_vocab_size=8192,
+        in_scales=4,
         num_recurrent_steps=8,
         dropout=0.1,
         in_chans=1
@@ -133,11 +133,11 @@ class AttnRVQBackbone(nn.Module):
         ])
         self.dec_norm = nn.LayerNorm(embed_dim)
         
-        self.total_codes = num_scales * num_recurrent_steps
+        self.total_codes = in_scales * num_recurrent_steps
         
         # 6. Prediction Heads
         self.heads = nn.ModuleList([
-            nn.Linear(embed_dim, vocab_size) for _ in range(self.total_codes)
+            nn.Linear(embed_dim, vq_head_vocab_size) for _ in range(self.total_codes)
         ])
         
         self._init_weights()
@@ -202,6 +202,6 @@ def attnrvq_base_patch200():
         enc_depth=12,
         enc_heads=10,
         dec_depth=4,
-        vocab_size=8192,
+        vq_head_vocab_size=8192,
         num_recurrent_steps=8
     )

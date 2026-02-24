@@ -47,9 +47,9 @@ class MultiScaleTemporalEncoder(nn.Module):
     """
     Extracts features at multiple time-scales and fuses them via a Top-Down Bridge.
     """
-    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4, input_length=200, kernel_sizes=[3, 5, 11]):
+    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, in_scales=4, input_length=200, kernel_sizes=[3, 5, 11]):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.in_chans = in_chans
         
         # --- 1. The Bottom-Up Pathway ---
@@ -65,7 +65,7 @@ class MultiScaleTemporalEncoder(nn.Module):
         current_filters = base_filters
         current_t = input_length 
         
-        for i in range(num_scales):
+        for i in range(in_scales):
             stride = 1 if i == 0 else 2
             out_filters = current_filters if i == 0 else current_filters * 2
             
@@ -134,31 +134,31 @@ class AttnRVQ(nn.Module):
     """
     Multi-Head Sparse Attention VQ with Independent Codebooks per Head.
     """
-    def __init__(self, num_scales, num_heads, n_e, e_dim, top_k=8, temperature=5):
+    def __init__(self, in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k=8, temperature=5):
         super().__init__()
         assert e_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
         
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.num_heads = num_heads
-        self.n_e = n_e
+        self.vq_head_vocab_size = vq_head_vocab_size
         self.e_dim = e_dim
         self.head_dim = e_dim // num_heads
-        self.top_k = top_k
+        self.vq_head_top_k = vq_head_top_k
         
         # Temperature per scale and head
-        self.temperature = nn.Parameter(torch.ones(num_scales, num_heads, 1, 1) * temperature)
+        self.temperature = nn.Parameter(torch.ones(in_scales, num_heads, 1, 1) * temperature)
 
-        # Keys (Selection): (S, H, N_E, D_head)
-        self.key_embeddings = nn.Parameter(torch.empty(num_scales, num_heads, n_e, self.head_dim))
-        nn.init.uniform_(self.key_embeddings, -1.0 / n_e, 1.0 / n_e)
+        # Keys (Selection): (S, H, V, D_head)
+        self.key_embeddings = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
+        nn.init.uniform_(self.key_embeddings, -1.0 / vq_head_vocab_size, 1.0 / vq_head_vocab_size)
         
-        # Values (Content): (S, H, N_E, D_head)
-        self.value_embeddings = nn.Parameter(torch.empty(num_scales, num_heads, n_e, self.head_dim))
+        # Values (Content): (S, H, V, D_head)
+        self.value_embeddings = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
         nn.init.normal_(self.value_embeddings, std=0.02)
 
     def forward(self, z):
         # Input z: (S*B, N, D)
-        S, H, V, D_h = self.num_scales, self.num_heads, self.n_e, self.head_dim
+        S, H, V, D_h = self.in_scales, self.num_heads, self.vq_head_vocab_size, self.head_dim
         SB, N, D = z.shape
         B = SB // S
         
@@ -172,11 +172,11 @@ class AttnRVQ(nn.Module):
         logits = torch.einsum('sbnhd,shvd->sbnhv', z_reshaped, self.key_embeddings)
         
         # --- 2. Top-K Selection ---
-        top_vals, indices = torch.topk(logits, k=self.top_k, dim=-1) # (S, B, N, H, K)
+        top_vals, indices = torch.topk(logits, k=self.vq_head_top_k, dim=-1) # (S, B, N, H, K)
         
         # --- 3. Weighted Mixing ---
         # temperature is (S, H, 1, 1). We need it to be (S, 1, 1, H, 1) to broadcast with (S, B, N, H, K)
-        temp_broadcast = self.temperature.view(self.num_scales, 1, 1, self.num_heads, 1)
+        temp_broadcast = self.temperature.view(self.in_scales, 1, 1, self.num_heads, 1)
         weights = F.softmax(top_vals / temp_broadcast.clamp(min=1e-3), dim=-1) # (S, B, N, H, K)
         
         # --- 4. Reconstruction ---
@@ -185,12 +185,12 @@ class AttnRVQ(nn.Module):
         h_idx = torch.arange(H, device=z.device).view(1, 1, 1, H, 1)
         offset = s_idx * (H * V) + h_idx * V 
         
-        global_indices = (indices + offset).view(-1, self.top_k)
+        global_indices = (indices + offset).view(-1, self.vq_head_top_k)
         flat_values = self.value_embeddings.view(-1, D_h)
         
         # Gathered: (S*B*N*H, K, D_h)
         selected_vectors = F.embedding(global_indices, flat_values)
-        selected_vectors = selected_vectors.view(S, B, N, H, self.top_k, D_h)
+        selected_vectors = selected_vectors.view(S, B, N, H, self.vq_head_top_k, D_h)
         
         # Weighted Sum: (S, B, N, H, D_h)
         z_q = torch.einsum('sbnhk,sbnhkd->sbnhd', weights, selected_vectors)
@@ -208,7 +208,7 @@ class AttnRVQ(nn.Module):
     def orthogonal_loss(self):
         # Vectorized implementation
         # key_embeddings: (S, H, V, D_h) -> (S*H, V, D_h)
-        vectors = self.key_embeddings.view(-1, self.n_e, self.head_dim)
+        vectors = self.key_embeddings.view(-1, self.vq_head_vocab_size, self.head_dim)
         
         # Normalize: (S*H, V, D_h)
         vectors_norm = F.normalize(vectors, p=2, dim=-1)
@@ -217,7 +217,7 @@ class AttnRVQ(nn.Module):
         gram = torch.bmm(vectors_norm, vectors_norm.transpose(1, 2))
         
         # Identity Mask: (1, V, V) - broadcasts to (S*H, V, V)
-        identity = torch.eye(self.n_e, device=gram.device).unsqueeze(0)
+        identity = torch.eye(self.vq_head_vocab_size, device=gram.device).unsqueeze(0)
         
         # Off-diagonal elements
         off_diag = gram * (1 - identity)
@@ -229,10 +229,10 @@ class AttnRVQ(nn.Module):
         return loss
 
 class AttnRVQEncoderLayer(nn.Module):
-    def __init__(self, embed_dim, num_heads, num_scales, n_e, top_k, mlp_ratio=4., drop=0.):
+    def __init__(self, embed_dim, num_heads, in_scales, vq_head_vocab_size, vq_head_top_k, mlp_ratio=4., drop=0.):
         super().__init__()
         self.norm1 = nn.LayerNorm(embed_dim)
-        self.attnrvq_vq = AttnRVQ(num_scales, num_heads, n_e, embed_dim, top_k)
+        self.attnrvq_vq = AttnRVQ(in_scales, num_heads, vq_head_vocab_size, embed_dim, vq_head_top_k)
         self.norm2 = nn.LayerNorm(embed_dim)
         self.mlp = MLP(in_features=embed_dim, hidden_features=int(embed_dim * mlp_ratio), drop=drop)
 
@@ -249,10 +249,10 @@ class AttnRVQEncoderLayer(nn.Module):
         return x, z_q, loss, indices
 
 class AttnRVQTransformer(nn.Module):
-    def __init__(self, embed_dim, depth, num_heads, num_scales, n_e, top_k, mlp_ratio=4., drop_rate=0.):
+    def __init__(self, embed_dim, depth, num_heads, in_scales, vq_head_vocab_size, vq_head_top_k, mlp_ratio=4., drop_rate=0.):
         super().__init__()
         self.layers = nn.ModuleList([
-            AttnRVQEncoderLayer(embed_dim, num_heads, num_scales, n_e, top_k, mlp_ratio, drop_rate)
+            AttnRVQEncoderLayer(embed_dim, num_heads, in_scales, vq_head_vocab_size, vq_head_top_k, mlp_ratio, drop_rate)
             for _ in range(depth)
         ])
 
@@ -274,19 +274,19 @@ class TopDownFPN(nn.Module):
     """
     Fuses features from Coarse (High Index) to Fine (Low Index) scales.
     """
-    def __init__(self, num_scales, embed_dim):
+    def __init__(self, in_scales, embed_dim):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.adapters = nn.ModuleList([
-            nn.Linear(embed_dim, embed_dim) for _ in range(num_scales - 1)
+            nn.Linear(embed_dim, embed_dim) for _ in range(in_scales - 1)
         ])
-        self.gates = nn.Parameter(torch.zeros(num_scales - 1))
+        self.gates = nn.Parameter(torch.zeros(in_scales - 1))
 
     def forward(self, features):
         # features: (S, B, N, D)
         scales = list(features.unbind(0))
         context = scales[-1]
-        for i in range(self.num_scales - 2, -1, -1):
+        for i in range(self.in_scales - 2, -1, -1):
             proj_ctx = self.adapters[i](context)
             gate = torch.sigmoid(self.gates[i])
             scales[i] = scales[i] + gate * proj_ctx
@@ -306,9 +306,9 @@ class AttnRVQTokenizer(nn.Module):
         dec_depth=3, 
         dec_heads=10,
         dec_mlp_ratio=4.,
-        num_scales=4,
-        top_k=8,
-        vocab_size=512,
+        in_scales=4,
+        vq_head_top_k=8,
+        vq_head_vocab_size=512,
         freq_resolution=1.0,
         min_freq=0.0,
         max_freq=100.0,
@@ -317,7 +317,7 @@ class AttnRVQTokenizer(nn.Module):
         kernel_sizes=[3, 5, 11]
     ):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.embed_dim = embed_dim
         self.fs = fs
         self.fft_dim = int(round((max_freq - min_freq) / freq_resolution)) + 1 
@@ -330,7 +330,7 @@ class AttnRVQTokenizer(nn.Module):
         
         # 1. Multi-Scale Feature Extraction
         self.temporal_encoder = MultiScaleTemporalEncoder(
-            in_chans, embed_dim, num_scales=num_scales, input_length=input_length, kernel_sizes=kernel_sizes
+            in_chans, embed_dim, in_scales=in_scales, input_length=input_length, kernel_sizes=kernel_sizes
         )
         
         self.spatial_mlp = nn.Sequential(nn.Linear(3, embed_dim), nn.GELU(), nn.Linear(embed_dim, embed_dim))
@@ -338,12 +338,12 @@ class AttnRVQTokenizer(nn.Module):
         nn.init.zeros_(self.spatial_mlp[-1].bias)
         
         # Use AttnRVQTransformer as the encoder
-        self.attnrvq_encoder = AttnRVQTransformer(embed_dim, enc_depth, enc_heads, num_scales, vocab_size, top_k, enc_mlp_ratio)
+        self.attnrvq_encoder = AttnRVQTransformer(embed_dim, enc_depth, enc_heads, in_scales, vq_head_vocab_size, vq_head_top_k, enc_mlp_ratio)
         
         self.transformer_decoder = TransformerDecoder(embed_dim, dec_depth, dec_heads, mlp_ratio=dec_mlp_ratio) 
         
         # 5. FPN
-        self.fpn = TopDownFPN(num_scales, embed_dim)
+        self.fpn = TopDownFPN(in_scales, embed_dim)
         
         self.head_amp = nn.Linear(embed_dim, self.fft_dim)
         self.head_sin = nn.Linear(embed_dim, self.fft_dim)
@@ -351,7 +351,7 @@ class AttnRVQTokenizer(nn.Module):
 
     def forward(self, x, coords):
         B, N, T = x.shape
-        S = self.num_scales
+        S = self.in_scales
         
         # Feature Extraction
         ms_features = self.temporal_encoder(x) 

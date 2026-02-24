@@ -30,9 +30,9 @@ class MultiScaleTemporalEncoder(nn.Module):
     Now includes an internal Top-Down Bridge (FPN) to fuse scales.
     """
     # [FIX] Added input_length parameter to remove hardcoded '200'
-    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, num_scales=4, input_length=200):
+    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, in_scales=4, input_length=200):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.in_chans = in_chans
         
         # --- 1. The Bottom-Up Pathway (Your original CNNs) ---
@@ -48,7 +48,7 @@ class MultiScaleTemporalEncoder(nn.Module):
         current_filters = base_filters
         current_t = input_length 
         
-        for i in range(num_scales):
+        for i in range(in_scales):
             stride = 1 if i == 0 else 2
             out_filters = current_filters if i == 0 else current_filters * 2
             
@@ -71,17 +71,17 @@ class MultiScaleTemporalEncoder(nn.Module):
 
 
         # --- 2. The Top-Down Pathway (The New Bridge) ---
-        # We need (num_scales - 1) adapters because the deepest scale has no parent.
+        # We need (in_scales - 1) adapters because the deepest scale has no parent.
         self.adapters = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(embed_dim, embed_dim),
                 nn.SiLU(), 
                 nn.Linear(embed_dim, embed_dim)
-            ) for _ in range(num_scales - 1)
+            ) for _ in range(in_scales - 1)
         ])
         
         # Learnable Gates: Initialize to 0 so we start with pure features
-        self.gates = nn.Parameter(torch.zeros(num_scales - 1)) 
+        self.gates = nn.Parameter(torch.zeros(in_scales - 1)) 
 
 
     def forward(self, x):
@@ -110,11 +110,11 @@ class MultiScaleTemporalEncoder(nn.Module):
         context = raw_features[-1] 
         
         # Create output list, pre-filled with the deepest scale (it doesn't change)
-        refined_features = [None] * self.num_scales
+        refined_features = [None] * self.in_scales
         refined_features[-1] = context
         
         # Loop backwards: S2 -> S1 -> S0
-        for i in range(self.num_scales - 2, -1, -1):
+        for i in range(self.in_scales - 2, -1, -1):
             target = raw_features[i]
             
             # 1. Adapt Context (S_i+1) for Scale S_i
@@ -160,16 +160,16 @@ class VectorizedMultiScaleRVQ(nn.Module):
     Vectorized Recurrent VQ that processes all scales in parallel using SEPARATE codebooks per scale.
     Input: (Num_Scales, Batch, Channels, Dim)
     """
-    def __init__(self, num_scales, num_recurrent_steps, n_e, e_dim, beta=0.25):
+    def __init__(self, in_scales, num_recurrent_steps, vocab_size, e_dim, beta=0.25):
         super().__init__()
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.num_recurrent_steps = num_recurrent_steps
-        self.n_e = n_e
+        self.vocab_size = vocab_size
         self.e_dim = e_dim
         self.beta = beta
 
         # Separate Codebooks: (S, N_E, D)
-        self.embedding = nn.Parameter(torch.empty(num_scales, n_e, e_dim))
+        self.embedding = nn.Parameter(torch.empty(in_scales, vocab_size, e_dim))
         self.embedding.data.normal_(mean=0.0, std=0.02)
 
     def forward(self, z):
@@ -240,7 +240,7 @@ class RecurrentVQTokenizer(nn.Module):
         dec_depth=3, 
         dec_heads=10,
         dec_mlp_ratio=4.,
-        num_scales=4,
+        in_scales=4,
         num_recurrent_steps=8, 
         vocab_size=512,
         freq_resolution=1.0,
@@ -251,7 +251,7 @@ class RecurrentVQTokenizer(nn.Module):
     ):
         super().__init__()
         
-        self.num_scales = num_scales
+        self.in_scales = in_scales
         self.embed_dim = embed_dim
         self.freq_resolution = freq_resolution
         self.min_freq = min_freq
@@ -271,7 +271,7 @@ class RecurrentVQTokenizer(nn.Module):
         
         # 1. Temporal Encoder
         self.temporal_encoder = MultiScaleTemporalEncoder(
-            in_chans, embed_dim, num_scales=num_scales, input_length=input_length
+            in_chans, embed_dim, in_scales=in_scales, input_length=input_length
         )
         
         # Fixed Spatial Embeddings
@@ -288,9 +288,9 @@ class RecurrentVQTokenizer(nn.Module):
         
         # 3. Vectorized Multi-Scale RVQ (Parallelized)
         self.rvq = VectorizedMultiScaleRVQ(
-            num_scales=num_scales,
+            in_scales=in_scales,
             num_recurrent_steps=num_recurrent_steps,
-            n_e=vocab_size,
+            vq_head_vocab_size=vocab_size,
             e_dim=embed_dim
         )
         
@@ -307,7 +307,7 @@ class RecurrentVQTokenizer(nn.Module):
         else:
             B, N, T = x.shape
             C = 1
-        S = self.num_scales
+        S = self.in_scales
         
         # 1. Extract Multi-Scale Features
         ms_features = self.temporal_encoder(x) 
@@ -433,7 +433,7 @@ class RecurrentVQTokenizer(nn.Module):
         emb = self.rvq.embedding
         steps = self.rvq.num_recurrent_steps
         
-        for s in range(emb.shape[0]):
+        for s in range(self.in_scales):
             cb = emb[s].detach().cpu()
             for l in range(steps):
                 name = f"S{s}_L{l}_H0"
