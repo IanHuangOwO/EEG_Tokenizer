@@ -43,7 +43,7 @@ def collect_indices(model, loader, device, max_batches=None):
         for i, batch in enumerate(tqdm(loader, total=total_steps)):
             if max_batches is not None and i >= max_batches: break
             x, coords, _ = [t.to(device) for t in batch]
-            idx = model.get_indices(x, coords) # (B*N, ...)
+            idx, _ = model.get_indices(x, coords) # (B*N, ...)
             if idx is not None:
                 indices_acc.append(idx.cpu())
                 

@@ -29,7 +29,8 @@ def run_viz():
     if len(dataset.subject_list) == 0: return
     
     # Pick Random Subject
-    subj = random.choice(dataset.subject_list)
+    # subj = random.choice(dataset.subject_list)
+    subj = 36
     print(f"Running visualizations for Subject {subj}...")
     
     # 1. Raw EEG (Single Trial)

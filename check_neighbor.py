@@ -18,7 +18,7 @@ def main():
 
     # 3. Create Preprocessor and Dataset
     # We want one subject and minimal trials for this check
-    config['dataset_params']['subjects'] = [config['dataset_params']['subjects'][0]]
+    config['dataset_params']['subjects'] = [config['dataset_params']['subjects'][20]]
     config['dataset_params']['trials_to_use'] = 1
     
     # Load Metadata to get Sample_Frequency
@@ -58,8 +58,15 @@ def main():
     model.eval()
 
     # 5. Get a sample (One trial/patch)
-    # TokenizerWrapperDataset returns (patch, coords, label)
-    patch, coords, _ = dataset[0]
+    patch_idx = 0
+    patch, coords, _ = dataset[patch_idx]
+    
+    # Logic to find which Subject this belongs to
+    # dataset is a TokenizerWrapperDataset, dataset.base_dataset is EEGDataset
+    trial_idx = patch_idx // dataset.patches_per_trial
+    subject_id = dataset.base_dataset.subject_data[trial_idx].item()
+    
+    print(f"Analyzing Patch {patch_idx} (Trial {trial_idx}) from Subject {subject_id}")
     
     # Add batch dimension and move to device
     patch = patch.unsqueeze(0).to(device)   # (1, Channels, 200)
@@ -122,7 +129,7 @@ def main():
     print(f"CSV saved to {save_path}")
 
     # 8. Run Topographical Analysis
-    visualize_weighted_uniqueness_topo(config, csv_path=save_path, output_dir=viz_dir)
+    visualize_weighted_uniqueness_topo(config, dataset, csv_path=save_path, output_dir=viz_dir)
 
 if __name__ == "__main__":
     main()

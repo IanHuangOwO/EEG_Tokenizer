@@ -34,8 +34,15 @@ def _setup_mne_info(dataset, fs):
     
     # dataset.coords is (Nc, 3)
     # dataset.channel_names is list of length Nc
-    coords = dataset.coords
+    coords = dataset.coords.copy()
     names = dataset.channel_names
+    
+    # Scale coordinates to MNE standard radius (approx 0.095)
+    radii = np.sqrt(np.sum(coords[:, :2]**2, axis=1))
+    max_r = np.max(radii)
+    if max_r > 0:
+        scale_factor = 0.06 / max_r
+        coords *= scale_factor
     
     for i, name in enumerate(names):
         pos = coords[i]

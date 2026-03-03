@@ -130,11 +130,15 @@ class AttnVQ(nn.Module):
         # Reshape for Multi-Head: (S, B, C, H, D_h)
         z_reshaped = z.view(S, B, C, H, D_h)
         
-        # --- 1. Attention Scores (Dot Product) ---
+        # --- 0. Normalization (Cosine Similarity) ---
+        z_reshaped = F.normalize(z_reshaped, p=2, dim=-1)
+        embedding_norm = F.normalize(self.embedding, p=2, dim=-1)
+        
+        # --- 1. Attention Scores (Dot Product on Sphere) ---
         # z: (S, B, C, H, D_h)
         # emb: (S, H, V, D_h)
         # Einsum: sbchd,shvd -> sbchv
-        logits = torch.einsum('sbchd,shvd->sbchv', z_reshaped, self.embedding)
+        logits = torch.einsum('sbchd,shvd->sbchv', z_reshaped, embedding_norm)
         
         # --- 2. Top-K Selection (Sparse) ---
         # indices: (S, B, C, H, K)
@@ -160,7 +164,7 @@ class AttnVQ(nn.Module):
         flat_offset = s_idx * (H * self.vq_head_vocab_size) + h_idx * self.vq_head_vocab_size
         flat_indices = (indices + flat_offset).view(-1, self.vq_head_top_k) # (S*B*C*H, K)
         
-        flat_embedding = self.embedding.view(-1, D_h) # (S*H*V, D_h)
+        flat_embedding = embedding_norm.view(-1, D_h) # (S*H*V, D_h)
         
         # Gather: (S*B*C*H, K, D_h)
         selected_vectors = F.embedding(flat_indices, flat_embedding)
@@ -339,12 +343,13 @@ class AttnVQTokenizer(nn.Module):
         # 3. Temporal Loss
         x_recon = self.reconstruct(pred_amp, pred_sin, pred_cos, n_samples=x.shape[-1])
         loss_temp = F.l1_loss(x_recon, x)
+        loss_mse = F.mse_loss(x_recon, x)
         
         # Total Reconstruction Loss
         # Note: You must add the 'vq_loss' from forward() to this in your training loop!
         total_recon_loss = loss_amp + loss_phase + loss_temp
         
-        return total_recon_loss, loss_amp, loss_phase, loss_temp
+        return total_recon_loss, loss_amp, loss_phase, loss_temp, loss_mse
 
     def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200, x=None):
         """
