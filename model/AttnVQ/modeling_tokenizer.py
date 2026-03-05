@@ -2,435 +2,223 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class MultiScaleTemporalEncoder(nn.Module):
-    """
-    Fast Parallel Multi-Scale Encoder.
-    Different kernel sizes and strides per scale.
-    Features are fused via a lightweight parameter-free FPN (CumSum).
-    Heavier interaction is left to the Transformer.
-    """
-    def __init__(self, in_chans=1, embed_dim=200, base_filters=8, in_scales=4, input_length=200):
+# --- 1. Efficient Building Blocks (2D) ---
+
+class ConvBlock2D(nn.Module):
+    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=1, dilation=1):
         super().__init__()
-        self.in_scales = in_scales
-        self.branches = nn.ModuleList()
-        self.projections = nn.ModuleList()
-        
-        # Kernel sizes: 3, 7, 15, 31, 63...
-        kernel_sizes = [3, 7, 15, 31, 63]
-        
-        for i in range(in_scales):
-            # Scale-specific parameters
-            k = kernel_sizes[min(i, len(kernel_sizes)-1)]
-            stride = 2**i # 1, 2, 4, 8...
-            padding = (k - 1) // 2
-            
-            # Simple Conv Block
-            # We use a single robust convolution per scale
-            self.branches.append(nn.Sequential(
-                nn.Conv1d(in_chans, base_filters * (2**i), kernel_size=k, stride=stride, padding=padding, bias=False),
-                nn.BatchNorm1d(base_filters * (2**i)),
-                nn.GELU()
-            ))
-            
-            # Calculate output length for projection
-            # L_out = floor((L_in + 2*pad - dilation*(kernel-1) - 1)/stride + 1)
-            # With stride S and padding P=(K-1)/2:
-            # L_out ~ L_in / S
-            # Exact math:
-            out_len = (input_length + 2*padding - k) // stride + 1
-            # Adjust for integer division quirks if needed, but standard padding usually keeps alignment
-            # For strict alignment, we calculate input_dim dynamically or force padding
-            # Here using calculated dimension:
-            flat_dim = (base_filters * (2**i)) * out_len
-            
-            self.projections.append(nn.Sequential(
-                nn.Linear(flat_dim, embed_dim),
-                nn.LayerNorm(embed_dim)
-            ))
-
-    def forward(self, x):
-        B, C, T = x.shape
-        x = x.view(B * C, 1, T)
-        
-        raw_features = []
-        
-        # Parallel Execution (Python loop matches layer list, but ops are independent)
-        for branch, proj in zip(self.branches, self.projections):
-            feat = branch(x)
-            flat = feat.flatten(1)
-            emb = proj(flat).view(B, C, -1)
-            raw_features.append(emb)
-            
-        # Lightweight FPN: Cumulative Sum from Coarse to Fine
-        # Stack: (S, B, N, D)
-        # Flip (S-1 to 0), Cumsum, Flip back
-        # This allows coarse scales (high stride) to inject info into fine scales (low stride)
-        # cheaply without learnable parameters.
-        ms_features = torch.stack(raw_features, dim=0)
-        ms_features = ms_features.flip(0).cumsum(dim=0).flip(0)
-        
-        # Return as list for compatibility with rest of pipeline
-        return list(ms_features.unbind(0))
-
-# --- 2. Transformer Encoder ---
-
-class TransformerEncoder(nn.Module):
-    def __init__(self, embed_dim, depth, num_heads, mlp_ratio=4., drop_rate=0.):
-        super().__init__()
-        self.blocks = nn.ModuleList([
-            nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, 
-                                       dim_feedforward=int(embed_dim * mlp_ratio), 
-                                       dropout=drop_rate, activation='gelu', batch_first=True)
-            for _ in range(depth)
-        ])
-        self.norm = nn.LayerNorm(embed_dim)
-
-    def forward(self, x):
-        for block in self.blocks:
-            x = block(x)
-        return self.norm(x)
-
-# --- 3. AttnVQ ---
-
-class AttnVQ(nn.Module):
-    """
-    AttnVQ: Multi-Head Sparse Attention VQ.
-    
-    Mechanics:
-    1. Similarity: Dot Product (Attention) per Head
-    2. Selection: Top-K per Head
-    3. Reconstruction: Weighted Sum (Softmax weights)
-    4. Regularization: Orthogonal Loss per Head
-    """
-    def __init__(self, in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k=8, temperature=1.0):
-        super().__init__()
-        assert e_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
-        
-        self.in_scales = in_scales
-        self.num_heads = num_heads
-        self.vq_head_vocab_size = vq_head_vocab_size
-        self.e_dim = e_dim
-        self.head_dim = e_dim // num_heads
-        self.vq_head_top_k = vq_head_top_k
-        
-        # Learnable Temperature
-        # (S, H, 1, 1)
-        self.temperature = nn.Parameter(torch.ones(in_scales, num_heads, 1, 1) * temperature)
-
-        # Codebooks: (S, H, Vocab_Size, Head_Dim)
-        self.embedding = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
-        nn.init.xavier_uniform_(self.embedding)
-
-    def forward(self, z):
-        # z: (S, B, C, D)
-        S, B, C, D = z.shape
-        H = self.num_heads
-        D_h = self.head_dim
-        
-        # Reshape for Multi-Head: (S, B, C, H, D_h)
-        z_reshaped = z.view(S, B, C, H, D_h)
-        
-        # --- 0. Normalization (Cosine Similarity) ---
-        z_reshaped = F.normalize(z_reshaped, p=2, dim=-1)
-        embedding_norm = F.normalize(self.embedding, p=2, dim=-1)
-        
-        # --- 1. Attention Scores (Dot Product on Sphere) ---
-        # z: (S, B, C, H, D_h)
-        # emb: (S, H, V, D_h)
-        # Einsum: sbchd,shvd -> sbchv
-        logits = torch.einsum('sbchd,shvd->sbchv', z_reshaped, embedding_norm)
-        
-        # --- 2. Top-K Selection (Sparse) ---
-        # indices: (S, B, C, H, K)
-        top_vals, indices = torch.topk(logits, k=self.vq_head_top_k, dim=-1)
-        
-        # --- 3. Soft-Weighted Mixing ---
-        # Temp: (S, H, 1, 1) -> (S, 1, 1, H, 1) to match (S, B, C, H, K)
-        temp_broadcast = self.temperature.view(S, 1, 1, H, 1)
-        weights = F.softmax(top_vals / temp_broadcast, dim=-1)
-        
-        # --- 4. Reconstruction ---
-        # Gather vectors
-        # Indices: (S, B, C, H, K)
-        # We need to flatten to gather efficiently or use advanced indexing
-        
-        # Offset strategy for independent heads
-        # S*H*V total vectors
-        # Scale offset: s * (H*V)
-        # Head offset: h * V
-        s_idx = torch.arange(S, device=z.device).view(S, 1, 1, 1, 1)
-        h_idx = torch.arange(H, device=z.device).view(1, 1, 1, H, 1)
-        
-        flat_offset = s_idx * (H * self.vq_head_vocab_size) + h_idx * self.vq_head_vocab_size
-        flat_indices = (indices + flat_offset).view(-1, self.vq_head_top_k) # (S*B*C*H, K)
-        
-        flat_embedding = embedding_norm.view(-1, D_h) # (S*H*V, D_h)
-        
-        # Gather: (S*B*C*H, K, D_h)
-        selected_vectors = F.embedding(flat_indices, flat_embedding)
-        
-        # Reshape: (S, B, C, H, K, D_h)
-        selected_vectors = selected_vectors.view(S, B, C, H, self.vq_head_top_k, D_h)
-        
-        # Weighted Sum: (S, B, C, H, D_h)
-        # weights: (S, B, C, H, K) -> (..., K, 1)
-        z_q_head = torch.sum(weights.unsqueeze(-1) * selected_vectors, dim=-2)
-        
-        # Concatenate Heads: (S, B, C, D)
-        z_q = z_q_head.view(S, B, C, D)
-        
-        # --- 5. Losses ---
-        loss_commit = F.mse_loss(z_q.detach(), z) + 0.25 * F.mse_loss(z_q, z.detach())
-        loss_ortho = self.orthogonal_loss()
-        
-        total_loss = loss_commit + loss_ortho
-
-        # Indices output for analysis: (S, B, C, H, K)
-        return z_q, total_loss, indices, weights
-
-    def orthogonal_loss(self, threshold=0.1):
-        """
-        Orthogonal loss per head.
-        """
-        # (S, H, V, D_h)
-        vectors_norm = F.normalize(self.embedding, p=2, dim=-1)
-        
-        # Gram: (S, H, V, V)
-        gram = torch.matmul(vectors_norm, vectors_norm.transpose(-1, -2))
-        
-        # Identity
-        I = torch.eye(self.vq_head_vocab_size, device=gram.device).view(1, 1, self.vq_head_vocab_size, self.vq_head_vocab_size)
-        off_diag = gram * (1 - I)
-        
-        loss = F.relu(off_diag.abs() - threshold).pow(2).mean()
-        
-        return loss
-
-# --- 4. Main Tokenizer Model (AttnVQTokenizer) ---
-
-class AttnVQTokenizer(nn.Module):
-    def __init__(
-        self,
-        in_chans=1,
-        embed_dim=200,
-        enc_depth=4,
-        enc_heads=10,
-        enc_mlp_ratio=4.,
-        dec_depth=3, 
-        dec_heads=10,
-        dec_mlp_ratio=4.,
-        in_scales=4,
-        vq_head_top_k=8,
-        vq_head_num=8,
-        vq_head_vocab_size=512,
-        freq_resolution=1.0,
-        min_freq=0.0,
-        max_freq=100.0,
-        fs=200.0,
-        input_length=200 
-    ):
-        super().__init__()
-        
-        self.in_scales = in_scales
-        self.embed_dim = embed_dim
-        self.vq_head_vocab_size = vq_head_vocab_size
-        self.vq_head_num = vq_head_num 
-        self.freq_resolution = freq_resolution
-        self.min_freq = min_freq
-        self.max_freq = max_freq
-        self.fs = fs
-        self.input_length = input_length 
-        
-        self.fft_dim = int(round((max_freq - min_freq) / freq_resolution)) + 1 
-        self.n_fft = int(self.fs / freq_resolution)
-        
-        # Precompute Frequency Mask
-        freqs = torch.fft.rfftfreq(self.n_fft, d=1.0/self.fs)
-        mask = (freqs >= self.min_freq - 1e-5) & (freqs <= self.max_freq + 1e-5)
-        self.register_buffer('freq_mask', mask)
-        self.register_buffer('freq_indices', torch.where(mask)[0])
-        
-        # 1. Temporal Encoder
-        self.temporal_encoder = MultiScaleTemporalEncoder(
-            in_chans, embed_dim, in_scales=in_scales, input_length=input_length
+        self.conv = nn.Conv2d(
+            in_ch, out_ch, 
+            kernel_size=(1, kernel_size), 
+            stride=(1, stride), 
+            padding=(0, padding * dilation), 
+            dilation=(1, dilation), 
+            padding_mode='replicate',
+            bias=False
         )
+        self.bn = nn.BatchNorm2d(out_ch)
+        self.act = nn.GELU()
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+
+# --- 2. SpatialTemporal Encoder ---
+
+class SpatialTemporalEncoder(nn.Module):
+    def __init__(self, in_chans=1, base_filters=16, embed_dim=256):
+        super().__init__()
+        # Stem: RF 3, Stride 1 [P1]
+        self.stem = ConvBlock2D(in_chans, base_filters, 3, 1, 1)
         
-        # Fixed Spatial Embeddings
+        # Stage 1: Stride 2, Dilation 1
+        self.stage1 = ConvBlock2D(base_filters, base_filters * 2, 3, 2, 1)
+        
+        # Stage 2: Stride 2, Dilation 2 [P2]
+        self.stage2 = ConvBlock2D(base_filters * 2, base_filters * 4, 3, 2, 1, dilation=2)
+        
+        # Stage 3: Stride 2, Dilation 4 [P3]
+        self.stage3 = ConvBlock2D(base_filters * 4, base_filters * 8, 3, 2, 1, dilation=4)
+        
+        # Multiscale Projections to embed_dim
+        self.projections = nn.ModuleList([
+            nn.LazyLinear(embed_dim), # For P1
+            nn.LazyLinear(embed_dim), # For P2
+            nn.LazyLinear(embed_dim)  # For P3
+        ])
+        self.norms = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(3)])
+        
+        # Spatial MLP
         self.spatial_mlp = nn.Sequential(
-            nn.Linear(3, embed_dim),
-            nn.GELU(),
+            nn.Linear(3, embed_dim), 
+            nn.GELU(), 
             nn.Linear(embed_dim, embed_dim)
         )
         nn.init.zeros_(self.spatial_mlp[-1].weight)
         nn.init.zeros_(self.spatial_mlp[-1].bias)
-        
-        # 2. Transformer Encoder
-        self.transformer_encoder = TransformerEncoder(embed_dim, enc_depth, enc_heads, mlp_ratio=enc_mlp_ratio)
-        
-        # 3. AttnVQ Module
-        self.attnvq = AttnVQ(
-            in_scales=in_scales,
-            num_heads=self.vq_head_num,
-            vq_head_vocab_size=vq_head_vocab_size,
-            e_dim=embed_dim,
-            vq_head_top_k=vq_head_top_k
-        )
-        
-        # 4. Decoder
-        self.transformer_decoder = TransformerEncoder(embed_dim, dec_depth, dec_heads, mlp_ratio=dec_mlp_ratio) 
-        
-        self.head_amp = nn.Linear(embed_dim, self.fft_dim)
-        self.head_sin = nn.Linear(embed_dim, self.fft_dim)
-        self.head_cos = nn.Linear(embed_dim, self.fft_dim)
 
     def forward(self, x, coords):
-        B, C, T = x.shape
-        S = self.in_scales
+        # x: (B, C, T)
+        # coords: (B, C, 3)
+        x = x.unsqueeze(1) # (B, 1, C, T)
+        p1 = self.stem(x) 
+        s1 = self.stage1(p1)
+        p2 = self.stage2(s1)
+        p3 = self.stage3(p2)
         
-        # 1. Extract Multi-Scale Features
-        ms_features = self.temporal_encoder(x) # List of (B, C, D)
-        spatial_emb = self.spatial_mlp(coords) # (B, C, D)
+        # Spatial Embedding
+        spatial_emb = self.spatial_mlp(coords) # (B, C, embed_dim)
         
-        # 2. Shared Transformer Pass
-        h_all = torch.stack(ms_features, dim=0) + spatial_emb.unsqueeze(0) # (S, B, C, D)
-        h_all = h_all.view(S * B, C, -1)
-        
-        h_encoded = self.transformer_encoder(h_all)
-        h_scales = h_encoded.view(S, B, C, -1)
-        
-        # 3. AttnVQ Pass
-        all_z_q, vq_loss, top_k_indices, weights = self.attnvq(h_scales)
+        raw_feats = [p1, p2, p3]
+        projected_feats = []
+        for feat, proj, norm in zip(raw_feats, self.projections, self.norms):
+            # feat: (B, Filters, C, T_scale)
+            # Permute and flatten filters and temporal dimension per channel
+            z = proj(feat.permute(0, 2, 1, 3).flatten(2)) # (B, C, embed_dim)
+            # Combine with spatial embedding
+            z = norm(z + spatial_emb)
+            projected_feats.append(z)
             
-        # 4. Latent Fusion
-        z_fused = torch.sum(all_z_q, dim=0)
+        return projected_feats
+
+# --- 3. Transformer Components ---
+
+class TransformerLayer(nn.Module):
+    def __init__(self, embed_dim, num_heads, mlp_ratio=4.):
+        super().__init__()
+        self.block = nn.TransformerEncoderLayer(
+            d_model=embed_dim, nhead=num_heads, 
+            dim_feedforward=int(embed_dim * mlp_ratio), 
+            dropout=0., activation='gelu', batch_first=True
+        )
+        self.norm = nn.LayerNorm(embed_dim)
+    def forward(self, x): return self.norm(self.block(x))
+
+class ScaleEncoder(nn.Module):
+    def __init__(self, embed_dim, depth, heads, mlp_ratio=4.):
+        super().__init__()
+        self.layers = nn.ModuleList([TransformerLayer(embed_dim, heads, mlp_ratio) for _ in range(depth)])
+    def forward(self, x):
+        for layer in self.layers: x = layer(x)
+        return x
+
+class ScaleDecoder(nn.Module):
+    def __init__(self, embed_dim, depth, heads, fft_dim, mlp_ratio=4.):
+        super().__init__()
+        self.layers = nn.ModuleList([TransformerLayer(embed_dim, heads, mlp_ratio) for _ in range(depth)])
+        self.head_amp = nn.Linear(embed_dim, fft_dim)
+        self.head_sin = nn.Linear(embed_dim, fft_dim)
+        self.head_cos = nn.Linear(embed_dim, fft_dim)
+    def forward(self, x):
+        for layer in self.layers: x = layer(x)
+        return self.head_amp(x), self.head_sin(x), self.head_cos(x)
+
+# --- 4. Quantization ---
+
+class AttnVQ(nn.Module):
+    def __init__(self, in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k=8, temperature=1.0):
+        super().__init__()
+        self.in_scales, self.num_heads, self.vq_head_vocab_size, self.e_dim, self.vq_head_top_k = in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k
+        self.head_dim = e_dim // num_heads
+        self.temperature = nn.Parameter(torch.ones(in_scales, num_heads, 1, 1) * temperature)
+        self.embedding = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
+        nn.init.xavier_uniform_(self.embedding)
+
+    def forward(self, z):
+        S, B, C, D = z.shape
+        H, D_h = self.num_heads, self.head_dim
+        z_reshaped = F.normalize(z.view(S, B, C, H, D_h), p=2, dim=-1)
+        embedding_norm = F.normalize(self.embedding, p=2, dim=-1)
+        logits = torch.einsum('sbchd,shvd->sbchv', z_reshaped, embedding_norm)
+        top_vals, indices = torch.topk(logits, k=self.vq_head_top_k, dim=-1)
+        weights = F.softmax(top_vals / self.temperature.view(S, 1, 1, H, 1), dim=-1)
+        s_idx, h_idx = torch.arange(S, device=z.device).view(S,1,1,1,1), torch.arange(H, device=z.device).view(1,1,1,H,1)
+        flat_indices = (indices + s_idx * (H * self.vq_head_vocab_size) + h_idx * self.vq_head_vocab_size).view(-1, self.vq_head_top_k)
+        selected_vectors = F.embedding(flat_indices, embedding_norm.view(-1, D_h)).view(S, B, C, H, self.vq_head_top_k, D_h)
+        z_q = torch.sum(weights.unsqueeze(-1) * selected_vectors, dim=-2).view(S, B, C, D)
+        loss = F.mse_loss(z_q.detach(), z) + 0.25 * F.mse_loss(z_q, z.detach()) + self.orthogonal_loss()
+        return z_q, loss, indices, weights
+
+    def orthogonal_loss(self, threshold=0.1):
+        v = F.normalize(self.embedding, p=2, dim=-1)
+        gram = torch.matmul(v, v.transpose(-1, -2))
+        off_diag = gram * (1 - torch.eye(self.vq_head_vocab_size, device=gram.device).view(1, 1, self.vq_head_vocab_size, self.vq_head_vocab_size))
+        return F.relu(off_diag.abs() - threshold).pow(2).mean()
+
+# --- 5. Main Tokenizer Model (AttnVQTokenizer) ---
+
+class AttnVQTokenizer(nn.Module):
+    def __init__(
+        self,
+        in_chans=1, embed_dim=256, enc_depth=4, enc_heads=8, enc_mlp_ratio=4.,
+        dec_depth=2, dec_heads=8, dec_mlp_ratio=4., in_scales=3,
+        vq_head_top_k=8, vq_head_num=8, vq_head_vocab_size=64,
+        freq_resolution=1.0, min_freq=0.0, max_freq=100.0, fs=200.0, input_length=200 
+    ):
+        super().__init__()
+        self.in_scales, self.embed_dim, self.vq_head_num, self.fs, self.input_length = in_scales, embed_dim, vq_head_num, fs, input_length
+        self.fft_dim = int(round((max_freq - min_freq) / freq_resolution)) + 1 
+        self.n_fft = int(self.fs / freq_resolution)
+        freqs = torch.fft.rfftfreq(self.n_fft, d=1.0/self.fs)
+        mask = (freqs >= min_freq - 1e-5) & (freqs <= max_freq + 1e-5)
+        self.register_buffer('freq_mask', mask)
+        self.register_buffer('freq_indices', torch.where(mask)[0])
         
-        # 5. Decoder
-        dec_h = self.transformer_decoder(z_fused)
+        # SpatialTemporalEncoder handles projections and spatial embeddings
+        self.spatial_temporal_encoder = SpatialTemporalEncoder(in_chans, base_filters=16, embed_dim=embed_dim)
         
-        pred_amp = self.head_amp(dec_h)
-        pred_sin = self.head_sin(dec_h)
-        pred_cos = self.head_cos(dec_h)
+        self.scale_encoders = nn.ModuleList([ScaleEncoder(embed_dim, depth=enc_depth, heads=enc_heads, mlp_ratio=enc_mlp_ratio) for _ in range(in_scales)])
         
+        self.attnvq = AttnVQ(in_scales, self.vq_head_num, vq_head_vocab_size, embed_dim, vq_head_top_k)
+        self.scale_decoders = nn.ModuleList([ScaleDecoder(embed_dim, depth=dec_depth, heads=dec_heads, fft_dim=self.fft_dim, mlp_ratio=dec_mlp_ratio) for _ in range(in_scales)])
+
+    def forward(self, x, coords):
+        # Projected features with spatial embeddings: List of (B, C, embed_dim) for each scale
+        h_scales_projected = self.spatial_temporal_encoder(x, coords) 
+        
+        h_scales = []
+        for i in range(self.in_scales):
+            z = h_scales_projected[i]
+            enc = self.scale_encoders[i]
+            
+            # Apply transformer encoder
+            z = enc(z)
+            h_scales.append(z)
+            
+        all_z_q, vq_loss, top_k_indices, weights = self.attnvq(torch.stack(h_scales, dim=0))
+        
+        pred_amp, pred_sin, pred_cos = 0, 0, 0
+        for i, decoder in enumerate(self.scale_decoders):
+            a, s, c = decoder(all_z_q[i])
+            pred_amp += a; pred_sin += s; pred_cos += c
+            
         return pred_amp, pred_sin, pred_cos, vq_loss, top_k_indices, weights
 
     def get_loss(self, x, pred_amp, pred_sin, pred_cos, x_fft=None):
-        # x: (B, C, 200)
-        if x_fft is None:
-            x_fft = torch.fft.rfft(x, n=self.n_fft, dim=-1) # (B, C, n_fft//2 + 1)
-        
+        if x_fft is None: x_fft = torch.fft.rfft(x, n=self.n_fft, dim=-1)
         target_fft = x_fft[..., self.freq_mask]
-        
-        # Check shapes
         if target_fft.shape[-1] != pred_amp.shape[-1]:
              min_len = min(target_fft.shape[-1], pred_amp.shape[-1])
-             target_fft = target_fft[..., :min_len]
-             pred_amp = pred_amp[..., :min_len]
-             pred_sin = pred_sin[..., :min_len]
-             pred_cos = pred_cos[..., :min_len]
-             
-        gt_amp = torch.abs(target_fft)
-        gt_phase = torch.angle(target_fft)
-        
-        # 1. Log-Amplitude Loss
-        target_log_amp = torch.log1p(gt_amp)
-        loss_amp = F.mse_loss(pred_amp, target_log_amp)
-        
-        # 2. Phase Loss
-        target_sin = torch.sin(gt_phase)
-        target_cos = torch.cos(gt_phase)
-        loss_phase = F.mse_loss(pred_sin, target_sin) + F.mse_loss(pred_cos, target_cos)
-        
-        # 3. Temporal Loss
+             target_fft, pred_amp, pred_sin, pred_cos = target_fft[..., :min_len], pred_amp[..., :min_len], pred_sin[..., :min_len], pred_cos[..., :min_len]
+        gt_amp, gt_phase = torch.abs(target_fft), torch.angle(target_fft)
+        loss_amp = F.mse_loss(pred_amp, torch.log1p(gt_amp))
+        loss_phase = F.mse_loss(pred_sin, torch.sin(gt_phase)) + F.mse_loss(pred_cos, torch.cos(gt_phase))
         x_recon = self.reconstruct(pred_amp, pred_sin, pred_cos, n_samples=x.shape[-1])
-        loss_temp = F.l1_loss(x_recon, x)
-        loss_mse = F.mse_loss(x_recon, x)
-        
-        # Total Reconstruction Loss
-        # Note: You must add the 'vq_loss' from forward() to this in your training loop!
-        total_recon_loss = loss_amp + loss_phase + loss_temp
-        
-        return total_recon_loss, loss_amp, loss_phase, loss_temp, loss_mse
+        return loss_amp + loss_phase + F.l1_loss(x_recon, x), loss_amp, loss_phase, F.l1_loss(x_recon, x), F.mse_loss(x_recon, x)
 
-    def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200, x=None):
-        """
-        Reconstructs the time-domain signal from predicted coefficients.
-        """
-        # 1. Recover Amplitude
-        amp = torch.exp(pred_amp) - 1
-        amp = torch.clamp(amp, min=0) 
-        
-        # 2. Normalize Phase
-        pred_norm = torch.sqrt(pred_cos**2 + pred_sin**2 + 1e-8)
-        norm_cos = pred_cos / pred_norm
-        norm_sin = pred_sin / pred_norm
-
-        # 3. Form Complex Coefficients
-        real = amp * norm_cos
-        imag = amp * norm_sin
-        z_pred = torch.complex(real, imag)
-        
-        # 4. Embed into Full Spectrum
-        full_fft_dim = self.n_fft // 2 + 1
-        full_z = torch.zeros((z_pred.shape[0], z_pred.shape[1], full_fft_dim), dtype=z_pred.dtype, device=z_pred.device)
-        
-        indices = self.freq_indices
-        count = min(len(indices), z_pred.shape[-1])
-        full_z[..., indices[:count]] = z_pred[..., :count]
-        
-        # 5. Inverse Real FFT
-        x_recon_padded = torch.fft.irfft(full_z, n=self.n_fft, dim=-1)
-        
-        # 6. Crop to original length
-        x_recon = x_recon_padded[..., :n_samples]
-        
-        return x_recon
-
-    # --- Analysis Helpers ---
+    def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200):
+        amp = torch.clamp(torch.exp(pred_amp) - 1, min=0) 
+        norm = torch.sqrt(pred_cos**2 + pred_sin**2 + 1e-8)
+        z_pred = torch.complex(amp * (pred_cos / norm), amp * (pred_sin / norm))
+        full_z = torch.zeros((z_pred.shape[0], z_pred.shape[1], self.n_fft // 2 + 1), dtype=z_pred.dtype, device=z_pred.device)
+        count = min(len(self.freq_indices), z_pred.shape[-1])
+        full_z[..., self.freq_indices[:count]] = z_pred[..., :count]
+        return torch.fft.irfft(full_z, n=self.n_fft, dim=-1)[..., :n_samples]
 
     def get_codebooks(self):
-        """
-        Returns a list of (tensor, name) tuples for analysis.
-        Extracts embedding from AttnVQ.
-        Name format: "S{scale}_H{head}"
-        """
-        codebooks = []
-        # embedding: (S, H, N_E, D_h)
-        for s in range(self.in_scales):
-            for h in range(self.vq_head_num):
-                cb = self.attnvq.embedding[s, h].detach().cpu()
-                name = f"S{s}_H{h}"
-                codebooks.append((cb, name))
-                    
-        return codebooks
+        return [(self.attnvq.embedding[s, h].detach().cpu(), f"S{s}_H{h}") for s in range(self.in_scales) for h in range(self.vq_head_num)]
 
     def get_indices(self, x, coords):
-        """
-        Runs forward pass and returns indices for analysis.
-        Returns: (Batch*C, Depth=1, Scales, Heads, Top-K) flat tensor structure logic.
-        AttnVQ indices: (S, B, C, H, K)
-        """
-        # Run forward pass (ignoring gradients)
-        with torch.no_grad():
-            _, _, _, _, indices, weights = self.forward(x, coords)
-        
-        # Indices: (S, B, C, H, K)
-        # Permute to (B, C, S, H, K)
-        indices = indices.permute(1, 2, 0, 3, 4) 
-        
-        # Flatten Batch and C -> (Batch*C, S, H, K)
-        indices_flat = indices.reshape(-1, indices.shape[2], indices.shape[3], indices.shape[4])
-        
-        # Reshape to 5D for compatibility: (Batch*C, L=1, S, H, K)
-        indices_flat = indices_flat.unsqueeze(1)
-        
-        # Weights: (S, B, C, H, K)
-        # Permute to (B, C, S, H, K)
-        weights = weights.permute(1, 2, 0, 3, 4)
-        
-        # Flatten Batch and C -> (Batch*C, S, H, K)
-        weights_flat = weights.reshape(-1, weights.shape[2], weights.shape[3], weights.shape[4])
-        
-        # Reshape to 5D for compatibility: (Batch*C, L=1, S, H, K)
-        weights_flat = weights_flat.unsqueeze(1)
-        
+        with torch.no_grad(): _, _, _, _, indices, weights = self.forward(x, coords)
+        indices_flat = indices.permute(1, 2, 0, 3, 4).reshape(-1, self.in_scales, self.vq_head_num, indices.shape[4]).unsqueeze(1)
+        weights_flat = weights.permute(1, 2, 0, 3, 4).reshape(-1, self.in_scales, self.vq_head_num, weights.shape[4]).unsqueeze(1)
         return indices_flat, weights_flat

@@ -224,59 +224,67 @@ def main():
 
     # 5. Training Loop
     best_val_loss = float('inf')
+    total_epochs = train_params['epochs']
+    refine_epochs = train_params.get('decoder_refine_epochs', 0)
     
-    for epoch in range(1, train_params['epochs'] + 1):
-        # Train
-        train_metrics, train_last_batch = train_one_epoch(
-            model, train_loader, optimizer, device, epoch
-        )
-        
-        # Validation
-        val_metrics, val_last_batch = validate_one_epoch(
-            model, val_loader, device
-        )
-        
-        # Step Scheduler
+    logger.info(f"Starting Stage 1: Joint Training ({total_epochs} epochs)")
+    for epoch in range(1, total_epochs + 1):
+        # ... (unchanged loop content)
+        train_metrics, train_last_batch = train_one_epoch(model, train_loader, optimizer, device, epoch)
+        val_metrics, val_last_batch = validate_one_epoch(model, val_loader, device)
         scheduler.step()
         
-        # Show metrics
-        logger.info(f"Epoch {epoch}/{train_params['epochs']}:")
-        logger.info(f"  > Train [L:{train_metrics[0]:.4f}, MSE:{train_metrics[6]:.4f}, Rec:{train_metrics[2]:.4f} (A:{train_metrics[4]:.4f}, P:{train_metrics[5]:.4f}, Temp:{train_metrics[3]:.4f}), VQ:{train_metrics[1]:.4f}]")
-        logger.info(f"  > Val   [L:{val_metrics[0]:.4f}, MSE:{val_metrics[6]:.4f}, Rec:{val_metrics[2]:.4f} (A:{val_metrics[4]:.4f}, P:{val_metrics[5]:.4f}, Temp:{val_metrics[3]:.4f}), VQ:{val_metrics[1]:.4f}]")
+        logger.info(f"Epoch {epoch}/{total_epochs}:")
+        logger.info(f"  > Train [L:{train_metrics[0]:.4f}, MSE:{train_metrics[6]:.4f}, Rec:{train_metrics[2]:.4f}, VQ:{train_metrics[1]:.4f}]")
+        logger.info(f"  > Val   [L:{val_metrics[0]:.4f}, MSE:{val_metrics[6]:.4f}, Rec:{val_metrics[2]:.4f}, VQ:{val_metrics[1]:.4f}]")
         
-        # Save Best
         if val_metrics[0] < best_val_loss:
             best_val_loss = val_metrics[0]
-            ckpt_path = os.path.join(checkpoint_dir, 'best_model.pth')
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_loss': val_metrics[0],
-            }, ckpt_path)
-            logger.info("  > Saved Best Model")
+            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_model.pth'))
+            logger.info("  > Saved Best Model (Stage 1)")
         
-        # Update Plotter
-        plotter.update(
-            train_metrics=train_metrics,
-            val_metrics=val_metrics
-        )
-        plotter.plot()
-        plotter.plot_metrics()
+        plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
+        plotter.plot(); plotter.plot_metrics()
         
-        # Periodic Checkpoint
-        if epoch % 25 == 0:
-            ckpt_path = os.path.join(checkpoint_dir, f'epoch_{epoch}.pth')
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-            }, ckpt_path)
-        
-        # Visualize Wave
         if epoch % 5 == 0:
-            recon_dir = os.path.join(vis_dir, 'reconstruction')
-            visualize_reconstruction(train_last_batch, val_last_batch, epoch, output_dir=recon_dir)
+            visualize_reconstruction(train_last_batch, val_last_batch, epoch, output_dir=os.path.join(vis_dir, 'reconstruction'))
+
+    # --- Stage 2: Decoder Refinement ---
+    if refine_epochs > 0:
+        logger.info(f"\nStarting Stage 2: Decoder-Only Refinement ({refine_epochs} epochs)")
+        
+        # Freeze everything except decoders
+        for name, param in model.named_parameters():
+            if 'scale_decoders' in name:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+        
+        # Re-initialize optimizer for refinement (optional but recommended)
+        refine_optimizer = optim.AdamW(
+            filter(lambda p: p.requires_grad, model.parameters()), 
+            lr=train_params['learning_rate'] * 0.5, 
+            weight_decay=train_params['weight_decay']
+        )
+        
+        for epoch in range(total_epochs + 1, total_epochs + refine_epochs + 1):
+            train_metrics, train_last_batch = train_one_epoch(model, train_loader, refine_optimizer, device, epoch)
+            val_metrics, val_last_batch = validate_one_epoch(model, val_loader, device)
+            
+            logger.info(f"Refine Epoch {epoch}:")
+            logger.info(f"  > Train [MSE:{train_metrics[6]:.4f}, Rec:{train_metrics[2]:.4f}]")
+            logger.info(f"  > Val   [MSE:{val_metrics[6]:.4f}, Rec:{val_metrics[2]:.4f}]")
+            
+            if val_metrics[0] < best_val_loss:
+                best_val_loss = val_metrics[0]
+                torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_model_refined.pth'))
+                logger.info("  > Saved Best Refined Model")
+            
+            plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
+            plotter.plot(); plotter.plot_metrics()
+            
+            if epoch % 2 == 0:
+                visualize_reconstruction(train_last_batch, val_last_batch, epoch, output_dir=os.path.join(vis_dir, 'reconstruction'))
 
     logger.info("Training Complete.")
 

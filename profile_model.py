@@ -36,8 +36,12 @@ class ProfilerHooks:
         self.device = device
         hooks = []
         for name, module in model.named_children():
-            # Skip empty containers if any
-            if list(module.parameters()) or list(module.buffers()):
+            if isinstance(module, nn.ModuleList):
+                for sub_module in module:
+                    h1 = sub_module.register_forward_pre_hook(self._make_pre_hook(name))
+                    h2 = sub_module.register_forward_hook(self._make_hook(name))
+                    hooks.extend([h1, h2])
+            else:
                 h1 = module.register_forward_pre_hook(self._make_pre_hook(name))
                 h2 = module.register_forward_hook(self._make_hook(name))
                 hooks.extend([h1, h2])
@@ -58,12 +62,16 @@ class ProfilerHooks:
                 self.timings[name].append(duration)
         return hook
 
-    def get_summary(self):
+    def get_summary(self, n_iters, model):
         stats = []
-        for name, times in self.timings.items():
+        for name, module in model.named_children():
+            times = self.timings.get(name, [])
             if not times: continue
-            avg_ms = sum(times) / len(times)
-            stats.append((name, avg_ms))
+            if isinstance(module, nn.ModuleList):
+                total_ms = sum(times) / n_iters
+            else:
+                total_ms = sum(times) / len(times)
+            stats.append((name, total_ms))
         return stats
 
 def profile_model():
@@ -82,6 +90,10 @@ def profile_model():
     x = torch.randn(B, N, T).to(device)
     coords = torch.randn(B, N, 3).to(device)
     
+    # Initialize Lazy modules
+    with torch.no_grad():
+        model(x, coords)
+        
     print(f"\nModel: {config['training_params']['model_type']}")
     print(f"Input: Batch={B}, Channels={N}, Time={T}")
     print("-" * 60)
@@ -141,7 +153,7 @@ def profile_model():
     print(f"{'Component':<22} | {'Params (M)':<10} | {'Time (ms)':<10} | {'% Time':<7} | {'FLOPs (G)':<10} | {'% FLOPs':<7}")
     print("-" * 90)
     
-    time_stats = dict(profiler.get_summary())
+    time_stats = dict(profiler.get_summary(n_iters, model))
     
     # Sort by structure order (order of children)
     for name, _ in children:
