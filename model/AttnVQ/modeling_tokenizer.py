@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.utils.parametrizations as parametrizations
 
 # --- 1. Efficient Building Blocks (2D) ---
 
@@ -112,37 +113,187 @@ class ScaleDecoder(nn.Module):
         for layer in self.layers: x = layer(x)
         return self.head_amp(x), self.head_sin(x), self.head_cos(x)
 
-# --- 4. Quantization ---
+# --- 4. Quantization (EMA-based Soft Attention) ---
 
 class AttnVQ(nn.Module):
-    def __init__(self, in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k=8, temperature=1.0):
+    def __init__(self, in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k=8, temperature=1.0, decay=0.99, eps=1e-5):
         super().__init__()
-        self.in_scales, self.num_heads, self.vq_head_vocab_size, self.e_dim, self.vq_head_top_k = in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k
+        # Ensure Top-K forces selection (must be less than vocab size to avoid blurry averages)
+        self.vq_head_top_k = min(vq_head_top_k, max(1, vq_head_vocab_size // 2))
+        self.in_scales, self.num_heads, self.vq_head_vocab_size, self.e_dim = in_scales, num_heads, vq_head_vocab_size, e_dim
+        self.decay = decay
+        self.eps = eps
         self.head_dim = e_dim // num_heads
-        self.temperature = nn.Parameter(torch.ones(in_scales, num_heads, 1, 1) * temperature)
-        self.embedding = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
+        
+        # Temperature is now a buffer, we will update it from the training loop
+        self.register_buffer('temperature', torch.ones(in_scales, num_heads, 1, 1) * temperature)
+        
+        # Query and Output Projections (Wq and Wo)
+        self.Wq = nn.Parameter(torch.empty(in_scales, num_heads, self.head_dim, self.head_dim))
+        self.Wo = nn.Parameter(torch.empty(in_scales, num_heads, self.head_dim, self.head_dim))
+        
+        # Identity Initialization for Wq and Wo: Ensures the signal passes through at the start
+        with torch.no_grad():
+            eye = torch.eye(self.head_dim).view(1, 1, self.head_dim, self.head_dim)
+            self.Wq.copy_(eye.expand(in_scales, num_heads, -1, -1))
+            self.Wo.copy_(eye.expand(in_scales, num_heads, -1, -1))
+
+        # Apply orthogonal parameterization.
+        # This forces Wq and Wo to remain orthogonal matrices during optimization.
+        parametrizations.orthogonal(self, 'Wq')
+        parametrizations.orthogonal(self, 'Wo')
+
+        # Codebook is updated via EMA, so we disable gradients for its values
+        self.embedding = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim), requires_grad=False)
         nn.init.xavier_uniform_(self.embedding)
 
-    def forward(self, z):
-        S, B, C, D = z.shape
-        H, D_h = self.num_heads, self.head_dim
-        z_reshaped = F.normalize(z.view(S, B, C, H, D_h), p=2, dim=-1)
+        # EMA Buffers for running averages
+        self.register_buffer('ema_cluster_size', torch.zeros(in_scales, num_heads, vq_head_vocab_size))
+        self.register_buffer('ema_dw', torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
+        self.ema_dw.data.copy_(self.embedding.data)
+
+    def set_temperature(self, value):
+        self.temperature.fill_(value)
+
+    @torch.no_grad()
+    def get_current_metrics(self):
+        """
+        Calculates health metrics for the codebooks and projections.
+        Returns: Dictionary of metrics.
+        """
+        S, H, V, D_h = self.embedding.shape
+        metrics = {}
+        
+        # 1. Effective Rank Calculation helper
+        def calc_erank(tensor):
+            # tensor: (..., D, D) or (..., V, D)
+            _, s, _ = torch.svd(tensor)
+            p = s / (s.sum(dim=-1, keepdim=True) + 1e-8)
+            entropy = -torch.sum(p * torch.log(p + 1e-8), dim=-1)
+            return torch.exp(entropy)
+
+        # 2. Average Pairwise Similarity helper
+        def calc_avg_sim(tensor):
+            # tensor: (S, H, ...) -> flat: (S, H, D_flat)
+            if H < 2: return torch.zeros(S, device=tensor.device)
+            flat = F.normalize(tensor.reshape(S, H, -1), p=2, dim=-1)
+            # Pairwise cosine sim: (S, H, H)
+            sim_mtx = torch.einsum('shd,skd->shk', flat, flat)
+            # Mask diagonal and average
+            mask = torch.eye(H, device=tensor.device).bool().view(1, H, H)
+            return sim_mtx[~mask.expand(S, -1, -1)].view(S, -1).mean(dim=-1)
+
+        # --- Execute Calculations ---
+        
+        # Codebook Metrics
+        # We calculate rank on normalized embeddings because that's what the model uses in forward()
         embedding_norm = F.normalize(self.embedding, p=2, dim=-1)
-        logits = torch.einsum('sbchd,shvd->sbchv', z_reshaped, embedding_norm)
+        cb_erank = calc_erank(embedding_norm) # (S, H)
+        metrics['cb_erank'] = cb_erank.mean().item()
+        metrics['cb_sim'] = calc_avg_sim(self.embedding).mean().item()
+        
+        # Projection Metrics
+        wq_erank = calc_erank(self.Wq) # (S, H)
+        wo_erank = calc_erank(self.Wo) # (S, H)
+        metrics['wq_erank'] = wq_erank.mean().item()
+        metrics['wo_erank'] = wo_erank.mean().item()
+        
+        metrics['wq_sim'] = calc_avg_sim(self.Wq).mean().item()
+        metrics['wo_sim'] = calc_avg_sim(self.Wo).mean().item()
+        
+        # Orthogonality Error
+        q_eye = torch.eye(D_h, device=self.Wq.device).view(1, 1, D_h, D_h)
+        metrics['wq_ortho'] = F.mse_loss(torch.einsum('shde,shfe->shdf', self.Wq, self.Wq), q_eye.expand(S, H, -1, -1)).item()
+        metrics['wo_ortho'] = F.mse_loss(torch.einsum('shde,shfe->shdf', self.Wo, self.Wo), q_eye.expand(S, H, -1, -1)).item()
+        
+        # 3. Perplexity (Measure of codebook utilization uniformity)
+        usage = self.ema_cluster_size + self.eps
+        probs = usage / usage.sum(dim=-1, keepdim=True)
+        entropy = -torch.sum(probs * torch.log(probs), dim=-1) # (S, H)
+        metrics['perplexity'] = torch.exp(entropy).mean().item()
+            
+        return metrics
+
+    def forward(self, z):
+        # z: (S, B, C, D) -> S: scales, B: batch, C: channels, D: dim
+        S, B, C, D = z.shape
+        H, V, D_h = self.num_heads, self.vq_head_vocab_size, self.head_dim
+        
+        # Reshape input for multi-head attention
+        z_reshaped = z.view(S, B, C, H, D_h)
+        
+        # 1. Query Projection and Normalization
+        # Q = z * Wq
+        q = torch.einsum('sbchd,shde->sbche', z_reshaped, self.Wq)
+        q_norm = F.normalize(q, p=2, dim=-1)
+        
+        # Codebook normalization
+        embedding_norm = F.normalize(self.embedding, p=2, dim=-1)
+        
+        # Calculate Logits (Cosine Similarity between Q and Codebook)
+        logits = torch.einsum('sbche,shve->sbchv', q_norm, embedding_norm)
+        
+        # 2. Soft-Attention over Top-K
         top_vals, indices = torch.topk(logits, k=self.vq_head_top_k, dim=-1)
         weights = F.softmax(top_vals / self.temperature.view(S, 1, 1, H, 1), dim=-1)
-        s_idx, h_idx = torch.arange(S, device=z.device).view(S,1,1,1,1), torch.arange(H, device=z.device).view(1,1,1,H,1)
-        flat_indices = (indices + s_idx * (H * self.vq_head_vocab_size) + h_idx * self.vq_head_vocab_size).view(-1, self.vq_head_top_k)
-        selected_vectors = F.embedding(flat_indices, embedding_norm.view(-1, D_h)).view(S, B, C, H, self.vq_head_top_k, D_h)
-        z_q = torch.sum(weights.unsqueeze(-1) * selected_vectors, dim=-2).view(S, B, C, D)
-        loss = F.mse_loss(z_q.detach(), z) + 0.25 * F.mse_loss(z_q, z.detach()) + self.orthogonal_loss()
-        return z_q, loss, indices, weights
+        
+        # weights_full: (S, B, C, H, V) used for reconstruction and EMA updates
+        weights_full = torch.zeros_like(logits).scatter_(-1, indices, weights)
+        
+        # 3. Retrieve and Project Output
+        # Reconstruct z_q: Weighted sum of codebook vectors followed by Wo
+        # V_q = weighted sum(embedding_norm)
+        v_q = torch.einsum('sbchv,shvd->sbchd', weights_full, embedding_norm)
+        
+        # z_q_soft = V_q * Wo
+        z_q_soft = torch.einsum('sbchd,shde->sbche', v_q, self.Wo).reshape(S, B, C, D)
+        
+        # Straight-Through Estimator (STE):
+        # In the forward pass, we use the quantized representation z_q_soft.
+        # In the backward pass, gradients flow directly to the encoder z.
+        # This is critical for stable reconstruction.
+        z_q = z + (z_q_soft - z).detach()
 
-    def orthogonal_loss(self, threshold=0.1):
-        v = F.normalize(self.embedding, p=2, dim=-1)
-        gram = torch.matmul(v, v.transpose(-1, -2))
-        off_diag = gram * (1 - torch.eye(self.vq_head_vocab_size, device=gram.device).view(1, 1, self.vq_head_vocab_size, self.vq_head_vocab_size))
-        return F.relu(off_diag.abs() - threshold).pow(2).mean()
+        # 4. EMA Updates (Training only)
+        if self.training:
+            # usage: total soft-weight assigned to each vector in this batch
+            usage = weights_full.detach().sum(dim=(1, 2)) # (S, H, V)
+            self.ema_cluster_size.mul_(self.decay).add_(usage, alpha=1 - self.decay)
+            
+            # dw: weighted sum of Query features for each vector
+            dw = torch.einsum('sbchv,sbche->shve', weights_full.detach(), q_norm.detach())
+            self.ema_dw.mul_(self.decay).add_(dw, alpha=1 - self.decay)
+            
+            # Laplace Smoothing to update codebook
+            n = self.ema_cluster_size.sum(dim=-1, keepdim=True)
+            smoothed_cluster_size = (self.ema_cluster_size + self.eps) / (n + V * self.eps) * n
+            
+            # Update and Normalize: Keep the codebook on the unit sphere
+            # This ensures Norm is always 1.0 and stabilizes similarity calculations.
+            updated_embedding = self.ema_dw / smoothed_cluster_size.unsqueeze(-1)
+            self.embedding.data.copy_(F.normalize(updated_embedding, p=2, dim=-1))
+
+        # 5. Commitment, Alignment, and Projection Diversity Loss
+        # Term 1: Pulls the Encoder (z) toward the quantized representation
+        # Term 2: Pulls the Projections (Wq, Wo) toward the Encoder's output
+        loss_commit = 0.25 * F.mse_loss(z_q_soft.detach(), z) + 0.25 * F.mse_loss(z_q_soft, z.detach())
+        
+        # Term 3: Inter-head Diversity Loss (Weight 1.0 + Sum)
+        # Intra-head Orthogonality is now guaranteed by structural parameterization.
+        loss_div = 0
+        h_eye = torch.eye(H, device=z.device).view(1, H, H)
+        
+        for w in [self.Wq, self.Wo]:
+            # Inter-head Diversity: Each head must be unique
+            # Flatten weight matrix per head and calculate pairwise similarity
+            w_flat = F.normalize(w.view(S, H, -1), p=2, dim=-1)
+            h_sim = torch.einsum('shd,skd->shk', w_flat, w_flat)
+            loss_div += 1.0 * F.mse_loss(h_sim, h_eye.expand(S, -1, -1), reduction='sum') / (S * H * H)
+
+        # Combined Loss
+        loss = loss_commit + loss_div
+        
+        return z_q, loss, indices, weights
 
 # --- 5. Main Tokenizer Model (AttnVQTokenizer) ---
 
@@ -152,7 +303,8 @@ class AttnVQTokenizer(nn.Module):
         in_chans=1, embed_dim=256, enc_depth=4, enc_heads=8, enc_mlp_ratio=4.,
         dec_depth=2, dec_heads=8, dec_mlp_ratio=4., in_scales=3,
         vq_head_top_k=8, vq_head_num=8, vq_head_vocab_size=64,
-        freq_resolution=1.0, min_freq=0.0, max_freq=100.0, fs=200.0, input_length=200 
+        freq_resolution=1.0, min_freq=0.0, max_freq=100.0, fs=200.0, input_length=200,
+        temperature=1.0
     ):
         super().__init__()
         self.in_scales, self.embed_dim, self.vq_head_num, self.fs, self.input_length = in_scales, embed_dim, vq_head_num, fs, input_length
@@ -168,8 +320,11 @@ class AttnVQTokenizer(nn.Module):
         
         self.scale_encoders = nn.ModuleList([ScaleEncoder(embed_dim, depth=enc_depth, heads=enc_heads, mlp_ratio=enc_mlp_ratio) for _ in range(in_scales)])
         
-        self.attnvq = AttnVQ(in_scales, self.vq_head_num, vq_head_vocab_size, embed_dim, vq_head_top_k)
+        self.attnvq = AttnVQ(in_scales, self.vq_head_num, vq_head_vocab_size, embed_dim, vq_head_top_k, temperature=temperature)
         self.scale_decoders = nn.ModuleList([ScaleDecoder(embed_dim, depth=dec_depth, heads=dec_heads, fft_dim=self.fft_dim, mlp_ratio=dec_mlp_ratio) for _ in range(in_scales)])
+
+    def set_temperature(self, value):
+        self.attnvq.set_temperature(value)
 
     def forward(self, x, coords):
         # Projected features with spatial embeddings: List of (B, C, embed_dim) for each scale

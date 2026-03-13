@@ -60,7 +60,7 @@
       "in_scales": 3,
       "vq_head_top_k": 8,
       "vq_head_num": 8,
-      "vq_head_vocab_size": 64,
+      "vq_head_vocab_size": 16,
       "freq_resolution": 0.2,
       "min_freq": 0.0,
       "max_freq": 80.0
@@ -75,7 +75,7 @@
       "dec_mlp_ratio": 4.0,
       "embed_dim": 256,
       "in_scales": 3,
-      "vq_head_top_k": 8,
+      "vq_head_top_k": 16,
       "vq_head_vocab_size": 64,
       "freq_resolution": 0.2,
       "min_freq": 0.0,
@@ -106,13 +106,13 @@
   },
   "training_params": {
     "model_type": "AttnVQ",
-    "model_name": "attnvq_v10",
+    "model_name": "attnvq_v23",
     "train_val_split": 0.8,
     "learning_rate": 5e-5,
     "min_learning_rate": 1e-5,
     "epochs": 100,
     "decoder_refine_epochs": 0,
-    "warmup_epochs": 5,
+    "warmup_epochs": 10,
     "batch_size": 128,
     "weight_decay": 1e-4,
     "device": "cuda"

@@ -134,7 +134,7 @@ class AttnRVQ(nn.Module):
     """
     Multi-Head Sparse Attention VQ with Independent Codebooks per Head.
     """
-    def __init__(self, in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k=8, temperature=5):
+    def __init__(self, in_scales, num_heads, vq_head_vocab_size, e_dim, vq_head_top_k=8, temperature=1.0):
         super().__init__()
         assert e_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
         
@@ -145,8 +145,8 @@ class AttnRVQ(nn.Module):
         self.head_dim = e_dim // num_heads
         self.vq_head_top_k = vq_head_top_k
         
-        # Temperature per scale and head
-        self.temperature = nn.Parameter(torch.ones(in_scales, num_heads, 1, 1) * temperature)
+        # Temperature is now a buffer
+        self.register_buffer('temperature', torch.ones(in_scales, num_heads, 1, 1) * temperature)
 
         # Keys (Selection): (S, H, V, D_head)
         self.key_embeddings = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
@@ -155,6 +155,9 @@ class AttnRVQ(nn.Module):
         # Values (Content): (S, H, V, D_head)
         self.value_embeddings = nn.Parameter(torch.empty(in_scales, num_heads, vq_head_vocab_size, self.head_dim))
         nn.init.normal_(self.value_embeddings, std=0.02)
+
+    def set_temperature(self, value):
+        self.temperature.fill_(value)
 
     def forward(self, z):
         # Input z: (S*B, N, D)
@@ -180,6 +183,7 @@ class AttnRVQ(nn.Module):
         weights = F.softmax(top_vals / temp_broadcast.clamp(min=1e-3), dim=-1) # (S, B, N, H, K)
         
         # --- 4. Reconstruction ---
+        # ... rest of forward
         # Flattened Index calculation for Multi-Head independent gathering
         s_idx = torch.arange(S, device=z.device).view(S, 1, 1, 1, 1)
         h_idx = torch.arange(H, device=z.device).view(1, 1, 1, H, 1)
@@ -236,6 +240,9 @@ class AttnRVQEncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(embed_dim)
         self.mlp = MLP(in_features=embed_dim, hidden_features=int(embed_dim * mlp_ratio), drop=drop)
 
+    def set_temperature(self, value):
+        self.attnrvq_vq.set_temperature(value)
+
     def forward(self, x):
         # 1. Quantize (Attention substitute)
         z_q, loss, indices = self.attnrvq_vq(self.norm1(x))
@@ -255,6 +262,10 @@ class AttnRVQTransformer(nn.Module):
             AttnRVQEncoderLayer(embed_dim, num_heads, in_scales, vq_head_vocab_size, vq_head_top_k, mlp_ratio, drop_rate)
             for _ in range(depth)
         ])
+
+    def set_temperature(self, value):
+        for layer in self.layers:
+            layer.set_temperature(value)
 
     def forward(self, x):
         total_z_q = 0
@@ -348,6 +359,9 @@ class AttnRVQTokenizer(nn.Module):
         self.head_amp = nn.Linear(embed_dim, self.fft_dim)
         self.head_sin = nn.Linear(embed_dim, self.fft_dim)
         self.head_cos = nn.Linear(embed_dim, self.fft_dim)
+
+    def set_temperature(self, value):
+        self.attnrvq_encoder.set_temperature(value)
 
     def forward(self, x, coords):
         B, N, T = x.shape

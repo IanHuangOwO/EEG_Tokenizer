@@ -33,8 +33,8 @@ def _setup_mne_info(dataset, fs=1000):
     for i, name in enumerate(names):
         pos = coords[i]
         # Skip M1/M2 and invalid coords
-        if name.upper() in ['M1', 'M2']:
-            continue
+        # if name.upper() in ['M1', 'M2']:
+        #     continue
             
         if np.any(pos != 0):
             montage_pos[name] = pos
@@ -233,7 +233,7 @@ def visualize_weighted_uniqueness_topo(config, dataset, csv_path=None, output_di
     df = pd.read_csv(csv_path)
     
     # Rule out M1 and M2
-    df = df[~df['Channel'].str.upper().isin(['M1', 'M2'])]
+    # df = df[~df['Channel'].str.upper().isin(['M1', 'M2'])]
     
     res_df = calculate_uniqueness_metrics(df, config, neighbors)
     
