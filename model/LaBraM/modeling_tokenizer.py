@@ -271,7 +271,7 @@ class LaBraMTokenizer(nn.Module):
         cb = self.quantize.ema_w.detach().cpu()
         return [(cb, "S0_L0_H0")]
 
-    def get_indices(self, x, coords):
+    def get_indices(self, x, coords, time_idx=None):
         """
         Returns usage indices.
         Target: (Batch*N, L=1, S=1, H=1, K=1)

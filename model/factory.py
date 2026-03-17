@@ -97,7 +97,6 @@ def build_model_from_config(config, src_output_dir=None):
             dec_heads=params.get('dec_heads', params['enc_heads']),
             dec_mlp_ratio=params.get('dec_mlp_ratio', 4.0),
             in_scales=params.get('in_scales', 4),
-            vq_head_top_k=params.get('vq_head_top_k', 8),
             vq_head_num=params.get('vq_head_num', 8),
             vq_head_vocab_size=params['vq_head_vocab_size'],
             freq_resolution=params.get('freq_resolution', 1.0),

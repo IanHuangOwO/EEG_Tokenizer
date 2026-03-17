@@ -59,7 +59,7 @@ def main():
 
     # 5. Get a sample (One trial/patch)
     patch_idx = 0
-    patch, coords, _ = dataset[patch_idx]
+    patch, coords, time_idx, _ = dataset[patch_idx]
     
     # Logic to find which Subject this belongs to
     # dataset is a TokenizerWrapperDataset, dataset.base_dataset is EEGDataset
@@ -71,6 +71,7 @@ def main():
     # Add batch dimension and move to device
     patch = patch.unsqueeze(0).to(device)   # (1, Channels, 200)
     coords = coords.unsqueeze(0).to(device) # (1, Channels, 3)
+    time_idx = torch.tensor([time_idx], device=device) # (1,)
 
     # 6. Forward Pass
     with torch.no_grad():
@@ -79,7 +80,7 @@ def main():
         # We need to call get_indices directly.
         
         # NOTE: get_indices now returns (indices, weights) tuple
-        outputs = model.get_indices(patch, coords)
+        outputs = model.get_indices(patch, coords, time_idx)
         indices = outputs[0] # (B*C, L=1, S, H, K)
         weights = outputs[1] # (B*C, L=1, S, H, K)
     

@@ -373,7 +373,7 @@ class RecurrentFSQTokenizer(nn.Module):
         """
         return []
 
-    def get_indices(self, x, coords):
+    def get_indices(self, x, coords, time_idx=None):
         """
         Returns usage indices.
         Target: (Batch*N, L(Steps), S, H=1, K=1)

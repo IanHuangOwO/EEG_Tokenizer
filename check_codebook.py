@@ -52,13 +52,13 @@ def extract_projections(model):
 
 def collect_indices(model, loader, device, max_batches=None):
     """
-    Returns indices tensor or None.
-    Expected to return: (Total_Samples, ...)
+    Returns (indices, weights) tensors or (None, None).
     """
     if not hasattr(model, 'get_indices'):
-        return None
+        return None, None
 
     indices_acc = []
+    weights_acc = []
     print(f"Collecting usage indices from {type(model).__name__} (Full Dataset)...")
     
     total_steps = max_batches if max_batches is not None else len(loader)
@@ -66,14 +66,15 @@ def collect_indices(model, loader, device, max_batches=None):
     with torch.no_grad():
         for i, batch in enumerate(tqdm(loader, total=total_steps)):
             if max_batches is not None and i >= max_batches: break
-            x, coords, _ = [t.to(device) for t in batch]
-            idx, _ = model.get_indices(x, coords) # (B*N, ...)
+            x, coords, time_idx, _ = [t.to(device) for t in batch]
+            idx, weights = model.get_indices(x, coords, time_idx) 
             if idx is not None:
                 indices_acc.append(idx.cpu())
+                weights_acc.append(weights.cpu())
                 
     if indices_acc:
-        return torch.cat(indices_acc, dim=0)
-    return None
+        return torch.cat(indices_acc, dim=0), torch.cat(weights_acc, dim=0)
+    return None, None
 
 # =============================================================================
 # 2. Analysis Metrics
@@ -142,27 +143,48 @@ def compute_cross_scale_metrics(codebooks):
             
     return {'cka': cka, 'overlap': ovl, 'sim': sim, 'labels': labels}
 
-def calc_perplexity_and_usage(indices, vocab_size):
+def calc_weighted_stats(indices, weights, vocab_size):
     """
-    indices: flat tensor of code ids
+    Computes weighted perplexity and token sharpness.
+    indices: (N, K) - where K is top-k (e.g. 1 for argmax)
+    weights: (N, R) or (N, K) - soft attention weights
     """
-    if indices.numel() == 0:
-        return 0.0, 0.0
+    if weights.numel() == 0:
+        return 0.0, 0.0, 0.0
         
-    indices = indices.flatten().long()
-    counts = torch.bincount(indices, minlength=vocab_size).float()
-    probs = counts / (counts.sum() + 1e-10)
+    N = weights.shape[0]
     
-    # Perplexity
+    # 1. Global Usage & Perplexity (Dataset Level)
+    if weights.shape[-1] == vocab_size:
+        # Weights is already the full distribution
+        weighted_counts = weights.sum(dim=0)
+    else:
+        # Weights is Top-K, need to scatter using indices
+        K = weights.shape[-1]
+        indices_flat = indices.flatten().long()
+        weights_flat = weights.flatten().float()
+        weighted_counts = torch.zeros(vocab_size)
+        weighted_counts.scatter_add_(0, indices_flat, weights_flat)
+    
+    probs = weighted_counts / (weighted_counts.sum() + 1e-10)
     p = probs[probs > 0]
-    entropy = -torch.sum(p * torch.log(p))
-    perplexity = torch.exp(entropy).item()
+    global_entropy = -torch.sum(p * torch.log(p + 1e-10))
+    global_perplexity = torch.exp(global_entropy).item()
     
-    # Usage %
-    used = (counts > 0).sum().item()
-    usage_pct = (used / vocab_size) * 100.0
+    # Usage % (Hard check: was it ever picked with > 0.1% of average weight?)
+    usage_pct = (weighted_counts > (weighted_counts.sum() * 0.001 / vocab_size)).sum().item() / vocab_size * 100.0
     
-    return perplexity, usage_pct
+    # 2. Token Sharpness (Instance Level)
+    # We calculate entropy per instance across its weight distribution
+    token_entropy = -torch.sum(weights * torch.log(weights + 1e-10), dim=-1)
+    avg_token_entropy = token_entropy.mean().item()
+    
+    # Max entropy for normalization
+    K_eff = weights.shape[-1]
+    max_ent = np.log(K_eff) if K_eff > 1 else 1.0
+    sharpness = 1.0 - (avg_token_entropy / max_ent)
+    
+    return global_perplexity, usage_pct, sharpness
 
 def calc_structure_stats(codebook):
     """
@@ -303,14 +325,14 @@ def main():
     
     # 2. Collect Data
     codebooks = extract_codebooks(model) # List of (cb_tensor, name)
-    indices_tensor = collect_indices(model, loader, device) # Limit for speed
+    indices_tensor, weights_tensor = collect_indices(model, loader, device) # Limit for speed
     
     # 3. Analyze & Correlate
     stats_list = []
     
     print(f"\n=== Codebook Analysis: {model_name} ===")
-    print(f"{'Codebook Name':<15} | {'Usage%':<7} | {'Perplex':<8} | {'Ortho':<8} | {'Norm':<6} | {'EffRank':<7}")
-    print("-" * 75)
+    print(f"{'Codebook Name':<15} | {'Usage%':<7} | {'Perplex':<8} | {'Sharp':<6} | {'Ortho':<8} | {'Norm':<6} | {'EffRank':<7}")
+    print("-" * 85)
     
     # Prepare grids for heatmaps if structured
     max_l, max_s, max_h = 0, 0, 0
@@ -324,12 +346,15 @@ def main():
         erank = calc_effective_rank(cb)
         
         # Calculate Usage Stats (if indices available)
-        usage_pct, perplex = 0.0, 0.0
+        usage_pct, perplex, sharpness = 0.0, 0.0, 0.0
         
         if indices_tensor is not None and meta:
             try:
+                # Use universal slicing: (Tokens, Layer, Scale, Head, Top-K)
+                # For AttnVQ, meta['L'] is 0 and indices_tensor has a dummy layer dim at index 1.
                 idx_slice = indices_tensor[:, meta['L'], meta['S'], meta['H'], :]
-                perplex, usage_pct = calc_perplexity_and_usage(idx_slice, vq_head_vocab_size)
+                weight_slice = weights_tensor[:, meta['L'], meta['S'], meta['H'], :]
+                perplex, usage_pct, sharpness = calc_weighted_stats(idx_slice, weight_slice, vq_head_vocab_size)
             except Exception:
                 pass 
         
@@ -338,12 +363,13 @@ def main():
             'meta': meta,
             'usage': usage_pct,
             'perplex': perplex,
+            'sharpness': sharpness,
             'ortho': ortho,
             'norm': avg_norm,
             'erank': erank
         })
         
-        print(f"{name:<15} | {usage_pct:<6.1f}% | {perplex:<8.1f} | {ortho:<8.3f} | {avg_norm:<6.2f} | {erank:<7.2f}")
+        print(f"{name:<15} | {usage_pct:<6.1f}% | {perplex:<8.1f} | {sharpness:<6.3f} | {ortho:<8.3f} | {avg_norm:<6.2f} | {erank:<7.2f}")
         
         if meta:
             max_l = max(max_l, meta['L'])

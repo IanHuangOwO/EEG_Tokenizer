@@ -449,7 +449,7 @@ class AttnRVQTokenizer(nn.Module):
                     
         return codebooks
 
-    def get_indices(self, x, coords):
+    def get_indices(self, x, coords, time_idx=None):
         """
         Runs forward pass and returns indices for analysis.
         Returns: (Batch*N, Depth, Scales, Heads, Top-K) flat tensor

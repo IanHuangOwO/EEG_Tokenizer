@@ -510,9 +510,10 @@ class TokenizerWrapperDataset(Dataset):
 
     def __getitem__(self, index):
         trial_idx = index // self.patches_per_trial
-        patch_offset = (index % self.patches_per_trial) * self.patch_len
+        patch_idx = index % self.patches_per_trial
+        patch_offset = patch_idx * self.patch_len
         
         x, y = self.base_dataset[trial_idx]
         patch = x[:, patch_offset : patch_offset + self.patch_len]
         
-        return patch, self.coords_tensor, y
+        return patch, self.coords_tensor, patch_idx, y

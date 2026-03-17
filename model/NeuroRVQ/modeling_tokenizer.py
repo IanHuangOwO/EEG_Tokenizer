@@ -326,7 +326,7 @@ class NeuroRVQTokenizer(nn.Module):
                 codebooks.append((cb, name))
         return codebooks
 
-    def get_indices(self, x, coords):
+    def get_indices(self, x, coords, time_idx=None):
         """
         Returns usage indices.
         Target: (Batch*N, L, S, H=1, K=1)

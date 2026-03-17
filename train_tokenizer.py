@@ -49,10 +49,10 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
     
     for batch in pbar:
-        x, coords, _ = [t.to(device) for t in batch]
+        x, coords, time_idx, _ = [t.to(device) for t in batch]
         optimizer.zero_grad()
 
-        p1, p2, p3, vq_loss, _, _ = model(x, coords)
+        p1, p2, p3, vq_loss, _, _ = model(x, coords, time_idx)
         recon_loss, l_amp, l_phs, l_tmp, l_mse = model.get_loss(x, p1, p2, p3, x_fft=None)
 
         loss = recon_loss + vq_loss
@@ -91,8 +91,8 @@ def validate_one_epoch(model, data_loader, device):
     
     with torch.no_grad():
         for batch in pbar:
-            x, coords, _ = [t.to(device) for t in batch]
-            p1, p2, p3, vq_loss, _, _ = model(x, coords)
+            x, coords, time_idx, _ = [t.to(device) for t in batch]
+            p1, p2, p3, vq_loss, _, _ = model(x, coords, time_idx)
             recon_loss, l_amp, l_phs, l_tmp, l_mse = model.get_loss(x, p1, p2, p3, x_fft=None)
             
             metrics["loss"] += (recon_loss + vq_loss).item()
@@ -241,15 +241,6 @@ def main():
     
     logger.info(f"Starting Stage 1: Joint Training ({total_epochs} epochs)")
     for epoch in range(1, total_epochs + 1):
-        # Update temperature for models that support it
-        if hasattr(model, 'set_temperature'):
-            # Linear decay from 1.0 to 0.05
-            start_temp = 1.0
-            end_temp = 0.3
-            current_temp = max(end_temp, start_temp - (start_temp - end_temp) * (epoch - 1) / max(1, total_epochs - 1))
-            model.set_temperature(current_temp)
-            logger.info(f"  > Temperature: {current_temp:.4f}")
-
         train_metrics, train_last_batch = train_one_epoch(model, train_loader, optimizer, device, epoch)
         val_metrics, val_last_batch = validate_one_epoch(model, val_loader, device)
         scheduler.step()
@@ -257,10 +248,9 @@ def main():
         logger.info(f"Epoch {epoch}/{total_epochs}:")
         logger.info(f"  > Train [L:{train_metrics['loss']:.4f}, MSE:{train_metrics['temp_mse']:.4f}, Rec:{train_metrics['recon']:.4f}, VQ:{train_metrics['vq']:.4f}]")
         logger.info(f"  > Val   [L:{val_metrics['loss']:.4f}, MSE:{val_metrics['temp_mse']:.4f}, Rec:{val_metrics['recon']:.4f}, VQ:{val_metrics['vq']:.4f}]")
-        if 'cb_erank' in train_metrics:
-            logger.info(f"  > Ranks [CB:{train_metrics['cb_erank']:.2f}, Wq:{train_metrics['wq_erank']:.2f}, Wo:{train_metrics['wo_erank']:.2f}]")
-            logger.info(f"  > Sim   [CB:{train_metrics['cb_sim']:.4f}, Wq:{train_metrics['wq_sim']:.4f}, Wo:{train_metrics['wo_sim']:.4f}]")
-            logger.info(f"  > Bottleneck [Ppl:{train_metrics['perplexity']:.1f}, OrthoErr:{train_metrics['wq_ortho']:.4f}]")
+        if 'A_overlap' in train_metrics:
+            logger.info(f"  > Subspace [A_over:{train_metrics['A_overlap']:.4f}, B_over:{train_metrics['B_overlap']:.4f}]")
+            logger.info(f"  > Gating   [W_mean:{train_metrics['head_weight_mean']:.3f}, W_max:{train_metrics['head_weight_max']:.3f}, W_min:{train_metrics['head_weight_min']:.3f}]")
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']

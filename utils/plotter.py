@@ -148,33 +148,29 @@ class Plotter:
         ax1.legend()
         ax1.grid(True, which="both", ls="-", alpha=0.5)
 
-        # 2. Ranks (Effective Rank)
-        if 'cb_erank' in self.history['train']:
-            ax2.plot(epochs, self.history['train']['cb_erank'], 'r-', label='CB Rank')
-            if 'wq_erank' in self.history['train']:
-                ax2.plot(epochs, self.history['train']['wq_erank'], 'g-', label='Wq Rank')
-            if 'wo_erank' in self.history['train']:
-                ax2.plot(epochs, self.history['train']['wo_erank'], 'm-', label='Wo Rank')
+        # 2. Subspace Overlap (Orthogonality)
+        if 'A_overlap' in self.history['train']:
+            ax2.plot(epochs, self.history['train']['A_overlap'], 'r-', label='A Overlap (Filter)')
+            if 'B_overlap' in self.history['train']:
+                ax2.plot(epochs, self.history['train']['B_overlap'], 'b-', label='B Overlap (Synth)')
             
-            ax2.set_title('Geometric Rank Tracking')
-            ax2.set_ylabel('Effective Rank')
+            ax2.set_title('Subspace Diversification (Lower is better)')
+            ax2.set_ylabel('Overlap Score')
             ax2.legend()
             ax2.grid(True)
 
-        # 3. Codebook Health (Perplexity and Similarity)
-        if 'perplexity' in self.history['train']:
-            ax3.plot(epochs, self.history['train']['perplexity'], 'k-', label='Perplexity')
-            ax3.set_ylabel('Perplexity', color='k')
-            ax3.tick_params(axis='y', labelcolor='k')
+        # 3. Gating Mechanism (Head Weights)
+        if 'head_weight_mean' in self.history['train']:
+            ax3.plot(epochs, self.history['train']['head_weight_mean'], 'k-', label='Mean Weight')
+            if 'head_weight_max' in self.history['train']:
+                ax3.plot(epochs, self.history['train']['head_weight_max'], 'g--', label='Max Weight')
+            if 'head_weight_min' in self.history['train']:
+                ax3.plot(epochs, self.history['train']['head_weight_min'], 'r--', label='Min Weight')
             
-            if 'cb_sim' in self.history['train']:
-                ax3_twin = ax3.twinx()
-                ax3_twin.plot(epochs, self.history['train']['cb_sim'], 'b-', label='Head Sim')
-                ax3_twin.set_ylabel('Avg Head Similarity (0=Independent)', color='b')
-                ax3_twin.tick_params(axis='y', labelcolor='b')
-                ax3_twin.set_ylim(0, 1)
+            ax3.set_ylabel('Weight Value')
+            ax3.legend(loc='upper left')
 
-        ax3.set_title('Bottleneck Health Tracking')
+        ax3.set_title('Expert Gating Mechanism')
         ax3.set_xlabel('Epoch')
         ax3.grid(True)
         
