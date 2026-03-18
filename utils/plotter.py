@@ -134,45 +134,91 @@ class Plotter:
         epochs = range(1, len(self.history['train']['temp_mse']) + 1)
         has_val = 'temp_mse' in self.history['val'] and len(self.history['val']['temp_mse']) > 0
 
-        # Create three subplots: MSE, Rank, and Health
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 18))
+        # Identify scales and heads
+        head_keys = [k for k in self.history['train'].keys() if k.startswith('head_weight_s')]
+        scales = sorted(list(set([int(k.split('_s')[1].split('_h')[0]) for k in head_keys])))
+        n_scales = len(scales)
+        
+        # 2x3 Grid Layout
+        fig, axes = plt.subplots(2, 3, figsize=(20, 12))
+        axes = axes.flatten()
+        
+        ax_mse = axes[0]
+        ax_cb = axes[1]
+        ax_sub = axes[2]
+        gating_axes = axes[3:]
 
         # 1. Temporal MSE
-        ax1.plot(epochs, self.history['train']['temp_mse'], 'b-', label='Train MSE')
+        ax_mse.plot(epochs, self.history['train']['temp_mse'], 'b-', label='Train MSE')
         if has_val:
-            ax1.plot(epochs, self.history['val']['temp_mse'], 'b--', alpha=0.7, label='Val MSE')
+            ax_mse.plot(epochs, self.history['val']['temp_mse'], 'b--', alpha=0.7, label='Val MSE')
             
-        ax1.set_title('Reconstruction Quality (MSE)')
-        ax1.set_ylabel('MSE (Log Scale)')
-        ax1.set_yscale('log')
-        ax1.legend()
-        ax1.grid(True, which="both", ls="-", alpha=0.5)
+        ax_mse.set_title('Reconstruction Quality (MSE)')
+        ax_mse.set_ylabel('MSE (Log Scale)')
+        ax_mse.set_yscale('log')
+        ax_mse.legend()
+        ax_mse.grid(True, which="both", ls="-", alpha=0.5)
 
-        # 2. Subspace Overlap (Orthogonality)
-        if 'A_overlap' in self.history['train']:
-            ax2.plot(epochs, self.history['train']['A_overlap'], 'r-', label='A Overlap (Filter)')
-            if 'B_overlap' in self.history['train']:
-                ax2.plot(epochs, self.history['train']['B_overlap'], 'b-', label='B Overlap (Synth)')
+        # 2. Codebook Health (Perplexity and Sharpness)
+        if 'codebook_perplexity' in self.history['train']:
+            ax_cb.plot(epochs, self.history['train']['codebook_perplexity'], 'g-', label='Perplexity (Usage)')
+            ax_cb_twin = ax_cb.twinx()
+            ax_cb_twin.plot(epochs, self.history['train']['codebook_sharpness'], 'm-', label='Sharpness (Max Prob)')
             
-            ax2.set_title('Subspace Diversification (Lower is better)')
-            ax2.set_ylabel('Overlap Score')
-            ax2.legend()
-            ax2.grid(True)
-
-        # 3. Gating Mechanism (Head Weights)
-        if 'head_weight_mean' in self.history['train']:
-            ax3.plot(epochs, self.history['train']['head_weight_mean'], 'k-', label='Mean Weight')
-            if 'head_weight_max' in self.history['train']:
-                ax3.plot(epochs, self.history['train']['head_weight_max'], 'g--', label='Max Weight')
-            if 'head_weight_min' in self.history['train']:
-                ax3.plot(epochs, self.history['train']['head_weight_min'], 'r--', label='Min Weight')
+            ax_cb.set_title('Codebook Health (Diversity vs Sharpness)')
+            ax_cb.set_ylabel('Perplexity (Unique Codes)')
+            ax_cb_twin.set_ylabel('Sharpness (0 to 1)')
             
-            ax3.set_ylabel('Weight Value')
-            ax3.legend(loc='upper left')
+            # Combine legends
+            lines, labels = ax_cb.get_legend_handles_labels()
+            lines2, labels2 = ax_cb_twin.get_legend_handles_labels()
+            ax_cb.legend(lines + lines2, labels + labels2, loc='upper left')
+            ax_cb.grid(True)
 
-        ax3.set_title('Expert Gating Mechanism')
-        ax3.set_xlabel('Epoch')
-        ax3.grid(True)
+        # 3. Subspace Rank Health & Logit Scale
+        if 'A_sv_mean' in self.history['train']:
+            ax_sub.plot(epochs, self.history['train']['A_sv_mean'], 'r-', label='A SV Mean')
+            ax_sub.plot(epochs, self.history['train']['B_sv_mean'], 'b-', label='B SV Mean')
+            ax_sub.set_title('SVD Rank Health (Mean)')
+            ax_sub.set_ylabel('Singular Values (Gain)')
+            
+            ax_sub_twin = ax_sub.twinx()
+            if 'logit_scale_mean' in self.history['train']:
+                ax_sub_twin.plot(epochs, self.history['train']['logit_scale_mean'], 'k-', alpha=0.5, label='LScale Mean')
+            
+            if 'A_condition' in self.history['train']:
+                ax_sub_twin.plot(epochs, self.history['train']['A_condition'], 'r--', alpha=0.3, label='A Condition')
+            if 'B_condition' in self.history['train']:
+                ax_sub_twin.plot(epochs, self.history['train']['B_condition'], 'b--', alpha=0.3, label='B Condition')
+                
+            ax_sub_twin.set_ylabel('LScale / Condition #')
+            ax_sub_twin.set_yscale('log') # Condition numbers can get large
+            
+            # Combine legends
+            lines, labels = ax_sub.get_legend_handles_labels()
+            lines2, labels2 = ax_sub_twin.get_legend_handles_labels()
+            ax_sub.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='x-small')
+            ax_sub.grid(True)
+
+        # 4. Gating Mechanism (Up to 3 plots)
+        for i in range(3): # Fill exactly 3 slots for gating (or empty)
+            ax = gating_axes[i]
+            if i < n_scales:
+                s = scales[i]
+                heads_in_scale = sorted([k for k in head_keys if f'head_weight_s{s}_h' in k], 
+                                        key=lambda x: int(x.split('_h')[1]))
+                
+                for h_key in heads_in_scale:
+                    h_idx = h_key.split('_h')[1]
+                    ax.plot(epochs, self.history['train'][h_key], label=f'Head {h_idx}')
+                
+                ax.set_title(f'Gating Mechanism (Scale {s})')
+                ax.set_ylabel('Weight Value')
+                ax.set_xlabel('Epoch')
+                ax.legend(loc='upper left', fontsize='x-small', ncol=4)
+                ax.grid(True)
+            else:
+                ax.axis('off') # Hide unused slots
         
         plt.tight_layout()
         save_path = os.path.join(self.output_dir, 'training_metrics.png')

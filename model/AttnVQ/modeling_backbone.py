@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
-from model.AttnVQ.modeling_tokenizer import MultiScaleTemporalEncoder, TransformerEncoder
+from model.AttnVQ.modeling_tokenizer import SpatialTemporalEncoder, TransformerLayer
 
 # --- Separate Block Classes for Clarity ---
 
@@ -12,80 +12,49 @@ class EncoderBlock(nn.Module):
     """
     def __init__(self, embed_dim, num_heads, mlp_ratio=4., dropout=0.1):
         super().__init__()
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
-        
-        self.norm2 = nn.LayerNorm(embed_dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, int(embed_dim * mlp_ratio)),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(int(embed_dim * mlp_ratio), embed_dim),
-            nn.Dropout(dropout)
-        )
+        self.block = TransformerLayer(embed_dim, num_heads, mlp_ratio)
 
     def forward(self, x):
-        # x: (Batch, SeqLen, Dim)
-        x_norm = self.norm1(x)
-        attn_out, _ = self.attn(x_norm, x_norm, x_norm)
-        x = x + attn_out
-        
-        x = x + self.mlp(self.norm2(x))
-        return x
+        return self.block(x)
 
 class DecoderBlock(nn.Module):
     """
     Detailed Transformer Decoder Block. 
-    In MAE, this is similar to Encoder but often used in a shallower stack.
     """
     def __init__(self, embed_dim, num_heads, mlp_ratio=4., dropout=0.1):
         super().__init__()
-        self.norm1 = nn.LayerNorm(embed_dim)
-        self.attn = nn.MultiheadAttention(embed_dim, num_heads, dropout=dropout, batch_first=True)
-        
-        self.norm2 = nn.LayerNorm(embed_dim)
-        self.mlp = nn.Sequential(
-            nn.Linear(embed_dim, int(embed_dim * mlp_ratio)),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(int(embed_dim * mlp_ratio), embed_dim),
-            nn.Dropout(dropout)
-        )
+        self.block = TransformerLayer(embed_dim, num_heads, mlp_ratio)
 
     def forward(self, x):
-        x_norm = self.norm1(x)
-        attn_out, _ = self.attn(x_norm, x_norm, x_norm)
-        x = x + attn_out
-        
-        x = x + self.mlp(self.norm2(x))
-        return x
+        return self.block(x)
 
 # --- Patch Embedding ---
 
 class AttnVQPatchEmbed(nn.Module):
     """
-    Converts raw EEG signal into patches using the AttnVQ Multi-Scale approach.
+    Converts raw EEG signal into patches using the new SpatialTemporalEncoder.
     """
-    def __init__(self, in_chans=1, embed_dim=200):
+    def __init__(self, in_chans=1, embed_dim=256, max_temporal_patches=10):
         super().__init__()
-        self.temporal_encoder = MultiScaleTemporalEncoder(in_chans, embed_dim)
+        self.encoder = SpatialTemporalEncoder(in_chans, base_filters=16, embed_dim=embed_dim, max_temporal_patches=max_temporal_patches)
         
-    def forward(self, x):
-        # x: (Batch, Channels, Patches, Time=200) or 5D
-        if x.dim() == 5:
-            B, C, P, F, T = x.shape
-            x = rearrange(x, 'b c p f t -> (b p) c f t')
-        else:
-            B, C, P, T = x.shape
-            x = rearrange(x, 'b c p t -> (b p) c t')
+    def forward(self, x, coords):
+        # x: (Batch, Channels, Patches, Time=200)
+        B, C, P, T = x.shape
         
-        # Extract features (List of [BP, C, D])
-        ms_features = self.temporal_encoder(x)
+        # Flatten patches into the batch dimension for the convolutional encoder
+        x_reshaped = rearrange(x, 'b c p t -> (b p) c t')
+        # Coords also need to be repeated for each patch
+        coords_reshaped = coords.unsqueeze(1).expand(-1, P, -1, -1).reshape(B * P, C, 3)
         
-        # Sum multi-scale features (standard AttnVQ approach)
-        x_feat = sum(ms_features) # (BP, C, D)
+        # Extract multiscale features: List of [(B*P), C, embed_dim]
+        ms_features = self.encoder(x_reshaped, coords_reshaped)
+        
+        # Sum multi-scale features for the foundation model input
+        x_feat = sum(ms_features) # ((B*P), C, embed_dim)
         
         # Reshape back to (Batch, Total_Tokens, Dim)
+        # Tokens = Channels * Patches
         x_feat = rearrange(x_feat, '(b p) c d -> b (c p) d', b=B, p=P)
         
         return x_feat
@@ -95,29 +64,31 @@ class AttnVQPatchEmbed(nn.Module):
 class AttnVQBackbone(nn.Module):
     def __init__(
         self,
-        embed_dim=200,
+        embed_dim=256,
         enc_depth=12,
-        enc_heads=10,
+        enc_heads=8,
         dec_depth=4,
-        dec_heads=10,
-        vq_head_vocab_size=8192,
-        in_scales=4,
-        vq_head_top_k=8,
+        dec_heads=8,
+        vq_head_vocab_size=64, # Matches tokenizer r
+        in_scales=3,
+        vq_head_num=8,
         dropout=0.1,
-        in_chans=1
+        in_chans=1,
+        max_temporal_patches=10
     ):
         super().__init__()
         
-        # 1. Patch Embedding
-        self.patch_embed = AttnVQPatchEmbed(in_chans=in_chans, embed_dim=embed_dim)
+        # 1. Patch Embedding (SpatialTemporal)
+        self.patch_embed = AttnVQPatchEmbed(in_chans=in_chans, embed_dim=embed_dim, max_temporal_patches=max_temporal_patches)
         
         # 2. Special Tokens
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         
-        # 3. Position & Channel Embeddings
-        self.spatial_embed = nn.Parameter(torch.zeros(1, 128, embed_dim))
-        self.temporal_embed = nn.Parameter(torch.zeros(1, 16, embed_dim))
+        # 3. Positional Encoding
+        # Since SpatialTemporalEncoder already adds spatial/temporal embeddings inside patch_embed,
+        # the backbone's learnable embeddings are used for additional context if needed.
+        self.pos_embed = nn.Parameter(torch.zeros(1, 128 * max_temporal_patches + 1, embed_dim))
         
         # 4. Encoder Stack
         self.encoder = nn.ModuleList([
@@ -133,11 +104,11 @@ class AttnVQBackbone(nn.Module):
         ])
         self.dec_norm = nn.LayerNorm(embed_dim)
         
-        self.total_codes = in_scales * vq_head_top_k
-        
-        # 6. Prediction Heads
+        # 6. Prediction Heads: Predicting indices for all heads and scales
+        # Total Codebooks = in_scales * vq_head_num
+        self.total_codebooks = in_scales * vq_head_num
         self.heads = nn.ModuleList([
-            nn.Linear(embed_dim, vq_head_vocab_size) for _ in range(self.total_codes)
+            nn.Linear(embed_dim, vq_head_vocab_size) for _ in range(self.total_codebooks)
         ])
         
         self._init_weights()
@@ -145,40 +116,33 @@ class AttnVQBackbone(nn.Module):
     def _init_weights(self):
         torch.nn.init.normal_(self.cls_token, std=.02)
         torch.nn.init.normal_(self.mask_token, std=.02)
-        torch.nn.init.normal_(self.spatial_embed, std=.02)
-        torch.nn.init.normal_(self.temporal_embed, std=.02)
+        torch.nn.init.normal_(self.pos_embed, std=.02)
 
-    def forward(self, x, channel_indices, bool_masked_pos=None):
+    def forward(self, x, coords, bool_masked_pos=None):
         """
         x: (Batch, Channels, Patches, 200)
-        channel_indices: (Batch, Channels)
+        coords: (Batch, Channels, 3)
         bool_masked_pos: (Batch, Channels * Patches) - True for masked
         """
-        if x.dim() == 5:
-            B, C, P, F, T = x.shape
-        else:
-            B, C, P, T = x.shape
+        B, C, P, T = x.shape
         
-        # 1. Embed Patches
-        x = self.patch_embed(x) # (B, C*P, D)
+        # 1. Embed Patches (Includes Spatial/Temporal internal embeddings)
+        x = self.patch_embed(x, coords) # (B, C*P, D)
         
-        # 2. Add Positional/Spatial Information
-        s_emb = self.spatial_embed[0, channel_indices, :] 
-        s_emb = s_emb.unsqueeze(2).expand(-1, -1, P, -1).flatten(1, 2)
+        # 2. Add CLS and Positional Encoding
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1) # (B, C*P + 1, D)
         
-        t_emb = self.temporal_embed[:, :P, :].unsqueeze(1).expand(B, C, -1, -1).flatten(1, 2)
+        # Add position embeddings (matching current sequence length)
+        x = x + self.pos_embed[:, :x.shape[1], :]
         
-        x = x + s_emb + t_emb
-        
-        # 3. Masking
+        # 3. Masking (Apply to tokens, not CLS)
         if bool_masked_pos is not None:
-            m = bool_masked_pos.unsqueeze(-1).type_as(x)
+            # Shift masked pos because of CLS token
+            m = torch.cat([torch.zeros(B, 1, device=x.device), bool_masked_pos], dim=1).unsqueeze(-1).type_as(x)
             x = x * (1 - m) + self.mask_token * m
             
         # 4. Encoder
-        cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)
-        
         for blk in self.encoder:
             x = blk(x)
         x = self.enc_norm(x)
@@ -192,9 +156,11 @@ class AttnVQBackbone(nn.Module):
         x_tokens = x[:, 1:, :] # (B, C*P, D)
         
         # 6. Prediction Heads
+        # logits: List of (B, C*P, vq_head_vocab_size)
         logits = [head(x_tokens) for head in self.heads]
         
         return logits
+
 
 def attnvq_base_patch200():
     return AttnVQBackbone(

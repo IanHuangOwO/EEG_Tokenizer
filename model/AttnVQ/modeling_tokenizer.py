@@ -132,11 +132,11 @@ class AttnVQ(nn.Module):
         self.r = vq_head_vocab_size
         self.in_scales, self.num_heads, self.vq_head_vocab_size, self.e_dim = in_scales, num_heads, vq_head_vocab_size, e_dim
         
-        # Low-Rank Projections
-        # A (Filter): Projects D -> r
-        self.A = nn.Parameter(torch.empty(in_scales, num_heads, e_dim, self.r))
-        # B (Synthesizer): Projects r -> D
-        self.B = nn.Parameter(torch.empty(in_scales, num_heads, self.r, e_dim))
+        # Low-Rank Projections (Optimized Flattened Format)
+        # A (Filter): Projects D -> H * r
+        self.A = nn.Parameter(torch.empty(in_scales, e_dim, num_heads * self.r))
+        # B (Synthesizer): Projects H * r -> D
+        self.B = nn.Parameter(torch.empty(in_scales, num_heads * self.r, e_dim))
         
         nn.init.xavier_uniform_(self.A)
         nn.init.xavier_uniform_(self.B)
@@ -148,6 +148,16 @@ class AttnVQ(nn.Module):
         # Fixed Orthogonal Codebook (Identity Matrix)
         eye = torch.eye(self.r).view(1, 1, self.r, self.r).expand(in_scales, num_heads, -1, -1)
         self.register_buffer('embedding', eye)
+        
+        # Learnable Temperature/Scale for the Softmax (One per head)
+        # Initialized to 1.0 to start with broad/soft selection
+        self.logit_scale = nn.Parameter(torch.ones(in_scales, 1, 1, num_heads, 1) * 1.0)
+
+        # Buffers for monitoring codebook health
+        # avg_probs: Tracking the global distribution of code usage across the dataset
+        self.register_buffer('avg_probs', torch.ones(in_scales, num_heads, self.r) / self.r)
+        # max_prob_ema: Tracking how "sharp" the softmax picks are
+        self.register_buffer('max_prob_ema', torch.tensor(1.0 / self.r))
 
     @torch.no_grad()
     def get_current_metrics(self):
@@ -156,24 +166,60 @@ class AttnVQ(nn.Module):
         Returns: Dictionary of metrics.
         """
         metrics = {}
+        S, H, r, D = self.in_scales, self.num_heads, self.r, self.e_dim
         
-        # Track Normalized Head Weights (Actual contribution)
-        gate_weights = F.softmax(self.head_weights, dim=3).flatten()
+        # 1. Gating Metrics
+        gate_weights = F.softmax(self.head_weights, dim=3).squeeze() # (S, H) or (H,)
+        if gate_weights.dim() == 1:
+            gate_weights = gate_weights.unsqueeze(0)
+            
         metrics['head_weight_mean'] = gate_weights.mean().item()
         metrics['head_weight_max'] = gate_weights.max().item()
         metrics['head_weight_min'] = gate_weights.min().item()
+            
+        for s in range(S):
+            for h in range(H):
+                metrics[f'head_weight_s{s}_h{h}'] = gate_weights[s, h].item()
         
-        # Calculate Orthogonality of A
-        A_norm = F.normalize(self.A, p=2, dim=2) # (S, H, D, r)
-        A_corr = torch.einsum('shdx,skdy->shkxy', A_norm, A_norm)
-        mask = torch.eye(self.num_heads, device=self.A.device).bool().view(1, self.num_heads, self.num_heads, 1, 1)
-        off_diag_A = A_corr[~mask.expand(self.in_scales, -1, -1, self.r, self.r)]
+        # 2. Codebook Diversity (Perplexity) and Sharpness
+        # p: (S, H, r)
+        p = self.avg_probs
+        entropy = -torch.sum(p * torch.log(p + 1e-10), dim=-1) # (S, H)
+        perplexity = torch.exp(entropy) # (S, H)
+        metrics['codebook_perplexity'] = perplexity.mean().item()
+        metrics['codebook_sharpness'] = self.max_prob_ema.item()
+        metrics['logit_scale_mean'] = self.logit_scale.mean().item()
+        metrics['logit_scale_max'] = self.logit_scale.max().item()
+        metrics['logit_scale_min'] = self.logit_scale.min().item()
+        
+        # 3. Subspace Orthogonality and Rank Health (Large SVD)
+        A_reshaped = self.A.view(S, D, H, r).transpose(1, 2) # (S, H, D, r)
+        B_reshaped = self.B.view(S, H, r, D) # (S, H, r, D)
+
+        # Calculate all singular values: (S, H, r)
+        A_sv = torch.linalg.svdvals(A_reshaped) 
+        B_sv = torch.linalg.svdvals(B_reshaped)
+        
+        # Global stats across all heads and scales
+        metrics['A_sv_min'] = A_sv.min().item()
+        metrics['A_sv_max'] = A_sv.max().item()
+        metrics['A_sv_mean'] = A_sv.mean().item()
+        metrics['A_condition'] = (A_sv.max() / (A_sv.min() + 1e-8)).item()
+        
+        metrics['B_sv_min'] = B_sv.min().item()
+        metrics['B_sv_max'] = B_sv.max().item()
+        metrics['B_sv_mean'] = B_sv.mean().item()
+        metrics['B_condition'] = (B_sv.max() / (B_sv.min() + 1e-8)).item()
+
+        A_norm_vals = F.normalize(A_reshaped, p=2, dim=2)
+        A_corr = torch.einsum('shdx,skdy->shkxy', A_norm_vals, A_norm_vals)
+        mask = torch.eye(H, device=self.A.device).bool().view(1, H, H, 1, 1)
+        off_diag_A = A_corr[~mask.expand(S, -1, -1, r, r)]
         metrics['A_overlap'] = (off_diag_A ** 2).mean().item()
         
-        # Calculate Orthogonality of B
-        B_norm = F.normalize(self.B, p=2, dim=3) # (S, H, r, D)
-        B_corr = torch.einsum('shxd,skyd->shkxy', B_norm, B_norm)
-        off_diag_B = B_corr[~mask.expand(self.in_scales, -1, -1, self.r, self.r)]
+        B_norm_vals = F.normalize(B_reshaped, p=2, dim=3)
+        B_corr = torch.einsum('shxd,skyd->shkxy', B_norm_vals, B_norm_vals)
+        off_diag_B = B_corr[~mask.expand(S, -1, -1, r, r)]
         metrics['B_overlap'] = (off_diag_B ** 2).mean().item()
 
         return metrics
@@ -183,34 +229,47 @@ class AttnVQ(nn.Module):
         S, B_sz, C, D = z.shape
         H, r = self.num_heads, self.r
         
-        # Broadcast input for multi-head processing
-        z_reshaped = z.unsqueeze(3).expand(-1, -1, -1, H, -1) # (S, B, C, H, D)
+        # 1. Project to Subspace (Filter) using Grouped Linear (BMM)
+        z_flat = z.view(S, B_sz * C, D) # (S, B_sz * C, D)
+        q_flat = torch.bmm(z_flat, self.A) # (S, B_sz * C, H * r)
         
-        # 1. Project to Subspace (Filter)
-        # q = z * A
-        q = torch.einsum('sbchd,shdr->sbchr', z_reshaped, self.A)
+        # Reshape to separate heads and rank
+        q = q_flat.view(S, B_sz, C, H, r)
+        
+        # Stabilize with L2-norm but allow sharpness via learnable logit_scale
         q_norm = F.normalize(q, p=2, dim=-1)
         
+        # Clamp logit scale to prevent extreme sharpness from destabilizing reconstruction
+        s_clamped = self.logit_scale.clamp(1.0, 5.0)
+        
         # 2. Match with Fixed Codebook
-        # Since embedding is an Identity matrix, this is essentially a pass-through
-        # but we keep the explicit calculation for clarity and potential fixed bases.
-        logits = torch.einsum('sbchr,shvr->sbchv', q_norm, self.embedding)
+        # We scale the normalized logits to control the Softmax distribution "width"
+        logits = torch.einsum('sbchr,shvr->sbchv', q_norm * s_clamped, self.embedding)
         
-        # 3. Simple Soft-Attention (No Top-K, No Temperature)
+        # 3. Simple Soft-Attention
         weights = F.softmax(logits, dim=-1) # (S, B, C, H, r)
-        
-        # indices for compatibility (Argmax)
         indices = logits.argmax(dim=-1, keepdim=True) # (S, B, C, H, 1)
         
-        # 4. Reconstruct in Subspace and Synthesize
-        v_q = torch.einsum('sbchv,shvr->sbchr', weights, self.embedding)
-        # Project back to full dimension
-        z_q_soft_heads = torch.einsum('sbchr,shre->sbche', v_q, self.B) # (S, B, C, H, D)
+        # --- Update Health Buffers ---
+        if self.training:
+            with torch.no_grad():
+                # Global Usage EMA
+                batch_avg = weights.mean(dim=(1, 2)) # (S, H, r)
+                self.avg_probs.mul_(0.99).add_(batch_avg, alpha=0.01)
+                
+                # Sharpness EMA (mean of max probability)
+                batch_max = weights.max(dim=-1)[0].mean()
+                self.max_prob_ema.mul_(0.99).add_(batch_max, alpha=0.01)
         
-        # 5. Weighted Additive Bottleneck (Normalized Gating)
+        # 4. Reconstruct and Gate in Subspace
+        v_q = torch.einsum('sbchv,shvr->sbchr', weights, self.embedding)
         gate_weights = F.softmax(self.head_weights, dim=3) # (S, 1, 1, H, 1)
-        z_q_soft_heads_weighted = z_q_soft_heads * gate_weights
-        z_q_soft = z_q_soft_heads_weighted.sum(dim=3)
+        v_q_gated = v_q * gate_weights # (S, B, C, H, r)
+        
+        # 5. Synthesize using Grouped Linear (BMM)
+        v_q_gated_flat = v_q_gated.reshape(S, B_sz * C, H * r)
+        z_q_soft_flat = torch.bmm(v_q_gated_flat, self.B) # (S, B_sz * C, D)
+        z_q_soft = z_q_soft_flat.view(S, B_sz, C, D)
         
         # Straight-Through Estimator (STE)
         z_q = z + (z_q_soft - z).detach()
@@ -219,25 +278,36 @@ class AttnVQ(nn.Module):
         # Commitment Loss
         loss_commit = 0.25 * F.mse_loss(z_q_soft.detach(), z) + 0.25 * F.mse_loss(z_q_soft, z.detach())
         
-        # Subspace Orthogonality Loss (Diversification)
-        loss_subspace_overlap = 0
-        if H > 1:
-            # Filter Overlap
-            A_norm = F.normalize(self.A, p=2, dim=2)
-            A_corr = torch.einsum('shdx,skdy->shkxy', A_norm, A_norm)
+        # Subspace Diversification & Rank Health
+        def get_subspace_loss(M, is_A=True):
+            # M: (S, D, Hr) for A, (S, Hr, D) for B
+            Hr = H * r
+            if is_A:
+                # Self-correlation: (S, Hr, Hr)
+                # No normalization here: forces columns to be unit-length AND orthogonal
+                corr = torch.bmm(M.transpose(1, 2), M)
+            else:
+                # Self-correlation: (S, Hr, Hr)
+                corr = torch.bmm(M, M.transpose(1, 2))
             
-            # Synthesizer Overlap
-            B_norm = F.normalize(self.B, p=2, dim=3)
-            B_corr = torch.einsum('shxd,skyd->shkxy', B_norm, B_norm)
+            # Create Block-Diagonal Mask for Intra-Head (Rank)
+            mask_intra = torch.block_diag(*[torch.ones(r, r, device=z.device) for _ in range(H)])
+            mask_intra = mask_intra.unsqueeze(0).expand(S, -1, -1)
             
-            mask = torch.eye(H, device=z.device).bool().view(1, H, H, 1, 1)
-            off_diag_A = A_corr[~mask.expand(S, -1, -1, r, r)]
-            off_diag_B = B_corr[~mask.expand(S, -1, -1, r, r)]
+            # 1. Rank Loss (Intra-Head): Force each head's r columns to be orthonormal (I_r)
+            I_hr = torch.eye(Hr, device=z.device).unsqueeze(0).expand(S, -1, -1)
+            loss_rank = F.mse_loss(corr * mask_intra, I_hr) 
             
-            loss_subspace_overlap = (torch.mean(off_diag_A ** 2) + torch.mean(off_diag_B ** 2)) * 10.0
+            # 2. Diversity Loss (Inter-Head): Force different heads to have minimal overlap
+            # We use a softer penalty for inter-head overlap since Hr > D
+            loss_div = torch.mean((corr * (1 - mask_intra)) ** 2)
+            
+            return loss_rank * 20.0 + loss_div * 5.0 # Lowered diversity weight
+
+        loss_ortho = get_subspace_loss(self.A, is_A=True) + get_subspace_loss(self.B, is_A=False)
 
         # Combined Loss
-        loss = loss_commit + loss_subspace_overlap
+        loss = loss_commit + loss_ortho
         
         return z_q, loss, indices, weights
 

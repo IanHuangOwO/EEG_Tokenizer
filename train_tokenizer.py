@@ -250,7 +250,9 @@ def main():
         logger.info(f"  > Val   [L:{val_metrics['loss']:.4f}, MSE:{val_metrics['temp_mse']:.4f}, Rec:{val_metrics['recon']:.4f}, VQ:{val_metrics['vq']:.4f}]")
         if 'A_overlap' in train_metrics:
             logger.info(f"  > Subspace [A_over:{train_metrics['A_overlap']:.4f}, B_over:{train_metrics['B_overlap']:.4f}]")
-            logger.info(f"  > Gating   [W_mean:{train_metrics['head_weight_mean']:.3f}, W_max:{train_metrics['head_weight_max']:.3f}, W_min:{train_metrics['head_weight_min']:.3f}]")
+            logger.info(f"  > SVD Health [A_sv:{train_metrics['A_sv_min']:.2f}-{train_metrics['A_sv_max']:.2f}, B_sv:{train_metrics['B_sv_min']:.2f}-{train_metrics['B_sv_max']:.2f}]")
+            logger.info(f"  > Condition  [A_cond:{train_metrics['A_condition']:.1f}, B_cond:{train_metrics['B_condition']:.1f}]")
+            logger.info(f"  > Codebook [Perp:{train_metrics['codebook_perplexity']:.2f}, Sharp:{train_metrics['codebook_sharpness']:.3f}, LScale:{train_metrics['logit_scale_mean']:.2f} ({train_metrics['logit_scale_min']:.2f}-{train_metrics['logit_scale_max']:.2f})]")
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
