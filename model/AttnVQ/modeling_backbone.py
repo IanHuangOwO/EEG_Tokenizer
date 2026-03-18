@@ -77,6 +77,7 @@ class AttnVQBackbone(nn.Module):
         max_temporal_patches=10
     ):
         super().__init__()
+        self.in_scales, self.vq_head_num, self.vq_head_vocab_size = in_scales, vq_head_num, vq_head_vocab_size
         
         # 1. Patch Embedding (SpatialTemporal)
         self.patch_embed = AttnVQPatchEmbed(in_chans=in_chans, embed_dim=embed_dim, max_temporal_patches=max_temporal_patches)
@@ -104,12 +105,9 @@ class AttnVQBackbone(nn.Module):
         ])
         self.dec_norm = nn.LayerNorm(embed_dim)
         
-        # 6. Prediction Heads: Predicting indices for all heads and scales
-        # Total Codebooks = in_scales * vq_head_num
-        self.total_codebooks = in_scales * vq_head_num
-        self.heads = nn.ModuleList([
-            nn.Linear(embed_dim, vq_head_vocab_size) for _ in range(self.total_codebooks)
-        ])
+        # 6. Prediction Head: Predicting weights for all heads and scales
+        # Vectorized for efficiency
+        self.head = nn.Linear(embed_dim, in_scales * vq_head_num * vq_head_vocab_size)
         
         self._init_weights()
 
@@ -120,7 +118,7 @@ class AttnVQBackbone(nn.Module):
 
     def forward(self, x, coords, bool_masked_pos=None):
         """
-        x: (Batch, Channels, Patches, 200)
+        x: (Batch, Channels, Patches, Time)
         coords: (Batch, Channels, 3)
         bool_masked_pos: (Batch, Channels * Patches) - True for masked
         """
@@ -139,8 +137,8 @@ class AttnVQBackbone(nn.Module):
         # 3. Masking (Apply to tokens, not CLS)
         if bool_masked_pos is not None:
             # Shift masked pos because of CLS token
-            m = torch.cat([torch.zeros(B, 1, device=x.device), bool_masked_pos], dim=1).unsqueeze(-1).type_as(x)
-            x = x * (1 - m) + self.mask_token * m
+            m = torch.cat([torch.zeros(B, 1, device=x.device, dtype=torch.bool), bool_masked_pos], dim=1).unsqueeze(-1)
+            x = x.masked_fill(m, 0.0) + self.mask_token * m.type_as(x)
             
         # 4. Encoder
         for blk in self.encoder:
@@ -155,19 +153,13 @@ class AttnVQBackbone(nn.Module):
         # Remove CLS token from predictions
         x_tokens = x[:, 1:, :] # (B, C*P, D)
         
-        # 6. Prediction Heads
-        # logits: List of (B, C*P, vq_head_vocab_size)
-        logits = [head(x_tokens) for head in self.heads]
+        # 6. Prediction Head (Vectorized)
+        # logits: (B, C*P, S*H*r)
+        logits = self.head(x_tokens) 
+        
+        # Reshape and Permute to (S, H, B, Tokens, r)
+        # Tokens = C * P
+        logits = logits.view(B, -1, self.in_scales, self.vq_head_num, self.vq_head_vocab_size)
+        logits = logits.permute(2, 3, 0, 1, 4)
         
         return logits
-
-
-def attnvq_base_patch200():
-    return AttnVQBackbone(
-        embed_dim=200,
-        enc_depth=12,
-        enc_heads=10,
-        dec_depth=4,
-        vq_head_vocab_size=8192,
-        vq_head_top_k=8
-    )

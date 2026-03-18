@@ -422,7 +422,8 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     Args:
         config_dict: The configuration dictionary.
         transform: Optional transform to apply to the data.
-        mode: 'base' (returns EEGDataset) or 'tokenizer' (returns TokenizerWrapperDataset).
+        mode: 'base' (returns EEGDataset), 'tokenizer' (returns TokenizerWrapperDataset), 
+              or 'pretrain' (returns MaskedPretrainDataset).
     """
     params = config_dict.get('dataset_params', {})
     preprocess_params = config_dict.get('preprocess_params', {'target_freq': 200})
@@ -480,8 +481,12 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     elif mode == 'tokenizer':
         patch_len = preprocess_params.get('target_freq', 200)
         return TokenizerWrapperDataset(base_dataset, patch_len=patch_len)
+    elif mode == 'pretrain':
+        patch_len = preprocess_params.get('target_freq', 200)
+        mask_ratio = params.get('mask_ratio', 0.75)
+        return MaskedPretrainDataset(base_dataset, patch_len=patch_len, mask_ratio=mask_ratio)
     else:
-        raise ValueError(f"Unknown dataset mode: {mode}. Use 'base' or 'tokenizer'.")
+        raise ValueError(f"Unknown dataset mode: {mode}. Use 'base', 'tokenizer', or 'pretrain'.")
 
 # --- Tokenizer Specific Wrappers ---
 
@@ -517,3 +522,52 @@ class TokenizerWrapperDataset(Dataset):
         patch = x[:, patch_offset : patch_offset + self.patch_len]
         
         return patch, self.coords_tensor, patch_idx, y
+
+class MaskedPretrainDataset(Dataset):
+    """
+    Wraps the standard EEGDataset for Masked Pretraining.
+    Yields full trials reshaped into patches, along with a random mask.
+    Yields: (x_patches, coords, mask, y)
+    """
+    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200, mask_ratio: float = 0.75):
+        self.base_dataset = base_dataset
+        self.patch_len = patch_len
+        self.mask_ratio = mask_ratio
+        
+        # Determine patches per trial
+        sample_x, _ = self.base_dataset[0]
+        self.total_len = sample_x.shape[-1]
+        self.patches_per_trial = self.total_len // patch_len
+        self.num_channels = sample_x.shape[0]
+        
+        # Pre-convert coords to tensor
+        self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
+        
+        print(f"Masked Pretrain Wrapper: {len(self.base_dataset)} trials, {self.patches_per_trial} patches/trial, Mask Ratio: {mask_ratio}")
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, index):
+        x, y = self.base_dataset[index] # (C, T)
+        
+        # Ensure x is a tensor
+        if not torch.is_tensor(x):
+            x = torch.from_numpy(x).float()
+            
+        # Reshape into patches: (C, P, T_patch)
+        x_patches = x.view(self.num_channels, self.patches_per_trial, self.patch_len)
+        
+        # Generate Random Mask (on Channels * Patches)
+        num_tokens = self.num_channels * self.patches_per_trial
+        num_mask = int(num_tokens * self.mask_ratio)
+        
+        # Shuffle indices to pick which ones to mask
+        noise = torch.rand(num_tokens)
+        mask = torch.zeros(num_tokens, dtype=torch.bool)
+        
+        # Top-k largest noise indices are masked
+        mask_idx = torch.topk(noise, num_mask).indices
+        mask[mask_idx] = True
+        
+        return x_patches, self.coords_tensor, mask, y

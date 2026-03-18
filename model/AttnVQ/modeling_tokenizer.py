@@ -371,7 +371,7 @@ class AttnVQTokenizer(nn.Module):
         loss_amp = F.mse_loss(pred_amp, torch.log1p(gt_amp))
         loss_phase = F.mse_loss(pred_sin, torch.sin(gt_phase)) + F.mse_loss(pred_cos, torch.cos(gt_phase))
         x_recon = self.reconstruct(pred_amp, pred_sin, pred_cos, n_samples=x.shape[-1])
-        return loss_amp + loss_phase + F.l1_loss(x_recon, x), loss_amp, loss_phase, F.l1_loss(x_recon, x), F.mse_loss(x_recon, x)
+        return loss_amp + loss_phase + F.mse_loss(x_recon, x), loss_amp, loss_phase, F.mse_loss(x_recon, x), F.mse_loss(x_recon, x)
 
     def reconstruct(self, pred_amp, pred_sin, pred_cos, n_samples=200):
         amp = torch.clamp(torch.exp(pred_amp) - 1, min=0) 

@@ -7,6 +7,7 @@ from model.RecurrentFSQ.modeling_tokenizer import RecurrentFSQTokenizer
 from model.LaBraM.modeling_tokenizer import LaBraMTokenizer
 from model.AttnVQ.modeling_tokenizer import AttnVQTokenizer
 from model.AttnRVQ.modeling_tokenizer import AttnRVQTokenizer
+from model.AttnVQ.modeling_backbone import AttnVQBackbone
 
 from model.NeuroRVQ.preprocessing import NeuroRVQProcessing
 from model.RecurrentVQ.preprocessing import RecurrentVQProcessing
@@ -141,6 +142,44 @@ def build_model_from_config(config, src_output_dir=None):
         model_src_path = sys.modules[model.__module__].__file__
         shutil.copy(model_src_path, os.path.join(src_output_dir, 'modeling_tokenizer.py'))
             
+    return model
+
+def build_backbone_from_config(config, src_output_dir=None):
+    """
+    Builds the backbone model based on the provided configuration dictionary.
+    """
+    train_params = config['training_params']
+    model_params = config['model_params']
+    preprocess_params = config.get('preprocess_params', {'target_freq': 200})
+    
+    model_type = train_params.get('model_type', 'AttnVQ')
+    
+    if model_type == "AttnVQ":
+        params = model_params['AttnVQ']
+        # Backbone specific params (can fall back to tokenizer params)
+        backbone_params = model_params.get('AttnVQ_Backbone', params)
+        
+        model = AttnVQBackbone(
+            embed_dim=backbone_params.get('embed_dim', params['embed_dim']),
+            enc_depth=backbone_params.get('enc_depth', 12),
+            enc_heads=backbone_params.get('enc_heads', 8),
+            dec_depth=backbone_params.get('dec_depth', 4),
+            dec_heads=backbone_params.get('dec_heads', 8),
+            vq_head_vocab_size=params['vq_head_vocab_size'],
+            in_scales=params.get('in_scales', 4),
+            vq_head_num=params.get('vq_head_num', 8),
+            dropout=backbone_params.get('dropout', 0.1),
+            in_chans=params.get('in_chans', 1),
+            max_temporal_patches=backbone_params.get('max_temporal_patches', 10)
+        )
+    else:
+        raise ValueError(f"Backbone not implemented for model type: {model_type}")
+
+    if src_output_dir is not None:
+        os.makedirs(src_output_dir, exist_ok=True)
+        model_src_path = sys.modules[model.__module__].__file__
+        shutil.copy(model_src_path, os.path.join(src_output_dir, 'modeling_backbone.py'))
+
     return model
 
 def build_preprocessing_from_config(config):

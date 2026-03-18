@@ -70,55 +70,70 @@ class Plotter:
         epochs = range(1, len(self.history['train']['loss']) + 1)
         has_val = 'loss' in self.history['val'] and len(self.history['val']['loss']) > 0
 
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 16), sharex=True)
+        # Determine if we are in pretrain mode (no recon/vq)
+        is_pretrain = 'unmasked_kl' in self.history['train']
 
-        # Plot Main Losses
-        ax1.plot(epochs, self.history['train']['loss'], 'b-', label='Train Total')
-        if 'recon' in self.history['train']:
-            ax1.plot(epochs, self.history['train']['recon'], 'g-', label='Train Recon')
-        if 'vq' in self.history['train']:
-            ax1.plot(epochs, self.history['train']['vq'], 'r-', label='Train VQ')
-        
-        if has_val:
-            ax1.plot(epochs, self.history['val']['loss'], 'b--', alpha=0.7, label='Val Total')
-            if 'recon' in self.history['val']:
-                ax1.plot(epochs, self.history['val']['recon'], 'g--', alpha=0.7, label='Val Recon')
-            if 'vq' in self.history['val']:
-                ax1.plot(epochs, self.history['val']['vq'], 'r--', alpha=0.7, label='Val VQ')
-
-        ax1.set_title('Global Losses')
-        ax1.set_ylabel('Loss')
-        ax1.legend()
-        ax1.grid(True)
-        
-        # Plot Components (Amp/Phase)
-        if 'amp' in self.history['train']:
-            ax2.plot(epochs, self.history['train']['amp'], color='orange', linestyle='-', label='Train Amp')
-        if 'phase' in self.history['train']:
-            ax2.plot(epochs, self.history['train']['phase'], color='purple', linestyle='-', label='Train Phase')
-        
-        if has_val:
-             if 'amp' in self.history['val']:
-                ax2.plot(epochs, self.history['val']['amp'], color='orange', linestyle='--', alpha=0.7, label='Val Amp')
-             if 'phase' in self.history['val']:
-                ax2.plot(epochs, self.history['val']['phase'], color='purple', linestyle='--', alpha=0.7, label='Val Phase')
-             
-        ax2.set_title('Reconstruction Components')
-        ax2.set_ylabel('Loss')
-        ax2.legend()
-        ax2.grid(True)
-
-        # Plot Temporal
-        if 'temp' in self.history['train']:
-            ax3.plot(epochs, self.history['train']['temp'], 'm-', label='Train Temp (L1)')
-        if has_val and 'temp' in self.history['val']:
-            ax3.plot(epochs, self.history['val']['temp'], 'm--', alpha=0.7, label='Val Temp (L1)')
+        if is_pretrain:
+            fig, ax1 = plt.subplots(1, 1, figsize=(10, 6))
+            ax1.plot(epochs, self.history['train']['loss'], 'b-', label='Train KL (Masked)')
+            ax1.plot(epochs, self.history['train']['unmasked_kl'], 'g-', label='Train KL (Unmasked)')
+            if has_val:
+                ax1.plot(epochs, self.history['val']['loss'], 'b--', alpha=0.7, label='Val KL (Masked)')
+                ax1.plot(epochs, self.history['val']['unmasked_kl'], 'g--', alpha=0.7, label='Val KL (Unmasked)')
+            ax1.set_title('Pretraining Distillation Loss (KL)')
+            ax1.set_ylabel('Loss')
+            ax1.set_xlabel('Epoch')
+            ax1.legend()
+            ax1.grid(True)
+        else:
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 16), sharex=True)
+            # Plot Main Losses
+            ax1.plot(epochs, self.history['train']['loss'], 'b-', label='Train Total')
+            if 'recon' in self.history['train']:
+                ax1.plot(epochs, self.history['train']['recon'], 'g-', label='Train Recon')
+            if 'vq' in self.history['train']:
+                ax1.plot(epochs, self.history['train']['vq'], 'r-', label='Train VQ')
             
-        ax3.set_title('Temporal Loss (Time Domain)')
-        ax3.set_xlabel('Epoch')
-        ax3.set_ylabel('Loss')
-        ax3.legend()
-        ax3.grid(True)
+            if has_val:
+                ax1.plot(epochs, self.history['val']['loss'], 'b--', alpha=0.7, label='Val Total')
+                if 'recon' in self.history['val']:
+                    ax1.plot(epochs, self.history['val']['recon'], 'g--', alpha=0.7, label='Val Recon')
+                if 'vq' in self.history['val']:
+                    ax1.plot(epochs, self.history['val']['vq'], 'r--', alpha=0.7, label='Val VQ')
+
+            ax1.set_title('Global Losses')
+            ax1.set_ylabel('Loss')
+            ax1.legend()
+            ax1.grid(True)
+            
+            # Plot Components (Amp/Phase)
+            if 'amp' in self.history['train']:
+                ax2.plot(epochs, self.history['train']['amp'], color='orange', linestyle='-', label='Train Amp')
+            if 'phase' in self.history['train']:
+                ax2.plot(epochs, self.history['train']['phase'], color='purple', linestyle='-', label='Train Phase')
+            
+            if has_val:
+                 if 'amp' in self.history['val']:
+                    ax2.plot(epochs, self.history['val']['amp'], color='orange', linestyle='--', alpha=0.7, label='Val Amp')
+                 if 'phase' in self.history['val']:
+                    ax2.plot(epochs, self.history['val']['phase'], color='purple', linestyle='--', alpha=0.7, label='Val Phase')
+                 
+            ax2.set_title('Reconstruction Components')
+            ax2.set_ylabel('Loss')
+            ax2.legend()
+            ax2.grid(True)
+
+            # Plot Temporal
+            if 'temp' in self.history['train']:
+                ax3.plot(epochs, self.history['train']['temp'], 'm-', label='Train Temp (L1)')
+            if has_val and 'temp' in self.history['val']:
+                ax3.plot(epochs, self.history['val']['temp'], 'm--', alpha=0.7, label='Val Temp (L1)')
+                
+            ax3.set_title('Temporal Loss (Time Domain)')
+            ax3.set_xlabel('Epoch')
+            ax3.set_ylabel('Loss')
+            ax3.legend()
+            ax3.grid(True)
         
         plt.tight_layout()
         save_path = os.path.join(self.output_dir, 'training_curves.png')
@@ -126,8 +141,13 @@ class Plotter:
         plt.close(fig)
 
     def plot_metrics(self):
-        """Saves a plot of specific training metrics (e.g., MSE, Codebook Health)."""
+        """Saves a plot of specific training metrics."""
         self.save_csv()
+        # If we don't have temp_mse but we have unmasked_kl, we are in pretrain mode
+        if 'unmasked_kl' in self.history['train']:
+            # For pretrain, we don't have much to plot in plot_metrics yet
+            return
+            
         if 'temp_mse' not in self.history['train'] or not self.history['train']['temp_mse']:
             return
             
