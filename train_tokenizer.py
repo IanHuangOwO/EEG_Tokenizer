@@ -128,7 +128,7 @@ def main():
     
     # New structured paths: ./output/{model_name}/{category}
     base_output_dir = f"output/{model_name}"
-    checkpoint_dir = os.path.join(base_output_dir, "checkpoints")
+    checkpoint_dir = os.path.join(base_output_dir, "tokenizer")
     # RENAMED: config -> artifacts
     artifact_dir = os.path.join(base_output_dir, "artifacts")
     vis_dir = os.path.join(base_output_dir, "visualization")
@@ -237,9 +237,8 @@ def main():
     # 5. Training Loop
     best_val_loss = float('inf')
     total_epochs = train_params['epochs']
-    refine_epochs = train_params.get('decoder_refine_epochs', 0)
     
-    logger.info(f"Starting Stage 1: Joint Training ({total_epochs} epochs)")
+    logger.info(f"Starting Joint Training ({total_epochs} epochs)")
     for epoch in range(1, total_epochs + 1):
         train_metrics, train_last_batch = train_one_epoch(model, train_loader, optimizer, device, epoch)
         val_metrics, val_last_batch = validate_one_epoch(model, val_loader, device)
@@ -256,50 +255,14 @@ def main():
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
-            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_model.pth'))
-            logger.info("  > Saved Best Model (Stage 1)")
+            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_tokenizer.pth'))
+            logger.info("  > Saved Best Tokenizer")
         
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
         plotter.plot(); plotter.plot_metrics()
         
         if epoch % 5 == 0:
             visualize_reconstruction(train_last_batch, val_last_batch, epoch, output_dir=os.path.join(vis_dir, 'reconstruction'))
-
-    # --- Stage 2: Decoder Refinement ---
-    if refine_epochs > 0:
-        logger.info(f"\nStarting Stage 2: Decoder-Only Refinement ({refine_epochs} epochs)")
-        
-        # Freeze everything except decoders
-        for name, param in model.named_parameters():
-            if 'scale_decoders' in name:
-                param.requires_grad = True
-            else:
-                param.requires_grad = False
-        
-        # Re-initialize optimizer for refinement (optional but recommended)
-        refine_optimizer = optim.AdamW(
-            filter(lambda p: p.requires_grad, model.parameters()), 
-            lr=train_params['learning_rate'] * 0.5, 
-            weight_decay=train_params['weight_decay']
-        )
-        
-        for epoch in range(total_epochs + 1, total_epochs + refine_epochs + 1):
-            train_metrics, train_last_batch = train_one_epoch(model, train_loader, refine_optimizer, device, epoch)
-            val_metrics, val_last_batch = validate_one_epoch(model, val_loader, device)
-
-            logger.info(f"Refine Epoch {epoch}:")
-            logger.info(f"  > Train [MSE:{train_metrics['temp_mse']:.4f}, Rec:{train_metrics['recon']:.4f}]")
-            logger.info(f"  > Val   [MSE:{val_metrics['temp_mse']:.4f}, Rec:{val_metrics['recon']:.4f}]")
-
-            if val_metrics['loss'] < best_val_loss:
-                best_val_loss = val_metrics['loss']
-                torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_model_refined.pth'))
-                logger.info("  > Saved Best Refined Model")
-            plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
-            plotter.plot(); plotter.plot_metrics()
-            
-            if epoch % 2 == 0:
-                visualize_reconstruction(train_last_batch, val_last_batch, epoch, output_dir=os.path.join(vis_dir, 'reconstruction'))
 
     logger.info("Training Complete.")
 

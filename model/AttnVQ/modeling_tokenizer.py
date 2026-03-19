@@ -26,7 +26,7 @@ class ConvBlock2D(nn.Module):
 # --- 2. SpatialTemporal Encoder ---
 
 class SpatialTemporalEncoder(nn.Module):
-    def __init__(self, in_chans=1, base_filters=16, embed_dim=256, max_temporal_patches=10):
+    def __init__(self, in_chans=1, base_filters=16, embed_dim=256):
         super().__init__()
         # Stem: RF 3, Stride 1 [P1]
         self.stem = ConvBlock2D(in_chans, base_filters, 3, 1, 1)
@@ -57,25 +57,47 @@ class SpatialTemporalEncoder(nn.Module):
         nn.init.zeros_(self.spatial_mlp[-1].weight)
         nn.init.zeros_(self.spatial_mlp[-1].bias)
         
-        # Temporal Embedding
-        self.temporal_emb = nn.Embedding(max_temporal_patches, embed_dim)
-        nn.init.normal_(self.temporal_emb.weight, std=0.02)
+        # Sinusoidal Temporal Embedding
+        self.register_buffer('inv_freq', 1.0 / (10000 ** (torch.arange(0, embed_dim, 2).float() / embed_dim)))
+
+    def get_sinusoidal_emb(self, t):
+        # t: (B, 1) or (B,) - The temporal index
+        if t.dim() == 1: t = t.unsqueeze(-1)
+        sin_inp = torch.einsum("bi,j->bij", t.float(), self.inv_freq)
+        emb = torch.cat((sin_inp.sin(), sin_inp.cos()), dim=-1)
+        return emb # (B, 1, embed_dim)
 
     def forward(self, x, coords, time_idx=None):
-        # x: (B, C, T)
-        # coords: (B, C, 3)
-        x = x.unsqueeze(1) # (B, 1, C, T)
+        # x: (B, C, T) or (B, C, P, T)
+        if x.dim() == 4:
+            B, C, P, T = x.shape
+            # Standard PyTorch way to flatten B and P:
+            # permute to (B, P, C, T) then reshape to (B*P, C, T)
+            x = x.permute(0, 2, 1, 3).reshape(B * P, C, T)
+            
+            # Expand coords for each patch: (B, C, 3) -> (B*P, C, 3)
+            if coords.dim() == 3:
+                coords = coords.unsqueeze(1).expand(-1, P, -1, -1).reshape(B * P, C, 3)
+            # Expand time_idx for each patch: (P,) -> (B*P,) or (B, P) -> (B*P,)
+            if time_idx is not None:
+                if time_idx.dim() == 1: # (P,)
+                    time_idx = time_idx.repeat(B)
+                elif time_idx.dim() == 2: # (B, P)
+                    time_idx = time_idx.view(-1)
+
+        # Now x is (Batch, Channels, Time)
+        x = x.unsqueeze(1) # (Batch, 1, Channels, Time)
         p1 = self.stem(x) 
         s1 = self.stage1(p1)
         p2 = self.stage2(s1)
         p3 = self.stage3(p2)
         
         # Spatial Embedding
-        spatial_emb = self.spatial_mlp(coords) # (B, C, embed_dim)
+        spatial_emb = self.spatial_mlp(coords) # (Batch, Channels, embed_dim)
         
-        # Temporal Embedding
+        # Temporal Embedding (Sinusoidal)
         if time_idx is not None:
-            t_emb = self.temporal_emb(time_idx).unsqueeze(1) # (B, 1, embed_dim)
+            t_emb = self.get_sinusoidal_emb(time_idx) # (Batch, 1, embed_dim)
         else:
             t_emb = 0
         
@@ -83,8 +105,8 @@ class SpatialTemporalEncoder(nn.Module):
         projected_feats = []
         for feat, proj, norm in zip(raw_feats, self.projections, self.norms):
             # feat: (B, Filters, C, T_scale)
-            # Permute and flatten filters and temporal dimension per channel
-            z = proj(feat.permute(0, 2, 1, 3).flatten(2)) # (B, C, embed_dim)
+            # Flatten filters and temporal dimension per channel
+            z = proj(feat.permute(0, 2, 1, 3).reshape(feat.shape[0], feat.shape[2], -1)) # (B, C, embed_dim)
             # Combine with spatial and temporal embeddings
             z = norm(z + spatial_emb + t_emb)
             projected_feats.append(z)
@@ -94,12 +116,12 @@ class SpatialTemporalEncoder(nn.Module):
 # --- 3. Transformer Components ---
 
 class TransformerLayer(nn.Module):
-    def __init__(self, embed_dim, num_heads, mlp_ratio=4.):
+    def __init__(self, embed_dim, num_heads, mlp_ratio=4., dropout=0.):
         super().__init__()
         self.block = nn.TransformerEncoderLayer(
             d_model=embed_dim, nhead=num_heads, 
             dim_feedforward=int(embed_dim * mlp_ratio), 
-            dropout=0., activation='gelu', batch_first=True
+            dropout=dropout, activation='gelu', batch_first=True
         )
         self.norm = nn.LayerNorm(embed_dim)
     def forward(self, x): return self.norm(self.block(x))
@@ -142,173 +164,99 @@ class AttnVQ(nn.Module):
         nn.init.xavier_uniform_(self.B)
         
         # Learnable Head Weights for the Additive Bottleneck (Scale-Specific)
-        # Initialized to zeros so Softmax starts as a uniform distribution (1/num_heads)
         self.head_weights = nn.Parameter(torch.zeros(in_scales, 1, 1, num_heads, 1))
 
         # Fixed Orthogonal Codebook (Identity Matrix)
         eye = torch.eye(self.r).view(1, 1, self.r, self.r).expand(in_scales, num_heads, -1, -1)
-        self.register_buffer('embedding', eye)
+        self.register_buffer('embedding', eye.clone())
         
-        # Learnable Temperature/Scale for the Softmax (One per head)
-        # Initialized to 1.0 to start with broad/soft selection
+        # Learnable Temperature/Scale for the Softmax
         self.logit_scale = nn.Parameter(torch.ones(in_scales, 1, 1, num_heads, 1) * 1.0)
 
         # Buffers for monitoring codebook health
-        # avg_probs: Tracking the global distribution of code usage across the dataset
         self.register_buffer('avg_probs', torch.ones(in_scales, num_heads, self.r) / self.r)
-        # max_prob_ema: Tracking how "sharp" the softmax picks are
         self.register_buffer('max_prob_ema', torch.tensor(1.0 / self.r))
 
     @torch.no_grad()
     def get_current_metrics(self):
-        """
-        Calculates health metrics for the projections and gating.
-        Returns: Dictionary of metrics.
-        """
         metrics = {}
         S, H, r, D = self.in_scales, self.num_heads, self.r, self.e_dim
-        
-        # 1. Gating Metrics
-        gate_weights = F.softmax(self.head_weights, dim=3).squeeze() # (S, H) or (H,)
-        if gate_weights.dim() == 1:
-            gate_weights = gate_weights.unsqueeze(0)
-            
+        gate_weights = F.softmax(self.head_weights, dim=3).squeeze()
+        if gate_weights.dim() == 1: gate_weights = gate_weights.unsqueeze(0)
         metrics['head_weight_mean'] = gate_weights.mean().item()
         metrics['head_weight_max'] = gate_weights.max().item()
         metrics['head_weight_min'] = gate_weights.min().item()
-            
         for s in range(S):
             for h in range(H):
                 metrics[f'head_weight_s{s}_h{h}'] = gate_weights[s, h].item()
-        
-        # 2. Codebook Diversity (Perplexity) and Sharpness
-        # p: (S, H, r)
         p = self.avg_probs
-        entropy = -torch.sum(p * torch.log(p + 1e-10), dim=-1) # (S, H)
-        perplexity = torch.exp(entropy) # (S, H)
+        entropy = -torch.sum(p * torch.log(p + 1e-10), dim=-1)
+        perplexity = torch.exp(entropy)
         metrics['codebook_perplexity'] = perplexity.mean().item()
         metrics['codebook_sharpness'] = self.max_prob_ema.item()
         metrics['logit_scale_mean'] = self.logit_scale.mean().item()
         metrics['logit_scale_max'] = self.logit_scale.max().item()
         metrics['logit_scale_min'] = self.logit_scale.min().item()
-        
-        # 3. Subspace Orthogonality and Rank Health (Large SVD)
-        A_reshaped = self.A.view(S, D, H, r).transpose(1, 2) # (S, H, D, r)
-        B_reshaped = self.B.view(S, H, r, D) # (S, H, r, D)
-
-        # Calculate all singular values: (S, H, r)
+        A_reshaped = self.A.view(S, D, H, r).transpose(1, 2)
+        B_reshaped = self.B.view(S, H, r, D)
         A_sv = torch.linalg.svdvals(A_reshaped) 
         B_sv = torch.linalg.svdvals(B_reshaped)
-        
-        # Global stats across all heads and scales
         metrics['A_sv_min'] = A_sv.min().item()
         metrics['A_sv_max'] = A_sv.max().item()
         metrics['A_sv_mean'] = A_sv.mean().item()
         metrics['A_condition'] = (A_sv.max() / (A_sv.min() + 1e-8)).item()
-        
         metrics['B_sv_min'] = B_sv.min().item()
         metrics['B_sv_max'] = B_sv.max().item()
         metrics['B_sv_mean'] = B_sv.mean().item()
         metrics['B_condition'] = (B_sv.max() / (B_sv.min() + 1e-8)).item()
-
         A_norm_vals = F.normalize(A_reshaped, p=2, dim=2)
         A_corr = torch.einsum('shdx,skdy->shkxy', A_norm_vals, A_norm_vals)
         mask = torch.eye(H, device=self.A.device).bool().view(1, H, H, 1, 1)
         off_diag_A = A_corr[~mask.expand(S, -1, -1, r, r)]
         metrics['A_overlap'] = (off_diag_A ** 2).mean().item()
-        
         B_norm_vals = F.normalize(B_reshaped, p=2, dim=3)
         B_corr = torch.einsum('shxd,skyd->shkxy', B_norm_vals, B_norm_vals)
         off_diag_B = B_corr[~mask.expand(S, -1, -1, r, r)]
         metrics['B_overlap'] = (off_diag_B ** 2).mean().item()
-
         return metrics
 
     def forward(self, z):
-        # z: (S, B, C, D) -> S: scales, B: batch, C: channels, D: dim
         S, B_sz, C, D = z.shape
         H, r = self.num_heads, self.r
-        
-        # 1. Project to Subspace (Filter) using Grouped Linear (BMM)
-        z_flat = z.view(S, B_sz * C, D) # (S, B_sz * C, D)
-        q_flat = torch.bmm(z_flat, self.A) # (S, B_sz * C, H * r)
-        
-        # Reshape to separate heads and rank
+        z_flat = z.view(S, B_sz * C, D)
+        q_flat = torch.bmm(z_flat, self.A)
         q = q_flat.view(S, B_sz, C, H, r)
-        
-        # Stabilize with L2-norm but allow sharpness via learnable logit_scale
         q_norm = F.normalize(q, p=2, dim=-1)
-        
-        # Clamp logit scale to prevent extreme sharpness from destabilizing reconstruction
         s_clamped = self.logit_scale.clamp(1.0, 5.0)
-        
-        # 2. Match with Fixed Codebook
-        # We scale the normalized logits to control the Softmax distribution "width"
         logits = torch.einsum('sbchr,shvr->sbchv', q_norm * s_clamped, self.embedding)
-        
-        # 3. Simple Soft-Attention
-        weights = F.softmax(logits, dim=-1) # (S, B, C, H, r)
-        indices = logits.argmax(dim=-1, keepdim=True) # (S, B, C, H, 1)
-        
-        # --- Update Health Buffers ---
+        weights = F.softmax(logits, dim=-1)
+        indices = logits.argmax(dim=-1, keepdim=True)
         if self.training:
             with torch.no_grad():
-                # Global Usage EMA
-                batch_avg = weights.mean(dim=(1, 2)) # (S, H, r)
+                batch_avg = weights.mean(dim=(1, 2))
                 self.avg_probs.mul_(0.99).add_(batch_avg, alpha=0.01)
-                
-                # Sharpness EMA (mean of max probability)
                 batch_max = weights.max(dim=-1)[0].mean()
                 self.max_prob_ema.mul_(0.99).add_(batch_max, alpha=0.01)
-        
-        # 4. Reconstruct and Gate in Subspace
         v_q = torch.einsum('sbchv,shvr->sbchr', weights, self.embedding)
-        gate_weights = F.softmax(self.head_weights, dim=3) # (S, 1, 1, H, 1)
-        v_q_gated = v_q * gate_weights # (S, B, C, H, r)
-        
-        # 5. Synthesize using Grouped Linear (BMM)
+        gate_weights = F.softmax(self.head_weights, dim=3)
+        v_q_gated = v_q * gate_weights
         v_q_gated_flat = v_q_gated.reshape(S, B_sz * C, H * r)
-        z_q_soft_flat = torch.bmm(v_q_gated_flat, self.B) # (S, B_sz * C, D)
+        z_q_soft_flat = torch.bmm(v_q_gated_flat, self.B)
         z_q_soft = z_q_soft_flat.view(S, B_sz, C, D)
-        
-        # Straight-Through Estimator (STE)
         z_q = z + (z_q_soft - z).detach()
-
-        # 6. Losses
-        # Commitment Loss
         loss_commit = 0.25 * F.mse_loss(z_q_soft.detach(), z) + 0.25 * F.mse_loss(z_q_soft, z.detach())
-        
-        # Subspace Diversification & Rank Health
         def get_subspace_loss(M, is_A=True):
-            # M: (S, D, Hr) for A, (S, Hr, D) for B
             Hr = H * r
-            if is_A:
-                # Self-correlation: (S, Hr, Hr)
-                # No normalization here: forces columns to be unit-length AND orthogonal
-                corr = torch.bmm(M.transpose(1, 2), M)
-            else:
-                # Self-correlation: (S, Hr, Hr)
-                corr = torch.bmm(M, M.transpose(1, 2))
-            
-            # Create Block-Diagonal Mask for Intra-Head (Rank)
+            if is_A: corr = torch.bmm(M.transpose(1, 2), M)
+            else: corr = torch.bmm(M, M.transpose(1, 2))
             mask_intra = torch.block_diag(*[torch.ones(r, r, device=z.device) for _ in range(H)])
             mask_intra = mask_intra.unsqueeze(0).expand(S, -1, -1)
-            
-            # 1. Rank Loss (Intra-Head): Force each head's r columns to be orthonormal (I_r)
             I_hr = torch.eye(Hr, device=z.device).unsqueeze(0).expand(S, -1, -1)
             loss_rank = F.mse_loss(corr * mask_intra, I_hr) 
-            
-            # 2. Diversity Loss (Inter-Head): Force different heads to have minimal overlap
-            # We use a softer penalty for inter-head overlap since Hr > D
             loss_div = torch.mean((corr * (1 - mask_intra)) ** 2)
-            
-            return loss_rank * 20.0 + loss_div * 5.0 # Lowered diversity weight
-
+            return loss_rank * 20.0 + loss_div * 5.0
         loss_ortho = get_subspace_loss(self.A, is_A=True) + get_subspace_loss(self.B, is_A=False)
-
-        # Combined Loss
         loss = loss_commit + loss_ortho
-        
         return z_q, loss, indices, weights
 
 # --- 5. Main Tokenizer Model (AttnVQTokenizer) ---
@@ -330,35 +278,33 @@ class AttnVQTokenizer(nn.Module):
         mask = (freqs >= min_freq - 1e-5) & (freqs <= max_freq + 1e-5)
         self.register_buffer('freq_mask', mask)
         self.register_buffer('freq_indices', torch.where(mask)[0])
-        
-        # SpatialTemporalEncoder handles projections and spatial embeddings
-        self.spatial_temporal_encoder = SpatialTemporalEncoder(in_chans, base_filters=16, embed_dim=embed_dim, max_temporal_patches=max_temporal_patches)
-        
+        self.spatial_temporal_encoder = SpatialTemporalEncoder(in_chans, base_filters=16, embed_dim=embed_dim)
         self.scale_encoders = nn.ModuleList([ScaleEncoder(embed_dim, depth=enc_depth, heads=enc_heads, mlp_ratio=enc_mlp_ratio) for _ in range(in_scales)])
-        
         self.attnvq = AttnVQ(in_scales, self.vq_head_num, vq_head_vocab_size, embed_dim)
         self.scale_decoders = nn.ModuleList([ScaleDecoder(embed_dim, depth=dec_depth, heads=dec_heads, fft_dim=self.fft_dim, mlp_ratio=dec_mlp_ratio) for _ in range(in_scales)])
 
     def forward(self, x, coords, time_idx=None):
-        # Projected features with spatial embeddings: List of (B, C, embed_dim) for each scale
+        is_trial = (x.dim() == 4)
+        if is_trial:
+            B, C, P, T = x.shape
         h_scales_projected = self.spatial_temporal_encoder(x, coords, time_idx) 
-        
         h_scales = []
         for i in range(self.in_scales):
             z = h_scales_projected[i]
             enc = self.scale_encoders[i]
-            
-            # Apply transformer encoder
             z = enc(z)
             h_scales.append(z)
-            
         all_z_q, vq_loss, top_k_indices, weights = self.attnvq(torch.stack(h_scales, dim=0))
-        
         pred_amp, pred_sin, pred_cos = 0, 0, 0
         for i, decoder in enumerate(self.scale_decoders):
             a, s, c = decoder(all_z_q[i])
             pred_amp += a; pred_sin += s; pred_cos += c
-            
+        if is_trial:
+            top_k_indices = top_k_indices.view(self.in_scales, B, P, C, self.vq_head_num, 1)
+            weights = weights.view(self.in_scales, B, P, C, self.vq_head_num, -1)
+            pred_amp = pred_amp.view(B, P, C, -1)
+            pred_sin = pred_sin.view(B, P, C, -1)
+            pred_cos = pred_cos.view(B, P, C, -1)
         return pred_amp, pred_sin, pred_cos, vq_loss, top_k_indices, weights
 
     def get_loss(self, x, pred_amp, pred_sin, pred_cos, x_fft=None):

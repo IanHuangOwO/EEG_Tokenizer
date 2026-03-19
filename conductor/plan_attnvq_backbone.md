@@ -1,60 +1,46 @@
-# Plan: AttnVQ Backbone & Masked Pretraining Pipeline
+# Plan: Mutual Contextual Distillation (Encoder-Only)
 
 ## Objective
-Implement a complete pretraining pipeline for the `AttnVQBackbone` using **Soft-Target Distillation** from a pretrained `AttnVQTokenizer`. This includes a new dataset class for masked trials, an updated backbone architecture, and a dedicated pretraining script.
+Implement a **Mutual Contextual Distillation** strategy for the `AttnVQBackbone`. We will remove the direct "Local Tokenizer Target" and instead focus on a Siamese-style consistency task. The goal is for two differently masked views of the same EEG trial to predict each other's contextualized representations.
 
 ## Key Components
 
-### 1. `model/AttnVQ/modeling_backbone.py` (The Student)
-- **Architecture Updates:**
-    - Prediction Head: Use a single `nn.Linear(embed_dim, in_scales * vq_head_num * vq_head_vocab_size)`.
-    - Forward Pass: Reshape logits to `(S, H, B, Tokens, r)` for vectorized loss calculation.
-    - Masking: Properly apply `bool_masked_pos` in `forward`.
-- **Patch Embedding:** Ensure `AttnVQPatchEmbed` returns `(B, C*P, D)` where `Tokens = C*P`.
+### 1. `IO/dataset.py` (The Data)
+Modify `MaskedPretrainDataset` to generate **two disjoint masks**.
+- **Split:** 50/50 partition of all patches into Set A and Set B.
+- **`mask1`:** Hides Set A (Student sees B).
+- **`mask2`:** Hides Set B (Student sees A).
+- **Goal:** View 1 must use the context of B to "hallucinate" the features of A, and vice-versa.
 
-### 2. `IO/dataset.py` (The Data)
-- **New Class `MaskedPretrainDataset`:**
-    - Loads full trials: `(Channels, Time)`.
-    - Reshapes into patches: `(Channels, Patches, PatchTime)`.
-    - **Masking Strategy:** Generates a random boolean mask of shape `(Channels * Patches)`.
-    - Default mask ratio: 75% (MAE standard).
-    - Yields: `(x_patches, coords, mask)`.
-- **Factory Update:** Update `build_dataset_from_config` to support `mode='pretrain'`.
+### 2. `train_pretrain.py` (The Pipeline)
+The training loop will now focus entirely on **Cross-View Consistency**.
 
-### 3. `train_pretrain.py` (The Pipeline)
-- **Teacher/Student Interaction:**
-    - Load `AttnVQTokenizer` from a specified checkpoint. Freeze it (`eval()`, `no_grad()`).
-    - Initialize `AttnVQBackbone`.
-- **Training Logic:**
-    - For each batch `(x_patches, coords, mask)`:
-        1. Reshape `x_patches` for Teacher: `(B, C, P, T) -> (B*P, C, T)`.
-        2. Teacher Forward: Get `weights` (shape `(S, B*P, C, H, r)`) and `gate_weights` (shape `(S, H)`).
-        3. Student Forward: Pass `x_patches` and `mask`. Get `logits` (shape `(S, H, B, C*P, r)`).
-        4. **Target Alignment:** Reshape Teacher `weights` to `(S, H, B, C*P, r)`.
-        5. **Loss:** Compute Weighted KL-Divergence:
-           `Loss = Sum(GateWeight[s,h] * KL(LogSoftmax(StudentLogits[s,h]), TeacherWeights[s,h]))`
-        6. Apply loss only to masked tokens (or all tokens, configurable).
-- **Logging & Visualization:**
-    - Log KL loss per scale/head.
-    - Monitor "Prediction Sharpness" (how well the student matches the teacher's confidence).
+#### A. Dual Forward Pass
+1.  **Pass 1 (Student View 1):** Student processes trial with `mask1` $\to$ outputs `z1` (contextualized features of B).
+2.  **Pass 2 (Teacher View 2):** Student processes trial with `mask2` (where A is visible) $\to$ outputs `z2` (contextualized features of A).
+
+#### B. The Mutual Loss (Cross-Distillation)
+We want View 1's "guess" for the missing Set A to match what View 2 "actually saw" for Set A.
+- **The "Teacher" projection:** Since we are using the **Zero-Head** approach, we project both `z1` and `z2` through the **frozen $A$ matrix** of the tokenizer to get probability distributions $p_1$ and $p_2$ over the codebooks.
+- **Symmetric KL Loss:**
+  - `Loss_A = KL(log_p1[A] || p2[A].detach())` (View 1 predicts what View 2 saw in A).
+  - `Loss_B = KL(log_p2[B] || p1[B].detach())` (View 2 predicts what View 1 saw in B).
+- **Why this is better:** It removes the reliance on the "local" tokenizer distribution (which has no context) and instead forces the backbone to learn how a patch's representation *changes* when surrounded by other patches.
 
 ## Implementation Steps
 
-### Phase 1: Backbone & Dataset (Structural)
-1. Update `modeling_backbone.py` with the reshaped head and masking logic.
-2. Implement `MaskedPretrainDataset` in `IO/dataset.py`.
+### Phase 1: Dataset Partitioning
+1. Update `MaskedPretrainDataset` to ensure `mask1` and `mask2` are perfectly disjoint and cover the entire trial.
 
-### Phase 2: Pretraining Script (Logic)
-1. Create `train_pretrain.py` based on `train_tokenizer.py` structure.
-2. Implement the `WeightedKLLoss` function.
-3. Add logic to load the teacher's checkpoint.
+### Phase 2: Cross-Distillation Logic
+1. Update `train_pretrain.py` to:
+   - Perform the two passes.
+   - Project outputs through frozen $A$ matrix.
+   - Apply the masked KL loss symmetrically between the two views.
 
-### Phase 3: Verification & Hyperparameters
-1. Verify dimension alignment between Teacher weights and Student logits.
-2. Test with a small dataset to ensure loss decreases.
-3. Tune mask ratio and learning rate.
+### Phase 3: Alignment Monitoring
+1. Monitor the similarity between the two views. If they converge, the backbone has learned a robust global context.
 
 ## Verification & Testing
-- **Dimension Check:** `Teacher Weights (S, H, B, C*P, r) == Student Logits (S, H, B, C*P, r)`.
-- **Masking Check:** Ensure `mask_token` is correctly placed and that the encoder ignores masked content.
-- **Teacher Freeze:** Explicitly check that `teacher.parameters()` have `requires_grad=False`.
+- **Self-Supervision Check:** Verify that the model can successfully predict visible features from another view.
+- **Feature Robustness:** Check if the resulting `z` features are more discriminative than those from a standard MAE.

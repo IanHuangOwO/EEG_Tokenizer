@@ -62,7 +62,7 @@ class Plotter:
                 writer.writerow(row)
         # print(f"Training history saved to {csv_path}")
 
-    def plot(self):
+    def plot(self, filename='training_curves.png'):
         """Saves a plot of the training curves (losses)."""
         if 'loss' not in self.history['train'] or not self.history['train']['loss']:
             return
@@ -70,18 +70,26 @@ class Plotter:
         epochs = range(1, len(self.history['train']['loss']) + 1)
         has_val = 'loss' in self.history['val'] and len(self.history['val']['loss']) > 0
 
-        # Determine if we are in pretrain mode (no recon/vq)
-        is_pretrain = 'unmasked_kl' in self.history['train']
+        # Determine if we are in pretrain mode
+        is_pretrain = 'unmasked_kl' in self.history['train'] or 'distill_masked' in self.history['train']
 
         if is_pretrain:
             fig, ax1 = plt.subplots(1, 1, figsize=(10, 6))
-            ax1.plot(epochs, self.history['train']['loss'], 'b-', label='Train KL (Masked)')
-            ax1.plot(epochs, self.history['train']['unmasked_kl'], 'g-', label='Train KL (Unmasked)')
+            # Support both old and new pretrain keys
+            m_key = 'distill_masked' if 'distill_masked' in self.history['train'] else 'loss'
+            v_key = 'distill_visible' if 'distill_visible' in self.history['train'] else 'unmasked_kl'
+            
+            ax1.plot(epochs, self.history['train'][m_key], 'b-', label='Train Masked (M)')
+            if v_key in self.history['train']:
+                ax1.plot(epochs, self.history['train'][v_key], 'g-', label='Train Visible (V)')
+            
             if has_val:
-                ax1.plot(epochs, self.history['val']['loss'], 'b--', alpha=0.7, label='Val KL (Masked)')
-                ax1.plot(epochs, self.history['val']['unmasked_kl'], 'g--', alpha=0.7, label='Val KL (Unmasked)')
-            ax1.set_title('Pretraining Distillation Loss (KL)')
-            ax1.set_ylabel('Loss')
+                ax1.plot(epochs, self.history['val'][m_key], 'b--', alpha=0.7, label='Val Masked (M)')
+                if v_key in self.history['val']:
+                    ax1.plot(epochs, self.history['val'][v_key], 'g--', alpha=0.7, label='Val Visible (V)')
+            
+            ax1.set_title('Pretraining Distillation Loss')
+            ax1.set_ylabel('Loss (KL Divergence)')
             ax1.set_xlabel('Epoch')
             ax1.legend()
             ax1.grid(True)
@@ -136,15 +144,15 @@ class Plotter:
             ax3.grid(True)
         
         plt.tight_layout()
-        save_path = os.path.join(self.output_dir, 'training_curves.png')
+        save_path = os.path.join(self.output_dir, filename)
         plt.savefig(save_path)
         plt.close(fig)
 
-    def plot_metrics(self):
+    def plot_metrics(self, filename='training_metrics.png'):
         """Saves a plot of specific training metrics."""
         self.save_csv()
-        # If we don't have temp_mse but we have unmasked_kl, we are in pretrain mode
-        if 'unmasked_kl' in self.history['train']:
+        # If we don't have temp_mse but we have unmasked_kl or distill_masked, we are in pretrain mode
+        if 'unmasked_kl' in self.history['train'] or 'distill_masked' in self.history['train']:
             # For pretrain, we don't have much to plot in plot_metrics yet
             return
             
@@ -241,6 +249,6 @@ class Plotter:
                 ax.axis('off') # Hide unused slots
         
         plt.tight_layout()
-        save_path = os.path.join(self.output_dir, 'training_metrics.png')
+        save_path = os.path.join(self.output_dir, filename)
         plt.savefig(save_path)
         plt.close(fig)

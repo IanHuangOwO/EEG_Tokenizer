@@ -483,7 +483,7 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         return TokenizerWrapperDataset(base_dataset, patch_len=patch_len)
     elif mode == 'pretrain':
         patch_len = preprocess_params.get('target_freq', 200)
-        mask_ratio = params.get('mask_ratio', 0.75)
+        mask_ratio = preprocess_params.get('mask_ratio', 0.75)
         return MaskedPretrainDataset(base_dataset, patch_len=patch_len, mask_ratio=mask_ratio)
     else:
         raise ValueError(f"Unknown dataset mode: {mode}. Use 'base', 'tokenizer', or 'pretrain'.")
@@ -521,7 +521,8 @@ class TokenizerWrapperDataset(Dataset):
         x, y = self.base_dataset[trial_idx]
         patch = x[:, patch_offset : patch_offset + self.patch_len]
         
-        return patch, self.coords_tensor, patch_idx, y
+        # We return 0 for time_idx so the Tokenizer is blind to absolute temporal context
+        return patch, self.coords_tensor, 0, y
 
 class MaskedPretrainDataset(Dataset):
     """
@@ -529,7 +530,7 @@ class MaskedPretrainDataset(Dataset):
     Yields full trials reshaped into patches, along with a random mask.
     Yields: (x_patches, coords, mask, y)
     """
-    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200, mask_ratio: float = 0.75):
+    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200, mask_ratio: float = 0.5):
         self.base_dataset = base_dataset
         self.patch_len = patch_len
         self.mask_ratio = mask_ratio
@@ -558,16 +559,18 @@ class MaskedPretrainDataset(Dataset):
         # Reshape into patches: (C, P, T_patch)
         x_patches = x.view(self.num_channels, self.patches_per_trial, self.patch_len)
         
-        # Generate Random Mask (on Channels * Patches)
+        # Generate a Single Random Mask
         num_tokens = self.num_channels * self.patches_per_trial
-        num_mask = int(num_tokens * self.mask_ratio)
         
-        # Shuffle indices to pick which ones to mask
-        noise = torch.rand(num_tokens)
+        # Time Indices for each patch: (P,) -> 0, 1, 2, ..., P-1
+        time_indices = torch.arange(self.patches_per_trial, dtype=torch.long)
+        
+        # Shuffle indices to select masked portion
+        num_masked = int(num_tokens * self.mask_ratio)
+        indices = torch.randperm(num_tokens)
+        masked_indices = indices[:num_masked]
+        
         mask = torch.zeros(num_tokens, dtype=torch.bool)
+        mask[masked_indices] = True
         
-        # Top-k largest noise indices are masked
-        mask_idx = torch.topk(noise, num_mask).indices
-        mask[mask_idx] = True
-        
-        return x_patches, self.coords_tensor, mask, y
+        return x_patches, self.coords_tensor, mask, time_indices, y

@@ -1,20 +1,12 @@
 import sys
 import os
 import shutil
-from model.NeuroRVQ.modeling_tokenizer import NeuroRVQTokenizer
-from model.RecurrentVQ.modeling_tokenizer import RecurrentVQTokenizer
-from model.RecurrentFSQ.modeling_tokenizer import RecurrentFSQTokenizer
 from model.LaBraM.modeling_tokenizer import LaBraMTokenizer
 from model.AttnVQ.modeling_tokenizer import AttnVQTokenizer
-from model.AttnRVQ.modeling_tokenizer import AttnRVQTokenizer
 from model.AttnVQ.modeling_backbone import AttnVQBackbone
 
-from model.NeuroRVQ.preprocessing import NeuroRVQProcessing
-from model.RecurrentVQ.preprocessing import RecurrentVQProcessing
-from model.RecurrentFSQ.preprocessing import RecurrentFSQProcessing
 from model.LaBraM.preprocessing import LaBraMProcessing
 from model.AttnVQ.preprocessing import AttnVQProcessing
-from model.AttnRVQ.preprocessing import AttnRVQProcessing
 
 def build_model_from_config(config, src_output_dir=None):
     """
@@ -29,65 +21,8 @@ def build_model_from_config(config, src_output_dir=None):
     
     model_type = train_params.get('model_type', 'NeuroRVQ')
     
-    if model_type == "NeuroRVQ":
-        params = model_params['NeuroRVQ']
-        model = NeuroRVQTokenizer(
-            in_chans=params.get('in_chans', 1),
-            embed_dim=params['embed_dim'],
-            enc_depth=params['enc_depth'],
-            enc_heads=params['enc_heads'],
-            enc_mlp_ratio=params.get('enc_mlp_ratio', 4.0),
-            dec_depth=params['dec_depth'],
-            dec_heads=params.get('dec_heads', params['enc_heads']),
-            dec_mlp_ratio=params.get('dec_mlp_ratio', 4.0),
-            in_scales=params.get('in_scales', 4),
-            vq_head_vocab_size=params['vq_head_vocab_size'],
-            n_codebooks=params['num_codebooks'],
-            freq_resolution=params.get('freq_resolution', 1.0),
-            min_freq=params.get('min_freq', 0.0),
-            max_freq=params.get('max_freq', 100.0),
-            fs=preprocess_params['target_freq']
-        )
-    elif model_type == "RecurrentVQ":
-        params = model_params['RecurrentVQ']
-        model = RecurrentVQTokenizer(
-            in_chans=params.get('in_chans', 1),
-            embed_dim=params['embed_dim'],
-            enc_depth=params['enc_depth'],
-            enc_heads=params['enc_heads'],
-            enc_mlp_ratio=params.get('enc_mlp_ratio', 4.0),
-            dec_depth=params['dec_depth'],
-            dec_heads=params.get('dec_heads', params['enc_heads']),
-            dec_mlp_ratio=params.get('dec_mlp_ratio', 4.0),
-            in_scales=params.get('in_scales', 4),
-            vq_head_vocab_size=params['vq_head_vocab_size'],
-            num_recurrent_steps=params['num_recurrent_steps'],
-            freq_resolution=params.get('freq_resolution', 1.0),
-            min_freq=params.get('min_freq', 0.0),
-            max_freq=params.get('max_freq', 100.0),
-            fs=preprocess_params['target_freq']
-        )
-    elif model_type == "RecurrentFSQ":
-        params = model_params['RecurrentFSQ']
-        model = RecurrentFSQTokenizer(
-            in_chans=params.get('in_chans', 1),
-            embed_dim=params['embed_dim'],
-            enc_depth=params['enc_depth'],
-            enc_heads=params['enc_heads'],
-            enc_mlp_ratio=params.get('enc_mlp_ratio', 4.0),
-            dec_depth=params['dec_depth'],
-            dec_heads=params.get('dec_heads', params['enc_heads']),
-            dec_mlp_ratio=params.get('dec_mlp_ratio', 4.0),
-            in_scales=params.get('in_scales', 4),
-            num_recurrent_steps=params['num_recurrent_steps'],
-            fsq_levels=params.get('fsq_levels', [8, 5, 5, 5]),
-            freq_resolution=params.get('freq_resolution', 1.0),
-            min_freq=params.get('min_freq', 0.0),
-            max_freq=params.get('max_freq', 100.0),
-            fs=preprocess_params['target_freq']
-        )
-    elif model_type == "AttnVQ":
-        params = model_params['AttnVQ']
+    if model_type == "AttnVQ":
+        params = model_params['AttnVQ']['tokenizer']
         model = AttnVQTokenizer(
             in_chans=params.get('in_chans', 1),
             embed_dim=params['embed_dim'],
@@ -105,33 +40,16 @@ def build_model_from_config(config, src_output_dir=None):
             max_freq=params.get('max_freq', 100.0),
             fs=preprocess_params['target_freq']
         )
-    elif model_type == "AttnRVQ":
-        params = model_params['AttnRVQ']
-        model = AttnRVQTokenizer(
+    elif model_type == "LaBraM":
+        params = model_params['LaBraM']['tokenizer']
+        model = LaBraMTokenizer(
             in_chans=params.get('in_chans', 1),
             embed_dim=params['embed_dim'],
             enc_depth=params['enc_depth'],
-            enc_heads=params['enc_heads'],
-            enc_mlp_ratio=params.get('enc_mlp_ratio', 4.0),
             dec_depth=params['dec_depth'],
-            dec_heads=params.get('dec_heads', params['enc_heads']),
-            dec_mlp_ratio=params.get('dec_mlp_ratio', 4.0),
-            in_scales=params.get('in_scales', 4),
-            vq_head_top_k=params.get('vq_head_top_k', 8),
-            vq_head_vocab_size=params['vq_head_vocab_size'],
-            freq_resolution=params.get('freq_resolution', 1.0),
-            min_freq=params.get('min_freq', 0.0),
-            max_freq=params.get('max_freq', 100.0),
-            fs=preprocess_params['target_freq']
-        )
-    elif model_type == "LaBraM":
-        params = model_params['LaBraM']
-        model = LaBraMTokenizer(
-            in_chans=1,
-            embed_dim=params['embed_dim'],
-            enc_depth=params['enc_depth'],
-            dec_depth=params['dec_depth'],
-            n_code=params['vocab_size']
+            n_code=params['vocab_size'],
+            code_dim=params.get('code_dim', 32),
+            patch_size=params.get('patch_size', 200)
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
@@ -150,28 +68,22 @@ def build_backbone_from_config(config, src_output_dir=None):
     """
     train_params = config['training_params']
     model_params = config['model_params']
-    preprocess_params = config.get('preprocess_params', {'target_freq': 200})
     
     model_type = train_params.get('model_type', 'AttnVQ')
     
     if model_type == "AttnVQ":
-        params = model_params['AttnVQ']
-        # Backbone specific params (can fall back to tokenizer params)
-        backbone_params = model_params.get('AttnVQ_Backbone', params)
+        tokenizer_params = model_params['AttnVQ']['tokenizer']
+        backbone_params = model_params['AttnVQ']['backbone']
         
         model = AttnVQBackbone(
-            embed_dim=backbone_params.get('embed_dim', params['embed_dim']),
+            embed_dim=backbone_params.get('embed_dim', tokenizer_params['embed_dim']),
             enc_depth=backbone_params.get('enc_depth', 12),
             enc_heads=backbone_params.get('enc_heads', 8),
-            dec_depth=backbone_params.get('dec_depth', 4),
-            dec_heads=backbone_params.get('dec_heads', 8),
-            vq_head_vocab_size=params['vq_head_vocab_size'],
-            in_scales=params.get('in_scales', 4),
-            vq_head_num=params.get('vq_head_num', 8),
-            dropout=backbone_params.get('dropout', 0.1),
-            in_chans=params.get('in_chans', 1),
-            max_temporal_patches=backbone_params.get('max_temporal_patches', 10)
-        )
+            mlp_ratio=backbone_params.get('mlp_ratio', 4.0),
+            in_chans=backbone_params.get('in_chans', tokenizer_params.get('in_chans', 1)),
+            in_scales=backbone_params.get('in_scales', tokenizer_params.get('in_scales', 3)),
+            num_heads=backbone_params.get('vq_head_num', tokenizer_params.get('vq_head_num', 16))
+            )
     else:
         raise ValueError(f"Backbone not implemented for model type: {model_type}")
 
@@ -207,15 +119,7 @@ def build_preprocessing_from_config(config):
         'normalization_type': preprocess_params['normalization_type']
     }
 
-    if model_type == 'RecurrentVQ':
-        return RecurrentVQProcessing(**p_args)
-    elif model_type == 'RecurrentFSQ':
-        return RecurrentFSQProcessing(**p_args)
-    elif model_type == 'AttnVQ':
+    if model_type == 'AttnVQ':
         return AttnVQProcessing(**p_args)
-    elif model_type == 'AttnRVQ':
-        return AttnRVQProcessing(**p_args)
     elif model_type == 'LaBraM':
         return LaBraMProcessing(**p_args)
-    else: # Default NeuroRVQ
-        return NeuroRVQProcessing(**p_args)
