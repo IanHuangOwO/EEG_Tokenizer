@@ -15,6 +15,7 @@ from tqdm import tqdm
 from IO.dataset import build_dataset_from_config
 from model.factory import build_model_from_config, build_backbone_from_config, build_preprocessing_from_config
 from utils.plotter import Plotter
+from utils.reconstruction import visualize_masked_reconstruction
 
 # Enable TF32 for faster matrix multiplication on Ampere+ GPUs
 torch.set_float32_matmul_precision('high')
@@ -37,25 +38,22 @@ def get_latent_dist(z, attnvq):
     """
     Projects raw backbone features z (B, T, D) into codebook probability distributions.
     z: (B, Tokens, D)
-    Returns p: (S, H, B, Tokens, r)
+    Returns p: (H, B, Tokens, r)
     """
     B, Tokens, D = z.shape
-    S = attnvq.A.shape[0]
     H = attnvq.num_heads
     r = attnvq.r
     
     # 1. Project student latent using FROZEN A matrix
     z_flat = z.reshape(B * Tokens, D)
-    z_expanded = z_flat.unsqueeze(0).expand(S, -1, -1) # (S, BT, D)
-    q = torch.bmm(z_expanded, attnvq.A) # (S, BT, Hr)
+    q = torch.matmul(z_flat, attnvq.A) # (BT, Hr)
     
     # 2. Normalize and Scale identically to Tokenizer
-    q = q.view(S, B, Tokens, H, r)
+    q = q.view(B, Tokens, H, r)
     q_norm = F.normalize(q, p=2, dim=-1)
-    s_clamped = attnvq.logit_scale.clamp(1.0, 5.0) # (S, 1, 1, H, 1)
     
-    # Student Logits (Scale-Specific)
-    logits = (q_norm * s_clamped).permute(0, 3, 1, 2, 4) # (S, H, B, T, r)
+    # Student Logits (H, B, T, r)
+    logits = q_norm.permute(2, 0, 1, 3) 
     return logits
 
 def train_one_epoch(teacher_vq, student, data_loader, optimizer, device, epoch):
@@ -65,50 +63,52 @@ def train_one_epoch(teacher_vq, student, data_loader, optimizer, device, epoch):
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}", 
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
     
-    # Pre-fetch frozen gate weights
-    S, H, r = teacher_vq.in_scales, teacher_vq.vq_head_num, teacher_vq.attnvq.r
-    with torch.no_grad():
-        gate_weights = F.softmax(teacher_vq.attnvq.head_weights, dim=3).squeeze() # (S, H)
-        if gate_weights.dim() == 1: gate_weights = gate_weights.unsqueeze(0)
-        gate_weights = gate_weights.reshape(S, H, 1, 1) # (S, H, 1, 1) for broadcasting
+    H, r = teacher_vq.vq_head_num, teacher_vq.attnvq.r
+    last_batch = None
 
     for batch_idx, batch in enumerate(pbar):
         x_patches, coords, mask, time_indices, _ = [t.to(device) for t in batch]
         B, C, P, T_patch = x_patches.shape
         Tokens = C * P
+        last_batch = batch
         
         # --- Get Tokenizer Targets (The Anchor) ---
         with torch.no_grad():
             # Teacher is blind to temporal trial context (time_idx=None)
-            *_, teacher_weights = teacher_vq(x_patches, coords, time_idx=None) # (S, B, P, C, H, r)
-            # Reshape to (S, H, B, Tokens, r)
-            teacher_weights = teacher_weights.permute(0, 4, 1, 3, 2, 5).reshape(S, H, B, Tokens, r)
+            *_, teacher_weights = teacher_vq(x_patches, coords, time_idx=None) # (B, P, C, H, r)
+            # Reshape to (H, B, Tokens, r)
+            teacher_weights = teacher_weights.permute(3, 0, 2, 1, 4).reshape(H, B, Tokens, r)
             
         optimizer.zero_grad()
         
         # 1. Forward Pass (Single Masked Pass)
         z = student(x_patches, coords, time_indices=time_indices, bool_masked_pos=mask) # (B, Tokens, D)
-        p = get_latent_dist(z, teacher_vq.attnvq) # (S, H, B, Tokens, r)
+        p = get_latent_dist(z, teacher_vq.attnvq) # (H, B, Tokens, r)
         
         # --- Loss Calculation ---
         log_p = F.log_softmax(p, dim=-1)
-        m_exp = mask.view(1, 1, B, Tokens).expand(S, H, -1, -1) 
         
-        # Calculate KL Divergence
-        # kl_div shape: (S, H, B, Tokens)
+        # Calculate KL Divergence (H, B, Tokens)
         kl_div = F.kl_div(log_p, teacher_weights, reduction='none').sum(-1) 
         
-        # Apply gate weights (S, H, 1, 1) to weight the experts
-        # Weighted sum over Scales and Heads: (B, Tokens)
-        weighted_kl = (kl_div * gate_weights).sum(dim=(0, 1))
+        # Simple mean over Heads: (B, Tokens)
+        avg_kl = kl_div.mean(dim=0)
+        
+        # Masked vs Visible Masks
+        m_flat = mask.view(B, Tokens)
+        v_flat = ~m_flat
+
+        # Individual Head KL (averaged over batch/tokens)
+        with torch.no_grad():
+            for h in range(H):
+                metrics[f"kl_h{h}"] = metrics.get(f"kl_h{h}", 0.0) + kl_div[h].mean().item()
+                metrics[f"kl_masked_h{h}"] = metrics.get(f"kl_masked_h{h}", 0.0) + kl_div[h][m_flat].mean().item() if m_flat.any() else 0.0
+                metrics[f"kl_visible_h{h}"] = metrics.get(f"kl_visible_h{h}", 0.0) + kl_div[h][v_flat].mean().item() if v_flat.any() else 0.0
         
         # Now average ONLY over the Batch and Token dimensions
-        # A. Masked Loss
-        m_flat = mask.view(B, Tokens)
-        loss_masked = weighted_kl[m_flat].mean() if m_flat.any() else torch.tensor(0.0, device=device)
-        
-        # B. Visible Loss
-        loss_visible = weighted_kl[~m_flat].mean() if (~m_flat).any() else torch.tensor(0.0, device=device)
+        # Total Loss
+        loss_masked = avg_kl[m_flat].mean() if m_flat.any() else torch.tensor(0.0, device=device)
+        loss_visible = avg_kl[~m_flat].mean() if (~m_flat).any() else torch.tensor(0.0, device=device)
         
         # Total Loss
         loss = loss_masked * 0.8 + loss_visible * 0.2
@@ -124,30 +124,27 @@ def train_one_epoch(teacher_vq, student, data_loader, optimizer, device, epoch):
         pbar.set_postfix({'L': f"{avg_loss:.4f}", 'M': f"{loss_masked.item():.4f}", 'V': f"{loss_visible.item():.4f}"})
 
     N = len(data_loader)
-    return {k: v/N for k, v in metrics.items()}
+    return {k: v/N for k, v in metrics.items()}, last_batch
 
 def validate_one_epoch(teacher_vq, student, data_loader, device):
     student.eval()
     metrics = {"loss": 0.0, "distill_masked": 0.0, "distill_visible": 0.0}
     
-    # Text-only progress bar
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation", 
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
     
-    S, H, r = teacher_vq.in_scales, teacher_vq.vq_head_num, teacher_vq.attnvq.r
+    H, r = teacher_vq.vq_head_num, teacher_vq.attnvq.r
+    last_batch = None
     with torch.no_grad():
-        gate_weights = F.softmax(teacher_vq.attnvq.head_weights, dim=3).squeeze()
-        if gate_weights.dim() == 1: gate_weights = gate_weights.unsqueeze(0)
-        gate_weights = gate_weights.reshape(S, H, 1, 1)
-
         for batch_idx, batch in enumerate(pbar):
             x_patches, coords, mask, time_indices, _ = [t.to(device) for t in batch]
             B, C, P, _ = x_patches.shape
             Tokens = C * P
+            last_batch = batch
             
             # Teacher pass
             *_, teacher_weights = teacher_vq(x_patches, coords, time_idx=None)
-            teacher_weights = teacher_weights.permute(0, 4, 1, 3, 2, 5).reshape(S, H, B, Tokens, r)
+            teacher_weights = teacher_weights.permute(3, 0, 2, 1, 4).reshape(H, B, Tokens, r)
             
             # Student pass
             z = student(x_patches, coords, time_indices, mask)
@@ -155,19 +152,25 @@ def validate_one_epoch(teacher_vq, student, data_loader, device):
             
             log_p = F.log_softmax(p, dim=-1)
             
-            # Calculate KL Divergence (S, H, B, Tokens)
+            # Calculate KL Divergence (H, B, Tokens)
             kl_div = F.kl_div(log_p, teacher_weights, reduction='none').sum(-1)
             
-            # Weighted sum over Scales and Heads: (B, Tokens)
-            weighted_kl = (kl_div * gate_weights).sum(dim=(0, 1))
+            # Simple mean over Heads: (B, Tokens)
+            avg_kl = kl_div.mean(dim=0)
+            
+            # Masked vs Visible Masks
+            m_flat = mask.view(B, Tokens)
+            v_flat = ~m_flat
+
+            # Individual Head KL
+            for h in range(H):
+                metrics[f"kl_h{h}"] = metrics.get(f"kl_h{h}", 0.0) + kl_div[h].mean().item()
+                metrics[f"kl_masked_h{h}"] = metrics.get(f"kl_masked_h{h}", 0.0) + kl_div[h][m_flat].mean().item() if m_flat.any() else 0.0
+                metrics[f"kl_visible_h{h}"] = metrics.get(f"kl_visible_h{h}", 0.0) + kl_div[h][v_flat].mean().item() if v_flat.any() else 0.0
             
             # Now average ONLY over the Batch and Token dimensions
-            m_flat = mask.view(B, Tokens)
-            
-            # A. Masked Loss
-            loss_masked = weighted_kl[m_flat].mean() if m_flat.any() else torch.tensor(0.0, device=device)
-            # B. Visible Loss
-            loss_visible = weighted_kl[~m_flat].mean() if (~m_flat).any() else torch.tensor(0.0, device=device)
+            loss_masked = avg_kl[m_flat].mean() if m_flat.any() else torch.tensor(0.0, device=device)
+            loss_visible = avg_kl[~m_flat].mean() if (~m_flat).any() else torch.tensor(0.0, device=device)
             
             loss = loss_masked * 0.8 + loss_visible * 0.2
             
@@ -179,7 +182,7 @@ def validate_one_epoch(teacher_vq, student, data_loader, device):
             pbar.set_postfix({'L': f"{avg_loss:.4f}"})
 
     N = len(data_loader)
-    return {k: v/N for k, v in metrics.items()}
+    return {k: v/N for k, v in metrics.items()}, last_batch
 
 def main():
     parser = argparse.ArgumentParser(description='Masked Distillation Pretraining')
@@ -251,8 +254,15 @@ def main():
     student = build_backbone_from_config(config).to(device)
     
     with torch.no_grad():
-        student.logit_scale.copy_(teacher.attnvq.logit_scale)
-        student.head_weights.copy_(teacher.attnvq.head_weights)
+        # Copy shared structure weights (SpatialTemporalEncoder & Encoder)
+        # We need to map teacher.spatial_temporal_encoder -> student.spatial_temporal_encoder
+        logger.info("  > Warming up student SpatialTemporalEncoder with teacher weights...")
+        student.spatial_temporal_encoder.load_state_dict(teacher.spatial_temporal_encoder.state_dict())
+        
+        # Map teacher.encoder -> student.encoder
+        logger.info("  > Warming up student Encoder (Transformer Stack) with teacher weights...")
+        # Note: Tokenizer and Backbone might have different depths, but we load what matches
+        student.encoder.load_state_dict(teacher.encoder.state_dict(), strict=False)
     
     optimizer = optim.AdamW(student.parameters(), lr=train_params['learning_rate'], weight_decay=train_params['weight_decay'])
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=train_params['epochs'], eta_min=train_params['min_learning_rate'])
@@ -260,8 +270,8 @@ def main():
     
     best_val_loss = float('inf')
     for epoch in range(1, train_params['epochs'] + 1):
-        train_metrics = train_one_epoch(teacher, student, train_loader, optimizer, device, epoch)
-        val_metrics = validate_one_epoch(teacher, student, val_loader, device)
+        train_metrics, train_last_batch = train_one_epoch(teacher, student, train_loader, optimizer, device, epoch)
+        val_metrics, val_last_batch = validate_one_epoch(teacher, student, val_loader, device)
         scheduler.step()
         
         logger.info(f"Epoch {epoch}: Train_L={train_metrics['loss']:.4f}, Val_L={val_metrics['loss']:.4f}, Masked={train_metrics['distill_masked']:.4f}")
@@ -271,6 +281,9 @@ def main():
         plotter.plot(filename='pretrain_curves.png')        
         plotter.plot_metrics(filename='pretrain_metrics.png') 
         
+        if epoch % 5 == 0:
+            visualize_masked_reconstruction(val_last_batch, teacher, student, epoch, output_dir=os.path.join(vis_dir, 'reconstruction_pretrain'))
+
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
             torch.save({'model_state_dict': student.state_dict()}, os.path.join(checkpoint_dir, 'best_backbone.pth'))

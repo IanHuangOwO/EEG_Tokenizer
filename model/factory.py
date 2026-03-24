@@ -35,6 +35,7 @@ def build_model_from_config(config, src_output_dir=None):
             in_scales=params.get('in_scales', 4),
             vq_head_num=params.get('vq_head_num', 8),
             vq_head_vocab_size=params['vq_head_vocab_size'],
+            vq_num_discrete=params.get('vq_num_discrete', 5),
             freq_resolution=params.get('freq_resolution', 1.0),
             min_freq=params.get('min_freq', 0.0),
             max_freq=params.get('max_freq', 100.0),

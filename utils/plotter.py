@@ -97,45 +97,41 @@ class Plotter:
             fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 16), sharex=True)
             # Plot Main Losses
             ax1.plot(epochs, self.history['train']['loss'], 'b-', label='Train Total')
-            if 'recon' in self.history['train']:
-                ax1.plot(epochs, self.history['train']['recon'], 'g-', label='Train Recon')
-            if 'vq' in self.history['train']:
-                ax1.plot(epochs, self.history['train']['vq'], 'r-', label='Train VQ')
             
             if has_val:
                 ax1.plot(epochs, self.history['val']['loss'], 'b--', alpha=0.7, label='Val Total')
-                if 'recon' in self.history['val']:
-                    ax1.plot(epochs, self.history['val']['recon'], 'g--', alpha=0.7, label='Val Recon')
-                if 'vq' in self.history['val']:
-                    ax1.plot(epochs, self.history['val']['vq'], 'r--', alpha=0.7, label='Val VQ')
 
             ax1.set_title('Global Losses')
             ax1.set_ylabel('Loss')
             ax1.legend()
             ax1.grid(True)
             
-            # Plot Components (Amp/Phase)
+            # Plot Components (Amp/Phase/Sub)
             if 'amp' in self.history['train']:
                 ax2.plot(epochs, self.history['train']['amp'], color='orange', linestyle='-', label='Train Amp')
             if 'phase' in self.history['train']:
                 ax2.plot(epochs, self.history['train']['phase'], color='purple', linestyle='-', label='Train Phase')
+            if 'sub' in self.history['train']:
+                ax2.plot(epochs, self.history['train']['sub'], color='red', linestyle='-', label='Train Sub')
             
             if has_val:
                  if 'amp' in self.history['val']:
                     ax2.plot(epochs, self.history['val']['amp'], color='orange', linestyle='--', alpha=0.7, label='Val Amp')
                  if 'phase' in self.history['val']:
                     ax2.plot(epochs, self.history['val']['phase'], color='purple', linestyle='--', alpha=0.7, label='Val Phase')
+                 if 'sub' in self.history['val']:
+                    ax2.plot(epochs, self.history['val']['sub'], color='red', linestyle='--', alpha=0.7, label='Val Sub')
                  
-            ax2.set_title('Reconstruction Components')
+            ax2.set_title('Loss Components')
             ax2.set_ylabel('Loss')
             ax2.legend()
             ax2.grid(True)
 
             # Plot Temporal
             if 'temp' in self.history['train']:
-                ax3.plot(epochs, self.history['train']['temp'], 'm-', label='Train Temp (L1)')
+                ax3.plot(epochs, self.history['train']['temp'], 'm-', label='Train Temp (MSE)')
             if has_val and 'temp' in self.history['val']:
-                ax3.plot(epochs, self.history['val']['temp'], 'm--', alpha=0.7, label='Val Temp (L1)')
+                ax3.plot(epochs, self.history['val']['temp'], 'm--', alpha=0.7, label='Val Temp (MSE)')
                 
             ax3.set_title('Temporal Loss (Time Domain)')
             ax3.set_xlabel('Epoch')
@@ -152,8 +148,47 @@ class Plotter:
         """Saves a plot of specific training metrics."""
         self.save_csv()
         # If we don't have temp_mse but we have unmasked_kl or distill_masked, we are in pretrain mode
-        if 'unmasked_kl' in self.history['train'] or 'distill_masked' in self.history['train']:
-            # For pretrain, we don't have much to plot in plot_metrics yet
+        is_pretrain = 'unmasked_kl' in self.history['train'] or 'distill_masked' in self.history['train']
+        
+        if is_pretrain:
+            # For pretrain, we plot per-head KL if available
+            kl_m_keys = sorted([k for k in self.history['train'].keys() if k.startswith('kl_masked_h')],
+                             key=lambda x: int(x.split('_h')[1]))
+            kl_v_keys = sorted([k for k in self.history['train'].keys() if k.startswith('kl_visible_h')],
+                             key=lambda x: int(x.split('_h')[1]))
+            
+            if not kl_m_keys:
+                # Fallback to total KL if separate keys not found
+                kl_keys = sorted([k for k in self.history['train'].keys() if k.startswith('kl_h')],
+                               key=lambda x: int(x.split('_h')[1]))
+                if not kl_keys: return
+                
+                epochs = range(1, len(self.history['train'][kl_keys[0]]) + 1)
+                fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+                for k in kl_keys:
+                    label = k.replace('kl_h', 'Head ')
+                    ax.plot(epochs, self.history['train'][k], label=label)
+                ax.set_title('Per-Head Distillation KL Divergence')
+                ax.set_ylabel('KL Div'); ax.set_xlabel('Epoch'); ax.legend(loc='upper right', fontsize='x-small', ncol=4); ax.grid(True)
+            else:
+                epochs = range(1, len(self.history['train'][kl_m_keys[0]]) + 1)
+                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
+                
+                for k in kl_m_keys:
+                    label = k.replace('kl_masked_h', 'Head ')
+                    ax1.plot(epochs, self.history['train'][k], label=label)
+                ax1.set_title('Masked Patches: Per-Head KL Divergence')
+                ax1.set_ylabel('KL Div'); ax1.legend(loc='upper right', fontsize='x-small', ncol=4); ax1.grid(True)
+                
+                for k in kl_v_keys:
+                    label = k.replace('kl_visible_h', 'Head ')
+                    ax2.plot(epochs, self.history['train'][k], label=label)
+                ax2.set_title('Visible Patches: Per-Head KL Divergence')
+                ax2.set_ylabel('KL Div'); ax2.set_xlabel('Epoch'); ax2.legend(loc='upper right', fontsize='x-small', ncol=4); ax2.grid(True)
+            
+            save_path = os.path.join(self.output_dir, filename)
+            plt.savefig(save_path)
+            plt.close(fig)
             return
             
         if 'temp_mse' not in self.history['train'] or not self.history['train']['temp_mse']:
@@ -163,10 +198,30 @@ class Plotter:
         has_val = 'temp_mse' in self.history['val'] and len(self.history['val']['temp_mse']) > 0
 
         # Identify scales and heads
-        head_keys = [k for k in self.history['train'].keys() if k.startswith('head_weight_s')]
-        scales = sorted(list(set([int(k.split('_s')[1].split('_h')[0]) for k in head_keys])))
-        n_scales = len(scales)
+        head_keys = [k for k in self.history['train'].keys() if k.startswith('head_weight_')]
+        fusion_keys = sorted([k for k in self.history['train'].keys() if k.startswith('fusion_weight_s')],
+                            key=lambda x: int(x.split('_s')[1]))
         
+        # Determine how to group heads
+        # If we have head_weight_s0_h0, we group by scale
+        # If we have head_weight_h0, we have one group
+        s_head_keys = [k for k in head_keys if '_s' in k]
+        if s_head_keys:
+            scales = sorted(list(set([int(k.split('_s')[1].split('_h')[0]) for k in s_head_keys])))
+            n_scales = len(scales)
+            groups = []
+            for s in scales:
+                heads_in_scale = sorted([k for k in s_head_keys if f'head_weight_s{s}_h' in k], 
+                                        key=lambda x: int(x.split('_h')[1]))
+                groups.append((f'Heads (Scale {s})', heads_in_scale))
+        else:
+            h_only_keys = sorted([k for k in head_keys if '_h' in k], key=lambda x: int(x.split('_h')[1]))
+            groups = [('Head Weights', h_only_keys)] if h_only_keys else []
+            
+        # Add fusion weights as a group if they exist
+        if fusion_keys:
+            groups.insert(0, ('Scale Fusion Weights', fusion_keys))
+
         # 2x3 Grid Layout
         fig, axes = plt.subplots(2, 3, figsize=(20, 12))
         axes = axes.flatten()
@@ -174,7 +229,8 @@ class Plotter:
         ax_mse = axes[0]
         ax_cb = axes[1]
         ax_sub = axes[2]
-        gating_axes = axes[3:]
+        ax_mat = axes[3]
+        gating_axes = axes[4:]
 
         # 1. Temporal MSE
         ax_mse.plot(epochs, self.history['train']['temp_mse'], 'b-', label='Train MSE')
@@ -203,47 +259,49 @@ class Plotter:
             ax_cb.legend(lines + lines2, labels + labels2, loc='upper left')
             ax_cb.grid(True)
 
-        # 3. Subspace Rank Health & Logit Scale
-        if 'A_sv_mean' in self.history['train']:
-            ax_sub.plot(epochs, self.history['train']['A_sv_mean'], 'r-', label='A SV Mean')
-            ax_sub.plot(epochs, self.history['train']['B_sv_mean'], 'b-', label='B SV Mean')
-            ax_sub.set_title('SVD Rank Health (Mean)')
-            ax_sub.set_ylabel('Singular Values (Gain)')
+        # 3. Subspace Health (Symmetry & Diversity)
+        if 'subspace_loss' in self.history['train']:
+            ax_sub.plot(epochs, self.history['train']['subspace_loss'], 'k-', label='Total Subspace Loss', linewidth=2)
+            ax_sub.plot(epochs, self.history['train']['subspace_symmetry_err'], 'r--', alpha=0.7, label='Symmetry Error')
+            ax_sub.plot(epochs, self.history['train']['subspace_cross_head_corr'], 'b--', alpha=0.7, label='Cross-Head Corr')
             
-            ax_sub_twin = ax_sub.twinx()
-            if 'logit_scale_mean' in self.history['train']:
-                ax_sub_twin.plot(epochs, self.history['train']['logit_scale_mean'], 'k-', alpha=0.5, label='LScale Mean')
-            
-            if 'A_condition' in self.history['train']:
-                ax_sub_twin.plot(epochs, self.history['train']['A_condition'], 'r--', alpha=0.3, label='A Condition')
-            if 'B_condition' in self.history['train']:
-                ax_sub_twin.plot(epochs, self.history['train']['B_condition'], 'b--', alpha=0.3, label='B Condition')
-                
-            ax_sub_twin.set_ylabel('LScale / Condition #')
-            ax_sub_twin.set_yscale('log') # Condition numbers can get large
-            
-            # Combine legends
-            lines, labels = ax_sub.get_legend_handles_labels()
-            lines2, labels2 = ax_sub_twin.get_legend_handles_labels()
-            ax_sub.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='x-small')
-            ax_sub.grid(True)
+            ax_sub.set_title('Subspace Health (Joint Gram Matrix)')
+            ax_sub.set_ylabel('Loss/Error')
+            ax_sub.set_yscale('log')
+            ax_sub.legend(loc='upper right', fontsize='x-small')
+            ax_sub.grid(True, which="both", ls="-", alpha=0.5)
 
-        # 4. Gating Mechanism (Up to 3 plots)
-        for i in range(3): # Fill exactly 3 slots for gating (or empty)
+        # 4. Matrix Health (Singular Values & Condition Number)
+        if 'A_sing_val_avg' in self.history['train']:
+            ax_mat.plot(epochs, self.history['train']['A_sing_val_avg'], 'b-', label='A Avg SV')
+            ax_mat.plot(epochs, self.history['train']['B_sing_val_avg'], 'g-', label='B Avg SV')
+            ax_mat_twin = ax_mat.twinx()
+            ax_mat_twin.plot(epochs, self.history['train']['A_cond'], 'b--', alpha=0.5, label='A Cond #')
+            ax_mat_twin.plot(epochs, self.history['train']['B_cond'], 'g--', alpha=0.5, label='B Cond #')
+            
+            ax_mat.set_title('Matrix Health (Singular Values & Rank)')
+            ax_mat.set_ylabel('Avg Singular Value')
+            ax_mat_twin.set_ylabel('Condition Number (Log)')
+            ax_mat_twin.set_yscale('log')
+            
+            lines, labels = ax_mat.get_legend_handles_labels()
+            lines2, labels2 = ax_mat_twin.get_legend_handles_labels()
+            ax_mat.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='x-small')
+            ax_mat.grid(True)
+
+        # 5. Gating / Weight Mechanisms (Up to 2 plots)
+        for i in range(2): # Fill exactly 2 slots for gating (or empty)
             ax = gating_axes[i]
-            if i < n_scales:
-                s = scales[i]
-                heads_in_scale = sorted([k for k in head_keys if f'head_weight_s{s}_h' in k], 
-                                        key=lambda x: int(x.split('_h')[1]))
+            if i < len(groups):
+                title, keys = groups[i]
+                for k in keys:
+                    label = k.replace('head_weight_h', 'H').replace('head_weight_', 'H').replace('fusion_weight_s', 'S')
+                    ax.plot(epochs, self.history['train'][k], label=label)
                 
-                for h_key in heads_in_scale:
-                    h_idx = h_key.split('_h')[1]
-                    ax.plot(epochs, self.history['train'][h_key], label=f'Head {h_idx}')
-                
-                ax.set_title(f'Gating Mechanism (Scale {s})')
+                ax.set_title(title)
                 ax.set_ylabel('Weight Value')
                 ax.set_xlabel('Epoch')
-                ax.legend(loc='upper left', fontsize='x-small', ncol=4)
+                ax.legend(loc='upper left', fontsize='x-small', ncol=min(len(keys), 4))
                 ax.grid(True)
             else:
                 ax.axis('off') # Hide unused slots

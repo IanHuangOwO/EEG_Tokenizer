@@ -42,7 +42,7 @@ def setup_logger(output_dir):
 
 def train_one_epoch(model, data_loader, optimizer, device, epoch):
     model.train()
-    metrics = {"loss": 0.0, "vq": 0.0, "recon": 0.0, "temp": 0.0, "amp": 0.0, "phase": 0.0, "temp_mse": 0.0}
+    metrics = {"loss": 0.0, "sub": 0.0, "recon": 0.0, "temp": 0.0, "amp": 0.0, "phase": 0.0, "temp_mse": 0.0}
     last_x, last_recon = None, None
     # No graphical bar, just percent and stats
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}", 
@@ -52,15 +52,15 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
         x, coords, time_idx, _ = [t.to(device) for t in batch]
         optimizer.zero_grad()
 
-        p1, p2, p3, vq_loss, _, _ = model(x, coords, time_idx)
+        p1, p2, p3, sub_loss, _, _ = model(x, coords, time_idx)
         recon_loss, l_amp, l_phs, l_tmp, l_mse = model.get_loss(x, p1, p2, p3, x_fft=None)
 
-        loss = recon_loss + vq_loss
+        loss = recon_loss + sub_loss
         loss.backward()
         optimizer.step()
 
         metrics["loss"] += loss.item()
-        metrics["vq"] += vq_loss.item()
+        metrics["sub"] += sub_loss.item()
         metrics["recon"] += recon_loss.item()
         metrics["temp"] += l_tmp.item()
         metrics["amp"] += l_amp.item()
@@ -76,7 +76,10 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
     epoch_metrics = {k: v/N for k, v in metrics.items()}
     
     # Calculate health metrics once at end of epoch
-    if hasattr(model, 'attnvq'):
+    if hasattr(model, 'get_current_metrics'):
+        health = model.get_current_metrics()
+        epoch_metrics.update(health)
+    elif hasattr(model, 'attnvq'):
         health = model.attnvq.get_current_metrics()
         epoch_metrics.update(health)
         
@@ -84,7 +87,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
 
 def validate_one_epoch(model, data_loader, device):
     model.eval()
-    metrics = {"loss": 0.0, "vq": 0.0, "recon": 0.0, "temp": 0.0, "amp": 0.0, "phase": 0.0, "temp_mse": 0.0}
+    metrics = {"loss": 0.0, "sub": 0.0, "recon": 0.0, "temp": 0.0, "amp": 0.0, "phase": 0.0, "temp_mse": 0.0}
     last_x, last_recon = None, None
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation", 
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
@@ -92,11 +95,11 @@ def validate_one_epoch(model, data_loader, device):
     with torch.no_grad():
         for batch in pbar:
             x, coords, time_idx, _ = [t.to(device) for t in batch]
-            p1, p2, p3, vq_loss, _, _ = model(x, coords, time_idx)
+            p1, p2, p3, sub_loss, _, _ = model(x, coords, time_idx)
             recon_loss, l_amp, l_phs, l_tmp, l_mse = model.get_loss(x, p1, p2, p3, x_fft=None)
             
-            metrics["loss"] += (recon_loss + vq_loss).item()
-            metrics["vq"] += vq_loss.item()
+            metrics["loss"] += (recon_loss + sub_loss).item()
+            metrics["sub"] += sub_loss.item()
             metrics["recon"] += recon_loss.item()
             metrics["temp"] += l_tmp.item()
             metrics["amp"] += l_amp.item()
@@ -104,7 +107,7 @@ def validate_one_epoch(model, data_loader, device):
             metrics["temp_mse"] += l_mse.item()
             
             last_x, last_recon = x, model.reconstruct(p1, p2, p3, n_samples=x.shape[-1]).detach()
-            pbar.set_postfix({'L': f"{(recon_loss + vq_loss).item():.2f}", 'MSE': f"{l_mse.item():.4f}"})
+            pbar.set_postfix({'L': f"{(recon_loss + sub_loss).item():.2f}", 'MSE': f"{l_mse.item():.4f}"})
 
     N = len(data_loader)
     return {k: v/N for k, v in metrics.items()}, (last_x, last_recon)
@@ -238,20 +241,19 @@ def main():
     best_val_loss = float('inf')
     total_epochs = train_params['epochs']
     
-    logger.info(f"Starting Joint Training ({total_epochs} epochs)")
+    logger.info(f"Starting Training ({total_epochs} epochs)")
     for epoch in range(1, total_epochs + 1):
         train_metrics, train_last_batch = train_one_epoch(model, train_loader, optimizer, device, epoch)
         val_metrics, val_last_batch = validate_one_epoch(model, val_loader, device)
         scheduler.step()
 
         logger.info(f"Epoch {epoch}/{total_epochs}:")
-        logger.info(f"  > Train [L:{train_metrics['loss']:.4f}, MSE:{train_metrics['temp_mse']:.4f}, Rec:{train_metrics['recon']:.4f}, VQ:{train_metrics['vq']:.4f}]")
-        logger.info(f"  > Val   [L:{val_metrics['loss']:.4f}, MSE:{val_metrics['temp_mse']:.4f}, Rec:{val_metrics['recon']:.4f}, VQ:{val_metrics['vq']:.4f}]")
-        if 'A_overlap' in train_metrics:
-            logger.info(f"  > Subspace [A_over:{train_metrics['A_overlap']:.4f}, B_over:{train_metrics['B_overlap']:.4f}]")
-            logger.info(f"  > SVD Health [A_sv:{train_metrics['A_sv_min']:.2f}-{train_metrics['A_sv_max']:.2f}, B_sv:{train_metrics['B_sv_min']:.2f}-{train_metrics['B_sv_max']:.2f}]")
-            logger.info(f"  > Condition  [A_cond:{train_metrics['A_condition']:.1f}, B_cond:{train_metrics['B_condition']:.1f}]")
-            logger.info(f"  > Codebook [Perp:{train_metrics['codebook_perplexity']:.2f}, Sharp:{train_metrics['codebook_sharpness']:.3f}, LScale:{train_metrics['logit_scale_mean']:.2f} ({train_metrics['logit_scale_min']:.2f}-{train_metrics['logit_scale_max']:.2f})]")
+        logger.info(f"  > Train [L:{train_metrics['loss']:.4f}, MSE:{train_metrics['temp_mse']:.4f}, Rec:{train_metrics['recon']:.4f}, Sub:{train_metrics['sub']:.4f}]")
+        logger.info(f"  > Val   [L:{val_metrics['loss']:.4f}, MSE:{val_metrics['temp_mse']:.4f}, Rec:{val_metrics['recon']:.4f}, Sub:{val_metrics['sub']:.4f}]")
+        if 'subspace_loss' in train_metrics:
+            logger.info(f"  > Subspace [Loss:{train_metrics['subspace_loss']:.4f}, Sym:{train_metrics['subspace_symmetry_err']:.4f}, Div:{train_metrics['subspace_cross_head_corr']:.4f}]")
+            logger.info(f"  > Codebook [Perp:{train_metrics['codebook_perplexity']:.2f}, Sharp:{train_metrics['codebook_sharpness']:.3f}]")
+            logger.info(f"  > Matrix   [A_S:{train_metrics['A_sing_val_avg']:.3f}, B_S:{train_metrics['B_sing_val_avg']:.3f}, A_C:{train_metrics['A_cond']:.1f}, B_C:{train_metrics['B_cond']:.1f}]")
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']

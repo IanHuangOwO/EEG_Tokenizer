@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from model.AttnVQ.modeling_tokenizer import SpatialTemporalEncoder, TransformerLayer
+from model.AttnVQ.modeling_tokenizer import SpatialTemporalEncoder, Encoder
 
 # --- Backbone Model (Encoder-Only) ---
 
@@ -18,14 +18,14 @@ class AttnVQBackbone(nn.Module):
         mlp_ratio=4.,
         in_chans=1,
         in_scales=3,
-        num_heads=16,
         **kwargs
     ):
         super().__init__()
         
-        # 1. Shared Front-end (The "Tokenizer's Encoder")
-        self.patch_embed = SpatialTemporalEncoder(
+        # 1. Unified Spatial-Temporal encoding (Patch Embedder)
+        self.spatial_temporal_encoder = SpatialTemporalEncoder(
             in_chans=in_chans, 
+            in_scales=in_scales,
             base_filters=16, 
             embed_dim=embed_dim
         )
@@ -34,16 +34,13 @@ class AttnVQBackbone(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         
-        # 3. Scale Parameters (Buffers - copied from Tokenizer)
-        # These are required to project z into the Tokenizer's distribution space
-        self.register_buffer('logit_scale', torch.ones(in_scales, 1, 1, num_heads, 1))
-        self.register_buffer('head_weights', torch.zeros(in_scales, 1, 1, num_heads, 1))
-        
-        # 4. Global Transformer Stack (The "Brain")
-        self.transformer = nn.ModuleList([
-            TransformerLayer(embed_dim, enc_heads, mlp_ratio, dropout=0.0) 
-            for _ in range(enc_depth)
-        ])
+        # 3. Global Transformer Stack (The "Brain")
+        self.encoder = Encoder(
+            embed_dim=embed_dim, 
+            depth=enc_depth, 
+            heads=enc_heads, 
+            mlp_ratio=mlp_ratio
+        )
         self.norm = nn.LayerNorm(embed_dim)
         
         self._init_weights()
@@ -61,34 +58,28 @@ class AttnVQBackbone(nn.Module):
         """
         B, C, P, T = x.shape
         
-        # 1. Local Patch Embedding
-        ms_features = self.patch_embed(x, coords, time_idx=time_indices)
+        # 1. Local Patch Embedding (Gated Multi-Scale Fusion)
+        # SpatialTemporalEncoder returns (B*P, C, D)
+        z_projected = self.spatial_temporal_encoder(x, coords, time_idx=time_indices)
         
-        # Sum multi-scale features
-        x_feat = sum(ms_features) # (B*P, C, D)
+        # 2. Reshape to (Batch, Tokens, Dim) where Tokens = C * P
+        # Split (B*P) back to (B, P) -> (B, P, C, D)
+        z = z_projected.reshape(B, P, C, -1)
+        # Permute to (B, C, P, D) then flatten to (B, C*P, D)
+        z = z.permute(0, 2, 1, 3).reshape(B, C * P, -1)
         
-        # Reshape to (Batch, Tokens, Dim) where Tokens = C * P
-        # Instead of rearrange(x_feat, '(b p) c d -> b (c p) d', b=B, p=P)
-        # 1. Split (B*P) back to (B, P) -> (B, P, C, D)
-        x = x_feat.reshape(B, P, C, -1)
-        # 2. Permute to (B, C, P, D) then flatten to (B, C*P, D)
-        x = x.permute(0, 2, 1, 3).reshape(B, C * P, -1)
-        
-        # 2. Masking
+        # 3. Masking
         if bool_masked_pos is not None:
             m = bool_masked_pos.unsqueeze(-1)
-            x = x.masked_fill(m, 0.0) + self.mask_token * m.type_as(x)
+            z = z.masked_fill(m, 0.0) + self.mask_token * m.type_as(z)
             
-        # 3. Add CLS Token
+        # 4. Add CLS Token
         cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1) 
+        z = torch.cat((cls_tokens, z), dim=1) 
         
-        # 4. Global Context Pass
-        for blk in self.transformer:
-            x = blk(x)
-        x = self.norm(x)
+        # 5. Global Context Pass
+        z = self.encoder(z)
+        z = self.norm(z)
         
-        # 5. Output: (B, Tokens, D)
-        z_tokens = x[:, 1:, :]
-        
-        return z_tokens
+        # 6. Output Tokens: (B, C*P, D) - Excluding CLS token
+        return z[:, 1:, :]
