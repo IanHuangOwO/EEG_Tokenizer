@@ -23,6 +23,7 @@ class ConvBlock2D(nn.Module):
     def forward(self, x):
         return self.act(self.bn(self.conv(x)))
 
+
 # --- 2. SpatialTemporal Encoder ---
 
 class SpatialTemporalEncoder(nn.Module):
@@ -68,14 +69,16 @@ class SpatialTemporalEncoder(nn.Module):
         sin_inp = torch.einsum("bi,j->bij", t.float(), self.inv_freq)
         return torch.cat((sin_inp.sin(), sin_inp.cos()), dim=-1)
 
-    def forward(self, x, coords, time_idx=None):
+    def forward(self, x, coords, time_idx=None, mask=None, mask_token=None):
+        B_in = None
         if x.dim() == 4:
             B, C, P, T = x.shape
+            B_in = B
             x = x.permute(0, 2, 1, 3).reshape(B * P, C, T)
             if coords.dim() == 3:
                 coords = coords.unsqueeze(1).expand(-1, P, -1, -1).reshape(B * P, C, 3)
             if time_idx is not None:
-                time_idx = time_idx.repeat(B) if time_idx.dim() == 1 else time_idx.view(-1)
+                time_idx = time_idx.repeat(B) if time_idx.dim() == 1 else time_idx.reshape(-1)
 
         x = x.unsqueeze(1) 
         raw_feats = []
@@ -87,14 +90,25 @@ class SpatialTemporalEncoder(nn.Module):
         spatial_emb = self.spatial_mlp(coords) 
         t_emb = self.get_sinusoidal_emb(time_idx) if time_idx is not None else 0
         
+        m_reshaped = None
+        if mask is not None and B_in is not None:
+            P_cnt = mask.shape[1] // raw_feats[0].shape[2] 
+            C_cnt = raw_feats[0].shape[2]
+            m_reshaped = mask.reshape(B_in, -1, P).permute(0, 2, 1).reshape(B_in * P, -1, 1)
+
         weights = F.softmax(self.fusion_weights, dim=0)
         projected_feats = 0
         for i, (feat, proj, norm) in enumerate(zip(raw_feats, self.projections, self.norms)):
-            z = proj(feat.permute(0, 2, 1, 3).reshape(feat.shape[0], feat.shape[2], -1)) 
-            z = norm(z + spatial_emb + t_emb)
+            z_feat = proj(feat.permute(0, 2, 1, 3).reshape(feat.shape[0], feat.shape[2], -1)) 
+            
+            if m_reshaped is not None and mask_token is not None:
+                z_feat = z_feat.masked_fill(m_reshaped, 0.0) + mask_token * m_reshaped.type_as(z_feat)
+                
+            z = norm(z_feat + spatial_emb + t_emb)
             projected_feats = projected_feats + z * weights[i]
             
         return projected_feats
+
 
 # --- 3. Transformer Components ---
 
@@ -128,7 +142,8 @@ class Decoder(nn.Module):
         for layer in self.layers: x = layer(x)
         return self.head_amp(x), self.head_sin(x), self.head_cos(x)
 
-# --- 4. Quantization (Refined Low-Rank Subspace Expert) ---
+
+# --- 4. Quantization (Weight-Tied Low-Rank Subspace Expert) ---
 
 class AttnVQ(nn.Module):
     def __init__(self, num_heads, vq_head_vocab_size, e_dim, num_discrete=5, decay=0.99):
@@ -139,39 +154,35 @@ class AttnVQ(nn.Module):
         
         # A (Analysis/Encoder): Projects D -> Hr
         self.A = nn.Parameter(torch.empty(e_dim, num_heads * self.r))
-        # B (Synthesis/Decoder): Projects Hr -> D
-        self.B = nn.Parameter(torch.empty(num_heads * self.r, e_dim))
         
+        # Note: 'B' has been removed! We will use A.t() for decoding.
         nn.init.orthogonal_(self.A, gain=1.0)
-        nn.init.orthogonal_(self.B, gain=1.0)
         
-        self.register_buffer('avg_probs', torch.ones(num_heads, num_discrete) / num_discrete)
+        self.register_buffer('avg_probs', torch.ones(num_heads, vq_head_vocab_size, num_discrete) / num_discrete)
         self.register_buffer('max_prob_ema', torch.tensor(1.0 / num_discrete))
 
     def get_joint_subspace_loss(self):
         """
-        Refined loss using a Joint Gram Matrix (B * A).
-        Enforces:
-        1. Symmetry (Intra-head diagonal blocks approx Identity)
-        2. Independence (Inter-head off-diagonal blocks approx Zero)
+        Weight-Tied Subspace Loss:
+        1. Intra-head: Unconstrained (vectors naturally cluster based on task).
+           Alignment is guaranteed because the decoder uses A.t().
+        2. Inter-head (Diversity): Enforces the *average* directions of different heads are orthogonal.
         """
-        # G is (Hr, Hr)
-        G = torch.matmul(self.B, self.A) 
-        Hr = self.num_heads * self.r
+        # Reshape to isolate heads and vocab size
+        A_per_head = self.A.view(self.e_dim, self.num_heads, self.r)
         
-        # Identity matrix for the subspace dimensions
-        I_hr = torch.eye(Hr, device=self.A.device)
+        # Calculate the mean vector for each head
+        A_mean = A_per_head.mean(dim=-1) # Shape: (e_dim, num_heads)
         
-        # Mask for the r x r blocks along the diagonal (Intra-head)
-        mask_intra = torch.block_diag(*[torch.ones(self.r, self.r, device=self.A.device) for _ in range(self.num_heads)])
+        # Compute the Gram matrix of the head averages
+        # Since B = A.t(), B_mean @ A_mean simplifies to A_mean.t() @ A_mean
+        G_head_mean = torch.matmul(A_mean.t(), A_mean) # Shape: (num_heads, num_heads)
         
-        # Loss 1: Symmetry. Ensure B is the 'honest' decoder for A within each head.
-        loss_sym = F.mse_loss(G * mask_intra, I_hr * mask_intra)
-        
-        # Loss 2: Diversity. Ensure different heads don't share features.
-        loss_div = torch.mean((G * (1.0 - mask_intra)) ** 2)
-        
-        return loss_sym + loss_div
+        # Penalize non-orthogonality between different heads
+        identity_h = torch.eye(self.num_heads, device=G_head_mean.device)
+        loss_head_avg_corr = torch.mean((G_head_mean * (1.0 - identity_h)) ** 2)
+
+        return loss_head_avg_corr
 
     @torch.no_grad()
     def get_current_metrics(self):
@@ -181,24 +192,28 @@ class AttnVQ(nn.Module):
         
         # Gram Matrix Metrics
         metrics['subspace_loss'] = self.get_joint_subspace_loss().item()
-        G = torch.matmul(self.B, self.A)
-        mask_intra = torch.block_diag(*[torch.ones(r, r, device=G.device) for _ in range(H)])
-        metrics['subspace_symmetry_err'] = F.mse_loss(G * mask_intra, torch.eye(H*r, device=G.device) * mask_intra).item()
-        metrics['subspace_cross_head_corr'] = torch.mean((G * (1-mask_intra))**2).item()
-        
+
+        # Metric for Inter-head average diversity
+        A_per_head = self.A.view(D, H, r)
+        A_mean = A_per_head.mean(dim=-1)
+        G_head_mean = torch.matmul(A_mean.t(), A_mean)
+        identity_h = torch.eye(H, device=G_head_mean.device)
+        metrics['head_cross_corr'] = torch.mean((G_head_mean * (1.0 - identity_h)) ** 2).item()
+
         # Perplexity & Sharpness
-        p = self.avg_probs
-        entropy = -torch.sum(p * torch.log(p + 1e-10), dim=-1)
-        metrics['codebook_perplexity'] = torch.exp(entropy).mean().item() * (r / 2.0)
+        p = self.avg_probs # (H, r, N)
+        entropy = -torch.sum(p * torch.log(p + 1e-10), dim=-1) # (H, r)
+        metrics['codebook_perplexity'] = torch.exp(entropy).mean().item()
         metrics['codebook_sharpness'] = self.max_prob_ema.item()
+        
+        # Utilization (Active Rank Ratio)
+        active_mask = (p.max(dim=-1)[0] < 0.99).float()
+        metrics['active_rank_ratio'] = active_mask.mean().item()
         
         # Matrix Health (Singular Values & Condition Number)
         s_a = torch.linalg.svdvals(self.A)
-        s_b = torch.linalg.svdvals(self.B)
         metrics['A_sing_val_avg'] = s_a.mean().item()
-        metrics['B_sing_val_avg'] = s_b.mean().item()
         metrics['A_cond'] = (s_a.max() / (s_a.min() + 1e-8)).item()
-        metrics['B_cond'] = (s_b.max() / (s_b.min() + 1e-8)).item()
             
         return metrics
 
@@ -209,10 +224,10 @@ class AttnVQ(nn.Module):
         half_range = (N - 1) / 2.0
         
         # --- ENCODE ---
-        z_flat = z.view(B_sz * C, D)
-        q = torch.matmul(z_flat, self.A).view(B_sz, C, H, r)
+        z_flat = z.reshape(B_sz * C, D)
+        q = torch.matmul(z_flat, self.A).reshape(B_sz, C, H, r)
         
-        q_soft = (N - 1) * torch.sigmoid(q * 5) - half_range
+        q_soft = (N - 1) * torch.sigmoid(q * 10) - half_range
         
         if self.training:
             q_scaled = q_soft + (torch.rand_like(q_soft) - 0.5) * 0.4
@@ -226,16 +241,16 @@ class AttnVQ(nn.Module):
         if self.training:
             with torch.no_grad():
                 q_one_hot = F.one_hot(torch.clamp(indices.squeeze(-1), 0, N - 1), num_classes=N).float()
-                self.avg_probs.mul_(0.99).add_(q_one_hot.mean(dim=(0, 1, 3)), alpha=0.01)
+                self.avg_probs.mul_(0.99).add_(q_one_hot.mean(dim=(0, 1)), alpha=0.01)
                 self.max_prob_ema.mul_(0.99).add_(1.0 - 2.0 * torch.abs(q_soft - torch.round(q_soft)).mean(), alpha=0.01)
                 
-        # --- DECODE ---
+        # --- DECODE (Using Weight Tying) ---
         v_q_flat = v_q.reshape(B_sz * C, H * r)
-        z_q_soft = torch.matmul(v_q_flat, self.B).view(B_sz, C, D)
+        # Using self.A.t() instead of self.B
+        z_q_soft = torch.matmul(v_q_flat, self.A.t()).reshape(B_sz, C, D)
         
-        # # --- LOSSES ---
+        # --- LOSSES ---
         z_q = z + (z_q_soft - z).detach()
-        # loss_sharp = F.mse_loss(q_soft, q_quant.detach())
 
         # Integrated Subspace Loss
         loss_subspace = self.get_joint_subspace_loss()
@@ -282,11 +297,11 @@ class AttnVQTokenizer(nn.Module):
         
         if is_trial:
             B, C, P = x.shape[0], x.shape[1], x.shape[2]
-            top_k_indices = top_k_indices.view(B, P, C, self.vq_head_num, 1)
-            weights = weights.view(B, P, C, self.vq_head_num, -1)
-            pred_amp = pred_amp.view(B, P, C, -1)
-            pred_sin = pred_sin.view(B, P, C, -1)
-            pred_cos = pred_cos.view(B, P, C, -1)
+            top_k_indices = top_k_indices.squeeze(-1).reshape(B, P, C, self.vq_head_num, -1)
+            weights = weights.reshape(B, P, C, self.vq_head_num, -1)
+            pred_amp = pred_amp.reshape(B, P, C, -1)
+            pred_sin = pred_sin.reshape(B, P, C, -1)
+            pred_cos = pred_cos.reshape(B, P, C, -1)
             
         return pred_amp, pred_sin, pred_cos, sub_loss, top_k_indices, weights
 
@@ -316,4 +331,4 @@ class AttnVQTokenizer(nn.Module):
     def get_indices(self, x, coords, time_idx=None):
         with torch.no_grad(): 
             _, _, _, _, indices, weights = self.forward(x, coords, time_idx)
-        return indices.reshape(-1, self.vq_head_num, indices.shape[-1]).unsqueeze(1), weights.reshape(-1, self.vq_head_num, weights.shape[-1]).unsqueeze(1)
+        return indices.squeeze(-1).reshape(-1, self.vq_head_num, indices.shape[-1]).unsqueeze(1), weights.reshape(-1, self.vq_head_num, weights.shape[-1]).unsqueeze(1)

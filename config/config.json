@@ -11,23 +11,24 @@
         "dec_heads": 8,
         "dec_mlp_ratio": 4.0,
         "embed_dim": 128,
-        "vq_head_num": 64,
+        "vq_head_num": 32,
         "vq_head_vocab_size": 8,
         "vq_num_discrete": 3,
         "freq_resolution": 0.2,
-        "min_freq": 0.0,
+        "min_freq": 0.1,
         "max_freq": 75.0
       },
       "backbone": {
         "in_chans": 1,
-        "embed_dim": 128,
+        "in_scales": 3,
         "enc_depth": 12,
         "enc_heads": 8,
         "mlp_ratio": 4.0,
-        "dropout": 0.0,
-        "in_scales": 3,
-        "vq_head_num": 16
-      }
+        "embed_dim": 128,
+        "vq_head_num": 32,
+        "vq_head_vocab_size": 8,
+        "vq_num_discrete": 3
+        }
     },
     "LaBraM": {
       "tokenizer": {
@@ -63,7 +64,7 @@
   },
   "training_params": {
     "model_type": "AttnVQ",
-    "model_name": "attnvq_v44",
+    "model_name": "attnvq_v49",
     "train_val_split": 0.8,
     "learning_rate": 5e-5,
     "min_learning_rate": 1e-5,

@@ -83,7 +83,9 @@ def build_backbone_from_config(config, src_output_dir=None):
             mlp_ratio=backbone_params.get('mlp_ratio', 4.0),
             in_chans=backbone_params.get('in_chans', tokenizer_params.get('in_chans', 1)),
             in_scales=backbone_params.get('in_scales', tokenizer_params.get('in_scales', 3)),
-            num_heads=backbone_params.get('vq_head_num', tokenizer_params.get('vq_head_num', 16))
+            num_heads=backbone_params.get('vq_head_num', tokenizer_params.get('vq_head_num', 16)),
+            vq_head_vocab_size=backbone_params.get('vq_head_vocab_size', tokenizer_params.get('vq_head_vocab_size', 8)),
+            num_discrete=backbone_params.get('vq_num_discrete', tokenizer_params.get('vq_num_discrete', 5))
             )
     else:
         raise ValueError(f"Backbone not implemented for model type: {model_type}")

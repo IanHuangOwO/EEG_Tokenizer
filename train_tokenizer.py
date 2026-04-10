@@ -211,6 +211,17 @@ def main():
     model = build_model_from_config(config, src_output_dir=artifact_dir)
     model.to(device)
 
+    # --- Initialization Step for Lazy Modules ---
+    # Since AttnVQ uses nn.LazyLinear, we must perform one forward pass to initialize parameter shapes
+    # before we can create the optimizer, as it needs to see all parameters.
+    logger.info("Warming up Lazy Modules with a dummy pass...")
+    dummy_batch = next(iter(train_loader))
+    x, coords, time_idx, _ = [t.to(device) for t in dummy_batch]
+    model.eval()
+    with torch.no_grad():
+        model(x, coords, time_idx)
+    # --------------------------------------------
+
     # 4. Optimizer & Scheduler
     optimizer = optim.AdamW(model.parameters(), lr=train_params['learning_rate'], weight_decay=train_params['weight_decay'])
     
@@ -251,9 +262,9 @@ def main():
         logger.info(f"  > Train [L:{train_metrics['loss']:.4f}, MSE:{train_metrics['temp_mse']:.4f}, Rec:{train_metrics['recon']:.4f}, Sub:{train_metrics['sub']:.4f}]")
         logger.info(f"  > Val   [L:{val_metrics['loss']:.4f}, MSE:{val_metrics['temp_mse']:.4f}, Rec:{val_metrics['recon']:.4f}, Sub:{val_metrics['sub']:.4f}]")
         if 'subspace_loss' in train_metrics:
-            logger.info(f"  > Subspace [Loss:{train_metrics['subspace_loss']:.4f}, Sym:{train_metrics['subspace_symmetry_err']:.4f}, Div:{train_metrics['subspace_cross_head_corr']:.4f}]")
-            logger.info(f"  > Codebook [Perp:{train_metrics['codebook_perplexity']:.2f}, Sharp:{train_metrics['codebook_sharpness']:.3f}]")
-            logger.info(f"  > Matrix   [A_S:{train_metrics['A_sing_val_avg']:.3f}, B_S:{train_metrics['B_sing_val_avg']:.3f}, A_C:{train_metrics['A_cond']:.1f}, B_C:{train_metrics['B_cond']:.1f}]")
+            logger.info(f"  > Subspace [Loss:{train_metrics['subspace_loss']:.4f}, Div:{train_metrics['head_cross_corr']:.4f}]")
+            logger.info(f"  > Codebook [Perp:{train_metrics['codebook_perplexity']:.2f}, Sharp:{train_metrics['codebook_sharpness']:.3f}, Util:{train_metrics['active_rank_ratio']:.1%}]")
+            logger.info(f"  > Matrix   [A_S:{train_metrics['A_sing_val_avg']:.3f}, A_C:{train_metrics['A_cond']:.1f}]")
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']

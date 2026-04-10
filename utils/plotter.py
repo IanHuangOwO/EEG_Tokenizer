@@ -88,8 +88,8 @@ class Plotter:
                 if v_key in self.history['val']:
                     ax1.plot(epochs, self.history['val'][v_key], 'g--', alpha=0.7, label='Val Visible (V)')
             
-            ax1.set_title('Pretraining Distillation Loss')
-            ax1.set_ylabel('Loss (KL Divergence)')
+            ax1.set_title('Pretraining Distillation Loss (CE)')
+            ax1.set_ylabel('Loss (Cross-Entropy)')
             ax1.set_xlabel('Epoch')
             ax1.legend()
             ax1.grid(True)
@@ -157,35 +157,100 @@ class Plotter:
             kl_v_keys = sorted([k for k in self.history['train'].keys() if k.startswith('kl_visible_h')],
                              key=lambda x: int(x.split('_h')[1]))
             
+            # Reconstruction MSE plotting for pretrain
+            has_mse_train = 'mse' in self.history['train'] and self.history['train']['mse']
+            has_mse_val = 'mse' in self.history['val'] and self.history['val']['mse']
+            has_mse = has_mse_train or has_mse_val
+            has_acc = 'acc' in self.history['train'] and self.history['train']['acc']
+            
+            n_rows = 0
+            if has_mse: n_rows += 1
+            if has_acc: n_rows += 1
+            if kl_m_keys: n_rows += 2
+            elif not kl_m_keys and any(k.startswith('kl_h') for k in self.history['train'].keys()): n_rows += 1
+            
+            if n_rows == 0: return
+
+            fig, axes = plt.subplots(n_rows, 1, figsize=(12, 6 * n_rows))
+            if n_rows == 1: axes = [axes]
+            curr_ax = 0
+
+            # 1. Plot Accuracy & F1 if available
+            if has_acc:
+                ax = axes[curr_ax]
+                epochs = range(1, len(self.history['train']['acc']) + 1)
+                
+                # Plot Total
+                ax.plot(epochs, self.history['train']['acc'], 'k-', label='Train Total', alpha=0.3)
+                
+                # Plot Masked vs Visible
+                if 'acc_m' in self.history['train']:
+                    ax.plot(epochs, self.history['train']['acc_m'], 'r-', label='Train Masked')
+                if 'acc_v' in self.history['train']:
+                    ax.plot(epochs, self.history['train']['acc_v'], 'g-', label='Train Visible')
+                
+                if 'acc_m' in self.history['val']:
+                    ax.plot(epochs, self.history['val']['acc_m'], 'r--', alpha=0.7, label='Val Masked')
+                if 'acc_v' in self.history['val']:
+                    ax.plot(epochs, self.history['val']['acc_v'], 'g--', alpha=0.7, label='Val Visible')
+                
+                ax.set_title('Classification Performance (Subspace Indices)')
+                ax.set_ylabel('Accuracy (0-1)'); ax.legend(ncol=3, fontsize='small'); ax.grid(True)
+                curr_ax += 1
+
+            # 2. Plot MSE if available
+            if has_mse:
+                ax = axes[curr_ax]
+                epochs = range(1, len(self.history['val']['mse']) + 1) if has_mse_val else range(1, len(self.history['train']['mse']) + 1)
+                
+                # Check for split MSE (using keys from train_pretrain.py)
+                has_split_mse = 'mse_m' in self.history['val']
+                
+                if has_split_mse:
+                    ax.plot(epochs, self.history['val']['mse'], 'k-', label='Val Total', linewidth=2, alpha=0.5)
+                    ax.plot(epochs, self.history['val']['mse_m'], 'r--', label='Val Masked')
+                    ax.plot(epochs, self.history['val']['mse_v'], 'g--', label='Val Visible')
+                else:
+                    if has_mse_train:
+                        ax.plot(epochs, self.history['train']['mse'], 'b-', label='Train MSE')
+                    if has_mse_val:
+                        ax.plot(epochs, self.history['val']['mse'], 'b--', alpha=0.7, label='Val MSE')
+                
+                ax.set_title('Reconstruction Quality (MSE)')
+                ax.set_ylabel('MSE'); ax.legend(ncol=3, fontsize='small'); ax.grid(True)
+                curr_ax += 1
+
             if not kl_m_keys:
                 # Fallback to total KL if separate keys not found
                 kl_keys = sorted([k for k in self.history['train'].keys() if k.startswith('kl_h')],
                                key=lambda x: int(x.split('_h')[1]))
-                if not kl_keys: return
-                
-                epochs = range(1, len(self.history['train'][kl_keys[0]]) + 1)
-                fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-                for k in kl_keys:
-                    label = k.replace('kl_h', 'Head ')
-                    ax.plot(epochs, self.history['train'][k], label=label)
-                ax.set_title('Per-Head Distillation KL Divergence')
-                ax.set_ylabel('KL Div'); ax.set_xlabel('Epoch'); ax.legend(loc='upper right', fontsize='x-small', ncol=4); ax.grid(True)
+                if kl_keys:
+                    ax = axes[curr_ax]
+                    epochs = range(1, len(self.history['train'][kl_keys[0]]) + 1)
+                    for k in kl_keys:
+                        label = k.replace('kl_h', 'Head ')
+                        ax.plot(epochs, self.history['train'][k], label=label)
+                    ax.set_title('Per-Head Distillation Loss (CE)')
+                    ax.set_ylabel('Loss (CE)'); ax.set_xlabel('Epoch'); ax.legend(loc='upper right', fontsize='x-small', ncol=4); ax.grid(True)
             else:
                 epochs = range(1, len(self.history['train'][kl_m_keys[0]]) + 1)
-                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
                 
+                ax1 = axes[curr_ax]
                 for k in kl_m_keys:
                     label = k.replace('kl_masked_h', 'Head ')
                     ax1.plot(epochs, self.history['train'][k], label=label)
-                ax1.set_title('Masked Patches: Per-Head KL Divergence')
-                ax1.set_ylabel('KL Div'); ax1.legend(loc='upper right', fontsize='x-small', ncol=4); ax1.grid(True)
+                ax1.set_title('Masked Patches: Per-Head Distillation Loss (CE)')
+                ax1.set_ylabel('Loss (CE)'); ax1.legend(loc='upper right', fontsize='x-small', ncol=4); ax1.grid(True)
+                curr_ax += 1
                 
+                ax2 = axes[curr_ax]
                 for k in kl_v_keys:
                     label = k.replace('kl_visible_h', 'Head ')
                     ax2.plot(epochs, self.history['train'][k], label=label)
-                ax2.set_title('Visible Patches: Per-Head KL Divergence')
-                ax2.set_ylabel('KL Div'); ax2.set_xlabel('Epoch'); ax2.legend(loc='upper right', fontsize='x-small', ncol=4); ax2.grid(True)
+                ax2.set_title('Visible Patches: Per-Head Distillation Loss (CE)')
+                ax2.set_ylabel('Loss (CE)'); ax2.set_xlabel('Epoch'); ax2.legend(loc='upper right', fontsize='x-small', ncol=4); ax2.grid(True)
             
+            plt.tight_layout()
             save_path = os.path.join(self.output_dir, filename)
             plt.savefig(save_path)
             plt.close(fig)
@@ -262,8 +327,8 @@ class Plotter:
         # 3. Subspace Health (Symmetry & Diversity)
         if 'subspace_loss' in self.history['train']:
             ax_sub.plot(epochs, self.history['train']['subspace_loss'], 'k-', label='Total Subspace Loss', linewidth=2)
-            ax_sub.plot(epochs, self.history['train']['subspace_symmetry_err'], 'r--', alpha=0.7, label='Symmetry Error')
-            ax_sub.plot(epochs, self.history['train']['subspace_cross_head_corr'], 'b--', alpha=0.7, label='Cross-Head Corr')
+            # ax_sub.plot(epochs, self.history['train']['subspace_symmetry_err'], 'r--', alpha=0.7, label='Symmetry Error')
+            ax_sub.plot(epochs, self.history['train']['head_cross_corr'], 'b--', alpha=0.7, label='Cross-Head Corr')
             
             ax_sub.set_title('Subspace Health (Joint Gram Matrix)')
             ax_sub.set_ylabel('Loss/Error')
@@ -274,10 +339,10 @@ class Plotter:
         # 4. Matrix Health (Singular Values & Condition Number)
         if 'A_sing_val_avg' in self.history['train']:
             ax_mat.plot(epochs, self.history['train']['A_sing_val_avg'], 'b-', label='A Avg SV')
-            ax_mat.plot(epochs, self.history['train']['B_sing_val_avg'], 'g-', label='B Avg SV')
+            # ax_mat.plot(epochs, self.history['train']['B_sing_val_avg'], 'g-', label='B Avg SV')
             ax_mat_twin = ax_mat.twinx()
             ax_mat_twin.plot(epochs, self.history['train']['A_cond'], 'b--', alpha=0.5, label='A Cond #')
-            ax_mat_twin.plot(epochs, self.history['train']['B_cond'], 'g--', alpha=0.5, label='B Cond #')
+            # ax_mat_twin.plot(epochs, self.history['train']['B_cond'], 'g--', alpha=0.5, label='B Cond #')
             
             ax_mat.set_title('Matrix Health (Singular Values & Rank)')
             ax_mat.set_ylabel('Avg Singular Value')
