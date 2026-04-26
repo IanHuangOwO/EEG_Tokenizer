@@ -82,20 +82,29 @@ def profile_model():
     with open('config/config.json', 'r') as f:
         config = json.load(f)
     
+    model_type = config['training_params'].get('model_type', 'AttnVQ')
+    params = config['model_params'][model_type]['tokenizer']
+    preprocess = config['model_params'][model_type]['preprocess']
+    
     model = build_model_from_config(config).to(device)
     model.eval()
     
-    # 2. Dummy Input
-    B, N, T = 32, 64, 200
-    x = torch.randn(B, N, T).to(device)
-    coords = torch.randn(B, N, 3).to(device)
+    # 2. Dummy Input - Dynamically extracted from config
+    B = 16
+    C = 64
+    N = 64
+    L = preprocess.get('patch_length', 50) # Use the same length used during dataset build
+    
+    x = torch.randn(B, C, N, L).to(device)
+    coords = torch.randn(B, C, 3).to(device)
+    time_idx = torch.zeros(B, N, dtype=torch.long).to(device)
     
     # Initialize Lazy modules
     with torch.no_grad():
-        model(x, coords)
+        model(x, coords, time_idx)
         
-    print(f"\nModel: {config['training_params']['model_type']}")
-    print(f"Input: Batch={B}, Channels={N}, Time={T}")
+    print(f"\nModel: {model_type}")
+    print(f"Input: Batch={B}, Channels={C}, Patches={N}, Samples={L}")
     print("-" * 60)
     
     # 3. Component Discovery & Param Count
@@ -118,7 +127,7 @@ def profile_model():
     # Warmup
     with torch.no_grad():
         for _ in range(5):
-            model(x, coords)
+            model(x, coords, time_idx)
             
     # Clear warmup timings
     profiler.timings.clear()
@@ -128,51 +137,54 @@ def profile_model():
     start_total = time.perf_counter()
     if device.type == 'cuda': torch.cuda.synchronize()
     
+    # Track extra methods
+    loss_times = []
+    recon_times = []
+    
     with torch.no_grad():
         for _ in range(n_iters):
-            model(x, coords)
+            # 1. Forward
+            t0 = time.perf_counter()
+            p_real, p_imag, l_sub, _, _ = model(x, coords, time_idx)
+            if device.type == 'cuda': torch.cuda.synchronize()
+            
+            # 2. Loss (Massive FFTs here)
+            t1 = time.perf_counter()
+            model.get_loss(x, p_real, p_imag, l_sub)
+            if device.type == 'cuda': torch.cuda.synchronize()
+            t2 = time.perf_counter()
+            loss_times.append((t2 - t1) * 1000)
+            
+            # 3. Reconstruction
+            model.reconstruct(p_real, p_imag, n_samples=L*N)
+            if device.type == 'cuda': torch.cuda.synchronize()
+            t3 = time.perf_counter()
+            recon_times.append((t3 - t2) * 1000)
             
     if device.type == 'cuda': torch.cuda.synchronize()
     total_avg_ms = ((time.perf_counter() - start_total) / n_iters) * 1000
     
-    # Remove hooks
-    for h in hooks: h.remove()
-    
-    # 5. FLOPs Analysis
-    flop_stats = {}
-    if HAS_FVCORE:
-        flop_analysis = FlopCountAnalysis(model, (x, coords))
-        # This gives breakdown by module
-        flop_stats = flop_analysis.by_module() 
-        total_flops = flop_analysis.total()
-    else:
-        total_flops = 0
-
-    # 6. Report
+    # 5. Report
     print(f"\nPerformance Summary (Avg of {n_iters} runs):")
-    print(f"{'Component':<22} | {'Params (M)':<10} | {'Time (ms)':<10} | {'% Time':<7} | {'FLOPs (G)':<10} | {'% FLOPs':<7}")
-    print("-" * 90)
+    print(f"{'Component':<22} | {'Params (M)':<10} | {'Time (ms)':<10} | {'% Total'}")
+    print("-" * 70)
     
     time_stats = dict(profiler.get_summary(n_iters, model))
     
-    # Sort by structure order (order of children)
+    # children
     for name, _ in children:
         t_ms = time_stats.get(name, 0.0)
-        t_pct = (t_ms / total_avg_ms) * 100
+        print(f"{name:<22} | {param_map.get(name, 0)/1e6:<10.2f} | {t_ms:<10.2f} | {(t_ms/total_avg_ms)*100:>6.1f}%")
         
-        # Params
-        p_m = param_map.get(name, 0) / 1e6
-        
-        # Match FLOPs name
-        f_count = flop_stats.get(name, 0.0)
-        f_g = f_count / 1e9
-        f_pct = (f_count / total_flops * 100) if total_flops > 0 else 0
-        
-        print(f"{name:<22} | {p_m:<10.2f} | {t_ms:<10.2f} | {t_pct:<6.1f}% | {f_g:<10.3f} | {f_pct:<6.1f}%")
-        
-    print("-" * 90)
-    print(f"{'Total Model':<22} | {total_params/1e6:<10.2f} | {total_avg_ms:<10.2f} | {'100.0':<7}% | {total_flops/1e9:<10.3f} | {'100.0':<7}%")
-    print("-" * 90)
+    # Extra Methods
+    avg_loss_ms = sum(loss_times) / n_iters
+    avg_recon_ms = sum(recon_times) / n_iters
+    print(f"{'Method: get_loss':<22} | {'-':<10} | {avg_loss_ms:<10.2f} | {(avg_loss_ms/total_avg_ms)*100:>6.1f}%")
+    print(f"{'Method: reconstruct':<22} | {'-':<10} | {avg_recon_ms:<10.2f} | {(avg_recon_ms/total_avg_ms)*100:>6.1f}%")
+    
+    print("-" * 70)
+    print(f"{'Total (Fwd + Loss + Rec)':<22} | {total_params/1e6:<10.2f} | {total_avg_ms:<10.2f} | 100.0%")
+    print("-" * 70)
 
 if __name__ == "__main__":
     profile_model()

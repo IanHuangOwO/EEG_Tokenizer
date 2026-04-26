@@ -15,11 +15,11 @@
       "tokenizer": {
         "in_chans": 1,
         "in_scales": 25,
-        "enc_depth": 6,
-        "enc_heads": 8,
+        "enc_depth": 4,
+        "enc_heads": 4,
         "enc_mlp_ratio": 4.0,
         "embed_dim": 128,
-        "merge_factors": [1, 2, 1, 2, 1, 2],
+        "merge_factors": [1, 2, 1, 2],
         "freq_resolution": 0.2,
         "min_freq": 0,
         "max_freq": 75.0,
@@ -28,32 +28,21 @@
             "stage_idx": 1,
             "freq_range": [30.0, 75.0],
             "vq_head_num": 16,
-            "vq_head_vocab_size": 64,
+            "vq_head_vocab_size": 16,
             "vq_num_discrete": 3,
             "use_norm": true,
-            "use_gelu": true,
+            "use_gelu": false,
             "dropout": 0.05,
             "upsample_mode": "nearest"
           },
           {
             "stage_idx": 3,
-            "freq_range": [10.0, 30.0],
+            "freq_range": [0.0, 30.0],
             "vq_head_num": 16,
-            "vq_head_vocab_size": 64,
+            "vq_head_vocab_size": 16,
             "vq_num_discrete": 3,
             "use_norm": true,
-            "use_gelu": true,
-            "dropout": 0.05,
-            "upsample_mode": "linear"
-          },
-          {
-            "stage_idx": 5,
-            "freq_range": [0.0, 10.0],
-            "vq_head_num": 16,
-            "vq_head_vocab_size": 64,
-            "vq_num_discrete": 3,
-            "use_norm": true,
-            "use_gelu": true,
+            "use_gelu": false,
             "dropout": 0.05,
             "upsample_mode": "linear"
           }
@@ -63,35 +52,35 @@
         "in_chans": 1,
         "in_scales": 25,
         "embed_dim": 128,
-        "enc_depth": 12,
-        "enc_heads": 8,
-        "mlp_ratio": 4.0,
-        "vq_head_num": 32,
-        "vq_head_vocab_size": 16,
-        "vq_num_discrete": 5,
-        "merge_factors": [1, 2, 1, 2, 1, 2],
-        "spatial_heads": 8
+        "enc_depth": 4,
+        "enc_heads": 4,
+        "mlp_ratio": 2.0,
+        "vq_head_num": 16,
+        "vq_head_vocab_size": 8,
+        "vq_num_discrete": 3,
+        "merge_factors": [1, 2, 1, 2],
+        "spatial_heads": 4
       }
     }
   },
   "dataset_params": {
     "BETA": {
       "dataset_path": "datas/BETA",
-      "subject_to_use": ["all"],
+      "subject_to_use": [1, 2],
       "channels_to_use": ["all"]
     }
   },
   "training_params": {
     "model_type": "AttnVQ",
-    "model_name": "multihead_expert_v01",
+    "model_name": "dryrun_expert_v01",
     "learning_rate": 5e-4,
     "min_learning_rate": 1e-4,
-    "epochs": 100,
-    "warmup_epochs": 10,
-    "batch_size": 64,
+    "epochs": 2,
+    "warmup_epochs": 1,
+    "batch_size": 8,
     "weight_decay": 1e-4,
     "device": "cuda",
-    "train_val_split": 0.9
+    "train_val_split": 0.8
   },
   "loss_params": {},
   "metrics_params": {}

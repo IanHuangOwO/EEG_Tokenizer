@@ -25,7 +25,6 @@ def visualize_reconstruction(train_batch, val_batch, epoch, output_dir='output/v
     last_ch = num_chans - 1
     
     fs = 200.0
-    time_vec = np.arange(train_orig.shape[-1]) / fs
     
     bands = {
         'Raw': None,
@@ -55,9 +54,14 @@ def visualize_reconstruction(train_batch, val_batch, epoch, output_dir='output/v
         for col_idx, ((orig_batch, recon_batch), ch_idx, title) in enumerate(configs):
             ax = axes[row_idx, col_idx]
             
-            # Extract single channel
-            orig = orig_batch[0, ch_idx].detach().cpu().numpy()
-            recon = recon_batch[0, ch_idx].detach().cpu().numpy()
+            # Extract and flatten single channel
+            orig = orig_batch[0, ch_idx].detach().cpu().numpy().flatten()
+            recon = recon_batch[0, ch_idx].detach().cpu().numpy().flatten()
+            
+            # Ensure recon matches orig length if they differ due to padding/truncation
+            min_len = min(len(orig), len(recon))
+            orig, recon = orig[:min_len], recon[:min_len]
+            t_vec = np.arange(min_len) / fs
             
             # Filter
             if freqs is None:
@@ -72,8 +76,8 @@ def visualize_reconstruction(train_batch, val_batch, epoch, output_dir='output/v
                 except:
                     y_o, y_r = np.zeros_like(orig), np.zeros_like(recon)
 
-            ax.plot(time_vec, y_o, 'k', alpha=0.6, linewidth=0.8, label='Orig')
-            ax.plot(time_vec, y_r, 'r--', alpha=0.7, linewidth=0.8, label='Rec')
+            ax.plot(t_vec, y_o, 'k', alpha=0.6, linewidth=0.8, label='Orig')
+            ax.plot(t_vec, y_r, 'r--', alpha=0.7, linewidth=0.8, label='Rec')
             
             # Formatting
             if row_idx == 0:
@@ -99,9 +103,10 @@ def visualize_reconstruction(train_batch, val_batch, epoch, output_dir='output/v
     plt.close()
     return save_path
 
-def visualize_masked_reconstruction(batch, teacher, student, epoch, output_dir='output/visualization/reconstruction_pretrain'):
+def visualize_masked_reconstruction(batch, teacher, student, epoch, channel_names=None, output_dir='output/visualization/reconstruction_pretrain'):
     """
-    Plots Original vs Masked vs Student-Reconstructed for pretraining.
+    Plots Original vs Student-Reconstructed for pretraining.
+    Layout: 6 Bands (Rows) x 8 Patches (4 Visible, 4 Masked).
     """
     os.makedirs(output_dir, exist_ok=True)
     device = next(student.parameters()).device
@@ -112,11 +117,7 @@ def visualize_masked_reconstruction(batch, teacher, student, epoch, output_dir='
     Tokens = C * P
     
     with torch.no_grad():
-        # 1. Teacher Ground Truth (Full Reconstruction)
-        p1, p2, p3, _, _, _ = teacher(x_patches, coords, time_idx=None)
-        teacher_recon = teacher.reconstruct(p1, p2, p3, n_samples=T_patch)
-        
-        # 2. Student Classification -> Teacher Decoder (Student Reconstruction)
+        # 1. Student Classification -> Teacher Decoder (Student Reconstruction)
         # student returns: (B, Tokens, total_sub_dim, num_discrete)
         logits = student(x_patches, coords, time_indices=time_indices, bool_masked_pos=mask)
         
@@ -128,34 +129,35 @@ def visualize_masked_reconstruction(batch, teacher, student, epoch, output_dir='
         half_range = (N - 1) / 2.0
         v_q = student_indices.float() - half_range # (B, Tokens, total_sub_dim)
         
-        # Map to embedding space using frozen Matrix A.t() from teacher (Weight-Tying)
-        # v_q shape: (B, Tokens, total_sub_dim) -> (B*Tokens, Hr)
-        v_q_flat = v_q.reshape(B * Tokens, -1)
-        # Weight tying: Decoding uses A.t()
-        z_q = torch.matmul(v_q_flat, teacher.attnvq.A.t()).reshape(B, Tokens, -1)
+        # Map to embedding space per head (Weight-Tying)
+        H, r = teacher.attnvq.num_heads, teacher.attnvq.r
+        v_q_heads = v_q.reshape(B, Tokens, H, r)
+        # Reshape to (B, C, P, H, r) -> (B*P, C, H, r)
+        v_q_reshaped = v_q_heads.reshape(B, C, P, H, r).permute(0, 2, 1, 3, 4).reshape(B * P, C, H, r)
         
-        # Reshape z_q to teacher decoder format: (B*P, C, D)
-        # Backbone tokens are flattened from (B, C, P, D) to (B, C*P, D)
-        # We need to reshape back to (B, C, P, D) then permute to (B, P, C, D)
-        z_q_reshaped = z_q.reshape(B, C, P, -1).permute(0, 2, 1, 3).reshape(B * P, C, -1)
+        A_per_head = teacher.attnvq.A.view(-1, H, r) # (D, H, r)
+        z_q_heads = torch.einsum('bchr, dhr -> bchd', v_q_reshaped, A_per_head)
         
-        pred_amp, pred_sin, pred_cos = teacher.decoder(z_q_reshaped)
-        student_recon = teacher.reconstruct(pred_amp, pred_sin, pred_cos, n_samples=T_patch)
+        pred_real, pred_imag = teacher.decoder(z_q_heads)
+        student_recon = teacher.reconstruct(pred_real, pred_imag, n_samples=T_patch)
         # Reshape student_recon back to 4D (B, P, C, T_patch) to match x_patches trial-wise
         student_recon = student_recon.reshape(B, P, C, T_patch)
         
-    # Pick first trial, first 8 patches
-    fig, axes = plt.subplots(8, 3, figsize=(15, 24))
-    fig.suptitle(f"Masked Reconstruction (Epoch {epoch}) - Red=Masked", fontsize=16)
-    
+    # --- Visualization Setup ---
     fs = 200.0
     time_vec = np.arange(T_patch) / fs
-    
-    # Select 4 masked and 4 visible patches from the first trial (searching across all channels)
+    bands = {
+        'Raw': None,
+        'Delta (0.5-4)': (0.5, 4),
+        'Theta (4-8)': (4, 8),
+        'Alpha (8-13)': (8, 13),
+        'Beta (13-30)': (13, 30),
+        'Gamma (30-80)': (30, 80)
+    }
+
+    # Select 4 masked and 4 visible patches from the first trial
     masked_list = []
     visible_list = []
-    
-    # Flatten mask to search efficiently: (C, P)
     m_trial = mask[0].reshape(C, P)
     for c in range(C):
         for p in range(P):
@@ -166,44 +168,56 @@ def visualize_masked_reconstruction(batch, teacher, student, epoch, output_dir='
         if len(masked_list) >= 4 and len(visible_list) >= 4:
             break
             
-    display_samples = masked_list + visible_list
-    
-    for i, (c_idx, p_idx) in enumerate(display_samples):
-        # Original
-        ax_orig = axes[i, 0]
-        ax_orig.plot(time_vec, x_patches[0, c_idx, p_idx].cpu(), 'k', label='Original')
-        ax_orig.set_title(f"Ch{c_idx} P{p_idx} Orig")
-        
-        # Masked view
-        ax_mask = axes[i, 1]
-        is_masked = m_trial[c_idx, p_idx].item()
-        color = 'r' if is_masked else 'g'
-        
-        # Show actual signal if visible, or zeros if masked
-        plot_data = x_patches[0, c_idx, p_idx].cpu()
-        if is_masked:
-            plot_data = torch.zeros_like(plot_data)
+    display_samples = visible_list + masked_list # 4 Visible, 4 Masked
+    if not display_samples: return ""
+
+    n_rows = len(bands)
+    n_cols = len(display_samples)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * 4, n_rows * 2.5), sharex=True)
+    fig.suptitle(f"Masked Reconstruction Analysis (Epoch {epoch})", fontsize=20, fontweight='bold')
+
+    for row_idx, (band_name, freqs) in enumerate(bands.items()):
+        for col_idx, (c_idx, p_idx) in enumerate(display_samples):
+            ax = axes[row_idx, col_idx]
             
-        ax_mask.plot(time_vec, plot_data, color, alpha=0.5)
-        ax_mask.set_title(f"Input (Masked={is_masked})")
-        
-        # Student Reconstruction
-        ax_rec = axes[i, 2]
-        ax_rec.plot(time_vec, x_patches[0, c_idx, p_idx].cpu(), 'k', alpha=0.3, label='GT')
-        # student_recon shape: (B, P, C, T)
-        ax_rec.plot(time_vec, student_recon[0, p_idx, c_idx].cpu(), 'b--', label='Student')
-        ax_rec.set_title(f"Recon (Masked={is_masked})")
-        
-        if i == 0:
-            ax_orig.legend()
-            ax_rec.legend()
+            orig = x_patches[0, c_idx, p_idx].cpu().numpy()
+            recon = student_recon[0, p_idx, c_idx].cpu().numpy()
+            
+            # Filter
+            if freqs is None:
+                y_o, y_r = orig, recon
+            else:
+                l_f, h_f = freqs
+                o_mne = orig.reshape(1, -1).astype(np.float64)
+                r_mne = recon.reshape(1, -1).astype(np.float64)
+                try:
+                    y_o = mne.filter.filter_data(o_mne, fs, l_f, h_f, method='iir', verbose=False)[0]
+                    y_r = mne.filter.filter_data(r_mne, fs, l_f, h_f, method='iir', verbose=False)[0]
+                except:
+                    y_o, y_r = np.zeros_like(orig), np.zeros_like(recon)
 
-    # Hide unused rows if we found fewer than 8 samples
-    for j in range(len(display_samples), 8):
-        for k in range(3):
-            axes[j, k].axis('off')
+            is_masked = m_trial[c_idx, p_idx].item()
+            status = "MASKED" if is_masked else "VISIBLE"
+            color = 'r' if is_masked else 'g'
+            
+            ax.plot(time_vec, y_o, 'k', alpha=0.6, linewidth=1.0, label='Orig')
+            ax.plot(time_vec, y_r, 'r--', alpha=0.8, linewidth=1.0, label='Rec')
+            
+            if row_idx == 0:
+                ch_name = channel_names[c_idx] if channel_names else f"Ch{c_idx}"
+                ax.set_title(f"{ch_name} P{p_idx}\n[{status}]", fontsize=12, fontweight='bold', color=color)
+            
+            if col_idx == 0:
+                ax.set_ylabel(band_name, fontsize=12, fontweight='bold', rotation=0, labelpad=40)
+            
+            if row_idx == 0 and col_idx == n_cols - 1:
+                ax.legend(loc='upper right', fontsize=8)
+            
+            ax.grid(True, alpha=0.2)
 
+    for ax in axes[-1, :]: ax.set_xlabel("Time (s)")
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
     save_path = os.path.join(output_dir, f'pretrain_recon_epoch_{epoch}.png')
     plt.savefig(save_path)
     plt.close()

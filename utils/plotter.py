@@ -106,19 +106,19 @@ class Plotter:
             ax1.legend()
             ax1.grid(True)
             
-            # Plot Components (Amp/Phase/Sub)
-            if 'amp' in self.history['train']:
-                ax2.plot(epochs, self.history['train']['amp'], color='orange', linestyle='-', label='Train Amp')
-            if 'phase' in self.history['train']:
-                ax2.plot(epochs, self.history['train']['phase'], color='purple', linestyle='-', label='Train Phase')
+            # Plot Components (Real/Imag/Sub)
+            if 'real' in self.history['train']:
+                ax2.plot(epochs, self.history['train']['real'], color='orange', linestyle='-', label='Train Real')
+            if 'imag' in self.history['train']:
+                ax2.plot(epochs, self.history['train']['imag'], color='purple', linestyle='-', label='Train Imag')
             if 'sub' in self.history['train']:
                 ax2.plot(epochs, self.history['train']['sub'], color='red', linestyle='-', label='Train Sub')
             
             if has_val:
-                 if 'amp' in self.history['val']:
-                    ax2.plot(epochs, self.history['val']['amp'], color='orange', linestyle='--', alpha=0.7, label='Val Amp')
-                 if 'phase' in self.history['val']:
-                    ax2.plot(epochs, self.history['val']['phase'], color='purple', linestyle='--', alpha=0.7, label='Val Phase')
+                 if 'real' in self.history['val']:
+                    ax2.plot(epochs, self.history['val']['real'], color='orange', linestyle='--', alpha=0.7, label='Val Real')
+                 if 'imag' in self.history['val']:
+                    ax2.plot(epochs, self.history['val']['imag'], color='purple', linestyle='--', alpha=0.7, label='Val Imag')
                  if 'sub' in self.history['val']:
                     ax2.plot(epochs, self.history['val']['sub'], color='red', linestyle='--', alpha=0.7, label='Val Sub')
                  
@@ -324,28 +324,52 @@ class Plotter:
             ax_cb.legend(lines + lines2, labels + labels2, loc='upper left')
             ax_cb.grid(True)
 
-        # 3. Subspace Health (Symmetry & Diversity)
-        if 'subspace_loss' in self.history['train']:
-            ax_sub.plot(epochs, self.history['train']['subspace_loss'], 'k-', label='Total Subspace Loss', linewidth=2)
-            # ax_sub.plot(epochs, self.history['train']['subspace_symmetry_err'], 'r--', alpha=0.7, label='Symmetry Error')
-            ax_sub.plot(epochs, self.history['train']['head_cross_corr'], 'b--', alpha=0.7, label='Cross-Head Corr')
+        # 3. Subspace Health (Inter / Intra / Ortho)
+        if 'subspace_ortho' in self.history['train']:
+            ax_sub.plot(epochs, self.history['train']['subspace_ortho'], 'b-', label='Ortho Loss (Gram)')
+            if 'head_cross_corr' in self.history['train']:
+                ax_sub_twin = ax_sub.twinx()
+                ax_sub_twin.plot(epochs, self.history['train']['head_cross_corr'], 'r-', label='Head Cross-Corr')
+                ax_sub_twin.set_ylabel('Head Cross-Corr')
             
-            ax_sub.set_title('Subspace Health (Joint Gram Matrix)')
-            ax_sub.set_ylabel('Loss/Error')
+            ax_sub.set_title('Subspace Diversity & Orthogonality')
+            ax_sub.set_ylabel('Ortho MSE')
             ax_sub.set_yscale('log')
-            ax_sub.legend(loc='upper right', fontsize='x-small')
+            
+            lines, labels = ax_sub.get_legend_handles_labels()
+            if 'head_cross_corr' in self.history['train']:
+                lines2, labels2 = ax_sub_twin.get_legend_handles_labels()
+                ax_sub.legend(lines + lines2, labels + labels2, loc='upper right', fontsize='x-small')
+            else:
+                ax_sub.legend(loc='upper right', fontsize='x-small')
             ax_sub.grid(True, which="both", ls="-", alpha=0.5)
-
-        # 4. Matrix Health (Singular Values & Condition Number)
+        elif 'loss_inter' in self.history['train']:
+            ax_sub.plot(epochs, self.history['train']['loss_inter'], 'b-', label='Inter-Head Loss')
+            ax_sub.plot(epochs, self.history['train']['loss_intra'], 'r-', label='Intra-Head Loss')
+            
+            ax_sub.legend(loc='upper right', fontsize='x-small')
+            ax_sub.set_title('Subspace Health (Inter/Intra Diversity)')
+            ax_sub.set_ylabel('Diversity Loss')
+            ax_sub.set_yscale('log')
+            ax_sub.grid(True, which="both", ls="-", alpha=0.5)
+        elif 'subspace_loss' in self.history['train']:
+            # Fallback for older checkpoints/training scripts
+            ax_sub.plot(epochs, self.history['train']['subspace_loss'], 'k-', label='Total Subspace Loss', linewidth=2)
+            ax_sub.set_title('Subspace Health (Total)')
+            ax_sub.legend()
+            ax_sub.grid(True)
+            
+        # 4. Matrix Health (Singular Values & Rank)
         if 'A_sing_val_avg' in self.history['train']:
             ax_mat.plot(epochs, self.history['train']['A_sing_val_avg'], 'b-', label='A Avg SV')
-            # ax_mat.plot(epochs, self.history['train']['B_sing_val_avg'], 'g-', label='B Avg SV')
             ax_mat_twin = ax_mat.twinx()
             ax_mat_twin.plot(epochs, self.history['train']['A_cond'], 'b--', alpha=0.5, label='A Cond #')
-            # ax_mat_twin.plot(epochs, self.history['train']['B_cond'], 'g--', alpha=0.5, label='B Cond #')
+            
+            if 'active_rank_ratio' in self.history['train']:
+                ax_mat.plot(epochs, self.history['train']['active_rank_ratio'], 'g-', label='Active Rank Ratio')
             
             ax_mat.set_title('Matrix Health (Singular Values & Rank)')
-            ax_mat.set_ylabel('Avg Singular Value')
+            ax_mat.set_ylabel('Avg SV / Rank Ratio')
             ax_mat_twin.set_ylabel('Condition Number (Log)')
             ax_mat_twin.set_yscale('log')
             

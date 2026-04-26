@@ -18,18 +18,11 @@ def main():
 
     # 3. Create Preprocessor and Dataset
     # We want one subject and minimal trials for this check
-    config['dataset_params']['subjects'] = [config['dataset_params']['subjects'][20]]
-    config['dataset_params']['trials_to_use'] = 1
-    
-    # Load Metadata to get Sample_Frequency
-    dataset_path = config['dataset_params']['dataset_path']
-    with open(os.path.join(dataset_path, 'metadata.json'), 'r') as f:
-        meta = json.load(f)
-    config['data_metadata'] = meta['data_metadata']
+    config['dataset_params']['subject_to_use'] = [config['dataset_params']['subject_to_use'][20]]
     
     transform = build_preprocessing_from_config(config)
     
-    dataset = build_dataset_from_config(config, transform=transform)
+    dataset = build_dataset_from_config(config, transform=transform, mode='tokenizer')
     print(f"Dataset loaded: {len(dataset)} trials")
 
     # 4. Create Model
@@ -59,10 +52,10 @@ def main():
 
     # 5. Get a sample (One trial/patch)
     patch_idx = 0
-    patch, coords, time_idx, _ = dataset[patch_idx]
+    patch, coords, time_idx, _, _ = dataset[patch_idx]
     
     # Logic to find which Subject this belongs to
-    # dataset is a TokenizerWrapperDataset, dataset.base_dataset is EEGDataset
+    # dataset is a TokenizerDataset, dataset.base_dataset is EEGDataset
     trial_idx = patch_idx // dataset.patches_per_trial
     subject_id = dataset.base_dataset.subject_data[trial_idx].item()
     
@@ -75,10 +68,6 @@ def main():
 
     # 6. Forward Pass
     with torch.no_grad():
-        # Model returns: pred_amp, pred_sin, pred_cos, vq_loss, indices, weights (for AttnVQ)
-        # Other models might return different number of outputs.
-        # We need to call get_indices directly.
-        
         # NOTE: get_indices now returns (indices, weights) tuple
         outputs = model.get_indices(patch, coords, time_idx)
         indices = outputs[0] # (B*C, L=1, S, H, K)

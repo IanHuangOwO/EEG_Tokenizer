@@ -84,15 +84,16 @@ class AttnVQProcessing:
             return x / 100.0
         
         elif self.normalization_type == 'zscore':
-            # Z-Score per channel: (x - mean) / std
-            mean = np.mean(x, axis=-1, keepdims=True)
-            std = np.std(x, axis=-1, keepdims=True)
+            # Global Z-Score per trial: (x - mean_all) / std_all
+            # This preserves relative amplitude differences between channels.
+            mean = np.mean(x) # Mean across all channels and time
+            std = np.std(x)   # Std across all channels and time
             return (x - mean) / (std + 1e-8)
             
         elif self.normalization_type == 'robust':
-            # Robust Scaler: (x - median) / IQR
-            median = np.median(x, axis=-1, keepdims=True)
-            q75, q25 = np.percentile(x, [75 ,25], axis=-1, keepdims=True)
+            # Global Robust Scaler per trial
+            median = np.median(x)
+            q75, q25 = np.percentile(x, [75 ,25])
             iqr = q75 - q25
             return (x - median) / (iqr + 1e-8)
             

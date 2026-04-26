@@ -1,11 +1,9 @@
 import sys
 import os
 import shutil
-from model.LaBraM.modeling_tokenizer import LaBraMTokenizer
 from model.AttnVQ.modeling_tokenizer import AttnVQTokenizer
 from model.AttnVQ.modeling_backbone import AttnVQBackbone
 
-from model.LaBraM.preprocessing import LaBraMProcessing
 from model.AttnVQ.preprocessing import AttnVQProcessing
 
 def build_model_from_config(config, src_output_dir=None):
@@ -15,11 +13,12 @@ def build_model_from_config(config, src_output_dir=None):
     """
     train_params = config['training_params']
     model_params = config['model_params']
-    preprocess_params = config.get('preprocess_params', {
+    model_type = train_params.get('model_type', 'AttnVQ')
+    
+    # Preprocess params are now per-model
+    preprocess_params = model_params[model_type].get('preprocess', {
         'target_freq': 200, 'l_freq': 0.1, 'h_freq': 80.0, 'normalization_type': 'zscore'
     })
-    
-    model_type = train_params.get('model_type', 'NeuroRVQ')
     
     if model_type == "AttnVQ":
         params = model_params['AttnVQ']['tokenizer']
@@ -29,28 +28,13 @@ def build_model_from_config(config, src_output_dir=None):
             enc_depth=params['enc_depth'],
             enc_heads=params['enc_heads'],
             enc_mlp_ratio=params.get('enc_mlp_ratio', 4.0),
-            dec_depth=params['dec_depth'],
-            dec_heads=params.get('dec_heads', params['enc_heads']),
-            dec_mlp_ratio=params.get('dec_mlp_ratio', 4.0),
-            in_scales=params.get('in_scales', 4),
-            vq_head_num=params.get('vq_head_num', 8),
-            vq_head_vocab_size=params['vq_head_vocab_size'],
-            vq_num_discrete=params.get('vq_num_discrete', 5),
+            in_scales=params.get('in_scales', 25),
+            merge_factors=params.get('merge_factors', [1, 2, 2]),
             freq_resolution=params.get('freq_resolution', 1.0),
             min_freq=params.get('min_freq', 0.0),
             max_freq=params.get('max_freq', 100.0),
-            fs=preprocess_params['target_freq']
-        )
-    elif model_type == "LaBraM":
-        params = model_params['LaBraM']['tokenizer']
-        model = LaBraMTokenizer(
-            in_chans=params.get('in_chans', 1),
-            embed_dim=params['embed_dim'],
-            enc_depth=params['enc_depth'],
-            dec_depth=params['dec_depth'],
-            n_code=params['vocab_size'],
-            code_dim=params.get('code_dim', 32),
-            patch_size=params.get('patch_size', 200)
+            fs=preprocess_params['target_freq'],
+            decoder_heads_config=params.get('decoder_heads_config', None)
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
@@ -83,9 +67,11 @@ def build_backbone_from_config(config, src_output_dir=None):
             mlp_ratio=backbone_params.get('mlp_ratio', 4.0),
             in_chans=backbone_params.get('in_chans', tokenizer_params.get('in_chans', 1)),
             in_scales=backbone_params.get('in_scales', tokenizer_params.get('in_scales', 3)),
-            num_heads=backbone_params.get('vq_head_num', tokenizer_params.get('vq_head_num', 16)),
+            vq_head_num=backbone_params.get('vq_head_num', tokenizer_params.get('vq_head_num', 16)),
             vq_head_vocab_size=backbone_params.get('vq_head_vocab_size', tokenizer_params.get('vq_head_vocab_size', 8)),
-            num_discrete=backbone_params.get('vq_num_discrete', tokenizer_params.get('vq_num_discrete', 5))
+            vq_num_discrete=backbone_params.get('vq_num_discrete', tokenizer_params.get('vq_num_discrete', 5)),
+            merge_factors=backbone_params.get('merge_factors', tokenizer_params.get('merge_factors', [1, 2, 2])),
+            spatial_heads=backbone_params.get('spatial_heads', 8)
             )
     else:
         raise ValueError(f"Backbone not implemented for model type: {model_type}")
@@ -97,22 +83,27 @@ def build_backbone_from_config(config, src_output_dir=None):
 
     return model
 
-def build_preprocessing_from_config(config):
+def build_preprocessing_from_config(config, fs_orig=None):
     """
     Factory function to build the appropriate preprocessing transform.
+    If fs_orig is not provided, it tries to pull from config['data_metadata'].
     """
     train_params = config['training_params']
-    preprocess_params = config.get('preprocess_params', {
+    model_params = config['model_params']
+    model_type = train_params.get('model_type', 'AttnVQ')
+    
+    preprocess_params = model_params[model_type].get('preprocess', {
         'target_freq': 200, 'l_freq': 0.1, 'h_freq': 80.0, 'normalization_type': 'zscore'
     })
     
-    # Ensure metadata is present
-    if 'data_metadata' not in config or 'Sample_Frequency' not in config['data_metadata']:
-        raise ValueError("Config must contain 'data_metadata' with 'Sample_Frequency' to build preprocessing.")
+    if fs_orig is None:
+        # Fallback to metadata in config
+        if 'data_metadata' not in config or 'Sample_Frequency' not in config['data_metadata']:
+            # Instead of raising error, we can return None or a generic transform if needed, 
+            # but raising is safer for now.
+            raise ValueError("Config must contain 'data_metadata' with 'Sample_Frequency' to build preprocessing if fs_orig is not provided.")
+        fs_orig = config['data_metadata']['Sample_Frequency']
         
-    fs_orig = config['data_metadata']['Sample_Frequency']
-    model_type = train_params.get('model_type', 'NeuroRVQ')
-    
     # Preprocessing Arguments
     p_args = {
         'original_freq': fs_orig, 
@@ -124,5 +115,3 @@ def build_preprocessing_from_config(config):
 
     if model_type == 'AttnVQ':
         return AttnVQProcessing(**p_args)
-    elif model_type == 'LaBraM':
-        return LaBraMProcessing(**p_args)

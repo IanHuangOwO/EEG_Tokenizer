@@ -1,576 +1,474 @@
 import os
 import json
 import numpy as np
-import scipy.io
 import torch
-from torch.utils.data import Dataset, ConcatDataset
+from torch.utils.data import Dataset
+from typing import List, Dict, Optional, Tuple, Callable, Any
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional, Tuple, Callable
 
-# --- Base Loader ---
+from .loader import BETALoader, DialLoader, BCICIVLoader, InriaLoader
+from model.factory import build_preprocessing_from_config
 
-class BaseSubjectLoader(Dataset, ABC):
-    """
-    Abstract base class for loading a single subject's EEG data.
-    """
-    def __init__(
-        self, 
-        data_root: str, 
-        subject_id: int, 
-        config: Dict, 
-        desired_channel_indices: List[int], 
-        trials_to_use: int, 
-        window_size: Optional[float] = None
-    ):
-        self.data_root = data_root
-        self.subject_id = subject_id
-        self.config = config
-        self.channel_indices = desired_channel_indices
-        self.trials_to_use = trials_to_use
-        
-        # Standardize target parameters
-        self.num_targets = config['Number_of_Targets']
-        self.sample_freq = config['Sample_Frequency']
-        
-        # Determine Window Size and Target Points
-        self.window_size = window_size if window_size is not None else config['Window_Size']
-        self.target_points = int(self.window_size * self.sample_freq)
+# --- Masking Strategies ---
 
-    def _get_standard_coords(self, ch_name: str) -> Optional[np.ndarray]:
-        """Tries to find 3D coordinates for a channel using MNE standard montages."""
-        try:
-            import mne
-            # Static cache for montage to avoid reloading
-            if not hasattr(self, '_std_montage'):
-                self._std_montage = mne.channels.make_standard_montage('standard_1020')
-            
-            # MNE stores keys in upper case usually
-            if not hasattr(self, '_std_positions'):
-                 self._std_positions = self._std_montage.get_positions()['ch_pos']
-            
-            # Normalize name
-            keys = {k.upper(): k for k in self._std_positions.keys()}
-            if ch_name.upper() in keys:
-                return self._std_positions[keys[ch_name.upper()]]
-                
-        except ImportError:
-            pass
-        except Exception as e:
-            # print(f"MNE lookup error: {e}")
-            pass
-        return None
-
+class BaseMaskingStrategy(ABC):
     @abstractmethod
-    def _load_coords(self) -> np.ndarray:
-        """Loads 3D Cartesian coordinates (x, y, z) for selected channels."""
+    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
+        """
+        Generates a boolean mask.
+        Returns:
+            torch.Tensor: Boolean mask of shape (num_channels * num_patches,)
+        """
         pass
 
-    @abstractmethod
-    def _load_data(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Loads and formats data as (Trials, Channels, Time) and labels."""
-        pass
-
-    def pad_or_crop(self, eeg_data: np.ndarray) -> np.ndarray:
-        """
-        Ensures time dimension matches self.target_points.
-        Input: (Channels, Time)
-        """
-        actual_time = eeg_data.shape[-1]
-        if actual_time < self.target_points:
-            pad_width = self.target_points - actual_time
-            # Pad the last dimension (Time) with zeros
-            return np.pad(eeg_data, ((0, 0), (0, pad_width)), mode='constant')
-        elif actual_time > self.target_points:
-            return eeg_data[:, :self.target_points]
-        return eeg_data
-
-# --- Specific Loaders ---
-
-class BETALoader(BaseSubjectLoader):
-    """
-    Loader for BETA dataset.
-    File format: Single .mat file per subject.
-    Data structure: 'EEG' -> (Channels, Time, Blocks, Targets)
-    """
-    def __init__(self, data_root, subject_id, data_structure, config, desired_channel_indices, trials_to_use, window_size=None):
-        self.file_path = self._get_file_path(data_root, subject_id, data_structure)
-        super().__init__(data_root, subject_id, config, desired_channel_indices, trials_to_use, window_size)
-        self.coords = self._load_coords()
-        self.data, self.labels = self._load_data()
-
-    def _get_file_path(self, data_root, subject_id, data_structure):
-        subject_str = str(subject_id)
-        if subject_str not in data_structure:
-             raise ValueError(f"Subject {subject_id} not found in data structure.")
-        relative_path = data_structure[subject_str]['file'].lstrip('./')
-        return os.path.join(data_root, relative_path)
-
-    def _load_coords(self) -> np.ndarray:
-        channel_config = self.config.get('channels', {})
-        coords_list = []
+class RandomMaskingStrategy(BaseMaskingStrategy):
+    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
+        num_tokens = num_channels * num_patches
+        num_masked = int(num_tokens * mask_ratio)
         
-        # We need the channel NAMES to lookup MNE, not just indices
-        # Invert the mapping or look up by index from sorted keys
-        sorted_keys = sorted(channel_config.keys(), key=lambda k: int(k))
-        # This list corresponds to indices 0, 1, 2...
-        
-        for idx in self.channel_indices:
-            # Get Label
-            if idx < len(sorted_keys):
-                meta_key = sorted_keys[idx]
-                label = channel_config[meta_key]['label']
-            else:
-                label = "Unknown"
-
-            # 1. Try MNE Standard (Preferred for 3D)
-            mne_coords = self._get_standard_coords(label)
-            if mne_coords is not None:
-                coords_list.append(mne_coords) # [x, y, z]
-                continue
-
-            # 2. Fallback to Metadata 2D -> 3D Projection
-            # Project 2D polar onto a sphere of radius approx 0.095m (MNE scale)
-            # Or just use z=0 if we really have to
-            if meta_key in channel_config and 'coordinates' in channel_config[meta_key]:
-                v = channel_config[meta_key]['coordinates']
-                theta = np.deg2rad(v['polar_angle_deg'])
-                r = v['polar_radius'] # This is likely normalized or projected
-                
-                # Assume r is projected on 2D, scale it to similar magnitude as MNE if needed
-                # MNE coords are usually in meters (~0.09)
-                # BETA r is ~0.5. Let's just use x, y, 0 for fallback.
-                x = r * np.sin(theta)
-                y = r * np.cos(theta)
-                coords_list.append([x, y, 0.0])
-            else:
-                print(f"Warning: No coords for {label}, using (0,0,0)")
-                coords_list.append([0.0, 0.0, 0.0])
-                
-        return np.array(coords_list, dtype=np.float32)
-
-    def _load_data(self):
-        if not os.path.exists(self.file_path):
-            print(f"Warning: File not found {self.file_path}")
-            return None, None
-
-        mat_data = scipy.io.loadmat(self.file_path)
-        if 'data' not in mat_data or 'EEG' not in mat_data['data'].dtype.names:
-            raise ValueError(f"Invalid BETA format in {self.file_path}")
-
-        # Raw shape: (Channels, Time, Blocks, Targets)
-        raw_data = mat_data['data']['EEG'][0, 0] 
-
-        # 1. Select Channels
-        # Shape: (Selected_Channels, Time, Blocks, Targets)
-        eeg_data = raw_data[self.channel_indices, :, :, :]
-        
-        # 2. Check and Select Trials (Blocks)
-        actual_blocks = eeg_data.shape[2]
-        if self.trials_to_use > actual_blocks:
-             raise ValueError(f"Subject {self.subject_id}: Requested {self.trials_to_use} trials, but only {actual_blocks} available.")
-        
-        # Shape: (Selected_Channels, Time, Selected_Trials, Targets)
-        eeg_data = eeg_data[:, :, :self.trials_to_use, :]
-
-        # 3. Reshape to (Total_Trials, Channels, Time)
-        # Transpose to (Targets, Selected_Trials, Channels, Time)
-        eeg_data = np.transpose(eeg_data, (3, 2, 0, 1))
-        # Flatten Targets * Trials
-        eeg_data = eeg_data.reshape(-1, len(self.channel_indices), raw_data.shape[1])
-
-        # 4. Generate Labels
-        # Labels 0 to num_targets-1, repeated for each block
-        labels = np.array([i for i in range(self.num_targets) for _ in range(self.trials_to_use)])
-
-        return eeg_data, labels
-
-    def __getitem__(self, index):
-        sample = self.data[index] # (Channels, Time)
-        sample = self.pad_or_crop(sample)
-        if isinstance(sample, np.ndarray):
-            sample = torch.from_numpy(sample).float()
-        return sample, self.labels[index]
-
-    def __len__(self):
-        return len(self.labels) if self.labels is not None else 0
-
-
-class DialLoader(BaseSubjectLoader):
-    """
-    Loader for Dial dataset.
-    File format: Separate Signal and Label .mat files per subject.
-    Data structure: 'Data' -> (Channels, Time, Trials)
-    """
-    def __init__(self, data_root, subject_id, data_structure, config, desired_channel_indices, trials_to_use, window_size=None):
-        self.signal_path, self.label_path = self._get_file_paths(data_root, subject_id, data_structure)
-        super().__init__(data_root, subject_id, config, desired_channel_indices, trials_to_use, window_size)
-        self.coords = self._load_coords()
-        self.data, self.labels = self._load_data()
-    
-    def _get_file_paths(self, data_root, subject_id, data_structure):
-        subject_str = str(subject_id)
-        if subject_str not in data_structure:
-             raise ValueError(f"Subject {subject_id} not found in data structure.")
-        
-        sig_rel = data_structure[subject_str]['signals'].lstrip('./')
-        lab_rel = data_structure[subject_str]['labels'].lstrip('./')
-        
-        return os.path.join(data_root, sig_rel), os.path.join(data_root, lab_rel)
-
-    def _load_coords(self) -> np.ndarray:
-        # Same logic as BETA, can be refactored to base if strictly identical metadata structure
-        channel_config = self.config.get('channels', {})
-        coords_list = []
-        sorted_keys = sorted(channel_config.keys(), key=lambda k: int(k))
-        
-        for idx in self.channel_indices:
-            if idx < len(sorted_keys):
-                meta_key = sorted_keys[idx]
-                label = channel_config[meta_key]['label']
-            else:
-                label = "Unknown"
-
-            mne_coords = self._get_standard_coords(label)
-            if mne_coords is not None:
-                coords_list.append(mne_coords)
-                continue
-
-            if meta_key in channel_config and 'coordinates' in channel_config[meta_key]:
-                v = channel_config[meta_key]['coordinates']
-                theta = np.deg2rad(v['polar_angle_deg'])
-                r = v['polar_radius']
-                x = r * np.sin(theta)
-                y = r * np.cos(theta)
-                coords_list.append([x, y, 0.0])
-            else:
-                coords_list.append([0.0, 0.0, 0.0])
-                
-        return np.array(coords_list, dtype=np.float32)
-
-    def _load_data(self):
-        if not os.path.exists(self.signal_path) or not os.path.exists(self.label_path):
-             print(f"Warning: Missing files for subject {self.subject_id}")
-             return None, None
-
-        # Load Signals: (Channels, Time, All_Trials)
-        samples = scipy.io.loadmat(self.signal_path)['Data'] 
-
-        # Load Labels: 1D array of 1-based labels
-        raw_labels = scipy.io.loadmat(self.label_path)['Label'].flatten() 
-
-        # Filter trials to ensure balanced classes based on trials_to_use
-        indices_to_keep = []
-        for label_val in range(1, self.num_targets + 1):
-            matching_indices = np.where(raw_labels == label_val)[0]
-            if len(matching_indices) < self.trials_to_use:
-                 raise ValueError(f"Subject {self.subject_id}: Not enough trials for class {label_val}. Needed {self.trials_to_use}, found {len(matching_indices)}.")
-            indices_to_keep.extend(matching_indices[:self.trials_to_use])
-
-        # Select Data: (Selected_Channels, Time, Selected_Trials)
-        eeg_data = samples[self.channel_indices, :, :][:, :, indices_to_keep]
-        
-        # Reshape to (Selected_Trials, Selected_Channels, Time)
-        eeg_data = np.transpose(eeg_data, (2, 0, 1))
-
-        # Adjust labels to 0-based index
-        final_labels = raw_labels[indices_to_keep] - 1
-
-        return eeg_data, final_labels
-
-    def __getitem__(self, index):
-        sample = self.data[index]
-        sample = self.pad_or_crop(sample)
-        if isinstance(sample, np.ndarray):
-            sample = torch.from_numpy(sample).float()
-        return sample, int(self.labels[index])
-
-    def __len__(self):
-        return len(self.labels) if self.labels is not None else 0
-
-
-# --- Main Dataset Wrapper ---
-
-class EEGDataset(Dataset):
-    """
-    Universal EEG Dataset Wrapper.
-    Combines data from multiple subjects into a single PyTorch Dataset.
-    Exposes labels and subject indices for visualization/analysis.
-    """
-    def __init__(
-        self, 
-        data_root: str, 
-        metadata_json: Dict, 
-        subject_list: List[int], 
-        desired_channels: List[str], 
-        trials_to_use: int, 
-        loader_class: Callable, 
-        window_size: Optional[float] = None, 
-        transform: Optional[Callable] = None
-    ):
-        self.transform = transform
-        self.datasets = []
-        
-        config = metadata_json['data_metadata']
-        structure = metadata_json['data_structure']
-
-        # Store Metadata
-        self.channel_names = desired_channels
-        self.Nc = len(desired_channels)
-        self.subject_list = subject_list
-
-        # Map channel names to indices
-        channel_indices = self._map_channels(desired_channels, config['channels'])
-
-        # Store Global Indices
-        # We need to know: Index i corresponds to Subject S and Label L
-        self.all_labels = []
-        self.all_subject_ids = []
-        
-        self.coords = None
-
-        # Initialize Subject Loaders
-        print(f"Loading {len(subject_list)} subjects...")
-        for subject_id in subject_list:
-            try:
-                loader = loader_class(
-                    data_root=data_root, 
-                    subject_id=subject_id, 
-                    data_structure=structure, 
-                    config=config, 
-                    desired_channel_indices=channel_indices, 
-                    trials_to_use=trials_to_use, 
-                    window_size=window_size
-                )
-                if len(loader) > 0:
-                    self.datasets.append(loader)
-                    
-                    # Store coordinates from first successful loader
-                    if self.coords is None:
-                        self.coords = loader.coords
-                    
-                    # Store labels and subject IDs for quick lookup
-                    # loader.labels is numpy array
-                    self.all_labels.append(torch.from_numpy(loader.labels))
-                    self.all_subject_ids.append(torch.full((len(loader),), subject_id, dtype=torch.long))
-                    
-            except Exception as e:
-                print(f"Failed to load Subject {subject_id}: {e}")
-
-        if not self.datasets:
-            raise RuntimeError("No datasets were loaded successfully.")
-
-        self.full_dataset = ConcatDataset(self.datasets)
-        
-        # Concatenate metadata tensors for global lookup
-        self.label_data = torch.cat(self.all_labels)
-        self.subject_data = torch.cat(self.all_subject_ids)
-
-        # --- OPTIMIZATION: Pre-process data in memory ---
-        if self.transform is not None:
-            from tqdm import tqdm
-            print("Applying preprocessing to all trials (Memory optimized)...")
-            for loader in tqdm(self.datasets, desc="Preprocessing Subjects"):
-                # loader.data shape: (Trials, Channels, Time)
-                processed_data = []
-                for trial_idx in range(len(loader.data)):
-                    trial = loader.data[trial_idx]
-                    # Apply transform (Preprocessing)
-                    # Note: transform returns a torch.Tensor
-                    processed_trial = self.transform(trial)
-                    processed_data.append(processed_trial)
-                
-                # Replace raw numpy data with processed torch tensors
-                # Shape: (Trials, Channels, New_Time)
-                loader.data = torch.stack(processed_data)
-                
-                # Update target_points so pad_or_crop doesn't undo the resampling
-                loader.target_points = loader.data.shape[-1]
-            
-            # Disable on-the-fly transform since we've already applied it
-            self.transform = None
-
-    def _map_channels(self, desired_channels: List[str], channel_config: Dict) -> List[int]:
-        """Converts list of channel names to their corresponding 0-based indices."""
-        name_to_index = {}
-        for key, info in channel_config.items():
-            if 'label' in info:
-                # Metadata keys are 1-based strings ('1', '2'...)
-                name_to_index[info['label']] = int(key) - 1
-        
-        indices = []
-        for name in desired_channels:
-            if name in name_to_index:
-                indices.append(name_to_index[name])
-            else:
-                print(f"Warning: Channel '{name}' not found in metadata.")
-        return indices
-
-    def __getitem__(self, index):
-        x, y = self.full_dataset[index]
-        if self.transform:
-            x = self.transform(x)
-        return x, y
-
-    def __len__(self):
-        return len(self.full_dataset)
-    
-
-def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None, mode: str = 'tokenizer') -> Dataset:
-    """
-    Factory function to build a Dataset from a configuration dictionary.
-    
-    Args:
-        config_dict: The configuration dictionary.
-        transform: Optional transform to apply to the data.
-        mode: 'base' (returns EEGDataset), 'tokenizer' (returns TokenizerWrapperDataset), 
-              or 'pretrain' (returns MaskedPretrainDataset).
-    """
-    params = config_dict.get('dataset_params', {})
-    preprocess_params = config_dict.get('preprocess_params', {'target_freq': 200})
-    
-    # Extract Parameters
-    data_root = params.get('dataset_path')
-    subjects = params.get('subjects', [1])
-    trials_to_use = params.get('trials_to_use', 1)
-    channels_to_use = params.get('channels_to_use', "all")
-    window_size = params.get('window_size_to_use')
-    
-    if not data_root:
-        raise ValueError("dataset_path must be specified in config['dataset_params']")
-    
-    # 1. Load Metadata
-    meta_path = os.path.join(data_root, 'metadata.json')
-    if not os.path.exists(meta_path):
-        raise FileNotFoundError(f"Metadata file not found at {meta_path}")
-        
-    with open(meta_path, 'r') as f:
-        metadata = json.load(f)
-        
-    # 2. Determine Channels
-    if channels_to_use == "all" or channels_to_use == ["all"]:
-         channel_dict = metadata.get('data_metadata', {}).get('channels', {})
-         # Sort channels by their numeric index in metadata to ensure correct order
-         sorted_keys = sorted(channel_dict.keys(), key=lambda k: int(k))
-         channels_to_use = [channel_dict[k]['label'] for k in sorted_keys]
-         print(f"Selected all {len(channels_to_use)} channels from metadata.")
-
-    # 3. Determine Loader Class
-    dataset_name = metadata.get('data_metadata', {}).get('dataset_name')
-    if dataset_name == 'BETA':
-        loader_cls = BETALoader
-    elif dataset_name == 'Dial':
-        loader_cls = DialLoader
-    else:
-        raise ValueError(f"Unknown dataset_name in metadata: {dataset_name}")
-
-    # 4. Instantiate Base Dataset
-    base_dataset = EEGDataset(
-        data_root=data_root,
-        metadata_json=metadata,
-        subject_list=subjects,
-        desired_channels=channels_to_use,
-        trials_to_use=trials_to_use,
-        loader_class=loader_cls,
-        window_size=window_size,
-        transform=transform
-    )
-    
-    # 5. Apply Mode Wrapper
-    if mode == 'base':
-        return base_dataset
-    elif mode == 'tokenizer':
-        patch_len = preprocess_params.get('target_freq', 200)
-        return TokenizerWrapperDataset(base_dataset, patch_len=patch_len)
-    elif mode == 'pretrain':
-        patch_len = preprocess_params.get('target_freq', 200)
-        mask_ratio = preprocess_params.get('mask_ratio', 0.75)
-        return MaskedPretrainDataset(base_dataset, patch_len=patch_len, mask_ratio=mask_ratio)
-    else:
-        raise ValueError(f"Unknown dataset mode: {mode}. Use 'base', 'tokenizer', or 'pretrain'.")
-
-# --- Tokenizer Specific Wrappers ---
-
-class TokenizerWrapperDataset(Dataset):
-    """
-    Wraps the standard EEGDataset to yield fixed-length patches (e.g., 1s)
-    instead of full trials. Always returns (patch, coords, label).
-    """
-    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200, n_fft: int = None):
-        # n_fft arg kept for backward compatibility but ignored
-        self.base_dataset = base_dataset
-        self.patch_len = patch_len
-        
-        # Determine patches per trial
-        sample_x, _ = self.base_dataset[0]
-        self.total_len = sample_x.shape[-1]
-        self.patches_per_trial = self.total_len // patch_len
-        
-        # Pre-convert coords to tensor for efficiency
-        self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
-        
-        print(f"Tokenizer Wrapper: {len(self.base_dataset)} trials -> {len(self)} patches ({self.patches_per_trial} per trial)")
-
-    def __len__(self):
-        return len(self.base_dataset) * self.patches_per_trial
-
-    def __getitem__(self, index):
-        trial_idx = index // self.patches_per_trial
-        patch_idx = index % self.patches_per_trial
-        patch_offset = patch_idx * self.patch_len
-        
-        x, y = self.base_dataset[trial_idx]
-        patch = x[:, patch_offset : patch_offset + self.patch_len]
-        
-        # We return 0 for time_idx so the Tokenizer is blind to absolute temporal context
-        return patch, self.coords_tensor, 0, y
-
-class MaskedPretrainDataset(Dataset):
-    """
-    Wraps the standard EEGDataset for Masked Pretraining.
-    Yields full trials reshaped into patches, along with a random mask.
-    Yields: (x_patches, coords, mask, y)
-    """
-    def __init__(self, base_dataset: EEGDataset, patch_len: int = 200, mask_ratio: float = 0.5):
-        self.base_dataset = base_dataset
-        self.patch_len = patch_len
-        self.mask_ratio = mask_ratio
-        
-        # Determine patches per trial
-        sample_x, _ = self.base_dataset[0]
-        self.total_len = sample_x.shape[-1]
-        self.patches_per_trial = self.total_len // patch_len
-        self.num_channels = sample_x.shape[0]
-        
-        # Pre-convert coords to tensor
-        self.coords_tensor = torch.from_numpy(base_dataset.coords).float()
-        
-        print(f"Masked Pretrain Wrapper: {len(self.base_dataset)} trials, {self.patches_per_trial} patches/trial, Mask Ratio: {mask_ratio}")
-
-    def __len__(self):
-        return len(self.base_dataset)
-
-    def __getitem__(self, index):
-        x, y = self.base_dataset[index] # (C, T)
-        
-        # Ensure x is a tensor
-        if not torch.is_tensor(x):
-            x = torch.from_numpy(x).float()
-            
-        # Reshape into patches: (C, P, T_patch)
-        x_patches = x.view(self.num_channels, self.patches_per_trial, self.patch_len)
-        
-        # Generate a Single Random Mask
-        num_tokens = self.num_channels * self.patches_per_trial
-        
-        # Time Indices for each patch: (P,) -> 0, 1, 2, ..., P-1
-        time_indices = torch.arange(self.patches_per_trial, dtype=torch.long)
-        
-        # Shuffle indices to select masked portion
-        num_masked = int(num_tokens * self.mask_ratio)
         indices = torch.randperm(num_tokens)
         masked_indices = indices[:num_masked]
         
         mask = torch.zeros(num_tokens, dtype=torch.bool)
         mask[masked_indices] = True
+        return mask
+
+class BlockMaskingStrategy(BaseMaskingStrategy):
+    """
+    Masks entire channels or entire temporal patches.
+    Mimics sensor loss or device disconnects.
+    """
+    def __init__(self, row_prob: float = 0.5, col_prob: float = 0.5):
+        self.row_prob = row_prob
+        self.col_prob = col_prob
+
+    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
+        mask = torch.zeros((num_channels, num_patches), dtype=torch.bool)
+        total_tokens = num_channels * num_patches
+        target_total = int(total_tokens * mask_ratio)
         
-        return x_patches, self.coords_tensor, mask, time_indices, y
+        # Calculate target budgets for each block type independently
+        # Row tokens: tokens assigned to full-channel masking
+        target_row_tokens = target_total * self.row_prob
+        target_col_tokens = target_total * self.col_prob
+        
+        # 1. Row Masking (Channel Loss)
+        num_rows = int(np.round(target_row_tokens / num_patches))
+        num_rows = min(num_rows, num_channels)
+        if num_rows > 0:
+            rows = torch.randperm(num_channels)[:num_rows]
+            mask[rows, :] = True
+            
+        # 2. Column Masking (Disconnect)
+        num_cols = int(np.round(target_col_tokens / num_channels))
+        num_cols = min(num_cols, num_patches)
+        if num_cols > 0:
+            cols = torch.randperm(num_patches)[:num_cols]
+            mask[:, cols] = True
+            
+        current_masked = mask.sum().item()
+
+        # 3. Fill remaining budget with random tokens
+        if current_masked < target_total:
+            remaining = target_total - current_masked
+            flat_mask = mask.flatten()
+            unmasked_indices = torch.where(~flat_mask)[0]
+            if len(unmasked_indices) > 0:
+                to_mask = unmasked_indices[torch.randperm(len(unmasked_indices))[:remaining]]
+                flat_mask[to_mask] = True
+                mask = flat_mask.reshape(num_channels, num_patches)
+        
+        # 4. Optional: If we significantly exceeded target_total due to block overlap/size,
+        # we can leave it (block masking is often slightly more than random).
+        # But here we just return the union.
+
+        return mask.flatten()
+
+# --- Base Dataset ---
+
+class EEGDataset(Dataset):
+    """
+    Universal EEG Dataset Wrapper.
+    Handles loading from multiple subjects and precomputing FFTs.
+    """
+    def __init__(
+        self, 
+        config: Dict,
+        loading_tasks: List[Dict[str, Any]], 
+        desired_channels: List[str], 
+        fft_params: Optional[Dict] = None
+    ):
+        self.config = config
+        self.channel_names = desired_channels
+        self.Nc = len(desired_channels)
+
+        self.all_data = []
+        self.all_labels = []
+        self.all_subject_ids = []
+        self.all_dataset_names = []
+        self.all_coords = [] # List of (Nc, 3) tensors, one per subject/task
+        
+        # Determine target length
+        model_type = config.get('training_params', {}).get('model_type', 'AttnVQ')
+        preprocess_params = config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
+        self.target_T = preprocess_params.get('trial_length_to_use', None)
+
+        print(f"Loading {len(loading_tasks)} subject-dataset tasks...")
+        for task in loading_tasks:
+            try:
+                ds_name = task.get('dataset_name', 'Unknown')
+                subject_id = task['subject_id']
+                # print(f"  [Task] Loading Subject {subject_id} from {ds_name}...")
+                loader_cls = task['loader_class']
+                transform = task['transform']
+                ds_config = task['dataset_config']
+                
+                # Map channel names: get indices in dataset and their positions in desired_channels
+                ds_indices, target_pos = self._map_channels_v2(desired_channels, ds_config['data_metadata']['channels'])
+
+                loader = loader_cls(
+                    config=ds_config,
+                    subject_id=subject_id, 
+                    desired_channel_indices=ds_indices
+                )
+                subject_data = loader.get_subject_data()
+                
+                if subject_data:
+                    raw_data = torch.from_numpy(subject_data['data'])
+                    num_trials, _, num_time = raw_data.shape
+                    
+                    # Create zero-padded tensor for consistent channel count
+                    padded_data = torch.zeros((num_trials, self.Nc, num_time), dtype=torch.float32)
+                    padded_data[:, target_pos, :] = raw_data
+                    
+                    # Apply dataset-specific transform
+                    if transform is not None:
+                        processed_trials = []
+                        for i in range(len(padded_data)):
+                            x_proc = transform(padded_data[i])
+                            processed_trials.append(x_proc)
+                        padded_data = torch.stack(processed_trials)
+                    
+                    self.all_data.append(padded_data)
+                    self.all_labels.append(torch.from_numpy(subject_data['labels']))
+                    self.all_subject_ids.append(torch.full((len(subject_data['labels']),), subject_id, dtype=torch.long))
+                    self.all_dataset_names.extend([ds_name] * len(subject_data['labels']))
+                    
+                    # Store task-specific coords (padded to match self.Nc)
+                    task_coords = torch.zeros((self.Nc, 3), dtype=torch.float32)
+                    task_coords[target_pos] = torch.from_numpy(subject_data['coords'])
+                    self.all_coords.append(task_coords)
+                    
+            except Exception as e:
+                print(f"Failed to load Task (Subject {task.get('subject_id')}): {e}")
+
+        if not self.all_data:
+            raise RuntimeError("No datasets were loaded successfully.")
+
+        # Handle varying temporal lengths by padding to max_T
+        max_T = max(d.shape[-1] for d in self.all_data)
+        standardized_data = []
+        for d in self.all_data:
+            if d.shape[-1] < max_T:
+                padding = torch.zeros((d.shape[0], d.shape[1], max_T - d.shape[-1]), dtype=d.dtype)
+                d = torch.cat([d, padding], dim=-1)
+            standardized_data.append(d)
+
+        self.data = torch.cat(standardized_data)
+        self.labels = torch.cat(self.all_labels)
+        self.subject_data = torch.cat(self.all_subject_ids)
+        self.dataset_names = self.all_dataset_names
+        
+        # Track which trial uses which coordinate set
+        self.trial_to_coords_idx = []
+        for i, d in enumerate(self.all_data):
+            self.trial_to_coords_idx.extend([i] * d.shape[0])
+
+        print(f"All trials loaded and standardized to length {max_T}. Total trials: {len(self.data)}. Data shape: {self.data.shape}")
+
+        # Precompute FFT if requested
+        self.fft_data = None
+        if fft_params:
+            self.precompute_fft(fft_params)
+
+    def _map_channels_v2(self, desired_channels: List[str], channel_config: Dict) -> Tuple[List[int], List[int]]:
+        """Returns (indices_in_dataset, positions_in_desired)"""
+        name_to_index = {}
+        for key, info in channel_config.items():
+            if 'label' in info:
+                name_to_index[info['label'].upper()] = int(key) - 1
+        
+        ds_indices = []
+        target_pos = []
+        for i, name in enumerate(desired_channels):
+            if name.upper() in name_to_index:
+                ds_indices.append(name_to_index[name.upper()])
+                target_pos.append(i)
+        return ds_indices, target_pos
+
+    def precompute_fft(self, fft_params: Dict):
+        """
+        Precomputes FFT for the entire stacked dataset at once.
+        """
+        if not fft_params.get('enabled', False):
+            self.fft_data = None
+            return
+
+        print("Precomputing FFTs...")
+        n_fft = fft_params.get('n_fft', 200)
+        norm = fft_params.get('norm', 'ortho')
+        patch_len = fft_params.get('patch_len', None)
+
+        if patch_len:
+            N, C, T = self.data.shape
+            num_patches = T // patch_len
+            x_patched = self.data[:, :, :num_patches * patch_len].view(N, C, num_patches, patch_len)
+            self.fft_data = torch.fft.rfft(x_patched, n=n_fft, dim=-1, norm=norm)
+        else:
+            self.fft_data = torch.fft.rfft(self.data, n=n_fft, dim=-1, norm=norm)
+
+    def __getitem__(self, index):
+        return self.data[index], self.labels[index]
+
+    def __len__(self):
+        return len(self.data)
+
+# --- Wrappers ---
+
+class TokenizerDataset(Dataset):
+    """
+    Wraps EEGDataset to yield trials structured for AttnVQ.
+    Yields: (x, coords, time_indices, label, x_fft)
+    x: [C, N, L]
+    coords: [C, 3]
+    time_indices: [N]
+    x_fft: [C, N, F]
+    """
+    def __init__(self, base_dataset: EEGDataset, patch_len: Optional[int] = None):
+        self.base_dataset = base_dataset
+        
+        if patch_len is None:
+            model_type = base_dataset.config.get('training_params', {}).get('model_type', 'AttnVQ')
+            preprocess_params = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
+            patch_len = preprocess_params.get('patch_length', 200)
+            
+        self.patch_len = patch_len
+        
+        # Calculate N based on standardized data length
+        _, _, total_T = self.base_dataset.data.shape
+        self.num_patches = total_T // self.patch_len
+        
+        print(f"Initializing Tokenizer Dataset: {len(self.base_dataset)} trials, {self.num_patches} patches per trial.")
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, index):
+        x, label = self.base_dataset[index]
+        C, T = x.shape
+        N = self.num_patches
+        L = self.patch_len
+        
+        # Reshape to [C, N, L]
+        x_reshaped = x[:, :N*L].reshape(C, N, L)
+        
+        # Coordinates: [C, 3]
+        coords_idx = self.base_dataset.trial_to_coords_idx[index]
+        coords = self.base_dataset.all_coords[coords_idx]
+        
+        # Time indices: [N]
+        time_indices = torch.arange(N, dtype=torch.long)
+        
+        # FFT data: [C, N, F]
+        x_fft = torch.empty(0)
+        if self.base_dataset.fft_data is not None:
+            x_fft = self.base_dataset.fft_data[index]
+            
+        return x_reshaped, coords, time_indices, label, x_fft
+
+class MaskedPretrainDataset(Dataset):
+    """
+    Wraps EEGDataset for Masked Pretraining.
+    Yields: (x_patches, coords, mask, time_indices, y, [fft_patches])
+    """
+    def __init__(
+        self, 
+        base_dataset: EEGDataset, 
+        patch_len: Optional[int] = None, 
+        mask_ratio: float = 0.5,
+        masking_strategy: Optional[BaseMaskingStrategy] = None
+    ):
+        self.base_dataset = base_dataset
+        
+        if patch_len is None:
+            model_type = base_dataset.config.get('training_params', {}).get('model_type', 'AttnVQ')
+            preprocess_params = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
+            patch_len = preprocess_params.get('patch_length', 200)
+            
+        self.patch_len = patch_len
+        self.mask_ratio = mask_ratio
+        self.masking_strategy = masking_strategy or RandomMaskingStrategy()
+        
+        ds_patch_counts = {name: 0 for name in set(self.base_dataset.dataset_names)}
+        total_patches = 0
+        for i in range(len(self.base_dataset)):
+            x, _ = self.base_dataset[i]
+            p = x.shape[-1] // self.patch_len
+            total_patches += p
+            ds_name = self.base_dataset.dataset_names[i]
+            ds_patch_counts[ds_name] += p
+
+        print(f"\n--- Masked Pretrain Dataset Summary ---")
+        print(f"Grand Total: {len(self.base_dataset)} trials -> {total_patches} patches total")
+        print(f"Mask Ratio: {mask_ratio}")
+        print(f"---------------------------------------\n")
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, index):
+        x, y = self.base_dataset[index]
+        C, T = x.shape
+        num_patches = T // self.patch_len
+        
+        # Reshape into patches: (C, P, T_patch)
+        x_patches = x[:, :num_patches * self.patch_len].reshape(
+            C, num_patches, self.patch_len
+        )
+        
+        # Generate Mask
+        mask = self.masking_strategy.generate_mask(
+            C, num_patches, self.mask_ratio
+        )
+        
+        time_indices = torch.arange(num_patches, dtype=torch.long)
+        
+        # Handle FFT (No more messy list checks)
+        fft_patches = torch.empty(0)
+        if self.base_dataset.fft_data is not None:
+             fft_patches = self.base_dataset.fft_data[index]
+        
+        # Get coordinates: (C, 3)
+        coords_idx = self.base_dataset.trial_to_coords_idx[index]
+        coords = self.base_dataset.all_coords[coords_idx]
+        
+        return x_patches, coords, mask, time_indices, y, fft_patches
+
+# --- Factory ---
+
+def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None, mode: str = 'tokenizer') -> Dataset:
+    dataset_params = config_dict.get('dataset_params', {})
+    model_type = config_dict.get('training_params', {}).get('model_type', 'AttnVQ')
+    model_params = config_dict.get('model_params', {}).get(model_type, {})
+    preprocess_params = model_params.get('preprocess', {})
+    params = model_params.get('tokenizer', {}) # Get model-specific params
+    patch_len = preprocess_params.get('patch_length', 200)
+    
+    loading_tasks = []
+    all_channels_found = set()
+
+    for ds_name, ds_args in dataset_params.items():
+        data_root = ds_args['dataset_path']
+        subject_list = ds_args['subject_to_use']
+        
+        meta_path = os.path.join(data_root, 'metadata.json')
+        with open(meta_path, 'r') as f:
+            metadata = json.load(f)
+        
+        data_metadata = metadata.get('data_metadata', {})
+        data_structure = metadata.get('data_structure', {})
+        fs_orig = data_metadata.get('Sample_Frequency')
+        
+        if data_metadata.get('dataset_name') == 'BETA':
+            loader_cls = BETALoader
+        elif data_metadata.get('dataset_name') == 'Dial':
+            loader_cls = DialLoader
+        elif data_metadata.get('dataset_name') == 'BCICIV':
+            loader_cls = BCICIVLoader
+        elif data_metadata.get('dataset_name') == 'Inria':
+            loader_cls = InriaLoader
+        else:
+            if 'BETA' in ds_name: loader_cls = BETALoader
+            elif 'BCICIV' in ds_name: loader_cls = BCICIVLoader
+            elif 'Inria' in ds_name: loader_cls = InriaLoader
+            else: loader_cls = DialLoader
+
+        if transform is None:
+            ds_transform = build_preprocessing_from_config(config_dict, fs_orig=fs_orig)
+        else:
+            ds_transform = transform
+
+        loader_config = {
+            'dataset_params': ds_args,
+            'data_metadata': data_metadata,
+            'data_structure': data_structure
+        }
+
+        for sub_id in subject_list:
+            loading_tasks.append({
+                'dataset_name': ds_name,
+                'subject_id': sub_id,
+                'loader_class': loader_cls,
+                'transform': ds_transform,
+                'dataset_config': loader_config
+            })
+            
+        for ch_info in data_metadata.get('channels', {}).values():
+            all_channels_found.add(ch_info['label'])
+
+    first_ds_key = list(dataset_params.keys())[0]
+    target_channels = dataset_params[first_ds_key].get('channels_to_use', ["all"])
+    
+    if target_channels == "all" or target_channels == ["all"]:
+         if not loading_tasks:
+             raise RuntimeError(f"No subjects found for dataset splitting. Check your dataset_path and subject_to_use configuration.")
+         first_meta = loading_tasks[0]['dataset_config']['data_metadata']
+         channel_dict = first_meta.get('channels', {})
+         sorted_keys = sorted(channel_dict.keys(), key=lambda k: int(k))
+         target_channels = [channel_dict[k]['label'] for k in sorted_keys]
+
+    fft_params = None
+    if mode in ['tokenizer', 'pretrain']:
+        # Align n_fft with model calculation: fs / freq_resolution
+        freq_res = params.get('freq_resolution', 1.0)
+        target_fs = preprocess_params.get('target_freq', 200.0)
+        n_fft = int(target_fs / freq_res)
+        
+        fft_params = {
+            'patch_len': patch_len,
+            'n_fft': n_fft,
+            'norm': 'ortho',
+            'enabled': preprocess_params.get('precompute_fft', False)
+        }
+
+    base_dataset = EEGDataset(
+        config=config_dict,
+        loading_tasks=loading_tasks,
+        desired_channels=target_channels,
+        fft_params=fft_params
+    )
+    
+    if mode == 'base':
+        return base_dataset
+    elif mode == 'tokenizer':
+        return TokenizerDataset(base_dataset, patch_len=patch_len)
+    elif mode == 'pretrain':
+        mask_ratio = preprocess_params.get('mask_ratio', 0.5)
+        strategy_name = preprocess_params.get('masking_strategy', 'random')
+        
+        if strategy_name == 'block':
+            strategy = BlockMaskingStrategy(
+                row_prob=preprocess_params.get('mask_row_prob', 0.5),
+                col_prob=preprocess_params.get('mask_col_prob', 0.5)
+            )
+        else:
+            strategy = RandomMaskingStrategy()
+            
+        return MaskedPretrainDataset(
+            base_dataset, 
+            patch_len=patch_len, 
+            mask_ratio=mask_ratio,
+            masking_strategy=strategy
+        )
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
