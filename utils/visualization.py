@@ -94,7 +94,7 @@ def _setup_mne_info(dataset, fs):
     return info
 # --- Main Visualization Functions ---
 
-def visualize_masking(pretrain_dataset, subject_id, output_dir='output/visualization'):
+def visualize_masking(pretrain_dataset, subject_id, output_dir='output/visualization', trial_idx=None):
     """
     Visualizes the masking strategy using a grid of individual patch plots.
     Rows = All Channels, Cols = Patches.
@@ -105,7 +105,10 @@ def visualize_masking(pretrain_dataset, subject_id, output_dir='output/visualiza
     indices = _get_subject_indices(pretrain_dataset.base_dataset, subject_id)
     if len(indices) == 0: return
     
-    idx = random.choice(indices).item()
+    if trial_idx is not None:
+        idx = indices[trial_idx % len(indices)].item()
+    else:
+        idx = random.choice(indices).item()
     x_patches, coords, mask, time_indices, y, _ = pretrain_dataset[idx]
     
     # Get coordinates: (C, 3)
@@ -157,7 +160,7 @@ def visualize_masking(pretrain_dataset, subject_id, output_dir='output/visualiza
     plt.close(fig)
     print(f"Saved: {save_path}")
 
-def visualize_raw_eeg(dataset, subject_id, output_dir='output/visualization', fs=None, patch_len_pts=None):
+def visualize_raw_eeg(dataset, subject_id, output_dir='output/visualization', fs=None, patch_len_pts=None, trial_idx=None):
     """
     Plots a grid of patches for Raw EEG. Rows=Channels, Cols=Patches.
     """
@@ -174,8 +177,11 @@ def visualize_raw_eeg(dataset, subject_id, output_dir='output/visualization', fs
     indices = _get_subject_indices(dataset, subject_id)
     if len(indices) == 0: return
 
-    rand_idx = random.choice(indices).item()
-    x_raw, label = dataset[rand_idx]
+    if trial_idx is not None:
+        idx = indices[trial_idx % len(indices)].item()
+    else:
+        idx = random.choice(indices).item()
+    x_raw, label = dataset[idx]
     if isinstance(x_raw, torch.Tensor): x_raw = x_raw.numpy()
     
     C, T = x_raw.shape
@@ -206,7 +212,7 @@ def visualize_raw_eeg(dataset, subject_id, output_dir='output/visualization', fs
     plt.savefig(save_path, dpi=150); plt.close(fig)
     print(f"Saved: {save_path}")
 
-def visualize_amplitude_phase(dataset, subject_id, output_dir='output/visualization', patch_len_pts=None):
+def visualize_amplitude_phase(dataset, subject_id, output_dir='output/visualization', patch_len_pts=None, trial_idx=None):
     """
     Plots a grid showing Amplitude (rows) and Phase (optional side-by-side or separate).
     We'll do Amplitude only for the grid to keep it readable, or side-by-side columns.
@@ -222,8 +228,11 @@ def visualize_amplitude_phase(dataset, subject_id, output_dir='output/visualizat
     indices = _get_subject_indices(dataset, subject_id)
     if len(indices) == 0: return
 
-    rand_idx = random.choice(indices).item()
-    x_raw, label = dataset[rand_idx]
+    if trial_idx is not None:
+        idx = indices[trial_idx % len(indices)].item()
+    else:
+        idx = random.choice(indices).item()
+    x_raw, label = dataset[idx]
     if isinstance(x_raw, np.ndarray): x_raw = torch.from_numpy(x_raw)
     
     C, T = x_raw.shape
@@ -270,7 +279,7 @@ def visualize_amplitude_phase(dataset, subject_id, output_dir='output/visualizat
     plt.savefig(save_path, dpi=150); plt.close(fig)
     print(f"Saved: {save_path}")
 
-def visualize_real_imaginary(dataset, subject_id, output_dir='output/visualization', patch_len_pts=None):
+def visualize_real_imaginary(dataset, subject_id, output_dir='output/visualization', patch_len_pts=None, trial_idx=None):
     """
     Plots a grid: Cols = [P0 Real, P0 Imag, P1 Real, P1 Imag, ...]
     """
@@ -284,8 +293,11 @@ def visualize_real_imaginary(dataset, subject_id, output_dir='output/visualizati
     indices = _get_subject_indices(dataset, subject_id)
     if len(indices) == 0: return
 
-    rand_idx = random.choice(indices).item()
-    x_raw, label = dataset[rand_idx]
+    if trial_idx is not None:
+        idx = indices[trial_idx % len(indices)].item()
+    else:
+        idx = random.choice(indices).item()
+    x_raw, label = dataset[idx]
     if isinstance(x_raw, np.ndarray): x_raw = torch.from_numpy(x_raw)
     
     C, T = x_raw.shape
@@ -406,8 +418,17 @@ def visualize_psd_grid(dataset, subject_id, config, output_dir='output/visualiza
             vmin=vmin, vmax=vmax
         )
         
-        target_hz = float(stim_map.get(str(int(label)), 0))
-        title = f"Class {label}: {target_hz}Hz" if target_hz > 0 else f"Class {label}"
+        stim_val = stim_map.get(str(int(label)), 0)
+        try:
+            target_hz = float(stim_val)
+        except (ValueError, TypeError):
+            target_hz = 0
+            
+        if target_hz > 0:
+            title = f"Class {label}: {target_hz}Hz"
+        else:
+            title = f"Class {label}: {stim_val}" if stim_val else f"Class {label}"
+            
         ax.set_title(title, fontsize=10)
         
         if target_hz > 0 and f_start <= target_hz <= f_end:
@@ -473,12 +494,16 @@ def visualize_topo_grid(dataset, subject_id, config, output_dir='output/visualiz
     valid_labels = [] # Only labels with defined targets
     
     for label in unique_labels:
-        target_hz = float(stim_map.get(str(int(label)), 0))
+        stim_val = stim_map.get(str(int(label)), 0)
+        try:
+            target_hz = float(stim_val)
+        except (ValueError, TypeError):
+            target_hz = 0
         
         # If no target frequency (Motor Imagery/Generic), use Alpha Band (8-13Hz)
         if target_hz <= 0:
             band_min, band_max = 8.0, 13.0
-            title = f"Class {int(label)} (8-13Hz)"
+            title = f"Class {int(label)}: {stim_val} (8-13Hz)" if stim_val else f"Class {int(label)} (8-13Hz)"
         else:
             band_min, band_max = target_hz - 0.2, target_hz + 0.2
             title = f"{target_hz} Hz"
@@ -536,7 +561,7 @@ def visualize_topo_grid(dataset, subject_id, config, output_dir='output/visualiz
     plt.close(fig)
     print(f"Saved: {save_path}")
 
-def visualize_band_time_series(dataset, subject_id, output_dir='output/visualization', fs=None, channel_label='Oz'):
+def visualize_band_time_series(dataset, subject_id, output_dir='output/visualization', fs=None, channel_label='Oz', trial_idx=None):
     """
     Plots time-domain signals for Raw, Delta, Theta, Alpha, Beta, Gamma for a specific channel.
     """
@@ -550,9 +575,12 @@ def visualize_band_time_series(dataset, subject_id, output_dir='output/visualiza
     indices = _get_subject_indices(dataset, subject_id)
     if len(indices) == 0: return
 
-    # Random Trial
-    rand_idx = random.choice(indices).item()
-    x_raw, label = dataset[rand_idx] # (C, T)
+    # Trial Selection
+    if trial_idx is not None:
+        idx = indices[trial_idx % len(indices)].item()
+    else:
+        idx = random.choice(indices).item()
+    x_raw, label = dataset[idx] # (C, T)
     if isinstance(x_raw, torch.Tensor): x_raw = x_raw.numpy()
 
     # Find Channel Index

@@ -344,3 +344,101 @@ class InriaLoader(BaseSubjectLoader):
                     
         if not trials: return None, None
         return np.stack(trials), np.array(final_y)
+
+class BCI2000Loader(BaseSubjectLoader):
+    """
+    Loader for BCI2000 (PhysioNet MI) dataset.
+    Loads from EDF files and segments based on T1/T2 annotations.
+    """
+    def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
+        super().__init__(config, subject_id, desired_channel_indices)
+        self.run_paths = self._get_run_paths()
+
+    def _get_run_paths(self):
+        subject_str = str(self.subject_id)
+        structure = self.config['data_structure']
+        if subject_str not in structure:
+            raise ValueError(f"Subject {self.subject_id} not found in BCI2000 data structure.")
+        
+        sub_info = structure[subject_str]
+        sub_folder = sub_info['folder']
+        return [os.path.join(self.data_root, sub_folder, r) for r in sub_info['runs']]
+
+    def _load_coords(self) -> np.ndarray:
+        channel_config = self.data_metadata.get('channels', {})
+        coords_list = []
+        sorted_keys = sorted(channel_config.keys(), key=lambda k: int(k))
+        
+        for idx in self.channel_indices:
+            if idx < len(sorted_keys):
+                meta_key = sorted_keys[idx]
+                label = channel_config[meta_key]['label']
+            else:
+                label = "Unknown"
+                meta_key = None
+
+            mne_coords = self._get_standard_coords(label)
+            if mne_coords is not None:
+                coords_list.append(mne_coords)
+                continue
+
+            if meta_key and meta_key in channel_config and 'coordinates' in channel_config[meta_key]:
+                v = channel_config[meta_key]['coordinates']
+                theta = np.deg2rad(v['polar_angle_deg'])
+                r = v['polar_radius']
+                x = r * np.sin(theta)
+                y = r * np.cos(theta)
+                coords_list.append([x, y, 0.0])
+            else:
+                coords_list.append([0.0, 0.0, 0.0])
+                
+        return np.array(coords_list, dtype=np.float32)
+
+    def _load_data(self):
+        import mne
+        all_trials = []
+        all_labels = []
+        
+        trial_len_pts = int(self.standard_window * self.sample_freq)
+        
+        for run_path in self.run_paths:
+            if not os.path.exists(run_path): continue
+            
+            try:
+                raw = mne.io.read_raw_edf(run_path, preload=True, verbose=False)
+                # Ensure correct SFreq by resampling if necessary, but BCI2000 is usually consistent
+                if raw.info['sfreq'] != self.sample_freq:
+                    raw.resample(self.sample_freq)
+                
+                events, event_id = mne.events_from_annotations(raw, verbose=False)
+                # Physionet MI event IDs: T1=2, T2=3 usually, but events_from_annotations might vary
+                # We look for 'T1' and 'T2'
+                rev_event_id = {v: k for k, v in event_id.items()}
+                
+                # We want T1 (class 0) and T2 (class 1)
+                t1_id = event_id.get('T1')
+                t2_id = event_id.get('T2')
+                
+                data_np = raw.get_data(picks=self.channel_indices) # (Channels, Time)
+                
+                for event in events:
+                    start_pts = event[0]
+                    ev_type = event[2]
+                    
+                    label = -1
+                    if ev_type == t1_id: label = 0
+                    elif ev_type == t2_id: label = 1
+                    
+                    if label != -1:
+                        end_pts = start_pts + trial_len_pts
+                        if end_pts <= data_np.shape[1]:
+                            trial = data_np[:, start_pts:end_pts]
+                            all_trials.append(trial)
+                            all_labels.append(label)
+            except Exception as e:
+                print(f"  [Warning] Error loading {run_path}: {e}")
+                
+        if not all_trials:
+            return None, None
+            
+        return np.stack(all_trials), np.array(all_labels)

@@ -74,9 +74,44 @@
     }
   },
   "dataset_params": {
-    "BETA": {
-      "dataset_path": "datas/BETA",
-      "subject_to_use": [1, 2],
+    "BETA_3s": {
+      "dataset_path": "datas/BETA_3s",
+      "subject_to_use": ["all"],
+      "channels_to_use": ["all"]
+    },
+    "BETA_4s": {
+      "dataset_path": "datas/BETA_4s",
+      "subject_to_use": ["all"],
+      "channels_to_use": ["all"]
+    },
+    "Dial": {
+      "dataset_path": "datas/Dial",
+      "subject_to_use": ["all"],
+      "channels_to_use": ["all"]
+    },
+    "BCICIV_Train": {
+      "dataset_path": "datas/BCICIV_Train",
+      "subject_to_use": ["all"],
+      "channels_to_use": ["all"]
+    },
+    "BCICIV_Val": {
+      "dataset_path": "datas/BCICIV_Val",
+      "subject_to_use": ["all"],
+      "channels_to_use": ["all"]
+    },
+    "Inria_Train": {
+      "dataset_path": "datas/Inria_Train",
+      "subject_to_use": ["all"],
+      "channels_to_use": ["all"]
+    },
+    "Inria_Val": {
+      "dataset_path": "datas/Inria_Val",
+      "subject_to_use": ["all"],
+      "channels_to_use": ["all"]
+    },
+    "BCI2000": {
+      "dataset_path": "datas/BCI2000",
+      "subject_to_use": ["all"],
       "channels_to_use": ["all"]
     }
   },

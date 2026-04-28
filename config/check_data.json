@@ -1,0 +1,69 @@
+{
+  "model_params": {
+    "AttnVQ": {
+      "preprocess": {
+        "target_freq": 200,
+        "patch_length": 50,
+        "l_freq": 0.2,
+        "h_freq": 75.0,
+        "normalization_type": "zscore",
+        "masking_strategy": "block",
+        "mask_ratio": 0.5,
+        "mask_row_prob": 0.4,
+        "mask_col_prob": 0.4
+      }
+    }
+  },
+  "dataset_params": {
+    "BETA_3s": {
+      "dataset_path": "datas/BETA_3s",
+      "subject_to_use": [1],
+      "channels_to_use": ["all"]
+    },
+    "BETA_4s": {
+      "dataset_path": "datas/BETA_4s",
+      "subject_to_use": [16],
+      "channels_to_use": ["all"]
+    },
+    "BCI2000": {
+      "dataset_path": "datas/BCI2000",
+      "subject_to_use": [1],
+      "channels_to_use": ["all"]
+    },
+    "Dial": {
+      "dataset_path": "datas/Dial",
+      "subject_to_use": [1],
+      "channels_to_use": ["all"]
+    },
+    "BCICIV_Train": {
+      "dataset_path": "datas/BCICIV_Train",
+      "subject_to_use": [1],
+      "channels_to_use": ["all"]
+    },
+    "BCICIV_Val": {
+      "dataset_path": "datas/BCICIV_Val",
+      "subject_to_use": [1],
+      "channels_to_use": ["all"]
+    },
+    "Inria_Train": {
+      "dataset_path": "datas/Inria_Train",
+      "subject_to_use": [2],
+      "channels_to_use": ["all"]
+    },
+    "Inria_Val": {
+      "dataset_path": "datas/Inria_Val",
+      "subject_to_use": [1],
+      "channels_to_use": ["all"]
+    }
+  },
+  "training_params": {
+    "model_type": "AttnVQ",
+    "model_name": "data_check_v01"
+  },
+  "plot_selection": {
+    "raw": true,
+    "masking": true,
+    "psd": true,
+    "topo": true
+  }
+}

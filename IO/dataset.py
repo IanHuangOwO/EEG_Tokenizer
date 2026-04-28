@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 from typing import List, Dict, Optional, Tuple, Callable, Any
 from abc import ABC, abstractmethod
 
-from .loader import BETALoader, DialLoader, BCICIVLoader, InriaLoader
+from .loader import BETALoader, DialLoader, BCICIVLoader, InriaLoader, BCI2000Loader
 from model.factory import build_preprocessing_from_config
 
 # --- Masking Strategies ---
@@ -365,7 +365,7 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         data_structure = metadata.get('data_structure', {})
         fs_orig = data_metadata.get('Sample_Frequency')
         
-        if data_metadata.get('dataset_name') == 'BETA':
+        if data_metadata.get('dataset_name') == 'BETA' or data_metadata.get('dataset_name') == 'BETA_3s' or data_metadata.get('dataset_name') == 'BETA_4s':
             loader_cls = BETALoader
         elif data_metadata.get('dataset_name') == 'Dial':
             loader_cls = DialLoader
@@ -373,10 +373,13 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
             loader_cls = BCICIVLoader
         elif data_metadata.get('dataset_name') == 'Inria':
             loader_cls = InriaLoader
+        elif data_metadata.get('dataset_name') == 'BCI2000':
+            loader_cls = BCI2000Loader
         else:
             if 'BETA' in ds_name: loader_cls = BETALoader
             elif 'BCICIV' in ds_name: loader_cls = BCICIVLoader
             elif 'Inria' in ds_name: loader_cls = InriaLoader
+            elif 'BCI2000' in ds_name: loader_cls = BCI2000Loader
             else: loader_cls = DialLoader
 
         if transform is None:
