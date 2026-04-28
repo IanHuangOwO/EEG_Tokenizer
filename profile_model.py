@@ -2,22 +2,14 @@ import torch
 import torch.nn as nn
 import time
 import json
-import os
 import logging
 import warnings
-import pandas as pd
 from collections import defaultdict
 from model.factory import build_model_from_config
 
 # Suppress warnings
 logging.getLogger("fvcore").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", category=UserWarning)
-
-try:
-    from fvcore.nn import FlopCountAnalysis, flop_count_table
-    HAS_FVCORE = True
-except ImportError:
-    HAS_FVCORE = False
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -86,14 +78,15 @@ def profile_model():
     params = config['model_params'][model_type]['tokenizer']
     preprocess = config['model_params'][model_type]['preprocess']
     
-    model = build_model_from_config(config).to(device)
-    model.eval()
-    
     # 2. Dummy Input - Dynamically extracted from config
     B = 16
     C = 64
-    N = 64
-    L = preprocess.get('patch_length', 50) # Use the same length used during dataset build
+    L = preprocess.get('patch_length', 25) 
+    N = 800 // L  # 4 seconds @ 200Hz = 800 samples
+    n_fft_trial = N * L
+    
+    model = build_model_from_config(config, n_fft_trial=n_fft_trial).to(device)
+    model.eval()
     
     x = torch.randn(B, C, N, L).to(device)
     coords = torch.randn(B, C, 3).to(device)

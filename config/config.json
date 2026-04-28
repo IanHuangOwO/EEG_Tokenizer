@@ -4,7 +4,7 @@
       "preprocess": {
         "target_freq": 200,
         "patch_length": 25,
-        "l_freq": 0.1,
+        "l_freq": 0.2,
         "h_freq": 75.0,
         "normalization_type": "zscore",
         "masking_strategy": "block",
@@ -15,50 +15,50 @@
       "tokenizer": {
         "in_chans": 1,
         "in_scales": 25,
-        "enc_depth": 6,
+        "enc_depth": 8,
         "enc_heads": 8,
         "enc_mlp_ratio": 4.0,
         "embed_dim": 128,
-        "merge_factors": [1, 2, 1, 2, 1, 2],
         "freq_resolution": 0.2,
-        "min_freq": 0,
-        "max_freq": 75.0,
         "decoder_heads_config": [
           {
-            "stage_idx": 1,
+            "stage_idx": 0,
             "freq_range": [30.0, 75.0],
-            "vq_head_num": 16,
-            "vq_head_vocab_size": 64,
+            "vq_head_num": 128,
+            "vq_head_vocab_size": 16,
             "vq_num_discrete": 3,
-            "use_norm": true,
-            "use_gelu": true,
             "dropout": 0.05,
-            "upsample_mode": "nearest"
+            "loss_weight": 1.0
           },
           {
-            "stage_idx": 3,
-            "freq_range": [10.0, 30.0],
-            "vq_head_num": 16,
-            "vq_head_vocab_size": 64,
+            "stage_idx": 2,
+            "freq_range": [13.0, 30.0],
+            "vq_head_num": 128,
+            "vq_head_vocab_size": 16,
             "vq_num_discrete": 3,
-            "use_norm": true,
-            "use_gelu": true,
             "dropout": 0.05,
-            "upsample_mode": "linear"
+            "loss_weight": 1.0
           },
           {
-            "stage_idx": 5,
-            "freq_range": [0.0, 10.0],
-            "vq_head_num": 16,
-            "vq_head_vocab_size": 64,
+            "stage_idx": 4,
+            "freq_range": [4.0, 13.0],
+            "vq_head_num": 128,
+            "vq_head_vocab_size": 16,
             "vq_num_discrete": 3,
-            "use_norm": true,
-            "use_gelu": true,
             "dropout": 0.05,
-            "upsample_mode": "linear"
+            "loss_weight": 1.0
+          },
+          {
+            "stage_idx": 7,
+            "freq_range": [0.2, 4.0],
+            "vq_head_num": 128,
+            "vq_head_vocab_size": 16,
+            "vq_num_discrete": 3,
+            "dropout": 0.05,
+            "loss_weight": 1.0
           }
         ]
-      },
+        },
       "backbone": {
         "in_chans": 1,
         "in_scales": 25,
@@ -69,7 +69,6 @@
         "vq_head_num": 32,
         "vq_head_vocab_size": 16,
         "vq_num_discrete": 5,
-        "merge_factors": [1, 2, 1, 2, 1, 2],
         "spatial_heads": 8
       }
     }
@@ -77,7 +76,7 @@
   "dataset_params": {
     "BETA": {
       "dataset_path": "datas/BETA",
-      "subject_to_use": ["all"],
+      "subject_to_use": [1, 2],
       "channels_to_use": ["all"]
     }
   },
@@ -88,7 +87,7 @@
     "min_learning_rate": 1e-4,
     "epochs": 100,
     "warmup_epochs": 10,
-    "batch_size": 64,
+    "batch_size": 16,
     "weight_decay": 1e-4,
     "device": "cuda",
     "train_val_split": 0.9

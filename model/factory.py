@@ -6,20 +6,20 @@ from model.AttnVQ.modeling_backbone import AttnVQBackbone
 
 from model.AttnVQ.preprocessing import AttnVQProcessing
 
-def build_model_from_config(config, src_output_dir=None):
+def build_model_from_config(config, n_fft_trial=None, src_output_dir=None):
     """
     Builds the tokenizer model based on the provided configuration dictionary.
+    n_fft_trial: trial-level FFT size (num_patches * patch_len), computed from the dataset.
     Optionally copies the model source code to src_output_dir for reproducibility.
     """
     train_params = config['training_params']
     model_params = config['model_params']
     model_type = train_params.get('model_type', 'AttnVQ')
-    
-    # Preprocess params are now per-model
+
     preprocess_params = model_params[model_type].get('preprocess', {
         'target_freq': 200, 'l_freq': 0.1, 'h_freq': 80.0, 'normalization_type': 'zscore'
     })
-    
+
     if model_type == "AttnVQ":
         params = model_params['AttnVQ']['tokenizer']
         model = AttnVQTokenizer(
@@ -29,10 +29,7 @@ def build_model_from_config(config, src_output_dir=None):
             enc_heads=params['enc_heads'],
             enc_mlp_ratio=params.get('enc_mlp_ratio', 4.0),
             in_scales=params.get('in_scales', 25),
-            merge_factors=params.get('merge_factors', [1, 2, 2]),
-            freq_resolution=params.get('freq_resolution', 1.0),
-            min_freq=params.get('min_freq', 0.0),
-            max_freq=params.get('max_freq', 100.0),
+            n_fft_trial=n_fft_trial,
             fs=preprocess_params['target_freq'],
             decoder_heads_config=params.get('decoder_heads_config', None)
         )
@@ -70,7 +67,6 @@ def build_backbone_from_config(config, src_output_dir=None):
             vq_head_num=backbone_params.get('vq_head_num', tokenizer_params.get('vq_head_num', 16)),
             vq_head_vocab_size=backbone_params.get('vq_head_vocab_size', tokenizer_params.get('vq_head_vocab_size', 8)),
             vq_num_discrete=backbone_params.get('vq_num_discrete', tokenizer_params.get('vq_num_discrete', 5)),
-            merge_factors=backbone_params.get('merge_factors', tokenizer_params.get('merge_factors', [1, 2, 2])),
             spatial_heads=backbone_params.get('spatial_heads', 8)
             )
     else:

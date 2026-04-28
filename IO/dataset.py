@@ -186,10 +186,8 @@ class EEGDataset(Dataset):
 
         print(f"All trials loaded and standardized to length {max_T}. Total trials: {len(self.data)}. Data shape: {self.data.shape}")
 
-        # Precompute FFT if requested
-        self.fft_data = None
-        if fft_params:
-            self.precompute_fft(fft_params)
+        # Store FFT params for on-the-fly CPU computation
+        self.fft_params = fft_params
 
     def _map_channels_v2(self, desired_channels: List[str], channel_config: Dict) -> Tuple[List[int], List[int]]:
         """Returns (indices_in_dataset, positions_in_desired)"""
@@ -205,27 +203,6 @@ class EEGDataset(Dataset):
                 ds_indices.append(name_to_index[name.upper()])
                 target_pos.append(i)
         return ds_indices, target_pos
-
-    def precompute_fft(self, fft_params: Dict):
-        """
-        Precomputes FFT for the entire stacked dataset at once.
-        """
-        if not fft_params.get('enabled', False):
-            self.fft_data = None
-            return
-
-        print("Precomputing FFTs...")
-        n_fft = fft_params.get('n_fft', 200)
-        norm = fft_params.get('norm', 'ortho')
-        patch_len = fft_params.get('patch_len', None)
-
-        if patch_len:
-            N, C, T = self.data.shape
-            num_patches = T // patch_len
-            x_patched = self.data[:, :, :num_patches * patch_len].view(N, C, num_patches, patch_len)
-            self.fft_data = torch.fft.rfft(x_patched, n=n_fft, dim=-1, norm=norm)
-        else:
-            self.fft_data = torch.fft.rfft(self.data, n=n_fft, dim=-1, norm=norm)
 
     def __getitem__(self, index):
         return self.data[index], self.labels[index]
@@ -279,10 +256,16 @@ class TokenizerDataset(Dataset):
         # Time indices: [N]
         time_indices = torch.arange(N, dtype=torch.long)
         
-        # FFT data: [C, N, F]
-        x_fft = torch.empty(0)
-        if self.base_dataset.fft_data is not None:
-            x_fft = self.base_dataset.fft_data[index]
+        # Trial-level FFT: [C, n_fft//2+1] — one spectrum for the full trial
+        # n_fft comes from freq_resolution in config: n_fft = fs / freq_resolution
+        # If n_fft < T: truncates; if n_fft > T: zero-pads (both handled by rfft's n= arg)
+        if self.base_dataset.fft_params is not None:
+            n_fft = self.base_dataset.fft_params.get('n_fft')
+            norm = self.base_dataset.fft_params.get('norm', 'ortho')
+            x_trial = x_reshaped.reshape(C, -1)  # [C, T]
+            x_fft = torch.fft.rfft(x_trial, n=n_fft, dim=-1, norm=norm)
+        else:
+            x_fft = torch.empty(0)
             
         return x_reshaped, coords, time_indices, label, x_fft
 
@@ -343,10 +326,13 @@ class MaskedPretrainDataset(Dataset):
         
         time_indices = torch.arange(num_patches, dtype=torch.long)
         
-        # Handle FFT (No more messy list checks)
-        fft_patches = torch.empty(0)
-        if self.base_dataset.fft_data is not None:
-             fft_patches = self.base_dataset.fft_data[index]
+        # FFT data: [C, N, F] - Always compute on CPU on-the-fly
+        if self.base_dataset.fft_params is not None:
+            n_fft = self.base_dataset.fft_params.get('n_fft')
+            norm = self.base_dataset.fft_params.get('norm', 'ortho')
+            fft_patches = torch.fft.rfft(x_patches, n=n_fft, dim=-1, norm=norm)
+        else:
+            fft_patches = torch.empty(0)
         
         # Get coordinates: (C, 3)
         coords_idx = self.base_dataset.trial_to_coords_idx[index]

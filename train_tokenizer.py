@@ -12,6 +12,7 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from collections import defaultdict
 
 from IO.dataset import build_dataset_from_config
 from model.factory import build_model_from_config
@@ -40,49 +41,92 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}", 
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
     
-    running_metrics = torch.zeros(6, device=device) # loss, sub, recon, real, imag, temp_mse
+    running_metrics = torch.zeros(5, device=device) # loss, sub, real, imag, global_mse
+    logging_count = 0
     
     for batch_idx, batch in enumerate(pbar):
+        # Move to device
         x, coords, time_idx, _, x_fft = [t.to(device) if (t is not None and t.numel() > 0) else t for t in batch]
         optimizer.zero_grad()
         
-        # 🚀 AMP: Autocast forward pass
+        # 🚀 OPTIMIZATION: Only compute full loss metrics every 10 steps
+        is_logging_step = (batch_idx % 10 == 0)
+        
         with torch.amp.autocast(device_type='cuda'):
             p_real, p_imag, l_sub, _, _ = model(x, coords, time_idx)
-            l_total, l_real, l_imag, l_rec, l_sub_eval, l_mse = model.get_loss(x, p_real, p_imag, l_sub, x_fft=x_fft)
             
-        # 🚀 AMP: Scaled backward pass
+            # get_loss returns: [total, l_sub, real, imag, global_mse]
+            l_total, l_sub_eval, l_real, l_imag, l_mse = model.get_loss(x, p_real, p_imag, l_sub, x_fft=x_fft)
+            
         scaler.scale(l_total).backward()
         scaler.step(optimizer)
         scaler.update()
-
-        # Accumulate on GPU (No .item() sync)
-        with torch.no_grad():
-            running_metrics += torch.stack([l_total, l_sub_eval, l_rec, l_real, l_imag, l_mse])
+        
+        if is_logging_step:
+            # Accumulate on GPU
+            with torch.no_grad():
+                running_metrics += torch.stack([l_total, l_sub_eval, l_real, l_imag, l_mse])
+                logging_count += 1
             
-        if batch_idx % 5 == 0:
-            # Only sync every 5 steps for progress bar
-            m = running_metrics / (batch_idx + 1)
-            pbar.set_postfix({'L': f"{m[0]:.2f}", 'Spec': f"{m[2]:.4f}", 'MSE': f"{m[5]:.4f}"})
+            m = running_metrics / logging_count
+            pbar.set_postfix({
+                'L': f"{m[0]:.2f}", 
+                'MSE': f"{m[4]:.4f}",
+                'Sub': f"{m[1]:.2f}"
+            })
         
         last_batch = batch
     
-    # Sync once at end of epoch
-    N = len(data_loader)
-    m_final = (running_metrics / N).cpu().tolist()
-    metrics_keys = ["loss", "sub", "recon", "real", "imag", "temp_mse"]
+    # Final logging sync
+    m_final = (running_metrics / max(1, logging_count)).cpu().tolist()
+    metrics_keys = ["loss", "sub", "real", "imag", "temp_mse"]
     epoch_metrics = {k: v for k, v in zip(metrics_keys, m_final)}
-    epoch_metrics.update({"temp": epoch_metrics["recon"], "grid": 0.0})
+    epoch_metrics.update({"temp": epoch_metrics["temp_mse"], "grid": 0.0})
 
+    # 1. Gather all metrics
     if hasattr(model, 'get_current_metrics'): 
         epoch_metrics.update(model.get_current_metrics())
-        
+    
+    # 2. Group Metrics for clean logging
+    global_keys = ['loss', 'sub', 'real', 'imag', 'temp', 'temp_mse']
+    head_metrics = defaultdict(dict)
+    other_metrics = {}
+    
+    for k, v in epoch_metrics.items():
+        if any(k == gk for gk in global_keys):
+            continue # Handled in Global section
+        if '_head_' in k:
+            name, head_idx = k.split('_head_')
+            head_metrics[int(head_idx)][name] = v
+        elif k != 'grid': # Explicitly skip 'grid'
+            other_metrics[k] = v
+
+    # 3. Log organized groups (Compact single-line format)
+    logging.info(f"--- Epoch {epoch} Summary ---")
+    
+    # Global
+    g_str = " | ".join([f"{k}: {epoch_metrics[k]:.4f}" for k in global_keys if k in epoch_metrics])
+    logging.info(f"  [Global] {g_str}")
+    
+    # Expert Heads
+    for h_idx in sorted(head_metrics.keys()):
+        metrics = head_metrics[h_idx]
+        h_str = " | ".join([f"{name}: {val:.4f}" for name, val in sorted(metrics.items())])
+        logging.info(f"  [Head {h_idx}] {h_str}")
+            
+    if other_metrics:
+        o_str = " | ".join([f"{k}: {v:.4f}" if isinstance(v, float) else f"{k}: {v}" for k, v in other_metrics.items()])
+        logging.info(f"  [Other]  {o_str}")
+    
+    logging.info("-" * 30)
+            
     with torch.no_grad():
         x, coords, time_idx, _, _ = [t.to(device) if isinstance(t, torch.Tensor) else t for t in last_batch]
+        B, C, N, L = x.shape
         with torch.amp.autocast(device_type='cuda'):
             p_real, p_imag, _, _, _ = model(x, coords, time_idx)
-            x_recon = model.reconstruct(p_real, p_imag, n_samples=x.shape[-1])
-        last_samples = (x.detach(), x_recon.detach())
+            x_recon = model.reconstruct(p_real, p_imag)
+        last_samples = (x.view(B, C, -1).detach(), x_recon.detach())
     return epoch_metrics, last_samples
 
 def validate_one_epoch(model, data_loader, device):
@@ -91,7 +135,7 @@ def validate_one_epoch(model, data_loader, device):
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation", 
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
     
-    running_metrics = torch.zeros(6, device=device)
+    running_metrics = torch.zeros(5, device=device) # loss, sub, real, imag, global_mse
     
     with torch.no_grad():
         for batch_idx, batch in enumerate(pbar):
@@ -99,26 +143,31 @@ def validate_one_epoch(model, data_loader, device):
             
             with torch.amp.autocast(device_type='cuda'):
                 p_real, p_imag, l_sub, _, _ = model(x, coords, time_idx)
-                l_total, l_real, l_imag, l_rec, l_sub_eval, l_mse = model.get_loss(x, p_real, p_imag, l_sub, x_fft=x_fft)
+                l_total, l_sub_eval, l_real, l_imag, l_mse = model.get_loss(x, p_real, p_imag, l_sub, x_fft=x_fft)
             
-            running_metrics += torch.stack([l_total, l_sub_eval, l_rec, l_real, l_imag, l_mse])
+            running_metrics += torch.stack([l_total, l_sub_eval, l_real, l_imag, l_mse])
             
             if batch_idx % 5 == 0:
                 m = running_metrics / (batch_idx + 1)
-                pbar.set_postfix({'L': f"{m[0]:.2f}", 'Spec': f"{m[2]:.4f}", 'MSE': f"{m[5]:.4f}"})
+                pbar.set_postfix({'L': f"{m[0]:.2f}", 'MSE': f"{m[4]:.4f}"})
             last_batch = batch
             
         x, coords, time_idx, _, _ = [t.to(device) if isinstance(t, torch.Tensor) else t for t in last_batch]
+        B, C, N, L = x.shape
         with torch.amp.autocast(device_type='cuda'):
             p_real, p_imag, _, _, _ = model(x, coords, time_idx)
-            x_recon = model.reconstruct(p_real, p_imag, n_samples=x.shape[-1])
-        last_samples = (x.detach(), x_recon.detach())
+            x_recon = model.reconstruct(p_real, p_imag)
+        last_samples = (x.view(B, C, -1).detach(), x_recon.detach())
         
+    # Final logging sync
     N = len(data_loader)
     m_final = (running_metrics / N).cpu().tolist()
-    metrics_keys = ["loss", "sub", "recon", "real", "imag", "temp_mse"]
+    metrics_keys = ["loss", "sub", "real", "imag", "temp_mse"]
     val_metrics = {k: v for k, v in zip(metrics_keys, m_final)}
-    val_metrics.update({"temp": val_metrics["recon"], "grid": 0.0, "grid_loss": 0.0})
+    val_metrics.update({"temp": val_metrics["temp_mse"], "grid": 0.0, "grid_loss": 0.0})
+
+    if hasattr(model, 'get_current_metrics'): 
+        val_metrics.update(model.get_current_metrics())
     
     return val_metrics, last_samples
 
@@ -192,15 +241,17 @@ def main():
     train_dataset = build_dataset_from_config(train_config, transform=None, mode='tokenizer')
     logger.info("Building Validation Dataset...")
     val_dataset = build_dataset_from_config(val_config, transform=None, mode='tokenizer')
-    
+
     logger.info(f"Dataset Sizes: Train={len(train_dataset)} patches, Val={len(val_dataset)} patches")
-    
-    train_loader = DataLoader(train_dataset, batch_size=train_params['batch_size'], shuffle=True, num_workers=4, pin_memory=True, persistent_workers=True)
-    val_loader = DataLoader(val_dataset, batch_size=train_params['batch_size'], shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True)
+
+    train_loader = DataLoader(train_dataset, batch_size=train_params['batch_size'], shuffle=True, num_workers=4, pin_memory=True, prefetch_factor=4, persistent_workers=True)
+    val_loader = DataLoader(val_dataset, batch_size=train_params['batch_size'], shuffle=False, num_workers=4, pin_memory=True, prefetch_factor=4, persistent_workers=True)
 
     Nc = train_dataset.base_dataset.Nc
-    logger.info(f"Initializing {model_type} Tokenizer for {Nc} channels (Run: {model_name})...")
-    model = build_model_from_config(config, src_output_dir=artifact_dir)
+    n_fft_trial = train_dataset.base_dataset.fft_params['n_fft']
+    logger.info(f"Initializing {model_type} Tokenizer for {Nc} channels, n_fft_trial={n_fft_trial} (Run: {model_name})...")
+    model = build_model_from_config(config, n_fft_trial=n_fft_trial, src_output_dir=artifact_dir)
+    # model = torch.compile(model, backend='aot_eager')
     model.to(device)
 
     logger.info("Warming up Lazy Modules with a dummy pass...")
@@ -224,13 +275,28 @@ def main():
         train_metrics, train_last_batch = train_one_epoch(model, train_loader, optimizer, device, epoch)
         val_metrics, val_last_batch = validate_one_epoch(model, val_loader, device)
         scheduler.step()
+        
         logger.info(f"Epoch {epoch}/{total_epochs}:")
-        logger.info(f"  > Train [L:{train_metrics['loss']:.4f}, MSE:{train_metrics['temp_mse']:.4f}, Sub:{train_metrics['sub']:.4f}]")
-        logger.info(f"  > Val   [L:{val_metrics['loss']:.4f}, MSE:{val_metrics['temp_mse']:.4f}, Sub:{val_metrics['sub']:.4f}]")
+        
+        # Log all loss components
+        loss_keys = ["loss", "real", "imag", "temp_mse", "sub"]
+        train_loss_str = ", ".join([f"{k}:{train_metrics.get(k, 0.0):.4f}" for k in loss_keys])
+        val_loss_str = ", ".join([f"{k}:{val_metrics.get(k, 0.0):.4f}" for k in loss_keys])
+        logger.info(f"  > Train [{train_loss_str}]")
+        logger.info(f"  > Val   [{val_loss_str}]")
+        
+        # Log codebook and subspace health metrics
+        cb_keys = ["codebook_perplexity", "codebook_sharpness", "active_rank_ratio", "subspace_ortho", "head_cross_corr"]
+        cb_metrics = {k: train_metrics[k] for k in cb_keys if k in train_metrics}
+        if cb_metrics:
+            cb_str = ", ".join([f"{k}:{v:.4f}" for k, v in cb_metrics.items()])
+            logger.info(f"  > Metrics [{cb_str}]")
+
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
             torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_tokenizer.pth'))
             logger.info("  > Saved Best Tokenizer")
+        
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
         plotter.plot(); plotter.plot_metrics()
         if epoch % 5 == 0:

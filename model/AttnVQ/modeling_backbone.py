@@ -18,7 +18,6 @@ class AttnVQBackbone(nn.Module):
         vq_head_num=8,
         vq_head_vocab_size=64,
         vq_num_discrete=5,
-        merge_factors=[1, 2, 2],
         spatial_heads=8
     ):
         super().__init__()
@@ -27,12 +26,12 @@ class AttnVQBackbone(nn.Module):
         self.total_sub_dim = vq_head_num * vq_head_vocab_size
         
         # 1. Pixel-Wise Embedding (Replaces Patch-Wise)
-        self.embed = SpatialTemporalEmbeddings(embed_dim)
+        self.embed = SpatialTemporalEmbeddings(self.patch_len, embed_dim)
         
         # 2. Hierarchical Encoder
         self.encoder = HierarchicalTSAEncoder(
             embed_dim, depth=enc_depth, num_heads=enc_heads, mlp_ratio=mlp_ratio,
-            merge_factors=merge_factors, apply_cross_dim=True
+            apply_cross_dim=True
         )
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         
