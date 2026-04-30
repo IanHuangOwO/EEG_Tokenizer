@@ -5,7 +5,7 @@ import argparse
 import shutil
 sys.path.append(os.getcwd())
 
-from IO.dataset import build_dataset_from_config
+from IO.dataset import build_dataset_from_config, MaskedPretrainDataset, BlockMaskingStrategy, RandomMaskingStrategy
 from utils.visualization import (
     visualize_raw_eeg, visualize_real_imaginary, visualize_amplitude_phase, visualize_psd_grid, visualize_topo_grid, visualize_band_time_series, visualize_masking)
 
@@ -132,33 +132,46 @@ def run_viz():
                 metadata = json.load(f)
             config['data_metadata'] = metadata.get('data_metadata', {})
 
-            # 1. Base Dataset (Raw EEG)
-            if args.plot_raw or args.plot_psd or args.plot_topo:
-                base_dataset = build_dataset_from_config(config, transform=None, mode='base')
-                if len(base_dataset) == 0:
-                    print(f"No data found for {ds_name} subject {subj}")
-                    continue
+            # FinetuneDataset: trial-level, labels preserved, no assembly
+            finetune_ds = build_dataset_from_config(config, transform=None, mode='finetune')
 
-                if args.plot_raw:
-                    visualize_raw_eeg(base_dataset, subj, output_dir=viz_dir, trial_idx=args.trial_idx)
-                    visualize_amplitude_phase(base_dataset, subj, output_dir=viz_dir, trial_idx=args.trial_idx)
-                    visualize_real_imaginary(base_dataset, subj, output_dir=viz_dir, trial_idx=args.trial_idx)
+            if len(finetune_ds) == 0:
+                print(f"No data found for {ds_name} subject {subj}")
+                continue
 
-                if args.plot_psd:
-                    visualize_psd_grid(base_dataset, subj, config, output_dir=viz_dir)
-                
-                if args.plot_topo:
-                    visualize_topo_grid(base_dataset, subj, config, output_dir=viz_dir)
-            
-            # 2. Masking Visualization
+            if args.plot_raw:
+                visualize_raw_eeg(finetune_ds.base_dataset, subj, output_dir=viz_dir, trial_idx=args.trial_idx)
+                visualize_amplitude_phase(finetune_ds.base_dataset, subj, output_dir=viz_dir, trial_idx=args.trial_idx)
+                visualize_real_imaginary(finetune_ds.base_dataset, subj, output_dir=viz_dir, trial_idx=args.trial_idx)
+
+            if args.plot_psd:
+                visualize_psd_grid(finetune_ds.base_dataset, subj, config, output_dir=viz_dir)
+
+            if args.plot_topo:
+                visualize_topo_grid(finetune_ds.base_dataset, subj, config, output_dir=viz_dir)
+
             if args.plot_masking:
-                pretrain_ds = build_dataset_from_config(config, transform=None, mode='pretrain')
+                # Wrap finetune's base_dataset in MaskedPretrainDataset — no second data load
+                model_type = config.get('training_params', {}).get('model_type', 'AttnVQ')
+                preprocess_params = config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
+                patch_len = preprocess_params.get('patch_length', 200)
+                mask_ratio = preprocess_params.get('mask_ratio', 0.5)
+                strategy_name = preprocess_params.get('masking_strategy', 'random')
+                if strategy_name == 'block':
+                    strategy = BlockMaskingStrategy(
+                        row_prob=preprocess_params.get('mask_row_prob', 0.5),
+                        col_prob=preprocess_params.get('mask_col_prob', 0.5)
+                    )
+                else:
+                    strategy = RandomMaskingStrategy()
+                pretrain_ds = MaskedPretrainDataset(
+                    finetune_ds.base_dataset,
+                    patch_len=patch_len,
+                    mask_ratio=mask_ratio,
+                    masking_strategy=strategy
+                )
                 visualize_masking(pretrain_ds, subj, output_dir=viz_dir, trial_idx=args.trial_idx)
-            
-        except Exception as e:
-            print(f"Error visualizing {ds_name} subject {subj}: {e}")
-            continue
-            
+
         except Exception as e:
             print(f"Error visualizing {ds_name} subject {subj}: {e}")
             continue

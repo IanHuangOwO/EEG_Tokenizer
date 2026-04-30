@@ -91,7 +91,8 @@ class Plotter:
         # Keys look like: subspace_ortho_head_0, codebook_perplexity_head_1, etc.
         all_keys = self.history['train'].keys()
         head_indices = sorted(list(set([
-            int(k.split('_head_')[1]) for k in all_keys if '_head_' in k
+            int(parts[1]) for k in all_keys
+            if '_head_' in k and (parts := k.rsplit('_head_', 1)) and parts[1].isdigit()
         ])))
         
         if not head_indices:
@@ -112,9 +113,10 @@ class Plotter:
             p_key = f"codebook_perplexity{suffix}"
             s_key = f"codebook_sharpness{suffix}"
             if p_key in self.history['train']:
-                ax_cb.plot(epochs, self.history['train'][p_key], 'g-', label='Perplexity')
+                ep = range(1, len(self.history['train'][p_key]) + 1)
+                ax_cb.plot(ep, self.history['train'][p_key], 'g-', label='Perplexity')
                 ax_cb_twin = ax_cb.twinx()
-                ax_cb_twin.plot(epochs, self.history['train'][s_key], 'm-', label='Sharpness', alpha=0.7)
+                ax_cb_twin.plot(ep, self.history['train'][s_key], 'm-', label='Sharpness', alpha=0.7)
                 ax_cb.set_ylabel('Unique Codes'); ax_cb_twin.set_ylabel('Max Prob')
                 ax_cb.set_title(f'Layer {h_idx}: Codebook Health')
                 # Combine legends
@@ -124,13 +126,18 @@ class Plotter:
                 ax_cb.grid(True)
 
             # --- Column 2: Subspace Diversity ---
-            o_key = f"subspace_ortho{suffix}"
-            c_key = f"head_cross_corr{suffix}"
+            o_key  = f"codebook_total_orthogonality{suffix}"
+            c_key  = f"codebook_head_orthogonality{suffix}"
+            ar_key = f"codebook_active_rank{suffix}"
             if o_key in self.history['train']:
-                ax_sub.plot(epochs, self.history['train'][o_key], 'b-', label='Ortho (Gram)')
+                ep = range(1, len(self.history['train'][o_key]) + 1)
+                ax_sub.plot(ep, self.history['train'][o_key], 'b-', label='Total Ortho')
                 ax_sub_twin = ax_sub.twinx()
-                ax_sub_twin.plot(epochs, self.history['train'][c_key], 'r-', label='Cross-Corr', alpha=0.7)
-                ax_sub.set_ylabel('Gram MSE'); ax_sub_twin.set_ylabel('Cross-Corr')
+                ax_sub_twin.plot(ep, self.history['train'][c_key], 'r-', label='Head Ortho', alpha=0.7)
+                if ar_key in self.history['train']:
+                    ar_ep = range(1, len(self.history['train'][ar_key]) + 1)
+                    ax_sub_twin.plot(ar_ep, self.history['train'][ar_key], 'g--', label='Active Rank', alpha=0.7)
+                ax_sub.set_ylabel('Total Ortho'); ax_sub_twin.set_ylabel('Head Ortho / Active Rank')
                 ax_sub.set_yscale('log')
                 ax_sub.set_title(f'Layer {h_idx}: Subspace Diversity')
                 lines, labels = ax_sub.get_legend_handles_labels()
@@ -139,17 +146,15 @@ class Plotter:
                 ax_sub.grid(True, which="both", ls="-", alpha=0.3)
 
             # --- Column 3: Matrix Health ---
-            sv_key = f"A_sing_val_avg{suffix}"
-            cd_key = f"A_cond{suffix}"
-            rr_key = f"active_rank_ratio{suffix}"
+            sv_key = f"codebook_avg_singular_value{suffix}"
+            cd_key = f"codebook_condition_number{suffix}"
             if sv_key in self.history['train']:
-                ax_mat.plot(epochs, self.history['train'][sv_key], 'b-', label='Avg SV')
-                if rr_key in self.history['train']:
-                    ax_mat.plot(epochs, self.history['train'][rr_key], 'g-', label='Active Rank')
+                ep = range(1, len(self.history['train'][sv_key]) + 1)
+                ax_mat.plot(ep, self.history['train'][sv_key], 'b-', label='Avg SV')
                 ax_mat_twin = ax_mat.twinx()
-                ax_mat_twin.plot(epochs, self.history['train'][cd_key], 'k--', label='Cond #', alpha=0.4)
+                ax_mat_twin.plot(ep, self.history['train'][cd_key], 'r--', label='Cond #', alpha=0.6)
                 ax_mat_twin.set_yscale('log')
-                ax_mat.set_ylabel('SV / Rank'); ax_mat_twin.set_ylabel('Cond #')
+                ax_mat.set_ylabel('Avg SV'); ax_mat_twin.set_ylabel('Cond #')
                 ax_mat.set_title(f'Layer {h_idx}: Matrix Health')
                 lines, labels = ax_mat.get_legend_handles_labels()
                 lines2, labels2 = ax_mat_twin.get_legend_handles_labels()

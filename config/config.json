@@ -13,7 +13,6 @@
         "mask_col_prob": 0.4
       },
       "tokenizer": {
-        "in_chans": 1,
         "in_scales": 25,
         "enc_depth": 8,
         "enc_heads": 8,
@@ -24,43 +23,42 @@
           {
             "stage_idx": 0,
             "freq_range": [30.0, 75.0],
-            "vq_head_num": 128,
-            "vq_head_vocab_size": 16,
-            "vq_num_discrete": 3,
+            "vq_head_num": 32,
+            "vq_head_vocab_size": 8,
+            "vq_num_discrete": 5,
             "dropout": 0.05,
             "loss_weight": 1.0
           },
           {
             "stage_idx": 2,
             "freq_range": [13.0, 30.0],
-            "vq_head_num": 128,
-            "vq_head_vocab_size": 16,
-            "vq_num_discrete": 3,
+            "vq_head_num": 32,
+            "vq_head_vocab_size": 8,
+            "vq_num_discrete": 5,
             "dropout": 0.05,
             "loss_weight": 1.0
           },
           {
             "stage_idx": 4,
             "freq_range": [4.0, 13.0],
-            "vq_head_num": 128,
-            "vq_head_vocab_size": 16,
-            "vq_num_discrete": 3,
+            "vq_head_num": 32,
+            "vq_head_vocab_size": 8,
+            "vq_num_discrete": 5,
             "dropout": 0.05,
             "loss_weight": 1.0
           },
           {
             "stage_idx": 7,
             "freq_range": [0.2, 4.0],
-            "vq_head_num": 128,
-            "vq_head_vocab_size": 16,
-            "vq_num_discrete": 3,
+            "vq_head_num": 32,
+            "vq_head_vocab_size": 8,
+            "vq_num_discrete": 5,
             "dropout": 0.05,
             "loss_weight": 1.0
           }
         ]
         },
       "backbone": {
-        "in_chans": 1,
         "in_scales": 25,
         "embed_dim": 128,
         "enc_depth": 12,
@@ -74,58 +72,27 @@
     }
   },
   "dataset_params": {
-    "BETA_3s": {
-      "dataset_path": "datas/BETA_3s",
-      "subject_to_use": ["all"],
-      "channels_to_use": ["all"]
-    },
     "BETA_4s": {
       "dataset_path": "datas/BETA_4s",
-      "subject_to_use": ["all"],
-      "channels_to_use": ["all"]
-    },
-    "Dial": {
-      "dataset_path": "datas/Dial",
-      "subject_to_use": ["all"],
-      "channels_to_use": ["all"]
-    },
-    "BCICIV_Train": {
-      "dataset_path": "datas/BCICIV_Train",
-      "subject_to_use": ["all"],
-      "channels_to_use": ["all"]
-    },
-    "BCICIV_Val": {
-      "dataset_path": "datas/BCICIV_Val",
-      "subject_to_use": ["all"],
-      "channels_to_use": ["all"]
-    },
-    "Inria_Train": {
-      "dataset_path": "datas/Inria_Train",
-      "subject_to_use": ["all"],
-      "channels_to_use": ["all"]
-    },
-    "Inria_Val": {
-      "dataset_path": "datas/Inria_Val",
-      "subject_to_use": ["all"],
-      "channels_to_use": ["all"]
-    },
-    "BCI2000": {
-      "dataset_path": "datas/BCI2000",
       "subject_to_use": ["all"],
       "channels_to_use": ["all"]
     }
   },
   "training_params": {
     "model_type": "AttnVQ",
-    "model_name": "multihead_expert_v01",
+    "model_name": "attnvq_v01",
     "learning_rate": 5e-4,
     "min_learning_rate": 1e-4,
     "epochs": 100,
     "warmup_epochs": 10,
-    "batch_size": 16,
+    "batch_size": 32,
     "weight_decay": 1e-4,
     "device": "cuda",
     "train_val_split": 0.9
+  },
+  "trial_assembly": {
+    "target_length": 800,
+    "pad_threshold": 0.5
   },
   "loss_params": {},
   "metrics_params": {}

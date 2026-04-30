@@ -23,7 +23,6 @@ def build_model_from_config(config, n_fft_trial=None, src_output_dir=None):
     if model_type == "AttnVQ":
         params = model_params['AttnVQ']['tokenizer']
         model = AttnVQTokenizer(
-            in_chans=params.get('in_chans', 1),
             embed_dim=params['embed_dim'],
             enc_depth=params['enc_depth'],
             enc_heads=params['enc_heads'],
@@ -62,7 +61,6 @@ def build_backbone_from_config(config, src_output_dir=None):
             enc_depth=backbone_params.get('enc_depth', 12),
             enc_heads=backbone_params.get('enc_heads', 8),
             mlp_ratio=backbone_params.get('mlp_ratio', 4.0),
-            in_chans=backbone_params.get('in_chans', tokenizer_params.get('in_chans', 1)),
             in_scales=backbone_params.get('in_scales', tokenizer_params.get('in_scales', 3)),
             vq_head_num=backbone_params.get('vq_head_num', tokenizer_params.get('vq_head_num', 16)),
             vq_head_vocab_size=backbone_params.get('vq_head_vocab_size', tokenizer_params.get('vq_head_vocab_size', 8)),

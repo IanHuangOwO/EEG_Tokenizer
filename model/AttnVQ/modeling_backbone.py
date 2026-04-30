@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 # Import the updated modules from your tokenizer file
-from model.AttnVQ.modeling_tokenizer import SpatialTemporalEmbeddings, HierarchicalTSAEncoder
+from model.AttnVQ.modeling_tokenizer import SpatialTemporalEmbeddings, TSAEncoder
 
 # --- Backbone Model (Encoder-Only Foundation Model) ---
 
@@ -13,7 +13,6 @@ class AttnVQBackbone(nn.Module):
         enc_depth=12,
         enc_heads=8,
         mlp_ratio=4.0,
-        in_chans=1,
         in_scales=200, # patch_len
         vq_head_num=8,
         vq_head_vocab_size=64,
@@ -29,7 +28,7 @@ class AttnVQBackbone(nn.Module):
         self.embed = SpatialTemporalEmbeddings(self.patch_len, embed_dim)
         
         # 2. Hierarchical Encoder
-        self.encoder = HierarchicalTSAEncoder(
+        self.encoder = TSAEncoder(
             embed_dim, depth=enc_depth, num_heads=enc_heads, mlp_ratio=mlp_ratio,
             apply_cross_dim=True
         )

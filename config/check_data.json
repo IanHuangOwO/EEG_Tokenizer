@@ -25,8 +25,8 @@
       "subject_to_use": [16],
       "channels_to_use": ["all"]
     },
-    "BCI2000": {
-      "dataset_path": "datas/BCI2000",
+    "EEGMMIdb": {
+      "dataset_path": "datas/EEGMMIdb",
       "subject_to_use": [1],
       "channels_to_use": ["all"]
     },
@@ -35,13 +35,8 @@
       "subject_to_use": [1],
       "channels_to_use": ["all"]
     },
-    "BCICIV_Train": {
-      "dataset_path": "datas/BCICIV_Train",
-      "subject_to_use": [1],
-      "channels_to_use": ["all"]
-    },
-    "BCICIV_Val": {
-      "dataset_path": "datas/BCICIV_Val",
+    "BCICIV_1_Train": {
+      "dataset_path": "datas/BCICIV_1_Train",
       "subject_to_use": [1],
       "channels_to_use": ["all"]
     },
@@ -59,6 +54,10 @@
   "training_params": {
     "model_type": "AttnVQ",
     "model_name": "data_check_v01"
+  },
+  "trial_assembly": {
+    "target_length": 800,
+    "pad_threshold": 0.5
   },
   "plot_selection": {
     "raw": true,
