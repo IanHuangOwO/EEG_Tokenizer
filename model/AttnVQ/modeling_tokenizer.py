@@ -134,7 +134,7 @@ class TSAEncoder(nn.Module):
 # ==========================================
 
 class AttnVQ(nn.Module):
-    def __init__(self, num_heads, vq_head_vocab_size, e_dim, num_discrete=5, sigmoid_gain=3.0):
+    def __init__(self, num_heads, vq_head_vocab_size, e_dim, num_discrete=5, sigmoid_gain=5.0):
         super().__init__()
         self.r, self.num_heads, self.e_dim, self.num_discrete = vq_head_vocab_size, num_heads, e_dim, num_discrete
         self.sigmoid_gain = sigmoid_gain
@@ -156,8 +156,7 @@ class AttnVQ(nn.Module):
 
         q = torch.matmul(z.reshape(B_sz * N_c, D), self.A).reshape(B_sz, N_c, H, r)
         q_soft = (N_d - 1) * torch.sigmoid(self.sigmoid_gain * q) - half_range
-        q_scaled = q_soft + (torch.rand_like(q_soft) - 0.5) * 0.4 if self.training else q_soft
-        q_quant = torch.round(q_scaled)
+        q_quant = torch.round(q_soft)
         v_q = q_soft + (q_quant - q_soft).detach()
         indices = (q_quant + half_range).long()
 
@@ -172,7 +171,7 @@ class AttnVQ(nn.Module):
                 max_p = batch_probs.max(dim=-1)[0].mean()
                 self.max_prob_ema.mul_(self.ema_decay).add_(max_p, alpha=1 - self.ema_decay)
 
-        return v_q.reshape(B_sz, N_c, H, r), self.get_joint_subspace_loss(), indices, q_scaled
+        return v_q.reshape(B_sz, N_c, H, r), self.get_joint_subspace_loss(), indices, q_soft
 
     def get_joint_subspace_loss(self):
         A_per_head = self.A.view(self.e_dim, self.num_heads, self.r)
@@ -240,16 +239,18 @@ class AttnVQTokenizer(nn.Module):
         enc_depth=12,
         enc_heads=8,
         enc_mlp_ratio=4.0,
-        in_scales=200,
+        patch_len=200,
         n_fft_trial=None,
         fs=200.0,
-        decoder_heads_config=None
+        decoder_heads_config=None,
+        use_spatial_embedding=False
     ):
         super().__init__()
-        self.patch_len = in_scales
+        self.patch_len = patch_len
         self.n_fft = n_fft_trial if n_fft_trial is not None else 800
         self.fs = fs
 
+        self.use_spatial_embedding = use_spatial_embedding
         self.embed = SpatialTemporalEmbeddings(self.patch_len, embed_dim)
         self.encoder = TSAEncoder(
             embed_dim, depth=enc_depth, num_heads=enc_heads,
@@ -292,7 +293,7 @@ class AttnVQTokenizer(nn.Module):
         """ x: [B, C, N, L] """
         B, C, N, L = x.shape
 
-        z = self.embed(x, coords=coords, time_idx=time_idx)
+        z = self.embed(x, coords=coords if self.use_spatial_embedding else None, time_idx=time_idx)
 
         needed_stages = {h_cfg["stage_idx"] for h_cfg in self.decoder_heads_config}
         stage_outputs = {}

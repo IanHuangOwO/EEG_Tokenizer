@@ -13,14 +13,14 @@ class AttnVQBackbone(nn.Module):
         enc_depth=12,
         enc_heads=8,
         mlp_ratio=4.0,
-        in_scales=200, # patch_len
+        patch_len=200,
         vq_head_num=8,
         vq_head_vocab_size=64,
         vq_num_discrete=5,
         spatial_heads=8
     ):
         super().__init__()
-        self.patch_len = in_scales
+        self.patch_len = patch_len
         self.vq_head_num, self.vq_head_vocab_size, self.num_discrete = vq_head_num, vq_head_vocab_size, vq_num_discrete
         self.total_sub_dim = vq_head_num * vq_head_vocab_size
         

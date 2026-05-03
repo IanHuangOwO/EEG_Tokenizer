@@ -91,13 +91,13 @@ def calculate_uniqueness_metrics(df, config, neighbors):
     # Extract params from config
     model_type = config['training_params']['model_type']
     params = config['model_params'][model_type]
-    in_scales = params.get('in_scales', 3)
+    patch_len = params.get('patch_len', 3)
     vq_head_num = params.get('vq_head_num', 8)
     vq_head_top_k = params.get('vq_head_top_k', 8)
-    
+
     results = []
-    
-    for s in range(in_scales):
+
+    for s in range(patch_len):
         scale_label = f'S{s}'
         df_s = df[df['Scale'] == scale_label]
         

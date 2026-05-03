@@ -26,7 +26,7 @@ def extract_features(model, x, coords):
             h_scales_projected = model.spatial_temporal_encoder(x, coords)
             
             h_enc = []
-            for i in range(model.in_scales):
+            for i in range(model.patch_len):
                 z = h_scales_projected[i]
                 enc = model.scale_encoders[i]
                 z = enc(z)
@@ -46,7 +46,7 @@ def extract_features(model, x, coords):
         if hasattr(model, 'temporal_encoder'):
              ms_features = model.temporal_encoder(x) 
              spatial_emb = model.spatial_mlp(coords) 
-             S = model.in_scales
+             S = model.patch_len
              B, N, _ = x.shape
              h_all = torch.stack(ms_features, dim=0) + spatial_emb.unsqueeze(0) 
              h_all = h_all.view(S * B, N, -1)

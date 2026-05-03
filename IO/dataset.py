@@ -76,7 +76,7 @@ class EEGDataset(Dataset):
     """
     Loads EEG data from multiple subjects/datasets into a unified tensor.
     When assemble_trials=True, flattens each subject's trials into a continuous
-    signal and cuts non-overlapping windows of assembly_params['target_length'].
+    signal and cuts non-overlapping windows of assembly_params['trial_length'].
     """
     def __init__(
         self,
@@ -132,7 +132,7 @@ class EEGDataset(Dataset):
 
                 all_data_chunks.append(padded)
                 all_label_chunks.append(labels)
-                all_subject_chunks.append(torch.full((len(padded),), subject_id, dtype=torch.long))
+                all_subject_chunks.append(torch.full((len(padded),), int(subject_id), dtype=torch.long))
                 all_dataset_names.extend([ds_name] * len(padded))
 
                 task_coords = torch.zeros((self.Nc, 3), dtype=torch.float32)
@@ -169,11 +169,11 @@ class EEGDataset(Dataset):
     def _window_subject_signal(self, trials: torch.Tensor, ds_name: str, subject_id: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Flatten all trials into a continuous signal, then cut into non-overlapping
-        windows of target_length. Keeps the last chunk (zero-padded) only if it
-        fills at least pad_threshold of target_length.
+        windows of trial_length. Keeps the last chunk (zero-padded) only if it
+        fills at least trial_pad_threshold of trial_length.
         """
-        target_L = self.assembly_params.get('target_length', trials.shape[-1])
-        threshold = self.assembly_params.get('pad_threshold', 0.5)
+        target_L = self.assembly_params.get('trial_length', trials.shape[-1])
+        threshold = self.assembly_params.get('trial_pad_threshold', 0.5)
 
         N, C, T = trials.shape
         signal = trials.reshape(N * T, C).T  # (C, N*T)
@@ -197,7 +197,7 @@ class EEGDataset(Dataset):
             raise RuntimeError(f"No windows produced for {ds_name} subject {subject_id} (total_T={total_T}, target_L={target_L}).")
 
         assembled = torch.stack(windows)
-        print(f"  [{ds_name} S{subject_id}] {N} trials × {T}pts → {total_T}pts → {len(assembled)} windows of {target_L}pts.")
+        print(f"  [{ds_name} S{subject_id}] {N} trials x {T}pts -> {total_T}pts -> {len(assembled)} windows of {target_L}pts.")
         return assembled, torch.zeros(len(assembled), dtype=torch.long)
 
     def _map_channels(self, desired_channels: List[str], channel_config: Dict) -> Tuple[List[int], List[int]]:
@@ -460,7 +460,7 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         }
 
     assemble_trials = mode in ('tokenizer', 'pretrain')
-    assembly_params = config_dict.get('trial_assembly', {})
+    assembly_params = config_dict.get('model_params', {}).get('AttnVQ', {}).get('preprocess', {})
 
     base_dataset = EEGDataset(
         config=config_dict,

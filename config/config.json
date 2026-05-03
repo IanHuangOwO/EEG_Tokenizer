@@ -2,8 +2,10 @@
   "model_params": {
     "AttnVQ": {
       "preprocess": {
+        "trial_length": 800,
+        "trial_pad_threshold": 0.5,
+        "patch_length": 100,
         "target_freq": 200,
-        "patch_length": 25,
         "l_freq": 0.2,
         "h_freq": 75.0,
         "normalization_type": "zscore",
@@ -13,26 +15,32 @@
         "mask_col_prob": 0.4
       },
       "tokenizer": {
-        "in_scales": 25,
+        "patch_len": 100,
+        "embed_dim": 128,
         "enc_depth": 8,
         "enc_heads": 8,
         "enc_mlp_ratio": 4.0,
-        "embed_dim": 128,
         "freq_resolution": 0.2,
         "decoder_heads_config": [
           {
             "stage_idx": 0,
-            "freq_range": [30.0, 75.0],
-            "vq_head_num": 32,
-            "vq_head_vocab_size": 8,
+            "freq_range": [
+              30.0,
+              75.0
+            ],
+            "vq_head_num": 128,
+            "vq_head_vocab_size": 16,
             "vq_num_discrete": 5,
             "dropout": 0.05,
             "loss_weight": 1.0
           },
           {
             "stage_idx": 2,
-            "freq_range": [13.0, 30.0],
-            "vq_head_num": 32,
+            "freq_range": [
+              13.0,
+              30.0
+            ],
+            "vq_head_num": 128,
             "vq_head_vocab_size": 8,
             "vq_num_discrete": 5,
             "dropout": 0.05,
@@ -40,8 +48,11 @@
           },
           {
             "stage_idx": 4,
-            "freq_range": [4.0, 13.0],
-            "vq_head_num": 32,
+            "freq_range": [
+              4.0,
+              13.0
+            ],
+            "vq_head_num": 128,
             "vq_head_vocab_size": 8,
             "vq_num_discrete": 5,
             "dropout": 0.05,
@@ -49,50 +60,105 @@
           },
           {
             "stage_idx": 7,
-            "freq_range": [0.2, 4.0],
-            "vq_head_num": 32,
+            "freq_range": [
+              0.2,
+              4.0
+            ],
+            "vq_head_num": 128,
             "vq_head_vocab_size": 8,
             "vq_num_discrete": 5,
             "dropout": 0.05,
             "loss_weight": 1.0
           }
         ]
-        },
+      },
       "backbone": {
-        "in_scales": 25,
+        "patch_len": 100,
         "embed_dim": 128,
-        "enc_depth": 12,
+        "enc_depth": 8,
         "enc_heads": 8,
         "mlp_ratio": 4.0,
-        "vq_head_num": 32,
-        "vq_head_vocab_size": 16,
         "vq_num_discrete": 5,
         "spatial_heads": 8
       }
     }
   },
   "dataset_params": {
+    "BETA_3s": {
+      "dataset_path": "datas/BETA_3s",
+      "subject_to_use": [
+        "all"
+      ],
+      "channels_to_use": [
+        "all"
+      ]
+    },
     "BETA_4s": {
       "dataset_path": "datas/BETA_4s",
-      "subject_to_use": ["all"],
-      "channels_to_use": ["all"]
+      "subject_to_use": [
+        "all"
+      ],
+      "channels_to_use": [
+        "all"
+      ]
+    },
+    "EEGMMIdb": {
+      "dataset_path": "datas/EEGMMIdb",
+      "subject_to_use": [
+        "all"
+      ],
+      "channels_to_use": [
+        "all"
+      ]
+    },
+    "Dial": {
+      "dataset_path": "datas/Dial",
+      "subject_to_use": [
+        "all"
+      ],
+      "channels_to_use": [
+        "all"
+      ]
+    },
+    "BCICIV_1_Train": {
+      "dataset_path": "datas/BCICIV_1_Train",
+      "subject_to_use": [
+        "all"
+      ],
+      "channels_to_use": [
+        "all"
+      ]
+    },
+    "Inria_Train": {
+      "dataset_path": "datas/Inria_Train",
+      "subject_to_use": [
+        "all"
+      ],
+      "channels_to_use": [
+        "all"
+      ]
+    },
+    "Inria_Val": {
+      "dataset_path": "datas/Inria_Val",
+      "subject_to_use": [
+        "all"
+      ],
+      "channels_to_use": [
+        "all"
+      ]
     }
   },
   "training_params": {
     "model_type": "AttnVQ",
-    "model_name": "attnvq_v01",
-    "learning_rate": 5e-4,
-    "min_learning_rate": 1e-4,
+    "model_name": "attnvq_v03",
+    "learning_rate": 0.001,
+    "min_learning_rate": 0.0001,
     "epochs": 100,
     "warmup_epochs": 10,
     "batch_size": 32,
-    "weight_decay": 1e-4,
+    "weight_decay": 0.0001,
     "device": "cuda",
     "train_val_split": 0.9
-  },
-  "trial_assembly": {
-    "target_length": 800,
-    "pad_threshold": 0.5
   },
   "loss_params": {},
   "metrics_params": {}

@@ -27,10 +27,11 @@ def build_model_from_config(config, n_fft_trial=None, src_output_dir=None):
             enc_depth=params['enc_depth'],
             enc_heads=params['enc_heads'],
             enc_mlp_ratio=params.get('enc_mlp_ratio', 4.0),
-            in_scales=params.get('in_scales', 25),
+            patch_len=params.get('patch_len', 25),
             n_fft_trial=n_fft_trial,
             fs=preprocess_params['target_freq'],
-            decoder_heads_config=params.get('decoder_heads_config', None)
+            decoder_heads_config=params.get('decoder_heads_config', None),
+            use_spatial_embedding=params.get('use_spatial_embedding', False)
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
@@ -61,7 +62,7 @@ def build_backbone_from_config(config, src_output_dir=None):
             enc_depth=backbone_params.get('enc_depth', 12),
             enc_heads=backbone_params.get('enc_heads', 8),
             mlp_ratio=backbone_params.get('mlp_ratio', 4.0),
-            in_scales=backbone_params.get('in_scales', tokenizer_params.get('in_scales', 3)),
+            patch_len=backbone_params.get('patch_len', tokenizer_params.get('patch_len', 3)),
             vq_head_num=backbone_params.get('vq_head_num', tokenizer_params.get('vq_head_num', 16)),
             vq_head_vocab_size=backbone_params.get('vq_head_vocab_size', tokenizer_params.get('vq_head_vocab_size', 8)),
             vq_num_discrete=backbone_params.get('vq_num_discrete', tokenizer_params.get('vq_num_discrete', 5)),
