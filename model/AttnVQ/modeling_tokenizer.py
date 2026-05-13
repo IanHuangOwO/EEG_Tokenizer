@@ -31,7 +31,6 @@ class SpatialTemporalEmbeddings(nn.Module):
         B, C, N, L = x.shape
         z = self.proj(x.reshape(B * C, N, L))  # [B*C, N, D]
 
-        # Temporal: use absolute patch positions if provided, else fall back to 0..N-1
         if time_idx is not None:
             t = time_idx.clamp(0, self.pos_emb.shape[1] - 1)  # [B, N]
             temp_emb = self.pos_emb[0][t]                      # [B, N, D]
@@ -39,7 +38,6 @@ class SpatialTemporalEmbeddings(nn.Module):
         else:
             z = z + self.pos_emb[:, :N, :]
 
-        # Spatial: project 3D coords and broadcast across all patches
         if coords is not None:
             s = self.coord_proj(coords.reshape(B * C, 3)).unsqueeze(1)  # [B*C, 1, D]
             z = z + s
@@ -130,11 +128,11 @@ class TSAEncoder(nn.Module):
 
 
 # ==========================================
-# 3. VQ Decoder Head
+# 3. VQ Decoder Head & Manifold Pooling
 # ==========================================
 
 class AttnVQ(nn.Module):
-    def __init__(self, num_heads, vq_head_vocab_size, e_dim, num_discrete=5, sigmoid_gain=5.0):
+    def __init__(self, num_heads, vq_head_vocab_size, e_dim, num_discrete=5, sigmoid_gain=1.0):
         super().__init__()
         self.r, self.num_heads, self.e_dim, self.num_discrete = vq_head_vocab_size, num_heads, e_dim, num_discrete
         self.sigmoid_gain = sigmoid_gain
@@ -160,7 +158,7 @@ class AttnVQ(nn.Module):
         v_q = q_soft + (q_quant - q_soft).detach()
         indices = (q_quant + half_range).long()
 
-        if self.training:
+        if not self.training:
             with torch.no_grad():
                 B_total = B_sz * N_c
                 flat_idx = indices.view(B_total, H * r).t().clamp(0, N_d - 1)
@@ -178,7 +176,7 @@ class AttnVQ(nn.Module):
         A_mean = F.normalize(A_per_head.mean(dim=-1), p=2, dim=0)
         G_head_mean = torch.matmul(A_mean.t(), A_mean)
         return torch.mean((G_head_mean * (1.0 - self.identity_h)) ** 2)
-    
+
     @torch.no_grad()
     def get_current_metrics(self):
         metrics = {}
@@ -205,6 +203,84 @@ class AttnVQ(nn.Module):
         return metrics
 
 
+class LaplacianManifoldPooling(nn.Module):
+    """
+    Pools multi-head VQ representations using a Low-Pass Graph Filter (Lazy Random Walk).
+    Computes topomaps based on raw physical head energy, and grades heads 
+    using a Laplacian Survival Score (head_importance).
+    """
+    def __init__(self, num_heads, gamma=2.0, ema_decay=0.99):
+        super().__init__()
+        self.num_heads = num_heads
+        self.gamma = gamma
+        self.ema_decay = ema_decay
+
+        self.register_buffer('ema_spectral_gap',    torch.tensor(0.0))
+        self.register_buffer('ema_filter_eff_rank', torch.tensor(float(num_heads) / 2.0))
+        self.register_buffer('ema_filter_contrast', torch.tensor(1.0))
+        self.register_buffer('ema_graph_edge_std',  torch.tensor(0.0))
+
+    def _update_ema(self, name, value):
+        buf = getattr(self, f'ema_{name}')
+        buf.mul_(self.ema_decay).add_(value, alpha=1.0 - self.ema_decay)
+
+    def forward(self, v_q, B, C):
+        # v_q:[B*C, N, H, r]
+        B_C, N, H, r = v_q.shape
+        v_q_4d = v_q.reshape(B, C, N, H, r)
+
+        # 1. Build Head Affinity Graph via cosine similarity
+        v_mean = v_q_4d.mean(dim=1)                                    # [B, N, H, r]
+        v_flat = F.normalize(v_mean.mean(dim=1), dim=-1)               # [B, H, r]
+        sim    = torch.einsum('bhr,bmr->bhm', v_flat, v_flat)          # [B, H, H] in [-1, 1]
+        W = F.softmax(sim, dim=-1)
+        W = (W + W.transpose(-1, -2)) / 2.0  # Make symmetric
+
+        # 3. Normalized Graph Laplacian
+        D_deg = W.sum(dim=-1)
+        D_inv_sqrt = 1.0 / (D_deg.sqrt() + 1e-8)
+        W_norm = W * D_inv_sqrt.unsqueeze(-1) * D_inv_sqrt.unsqueeze(-2)
+        I = torch.eye(H, device=v_q.device).unsqueeze(0)  # [1, H, H]
+
+        # 4. Graph Diffusion Filter (used inside the decoder, not applied to v_q here)
+        G = 0.5 * I + 0.5 * W_norm                           # [B, H, H]
+
+        # 5. Head importance — training uses cheap diagonal, eval uses full Laplacian + stats
+        with torch.no_grad():
+            head_importance = G.diagonal(dim1=-2, dim2=-1).clone()  # [B, H] fast fallback
+            if not self.training:
+                # Full Laplacian Survival Score + health metrics (validation only)
+                try:
+                    L = I - W_norm
+                    lambda_vals, U = torch.linalg.eigh(L + 1e-3 * I)
+                    spectral_weights = torch.exp(-self.gamma * lambda_vals)
+                    spectral_weights = spectral_weights / (spectral_weights.sum(dim=-1, keepdim=True) + 1e-8)
+                    head_importance = torch.einsum('bhk,bk,bhk->bh', U, spectral_weights, U)
+                except RuntimeError:
+                    pass
+                gap      = (lambda_vals[:, 1] - lambda_vals[:, 0]).mean()
+                sw       = spectral_weights.clamp(min=1e-10)
+                eff_rank = torch.exp(-torch.sum(sw * sw.log(), dim=-1)).mean()
+                contrast = (spectral_weights.max(dim=-1)[0] / (spectral_weights.min(dim=-1)[0] + 1e-8)).mean()
+                off_mask = (1.0 - torch.eye(H, device=W.device)).unsqueeze(0)
+                edge_std = (W * off_mask).std(dim=(-1, -2)).mean()
+                self._update_ema('spectral_gap',    gap)
+                self._update_ema('filter_eff_rank', eff_rank)
+                self._update_ema('filter_contrast', contrast)
+                self._update_ema('graph_edge_std',  edge_std)
+
+        return v_q, head_importance, sim.detach(), G.detach()
+
+    @torch.no_grad()
+    def get_current_metrics(self):
+        return {
+            'pool_spectral_gap':    self.ema_spectral_gap.item(),
+            'pool_filter_eff_rank': self.ema_filter_eff_rank.item(),
+            'pool_filter_contrast': self.ema_filter_contrast.item(),
+            'pool_graph_edge_std':  self.ema_graph_edge_std.item(),
+        }
+
+
 class FastAdditiveDecoder(nn.Module):
     def __init__(self, embed_dim, num_heads, fft_dim, dropout=0.0):
         super().__init__()
@@ -216,15 +292,26 @@ class FastAdditiveDecoder(nn.Module):
         with torch.no_grad():
             self.W.data.mul_(1.0 / math.sqrt(num_heads))
 
-    def forward(self, v_q, A):
+    def forward(self, v_q, A, G=None, B=None, C=None):
         """
         v_q: [B*C, N, H, r]
         A:   [D, H*r] parameter from AttnVQ
+        G:   [B, H, H] diffusion filter — applied as column sums to h_out.
+             Σ_h Σ_m G[h,m]*h_out[m] = Σ_m col_sum[m]*h_out[m], so we fuse
+             into v_q scaling before the einsum (same result, no H×H intermediate).
         """
-        _, _, H, r = v_q.shape
+        B_C, N, H, r = v_q.shape
         D = A.shape[0]
         M = torch.einsum('dhr,hdf->hrf', A.view(D, H, r), self.W)  # [H, r, 2*F]
-        out = torch.einsum('bnhr,hrf->bnf', v_q, M) / math.sqrt(H) + self.bias
+
+        if G is not None:
+            g_w = G.sum(dim=1)                                        # [B, H] col sums
+            g_w = g_w.unsqueeze(1).expand(B, C, H).reshape(B_C, H)   # [B*C, H]
+            v_q = v_q * g_w.unsqueeze(1).unsqueeze(-1)                # [B*C, N, H, r]
+
+        out = torch.einsum('bnhr,hrf->bnf', v_q, M) / math.sqrt(H)
+
+        out = out + self.bias
         return self.drop(out).sum(dim=1).chunk(2, dim=-1)  # two tensors of [B*C, F]
 
 
@@ -258,17 +345,21 @@ class AttnVQTokenizer(nn.Module):
         )
 
         if decoder_heads_config is None:
-            decoder_heads_config = [{
+            decoder_heads_config =[{
                 "stage_idx": enc_depth - 1,
                 "freq_range": [0.0, fs / 2.0],
-                "vq_head_num": 8,
+                "vq_head_num": 128,          # Scaled up for your 128-head usecase!
                 "vq_head_vocab_size": 64,
-                "vq_num_discrete": 5
+                "vq_num_discrete": 5,
+                "pooling_gamma": 2.0
             }]
 
         self.decoder_heads_config = decoder_heads_config
+        
         self.vq_heads = nn.ModuleList()
+        self.poolers = nn.ModuleList()      
         self.decoders = nn.ModuleList()
+        
         full_freqs = torch.fft.rfftfreq(self.n_fft, d=1.0 / fs)
 
         for i, h_cfg in enumerate(decoder_heads_config):
@@ -276,15 +367,26 @@ class AttnVQTokenizer(nn.Module):
             mask = (full_freqs >= f_min - 1e-5) & (full_freqs <= f_max + 1e-5)
             self.register_buffer(f'freq_mask_{i}', mask)
             fft_dim = int(mask.sum().item())
+            
+            num_h = h_cfg.get("vq_head_num", 8)
+            r_dim = h_cfg.get("vq_head_vocab_size", 64)
+            
             self.vq_heads.append(AttnVQ(
-                num_heads=h_cfg.get("vq_head_num", 8),
-                vq_head_vocab_size=h_cfg.get("vq_head_vocab_size", 64),
+                num_heads=num_h,
+                vq_head_vocab_size=r_dim,
                 e_dim=embed_dim,
                 num_discrete=h_cfg.get("vq_num_discrete", 5),
             ))
+            
+            # Initialize the Spectral Pooler
+            self.poolers.append(LaplacianManifoldPooling(
+                num_heads=num_h,
+                gamma=h_cfg.get("pooling_gamma", 2.0)
+            ))
+            
             self.decoders.append(FastAdditiveDecoder(
                 embed_dim=embed_dim,
-                num_heads=h_cfg.get("vq_head_num", 8),
+                num_heads=num_h,
                 fft_dim=fft_dim,
                 dropout=h_cfg.get("dropout", 0.0),
             ))
@@ -302,7 +404,11 @@ class AttnVQTokenizer(nn.Module):
             if i in needed_stages:
                 stage_outputs[i] = z
 
-        all_pred_real, all_pred_imag, all_indices, all_weights = [], [], [], []
+        all_pred_real, all_pred_imag = [], []
+        all_indices, all_weights = [], []
+        all_head_importances = []
+        all_sim, all_G = [], []
+
         total_sub_loss = 0
 
         for i, h_cfg in enumerate(self.decoder_heads_config):
@@ -311,28 +417,42 @@ class AttnVQTokenizer(nn.Module):
             z_flat = z_stage.reshape(B_s * C_s, N_s, D_s)
 
             v_q, sub_loss, indices, weights = self.vq_heads[i](z_flat)
-            p_real, p_imag = self.decoders[i](v_q, self.vq_heads[i].A)
             total_sub_loss = total_sub_loss + sub_loss
+
+            _, head_importance, sim, G = self.poolers[i](v_q, B, C)
+
+            p_real, p_imag = self.decoders[i](v_q, self.vq_heads[i].A, G=G, B=B, C=C)
 
             all_pred_real.append(p_real.reshape(B, C, -1))
             all_pred_imag.append(p_imag.reshape(B, C, -1))
             all_indices.append(indices)
             all_weights.append(weights)
+            all_head_importances.append(head_importance)    # [B, H]
+            all_sim.append(sim)                             # [B, H, H]
+            all_G.append(G)                                 # [B, H, H]
 
-        return all_pred_real, all_pred_imag, total_sub_loss, all_indices, all_weights
+        return all_pred_real, all_pred_imag, total_sub_loss, all_indices, all_weights, all_head_importances, all_sim, all_G
 
     @torch.no_grad()
     def get_current_metrics(self):
-        head_metrics = [vq.get_current_metrics() for vq in self.vq_heads]
-        if not head_metrics:
-            return {}
-
+        # Merge VQ metrics
+        head_metrics =[vq.get_current_metrics() for vq in self.vq_heads]
         full_metrics = {}
-        for k in head_metrics[0]:
-            full_metrics[k] = sum(m[k] for m in head_metrics) / len(head_metrics)
-        for i, m in enumerate(head_metrics):
-            for k, v in m.items():
-                full_metrics[f"{k}_head_{i}"] = v
+        if head_metrics:
+            for k in head_metrics[0]:
+                full_metrics[k] = sum(m[k] for m in head_metrics) / len(head_metrics)
+            for i, m in enumerate(head_metrics):
+                for k, v in m.items():
+                    full_metrics[f"{k}_head_{i}"] = v
+                    
+        # Merge Pooler EMA metrics
+        pooler_metrics = [pooler.get_current_metrics() for pooler in self.poolers]
+        if pooler_metrics:
+            for k in pooler_metrics[0]:
+                full_metrics[k] = sum(m[k] for m in pooler_metrics) / len(pooler_metrics)
+            for i, m in enumerate(pooler_metrics):
+                for k, v in m.items():
+                    full_metrics[f"{k}_head_{i}"] = v
 
         return full_metrics
 

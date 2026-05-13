@@ -47,7 +47,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
         optimizer.zero_grad()
 
         with torch.amp.autocast(device_type='cuda'):
-            p_real, p_imag, l_sub, _, _ = model(x, coords, time_idx)
+            p_real, p_imag, l_sub, _, _, _, _, _ = model(x, coords, time_idx)
             l_total, l_sub_eval, l_real, l_imag, l_mse = model.get_loss(x, p_real, p_imag, l_sub, x_fft=x_fft)
 
         scaler.scale(l_total).backward()
@@ -94,7 +94,7 @@ def validate_one_epoch(model, data_loader, device):
             x, coords, time_idx, _, x_fft = [t.to(device) if (t is not None and t.numel() > 0) else t for t in batch]
 
             with torch.amp.autocast(device_type='cuda'):
-                p_real, p_imag, l_sub, _, _ = model(x, coords, time_idx)
+                p_real, p_imag, l_sub, _, _, _, _, _ = model(x, coords, time_idx)
                 l_total, l_sub_eval, l_real, l_imag, l_mse = model.get_loss(x, p_real, p_imag, l_sub, x_fft=x_fft)
 
             totals["loss"] += l_total.item()

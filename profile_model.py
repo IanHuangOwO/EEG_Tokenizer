@@ -67,9 +67,15 @@ class ProfilerHooks:
         return stats
 
 def profile_model():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train', action='store_true', help='Profile in train mode (eigh skipped)')
+    args = parser.parse_args()
+
     # 1. Setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Profiling on device: {device}")
+    mode_str = 'TRAIN (eigh skipped)' if args.train else 'EVAL (eigh active)'
+    print(f"Profiling on device: {device}  |  Mode: {mode_str}")
     
     with open('config/config.json', 'r') as f:
         config = json.load(f)
@@ -86,7 +92,7 @@ def profile_model():
     n_fft_trial = N * L
     
     model = build_model_from_config(config, n_fft_trial=n_fft_trial).to(device)
-    model.eval()
+    model.train() if args.train else model.eval()
     
     x = torch.randn(B, C, N, L).to(device)
     coords = torch.randn(B, C, 3).to(device)
@@ -138,7 +144,7 @@ def profile_model():
         for _ in range(n_iters):
             # 1. Forward
             t0 = time.perf_counter()
-            p_real, p_imag, l_sub, _, _ = model(x, coords, time_idx)
+            p_real, p_imag, l_sub, _, _, _, _, _ = model(x, coords, time_idx)
             if device.type == 'cuda': torch.cuda.synchronize()
             
             # 2. Loss (Massive FFTs here)

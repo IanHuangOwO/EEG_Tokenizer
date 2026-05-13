@@ -90,7 +90,7 @@ def get_detailed_outputs(model, x, coords, time_idx):
 def main():
     parser = argparse.ArgumentParser(description='Detailed EEG Reconstruction Analysis')
     parser.add_argument('--config', type=str, default='config/config.json')
-    parser.add_argument('--checkpoint', type=str, default='output/attnvq_v02/tokenizer/best_tokenizer.pth')
+    parser.add_argument('--checkpoint', type=str, default='output/attnvq_v06/tokenizer/best_tokenizer.pth')
     parser.add_argument('--output_dir', type=str, default=None) # Default to None to trigger auto-derivation
     parser.add_argument('--subject', type=int, default=None)
     parser.add_argument('--trial', type=int, default=None)
@@ -117,20 +117,28 @@ def main():
     with open(args.config, 'r') as f:
         config = json.load(f)
 
+    # Pick one dataset at random if no subject specified, then zero out all others
+    ds_names = list(config['dataset_params'].keys())
+    chosen_ds = random.choice(ds_names) if args.subject is None else None
+
     for ds_name, ds_args in config['dataset_params'].items():
         meta_path = os.path.join(ds_args['dataset_path'], 'metadata.json')
         with open(meta_path, 'r') as f_meta:
             meta = json.load(f_meta)
         all_subs = list(meta.get('data_structure', {}).keys())
+
         if args.subject is not None:
-            if str(args.subject) in all_subs:
+            if str(args.subject) in all_subs or args.subject in all_subs:
                 config['dataset_params'][ds_name]['subject_to_use'] = [args.subject]
             else:
                 config['dataset_params'][ds_name]['subject_to_use'] = []
-        elif ds_args['subject_to_use'] in [["all"], "all"]:
-            random_sub = random.choice(all_subs)
-            config['dataset_params'][ds_name]['subject_to_use'] = [random_sub]
-            args.subject = int(random_sub) if random_sub.isdigit() else random_sub
+        else:
+            if ds_name == chosen_ds:
+                random_sub = random.choice(all_subs)
+                config['dataset_params'][ds_name]['subject_to_use'] = [random_sub]
+                args.subject = int(random_sub) if str(random_sub).isdigit() else random_sub
+            else:
+                config['dataset_params'][ds_name]['subject_to_use'] = []
 
     dataset = build_dataset_from_config(config, mode='tokenizer')
     if len(dataset) == 0: return
