@@ -49,21 +49,17 @@ class Plotter:
         ax1.set_ylabel('Loss')
         ax1.legend(); ax1.grid(True)
         
-        # Plot Components (Real/Imag/Sub)
+        # Plot Components (Real/Imag)
         if 'real' in self.history['train']:
             ax2.plot(epochs, self.history['train']['real'], color='orange', linestyle='-', label='Train Real')
         if 'imag' in self.history['train']:
             ax2.plot(epochs, self.history['train']['imag'], color='purple', linestyle='-', label='Train Imag')
-        if 'sub' in self.history['train']:
-            ax2.plot(epochs, self.history['train']['sub'], color='red', linestyle='-', label='Train Sub')
-        
+
         if has_val:
              if 'real' in self.history['val']:
                 ax2.plot(epochs, self.history['val']['real'], color='orange', linestyle='--', alpha=0.7, label='Val Real')
              if 'imag' in self.history['val']:
                 ax2.plot(epochs, self.history['val']['imag'], color='purple', linestyle='--', alpha=0.7, label='Val Imag')
-             if 'sub' in self.history['val']:
-                ax2.plot(epochs, self.history['val']['sub'], color='red', linestyle='--', alpha=0.7, label='Val Sub')
              
         ax2.set_title('Loss Components')
         ax2.set_ylabel('Loss')
@@ -130,25 +126,29 @@ class Plotter:
                 ax_cb.legend(lines + lines2, labels + labels2, loc='upper left', fontsize='x-small')
                 ax_cb.grid(True)
 
-            # --- Column 2: Subspace Diversity ---
-            o_key  = f"codebook_total_orthogonality{suffix}"
-            c_key  = f"codebook_head_orthogonality{suffix}"
-            ar_key = f"codebook_active_rank{suffix}"
-            if o_key in self.history['train']:
-                ep = range(1, len(self.history['train'][o_key]) + 1)
-                ax_sub.plot(ep, self.history['train'][o_key], 'b-', label='Total Ortho')
+            # --- Column 2: # Clusters (val) + RBF σ & v_q sim (train) ---
+            nclus_key  = f"pool_n_clusters{suffix}"
+            sigma_key  = f"pool_rbf_sigma{suffix}"
+            vqsim_key  = f"pool_vq_head_sim{suffix}"
+            src_val    = self.history['val']
+            src_tr     = self.history['train']
+            if nclus_key in src_val:
+                ep_val = range(1, len(src_val[nclus_key]) + 1)
+                ax_sub.plot(ep_val, src_val[nclus_key], color='green', linestyle='-', label='# Clusters (val)')
+                ax_sub.set_ylabel('# Clusters', color='green')
+                ax_sub.set_ylim(bottom=0)
+                ax_sub.set_title(f'Layer {h_idx}: Clusters + RBF σ')
                 ax_sub_twin = ax_sub.twinx()
-                ax_sub_twin.plot(ep, self.history['train'][c_key], 'r-', label='Head Ortho', alpha=0.7)
-                if ar_key in self.history['train']:
-                    ar_ep = range(1, len(self.history['train'][ar_key]) + 1)
-                    ax_sub_twin.plot(ar_ep, self.history['train'][ar_key], 'g--', label='Active Rank', alpha=0.7)
-                ax_sub.set_ylabel('Total Ortho'); ax_sub_twin.set_ylabel('Head Ortho / Active Rank')
-                ax_sub.set_yscale('log')
-                ax_sub.set_title(f'Layer {h_idx}: Subspace Diversity')
+                if sigma_key in src_tr:
+                    ep_tr = range(1, len(src_tr[sigma_key]) + 1)
+                    ax_sub_twin.plot(ep_tr, src_tr[sigma_key], color='darkorange', linestyle='-', label='RBF σ (train)')
+                if vqsim_key in src_tr:
+                    ax_sub_twin.plot(ep_tr, src_tr[vqsim_key], color='steelblue', linestyle='--', label='v_q sim (train)')
+                ax_sub_twin.set_ylabel('RBF σ / v_q sim', color='darkorange')
                 lines,  labels  = ax_sub.get_legend_handles_labels()
                 lines2, labels2 = ax_sub_twin.get_legend_handles_labels()
                 ax_sub.legend(lines + lines2, labels + labels2, loc='upper right', fontsize='x-small')
-                ax_sub.grid(True, which="both", ls="-", alpha=0.3)
+                ax_sub.grid(True)
 
             # --- Column 3: Pooler — Spectral Gap + Eff Rank (val only) ---
             gap_key  = f"pool_spectral_gap{suffix}"

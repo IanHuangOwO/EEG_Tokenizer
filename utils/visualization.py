@@ -155,7 +155,7 @@ def visualize_masking(pretrain_dataset, subject_id, output_dir='output/visualiza
     fig.suptitle(f"Subject {subject_id} Masking Pattern (Red=Masked, Blue=Visible)\nAll {C} Channels", fontsize=16)
     plt.tight_layout(rect=[0, 0.01, 1, 0.98])
     
-    save_path = os.path.join(output_dir, f'Subject_{subject_id}_Masking_Grid.png')
+    save_path = os.path.join(output_dir, f'sub{subject_id}_trial{trial_idx}_masking.png')
     plt.savefig(save_path)
     plt.close(fig)
     print(f"Saved: {save_path}")

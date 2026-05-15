@@ -40,15 +40,15 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}", 
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
 
-    totals = {"loss": 0.0, "sub": 0.0, "real": 0.0, "imag": 0.0, "temp": 0.0}
+    totals = {"loss": 0.0, "real": 0.0, "imag": 0.0, "temp": 0.0}
 
     for batch_idx, batch in enumerate(pbar):
         x, coords, time_idx, _, x_fft = [t.to(device) if (t is not None and t.numel() > 0) else t for t in batch]
         optimizer.zero_grad()
 
         with torch.amp.autocast(device_type='cuda'):
-            p_real, p_imag, l_sub, _, _, _, _, _ = model(x, coords, time_idx)
-            l_total, l_sub_eval, l_real, l_imag, l_mse = model.get_loss(x, p_real, p_imag, l_sub, x_fft=x_fft)
+            p_real, p_imag, _, _, _, _, _ = model(x, coords, time_idx)
+            l_total, l_real, l_imag, l_mse = model.get_loss(x, p_real, p_imag, x_fft=x_fft)
 
         scaler.scale(l_total).backward()
         scaler.unscale_(optimizer)
@@ -60,7 +60,6 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch):
         totals["real"] += l_real.item()
         totals["imag"] += l_imag.item()
         totals["temp"] += l_mse.item()
-        totals["sub"]  += l_sub_eval.item()
 
         if batch_idx % 5 == 0:
             n = batch_idx + 1
@@ -87,21 +86,20 @@ def validate_one_epoch(model, data_loader, device):
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
     
-    totals = {"loss": 0.0, "sub": 0.0, "real": 0.0, "imag": 0.0, "temp": 0.0}
+    totals = {"loss": 0.0, "real": 0.0, "imag": 0.0, "temp": 0.0}
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(pbar):
             x, coords, time_idx, _, x_fft = [t.to(device) if (t is not None and t.numel() > 0) else t for t in batch]
 
             with torch.amp.autocast(device_type='cuda'):
-                p_real, p_imag, l_sub, _, _, _, _, _ = model(x, coords, time_idx)
-                l_total, l_sub_eval, l_real, l_imag, l_mse = model.get_loss(x, p_real, p_imag, l_sub, x_fft=x_fft)
+                p_real, p_imag, _, _, _, _, _ = model(x, coords, time_idx)
+                l_total, l_real, l_imag, l_mse = model.get_loss(x, p_real, p_imag, x_fft=x_fft)
 
             totals["loss"] += l_total.item()
             totals["real"] += l_real.item()
             totals["imag"] += l_imag.item()
             totals["temp"] += l_mse.item()
-            totals["sub"]  += l_sub_eval.item()
 
             if batch_idx % 5 == 0:
                 n = batch_idx + 1
@@ -242,7 +240,7 @@ def main():
 
         logging.info(f"--- Epoch {epoch}/{total_epochs} Summary ---")
 
-        loss_keys = ["loss", "real", "imag", "temp", "sub"]
+        loss_keys = ["loss", "real", "imag", "temp"]
         train_loss_str = " | ".join([f"{k}: {train_metrics.get(k, 0.0):.4f}" for k in loss_keys])
         val_loss_str   = " | ".join([f"{k}: {val_metrics.get(k, 0.0):.4f}" for k in loss_keys])
         logging.info(f"  [Train] {train_loss_str}")

@@ -140,7 +140,6 @@ class AttnVQ(nn.Module):
         self.A = nn.Parameter(torch.empty(e_dim, num_heads * self.r))
         nn.init.orthogonal_(self.A, gain=1.0)
 
-        self.register_buffer('identity_h', torch.eye(num_heads))
         self.register_buffer('avg_probs', torch.zeros(num_heads, vq_head_vocab_size, num_discrete))
         self.register_buffer('max_prob_ema', torch.tensor(0.0))
         self.ema_decay = 0.99
@@ -169,26 +168,12 @@ class AttnVQ(nn.Module):
                 max_p = batch_probs.max(dim=-1)[0].mean()
                 self.max_prob_ema.mul_(self.ema_decay).add_(max_p, alpha=1 - self.ema_decay)
 
-        return v_q.reshape(B_sz, N_c, H, r), self.get_joint_subspace_loss(), indices, q_soft
-
-    def get_joint_subspace_loss(self):
-        A_per_head = self.A.view(self.e_dim, self.num_heads, self.r)
-        A_mean = F.normalize(A_per_head.mean(dim=-1), p=2, dim=0)
-        G_head_mean = torch.matmul(A_mean.t(), A_mean)
-        return torch.mean((G_head_mean * (1.0 - self.identity_h)) ** 2)
+        return v_q.reshape(B_sz, N_c, H, r), indices, q_soft
 
     @torch.no_grad()
     def get_current_metrics(self):
         metrics = {}
         H, r, D = self.num_heads, self.r, self.e_dim
-
-        Gram = torch.matmul(self.A.t(), self.A)
-        metrics['codebook_total_orthogonality'] = torch.mean((Gram - torch.eye(H * r, device=Gram.device)).pow(2)).item()
-
-        A_per_head = self.A.view(D, H, r)
-        A_mean = A_per_head.mean(dim=-1)
-        G_head_mean = torch.matmul(A_mean.t(), A_mean)
-        metrics['codebook_head_orthogonality'] = torch.mean((G_head_mean * (1.0 - torch.eye(H, device=G_head_mean.device))).abs()).item()
 
         p = self.avg_probs
         entropy = -torch.sum(p * torch.log(p + 1e-10), dim=-1)
@@ -206,35 +191,53 @@ class AttnVQ(nn.Module):
 class LaplacianManifoldPooling(nn.Module):
     """
     Pools multi-head VQ representations using a Low-Pass Graph Filter (Lazy Random Walk).
-    Computes topomaps based on raw physical head energy, and grades heads 
-    using a Laplacian Survival Score (head_importance).
+    Edges between heads are computed with an RBF kernel on decoder weight similarity:
+      W[h,m] = exp(-(1 - cosine_sim(W_h, W_m)) / sigma^2)
+    where W_h is the flattened decoder weight for head h.
+    Using decoder.W makes edges data-independent (stable cluster membership across inputs)
+    and lets gradient flow back to the decoder through G.
+
+    G = self_weight * I + other_weight * W_norm
+      self_weight  : how much each head relies on its own representation (→1 = fully independent)
+      other_weight : how much similar heads amplify each other       (→1 = pure random walk)
+      sigma        : RBF bandwidth; large → dense graph, small → sparse/clustered
     """
-    def __init__(self, num_heads, gamma=2.0, ema_decay=0.99):
+    def __init__(self, num_heads, gamma=2.0, ema_decay=0.99,
+                 self_weight=0.5, other_weight=0.5, init_sigma=1.0):
         super().__init__()
-        self.num_heads = num_heads
-        self.gamma = gamma
-        self.ema_decay = ema_decay
+        self.num_heads    = num_heads
+        self.gamma        = gamma
+        self.ema_decay    = ema_decay
+        self.self_weight  = self_weight
+        self.other_weight = other_weight
+        self.log_sigma    = nn.Parameter(torch.tensor(math.log(init_sigma)))
 
         self.register_buffer('ema_spectral_gap',    torch.tensor(0.0))
         self.register_buffer('ema_filter_eff_rank', torch.tensor(float(num_heads) / 2.0))
         self.register_buffer('ema_filter_contrast', torch.tensor(1.0))
         self.register_buffer('ema_graph_edge_std',  torch.tensor(0.0))
+        self.register_buffer('ema_vq_head_sim',     torch.tensor(0.0))
+        self.register_buffer('ema_n_clusters',      torch.tensor(1.0))
 
     def _update_ema(self, name, value):
         buf = getattr(self, f'ema_{name}')
         buf.mul_(self.ema_decay).add_(value, alpha=1.0 - self.ema_decay)
 
-    def forward(self, v_q, B, C):
-        # v_q:[B*C, N, H, r]
+    def forward(self, v_q, B, C, decoder_W):
+        # v_q: [B*C, N, H, r],  decoder_W: [H, D, 2F]
         B_C, N, H, r = v_q.shape
-        v_q_4d = v_q.reshape(B, C, N, H, r)
 
-        # 1. Build Head Affinity Graph via cosine similarity
-        v_mean = v_q_4d.mean(dim=1)                                    # [B, N, H, r]
-        v_flat = F.normalize(v_mean.mean(dim=1), dim=-1)               # [B, H, r]
-        sim    = torch.einsum('bhr,bmr->bhm', v_flat, v_flat)          # [B, H, H] in [-1, 1]
-        W = F.softmax(sim, dim=-1)
-        W = (W + W.transpose(-1, -2)) / 2.0  # Make symmetric
+        # 1. Build Head Affinity Graph via RBF on decoder weight similarity
+        #    Data-independent: same graph for every sample → stable cluster membership
+        #    For unit vectors: ||w_h - w_m||^2 = 2(1 - cosine_sim)
+        #    RBF(w_h, w_m) = exp(-(1 - sim) / sigma^2)
+        w_flat = F.normalize(decoder_W.reshape(H, -1), dim=-1)         # [H, D*2F]
+        sim    = torch.einsum('hd,md->hm', w_flat, w_flat)             # [H, H]
+        sim    = sim.unsqueeze(0).expand(B, -1, -1)                    # [B, H, H]
+        sigma  = self.log_sigma.exp()
+        W      = torch.exp(-(1.0 - sim) / (sigma ** 2 + 1e-8))        # [B, H, H], symmetric
+        # Zero diagonal: self-connection already handled by self_weight * I in G
+        W      = W * (1.0 - torch.eye(H, device=v_q.device).unsqueeze(0))
 
         # 3. Normalized Graph Laplacian
         D_deg = W.sum(dim=-1)
@@ -243,9 +246,17 @@ class LaplacianManifoldPooling(nn.Module):
         I = torch.eye(H, device=v_q.device).unsqueeze(0)  # [1, H, H]
 
         # 4. Graph Diffusion Filter (used inside the decoder, not applied to v_q here)
-        G = 0.5 * I + 0.5 * W_norm                           # [B, H, H]
+        G = self.self_weight * I + self.other_weight * W_norm  # [B, H, H]
 
-        # 5. Head importance — training uses cheap diagonal, eval uses full Laplacian + stats
+        # 5. Track v_q diversity across heads (every step — collapse monitor)
+        with torch.no_grad():
+            v_mean = v_q.reshape(B, C, N, H, r).mean(dim=(1, 2))          # [B, H, r]
+            v_norm = F.normalize(v_mean, dim=-1)
+            v_sim  = torch.einsum('bhr,bmr->bhm', v_norm, v_norm)         # [B, H, H]
+            off    = 1.0 - torch.eye(H, device=v_q.device)
+            self._update_ema('vq_head_sim', (v_sim * off).sum() / (off.sum() * B))
+
+        # 6. Head importance — training uses cheap diagonal, eval uses full Laplacian + stats
         with torch.no_grad():
             head_importance = G.diagonal(dim1=-2, dim2=-1).clone()  # [B, H] fast fallback
             if not self.training:
@@ -258,18 +269,22 @@ class LaplacianManifoldPooling(nn.Module):
                     head_importance = torch.einsum('bhk,bk,bhk->bh', U, spectral_weights, U)
                 except RuntimeError:
                     pass
-                gap      = (lambda_vals[:, 1] - lambda_vals[:, 0]).mean()
-                sw       = spectral_weights.clamp(min=1e-10)
-                eff_rank = torch.exp(-torch.sum(sw * sw.log(), dim=-1)).mean()
-                contrast = (spectral_weights.max(dim=-1)[0] / (spectral_weights.min(dim=-1)[0] + 1e-8)).mean()
-                off_mask = (1.0 - torch.eye(H, device=W.device)).unsqueeze(0)
-                edge_std = (W * off_mask).std(dim=(-1, -2)).mean()
+                gap        = (lambda_vals[:, 1] - lambda_vals[:, 0]).mean()
+                sw         = spectral_weights.clamp(min=1e-10)
+                eff_rank   = torch.exp(-torch.sum(sw * sw.log(), dim=-1)).mean()
+                contrast   = (spectral_weights.max(dim=-1)[0] / (spectral_weights.min(dim=-1)[0] + 1e-8)).mean()
+                off_mask   = (1.0 - torch.eye(H, device=W.device)).unsqueeze(0)
+                edge_std   = (W * off_mask).std(dim=(-1, -2)).mean()
+                # Number of clusters = index of largest consecutive eigenvalue gap + 1
+                eig_gaps   = lambda_vals[:, 1:] - lambda_vals[:, :-1]   # [B, H-1]
+                n_clusters = (eig_gaps.argmax(dim=-1) + 1).float().mean()
                 self._update_ema('spectral_gap',    gap)
                 self._update_ema('filter_eff_rank', eff_rank)
                 self._update_ema('filter_contrast', contrast)
                 self._update_ema('graph_edge_std',  edge_std)
+                self._update_ema('n_clusters',      n_clusters)
 
-        return v_q, head_importance, sim.detach(), G.detach()
+        return v_q, head_importance, sim.detach(), G
 
     @torch.no_grad()
     def get_current_metrics(self):
@@ -278,6 +293,9 @@ class LaplacianManifoldPooling(nn.Module):
             'pool_filter_eff_rank': self.ema_filter_eff_rank.item(),
             'pool_filter_contrast': self.ema_filter_contrast.item(),
             'pool_graph_edge_std':  self.ema_graph_edge_std.item(),
+            'pool_rbf_sigma':       self.log_sigma.exp().item(),
+            'pool_vq_head_sim':     self.ema_vq_head_sim.item(),
+            'pool_n_clusters':      self.ema_n_clusters.item(),
         }
 
 
@@ -381,7 +399,10 @@ class AttnVQTokenizer(nn.Module):
             # Initialize the Spectral Pooler
             self.poolers.append(LaplacianManifoldPooling(
                 num_heads=num_h,
-                gamma=h_cfg.get("pooling_gamma", 2.0)
+                gamma=h_cfg.get("pooling_gamma", 2.0),
+                self_weight=h_cfg.get("pooling_self_weight",  0.5),
+                other_weight=h_cfg.get("pooling_other_weight", 0.5),
+                init_sigma=h_cfg.get("pooling_sigma", 1.0),
             ))
             
             self.decoders.append(FastAdditiveDecoder(
@@ -409,17 +430,14 @@ class AttnVQTokenizer(nn.Module):
         all_head_importances = []
         all_sim, all_G = [], []
 
-        total_sub_loss = 0
-
         for i, h_cfg in enumerate(self.decoder_heads_config):
             z_stage = stage_outputs[h_cfg["stage_idx"]]
             B_s, C_s, N_s, D_s = z_stage.shape
             z_flat = z_stage.reshape(B_s * C_s, N_s, D_s)
 
-            v_q, sub_loss, indices, weights = self.vq_heads[i](z_flat)
-            total_sub_loss = total_sub_loss + sub_loss
+            v_q, indices, weights = self.vq_heads[i](z_flat)
 
-            _, head_importance, sim, G = self.poolers[i](v_q, B, C)
+            _, head_importance, sim, G = self.poolers[i](v_q, B, C, decoder_W=self.decoders[i].W)
 
             p_real, p_imag = self.decoders[i](v_q, self.vq_heads[i].A, G=G, B=B, C=C)
 
@@ -431,7 +449,7 @@ class AttnVQTokenizer(nn.Module):
             all_sim.append(sim)                             # [B, H, H]
             all_G.append(G)                                 # [B, H, H]
 
-        return all_pred_real, all_pred_imag, total_sub_loss, all_indices, all_weights, all_head_importances, all_sim, all_G
+        return all_pred_real, all_pred_imag, all_indices, all_weights, all_head_importances, all_sim, all_G
 
     @torch.no_grad()
     def get_current_metrics(self):
@@ -456,7 +474,7 @@ class AttnVQTokenizer(nn.Module):
 
         return full_metrics
 
-    def get_loss(self, x, p_reals, p_imags, l_sub, x_fft=None):
+    def get_loss(self, x, p_reals, p_imags, x_fft=None):
         B, C, N, L = x.shape
         x_target = x.reshape(B, C, -1)
         T_actual = x_target.shape[-1]
@@ -479,8 +497,8 @@ class AttnVQTokenizer(nn.Module):
         x_recon = self.reconstruct(p_reals, p_imags, n_samples=T_actual)
         l_mse_global = F.mse_loss(x_recon.float(), x_target[..., :x_recon.shape[-1]].float())
 
-        l_total = (l_expert_real + l_expert_imag) / num_heads + l_mse_global + l_sub
-        return l_total, l_sub, l_expert_real / num_heads, l_expert_imag / num_heads, l_mse_global
+        l_total = (l_expert_real + l_expert_imag) / num_heads + l_mse_global
+        return l_total, l_expert_real / num_heads, l_expert_imag / num_heads, l_mse_global
 
     def reconstruct(self, p_reals, p_imags, n_samples=None):
         B, C = p_reals[0].shape[:2]

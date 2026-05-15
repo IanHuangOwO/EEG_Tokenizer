@@ -29,7 +29,11 @@
             "vq_head_vocab_size": 16,
             "vq_num_discrete": 5,
             "dropout": 0.05,
-            "loss_weight": 1.0
+            "loss_weight": 1.0,
+            "pooling_gamma": 2.0,
+            "pooling_self_weight": 0.5,
+            "pooling_other_weight": 0.5,
+            "pooling_sigma": 1.0
           },
           {
             "stage_idx": 2,
@@ -38,7 +42,11 @@
             "vq_head_vocab_size": 12,
             "vq_num_discrete": 5,
             "dropout": 0.05,
-            "loss_weight": 2.5
+            "loss_weight": 1.0,
+            "pooling_gamma": 2.0,
+            "pooling_self_weight": 0.5,
+            "pooling_other_weight": 0.5,
+            "pooling_sigma": 1.0
           },
           {
             "stage_idx": 4,
@@ -47,7 +55,11 @@
             "vq_head_vocab_size": 8,
             "vq_num_discrete": 5,
             "dropout": 0.05,
-            "loss_weight": 5.0
+            "loss_weight": 1.0,
+            "pooling_gamma": 2.0,
+            "pooling_self_weight": 0.5,
+            "pooling_other_weight": 0.5,
+            "pooling_sigma": 1.0
           },
           {
             "stage_idx": 7,
@@ -56,7 +68,11 @@
             "vq_head_vocab_size": 6,
             "vq_num_discrete": 5,
             "dropout": 0.05,
-            "loss_weight": 11.0
+            "loss_weight": 1.0,
+            "pooling_gamma": 2.0,
+            "pooling_self_weight": 0.5,
+            "pooling_other_weight": 0.5,
+            "pooling_sigma": 1.0
           }
         ]
       },
@@ -93,7 +109,7 @@
   },
   "training_params": {
     "model_type": "AttnVQ",
-    "model_name": "attnvq_v06",
+    "model_name": "attnvq_v07",
     "learning_rate": 0.001,
     "min_learning_rate": 0.0001,
     "epochs": 100,
