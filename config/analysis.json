@@ -1,30 +1,26 @@
 {
   "base_config": "config/config.json",
-  "checkpoint": "output/attnvq_v06/tokenizer/best_tokenizer.pth",
+  "checkpoint": "output/attnvq_v10/tokenizer/best_tokenizer.pth",
 
   "dataset_params": {
     "BETA_4s": {
-      "dataset_path": "datas/BETA_4s",
-      "subject_to_use": [30],
+      "dataset_path": "datas/BETA_3s",
+      "subject_to_use": [2],
       "channels_to_use": ["all"],
       "trial_to_use": 10
     }
-  },
-
-  "training_params": {
-    "model_type": "AttnVQ",
-    "model_name": "attnvq_v06"
   },
 
   "check": {
     "data": {
       "num_channels":      64,
       "plot_band_temporal": true,
-      "plot_ampphase":     true,
-      "plot_realimag":     true,
-      "plot_psd":          true,
+      "plot_ampphase":     false,
+      "plot_realimag":     false,
+      "plot_psd":          false,
       "plot_topo":         true,
-      "plot_masking":      true
+      "plot_masking":      false,
+      "plot_overview":     true
     },
     "codebook":       {},
     "reconstruction": { "channel": null },

@@ -11,10 +11,10 @@ import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 
-from analysis import load_config, load_model, resolve_output_dir
+from viz import load_config, load_model, resolve_output_dir
 
 
-# ── Pure helpers ─────────────────────────────────────────────────────────────
+# ── Pure helpers ──────────────────────────────────────────────────────────────
 
 def calc_effective_rank(matrix: torch.Tensor) -> float:
     if matrix.numel() == 0:
@@ -38,28 +38,27 @@ def compute_cosine_sim_matrix(tensor: torch.Tensor) -> torch.Tensor:
 
 def collect_stage_data(vq_head, stage_idx: int, f_min: float, f_max: float,
                        csv_dir: str, num_discrete: int) -> dict:
-    """Compute all metrics for one VQ stage, write CSV, return data dict."""
     A = vq_head.A.detach().cpu()
     D, _ = A.shape
     H = vq_head.num_heads
     r = vq_head.r
     A3 = A.view(D, H, r)
 
-    print(f"  Stage {stage_idx} ({f_min}-{f_max} Hz)  D={D} H={H} r={r}")
+    print(f"  Stage {stage_idx}  D={D} H={H} r={r}")
 
-    head_sim = compute_cosine_sim_matrix(A3.mean(dim=2).t()).numpy()  # [H, H]
+    head_sim = compute_cosine_sim_matrix(A3.mean(dim=2).t()).numpy()
 
     sv_arr = np.stack([
         torch.linalg.svd(A3[:, h, :].float(), full_matrices=False)[1].numpy()
         for h in range(H)
-    ])  # [H, r]
+    ])
 
     cond_numbers = sv_arr[:, 0] / (sv_arr[:, -1] + 1e-8)
     eff_ranks    = [calc_effective_rank(A3[:, h, :]) for h in range(H)]
 
-    probs      = vq_head.avg_probs.detach().cpu()                        # [H, r, N_discrete]
-    perplexity = torch.exp(-torch.sum(probs * torch.log(probs + 1e-10), dim=-1)).numpy()  # [H, r]
-    max_probs  = probs.max(dim=-1)[0].numpy()                            # [H, r]
+    probs      = vq_head.avg_probs.detach().cpu()
+    perplexity = torch.exp(-torch.sum(probs * torch.log(probs + 1e-10), dim=-1)).numpy()
+    max_probs  = probs.max(dim=-1)[0].numpy()
 
     rows = [
         {
@@ -95,7 +94,6 @@ def collect_stage_data(vq_head, stage_idx: int, f_min: float, f_max: float,
 
 
 def plot_all_stages(all_data: list, viz_dir: str):
-    """Save the 5 combined diagnostic plots for all stages."""
     N = len(all_data)
     labels = [f"Stage {d['stage_idx']}\n({d['f_min']}-{d['f_max']} Hz)" for d in all_data]
 
@@ -191,34 +189,31 @@ def plot_all_stages(all_data: list, viz_dir: str):
 # ── Module interface ──────────────────────────────────────────────────────────
 
 def add_args(parser):
-    pass  # no extra args
+    pass
 
 
 def run(config, output_dir, args, model=None, dataset=None, trial_idx=None, subject_id=None):
-    """Run codebook health analysis. Requires model only — no trial needed."""
-    if config['training_params'].get('model_type') != 'AttnVQ':
-        print("  [codebook] Skipping: not an AttnVQ model.")
+    if config['training_params'].get('model_type') != 'MeFSQ':
+        print("  [codebook] Skipping: not an MeFSQ model.")
         return
 
     viz_dir = os.path.join(output_dir, 'codebook')
     csv_dir = os.path.join(viz_dir, 'csv')
     os.makedirs(csv_dir, exist_ok=True)
 
-    print(f"  [codebook] Analysing {len(model.vq_heads)} VQ stages...")
-    all_data = []
-    for i, (vq_head, h_cfg) in enumerate(zip(model.vq_heads, model.decoder_heads_config)):
-        f_min, f_max = h_cfg["freq_range"]
-        num_discrete = h_cfg.get("vq_num_discrete", vq_head.num_discrete)
-        all_data.append(collect_stage_data(vq_head, i, f_min, f_max, csv_dir, num_discrete))
+    print(f"  [codebook] Analysing MeFSQ VQ stage...")
+    all_data = [collect_stage_data(model.mefsq, 0, 0.0, 0.0, csv_dir, model.mefsq.num_discrete)]
 
     plot_all_stages(all_data, viz_dir)
-    print(f"  [codebook] → {viz_dir}")
+    print(f"  [codebook] -> {viz_dir}")
 
+
+# ── Standalone entry point ────────────────────────────────────────────────────
 
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description='AttnVQ Codebook Health Check')
+    parser = argparse.ArgumentParser(description='MeFSQ Codebook Health Check')
     parser.add_argument('--config',     default='config/analysis.json')
     parser.add_argument('--checkpoint', default=None)
     add_args(parser)

@@ -1,7 +1,7 @@
 """
-Shared utilities for the analysis package.
+Shared infrastructure for the viz package.
 
-Every analysis module imports from here instead of duplicating
+Every viz module imports from here instead of duplicating
 dataset filtering, model loading, and trial selection logic.
 """
 
@@ -9,11 +9,11 @@ import os
 import json
 import copy
 import random
+import numpy as np
 import torch
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """Deep-merge override into base. override wins on scalar conflicts."""
     result = copy.deepcopy(base)
     for k, v in override.items():
         if k in result and isinstance(result[k], dict) and isinstance(v, dict):
@@ -24,10 +24,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 
 
 def load_config(path: str) -> dict:
-    """
-    Load analysis config. If it contains 'base_config', that file is loaded
-    first and the analysis config is deep-merged on top of it.
-    """
+    """Load config. If it contains 'base_config', deep-merge on top of it."""
     with open(path, 'r') as f:
         cfg = json.load(f)
     if 'base_config' in cfg:
@@ -39,9 +36,7 @@ def load_config(path: str) -> dict:
 
 
 def resolve_output_dir(config: dict, *sub_dirs: str) -> str:
-    """
-    Return output/{model_name}/visualization/{sub_dirs...} and create it.
-    """
+    """Return output/{model_name}/visualization/{sub_dirs...} and create it."""
     model_name = config['training_params']['model_name']
     path = os.path.join('output', model_name, 'visualization', *sub_dirs)
     os.makedirs(path, exist_ok=True)
@@ -52,13 +47,10 @@ def select_subject_dataset(config: dict, subject=None, dataset_name: str = None)
     """
     Resolve (dataset_name, subject_id) using:
       1. CLI arguments (highest priority)
-      2. The dataset_params entry that has trial_to_use set (the explicitly selected one)
+      2. The dataset_params entry that has trial_to_use set
       3. First key of dataset_params as last resort
-
-    Returns (dataset_name, subject_id).
     """
     if dataset_name is None:
-        # Prefer the dataset that has trial_to_use explicitly set
         for ds, ds_cfg in config['dataset_params'].items():
             if 'trial_to_use' in ds_cfg:
                 dataset_name = ds
@@ -78,10 +70,7 @@ def select_subject_dataset(config: dict, subject=None, dataset_name: str = None)
 
 
 def filter_config_to_subject(config: dict, dataset_name: str, subject) -> dict:
-    """
-    Return a config copy with dataset_params reduced to exactly one
-    dataset + subject, so build_dataset_from_config loads only that data.
-    """
+    """Return config copy with dataset_params reduced to one dataset + subject."""
     cfg = copy.deepcopy(config)
     orig = cfg['dataset_params'][dataset_name]
     cfg['dataset_params'] = {
@@ -91,25 +80,10 @@ def filter_config_to_subject(config: dict, dataset_name: str, subject) -> dict:
 
 
 def load_model(config: dict, checkpoint: str, device: torch.device):
-    """
-    Build model from config, load checkpoint with strict=False and
-    consistent warnings, return in eval mode.
-    """
+    """Build model from config, load checkpoint with strict=False, return eval."""
     from model.factory import build_model_from_config
 
-    # Infer n_fft from checkpoint's freq_mask shape, fall back to config arithmetic
-    n_fft = None
-    if checkpoint and os.path.exists(checkpoint):
-        sd = torch.load(checkpoint, map_location='cpu', weights_only=False)
-        sd = sd.get('model_state_dict', sd)
-        if 'freq_mask_0' in sd:
-            n_fft = (sd['freq_mask_0'].shape[0] - 1) * 2
-
-    if n_fft is None:
-        pp = config['model_params']['AttnVQ']['preprocess']
-        n_fft = (pp['trial_length'] // pp['patch_length']) * pp['patch_length']
-
-    model = build_model_from_config(config, n_fft_trial=n_fft).to(device)
+    model = build_model_from_config(config).to(device)
 
     if checkpoint and os.path.exists(checkpoint):
         ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
@@ -127,13 +101,9 @@ def load_model(config: dict, checkpoint: str, device: torch.device):
 
 
 def pick_trial(dataset, subject_id, trial: int = None):
-    """
-    Return (trial_idx, subject_id) for the given subject.
-    If trial is None, picks randomly. Handles int/str subject_id mismatch.
-    """
+    """Return (trial_idx, subject_id). Picks randomly if trial is None."""
     sub_data = dataset.base_dataset.subject_data
     try:
-        # Normalise subject_id to the same type stored in the tensor
         sid = type(sub_data[0].item())(subject_id)
         indices = (sub_data == sid).nonzero(as_tuple=True)[0]
     except Exception:
@@ -145,3 +115,42 @@ def pick_trial(dataset, subject_id, trial: int = None):
     idx = indices[trial % len(indices)].item() if trial is not None else random.choice(indices).item()
     actual_subject = dataset.base_dataset.subject_data[idx].item()
     return idx, actual_subject
+
+
+def setup_mne_info(dataset, fs=200.0):
+    """Build MNE Info from dataset electrode coordinates."""
+    import mne
+
+    base   = dataset.base_dataset if hasattr(dataset, 'base_dataset') else dataset
+    coords = np.array(base.coords, dtype=float).copy()
+    names  = base.channel_names
+
+    radii = np.sqrt(np.sum(coords[:, :2] ** 2, axis=1))
+    max_r = radii.max()
+    if max_r > 0:
+        coords *= 0.06 / max_r
+
+    try:
+        std = mne.channels.make_standard_montage('standard_1020')
+        std_pos = std.get_positions()['ch_pos']
+        std_keys = {k.upper(): k for k in std_pos}
+    except Exception:
+        std_pos, std_keys = {}, {}
+
+    montage_pos, valid_names = {}, []
+    for i, name in enumerate(names):
+        upper = name.upper()
+        if upper in std_keys:
+            montage_pos[name] = std_pos[std_keys[upper]]
+            valid_names.append(name)
+        elif np.any(coords[i] != 0):
+            montage_pos[name] = coords[i]
+            valid_names.append(name)
+
+    info = mne.create_info(ch_names=valid_names, sfreq=fs, ch_types='eeg')
+    try:
+        dig = mne.channels.make_dig_montage(ch_pos=montage_pos, coord_frame='head')
+        info.set_montage(dig)
+    except Exception as e:
+        print(f"[setup_mne_info] montage warning: {e}")
+    return info

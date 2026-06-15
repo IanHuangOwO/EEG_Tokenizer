@@ -1,90 +1,37 @@
 {
   "model_params": {
-    "AttnVQ": {
-      "preprocess": {
-        "trial_length": 800,
-        "trial_pad_threshold": 0.5,
-        "patch_length": 100,
-        "target_freq": 200,
-        "l_freq": 0.2,
-        "h_freq": 75.0,
-        "normalization_type": "zscore",
-        "masking_strategy": "block",
-        "mask_ratio": 0.5,
-        "mask_row_prob": 0.4,
-        "mask_col_prob": 0.4
-      },
-      "tokenizer": {
-        "patch_len": 100,
-        "embed_dim": 128,
-        "enc_depth": 8,
-        "enc_heads": 8,
-        "enc_mlp_ratio": 4.0,
-        "freq_resolution": 0.2,
-        "decoder_heads_config": [
-          {
-            "stage_idx": 0,
-            "freq_range": [30.0, 75.0],
-            "vq_head_num": 128,
-            "vq_head_vocab_size": 16,
-            "vq_num_discrete": 5,
-            "dropout": 0.05,
-            "loss_weight": 1.0,
-            "pooling_gamma": 2.0,
-            "pooling_self_weight": 0.5,
-            "pooling_other_weight": 0.5,
-            "pooling_sigma": 1.0
-          },
-          {
-            "stage_idx": 2,
-            "freq_range": [13.0, 30.0],
-            "vq_head_num": 128,
-            "vq_head_vocab_size": 12,
-            "vq_num_discrete": 5,
-            "dropout": 0.05,
-            "loss_weight": 1.0,
-            "pooling_gamma": 2.0,
-            "pooling_self_weight": 0.5,
-            "pooling_other_weight": 0.5,
-            "pooling_sigma": 1.0
-          },
-          {
-            "stage_idx": 4,
-            "freq_range": [4.0, 13.0],
-            "vq_head_num": 128,
-            "vq_head_vocab_size": 8,
-            "vq_num_discrete": 5,
-            "dropout": 0.05,
-            "loss_weight": 1.0,
-            "pooling_gamma": 2.0,
-            "pooling_self_weight": 0.5,
-            "pooling_other_weight": 0.5,
-            "pooling_sigma": 1.0
-          },
-          {
-            "stage_idx": 7,
-            "freq_range": [0.2, 4.0],
-            "vq_head_num": 128,
-            "vq_head_vocab_size": 6,
-            "vq_num_discrete": 5,
-            "dropout": 0.05,
-            "loss_weight": 1.0,
-            "pooling_gamma": 2.0,
-            "pooling_self_weight": 0.5,
-            "pooling_other_weight": 0.5,
-            "pooling_sigma": 1.0
-          }
-        ]
-      },
-      "backbone": {
+    "MeFSQ": {
+      "pretrain": {
         "patch_len": 100,
         "embed_dim": 128,
         "enc_depth": 8,
         "enc_heads": 8,
         "mlp_ratio": 4.0,
-        "vq_num_discrete": 5,
-        "spatial_heads": 8
+        "spatial_heads": 8,
+        "stage_indices": [3, 7],
+        "vq_head_num": 64,
+        "vq_head_vocab_size": 16,
+        "vq_num_discrete": 5
       }
+    }
+  },
+  "preprocess_params": {
+    "trial_length": 800,
+    "trial_pad_threshold": 0.5,
+    "patch_length": 100,
+    "target_freq": 200,
+    "l_freq": 0.2,
+    "h_freq": 75.0,
+    "normalization_type": "zscore",
+    "masking_strategy": "complementary",
+    "random": {
+      "mask_ratio": 0.3
+    },
+    "complementary": {},
+    "block": {
+      "mask_ratio": 0.3,
+      "mask_row_prob": 0.4,
+      "mask_col_prob": 0.4
     }
   },
   "dataset_params": {
@@ -96,20 +43,11 @@
       "channels_to_use": [
         "all"
       ]
-    },
-    "BETA_4s": {
-      "dataset_path": "datas/BETA_4s",
-      "subject_to_use": [
-        "all"
-      ],
-      "channels_to_use": [
-        "all"
-      ]
     }
   },
   "training_params": {
-    "model_type": "AttnVQ",
-    "model_name": "attnvq_v07",
+    "model_type": "MeFSQ",
+    "model_name": "mefsq_pretrain_v0",
     "learning_rate": 0.001,
     "min_learning_rate": 0.0001,
     "epochs": 100,
@@ -119,6 +57,8 @@
     "device": "cuda",
     "train_val_split": 0.9
   },
-  "loss_params": {},
+  "loss_params": {
+    "mask_weight": 1.0
+  },
   "metrics_params": {}
 }

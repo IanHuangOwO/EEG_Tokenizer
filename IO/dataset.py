@@ -7,7 +7,7 @@ from typing import List, Dict, Optional, Tuple, Callable, Any
 from abc import ABC, abstractmethod
 
 from .loader import BETALoader, DialLoader, BCICIVLoader, InriaLoader, EEGMMIdbLoader
-from model.factory import build_preprocessing_from_config
+from IO.preprocessing import build_preprocessing_from_config
 
 # Channels excluded by default when channels_to_use is "all".
 # Set include_non_eeg_channels: true in dataset_params to override.
@@ -68,6 +68,18 @@ class BlockMaskingStrategy(BaseMaskingStrategy):
             mask = flat.reshape(num_channels, num_patches)
 
         return mask.flatten()
+
+
+class ComplementaryMaskingStrategy(BaseMaskingStrategy):
+    """
+    Fixed mask_ratio=0.5. Dataset doubles: first half uses the mask,
+    second half uses its bitwise inverse so every patch is seen as both
+    masked and visible across the pair.
+    """
+    MASK_RATIO = 0.5
+
+    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float = 0.5) -> torch.Tensor:
+        return RandomMaskingStrategy().generate_mask(num_channels, num_patches, self.MASK_RATIO)
 
 
 # --- Base Dataset ---
@@ -223,56 +235,6 @@ class EEGDataset(Dataset):
 
 # --- Dataset Wrappers ---
 
-class TokenizerDataset(Dataset):
-    """
-    Wraps EEGDataset for AttnVQ tokenizer training.
-    Yields: (x, coords, time_indices, label, x_fft)
-      x:            [C, N, L]
-      coords:       [C, 3]
-      time_indices: [N]
-      label:        scalar
-      x_fft:        [C, F] or empty tensor
-    """
-    def __init__(self, base_dataset: EEGDataset, patch_len: Optional[int] = None):
-        self.base_dataset = base_dataset
-
-        if patch_len is None:
-            model_type = base_dataset.config.get('training_params', {}).get('model_type', 'AttnVQ')
-            preprocess = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
-            patch_len = preprocess.get('patch_length', 200)
-
-        self.patch_len = patch_len
-        total_T = self.base_dataset.data.shape[-1]
-        self.num_patches = total_T // patch_len
-        remainder = total_T % patch_len
-
-        print(f"Initializing TokenizerDataset: {len(base_dataset)} trials, {self.num_patches} patches per trial.")
-        if remainder > 0:
-            print(f"  [Truncation] {remainder} samples dropped per trial ({remainder/total_T*100:.1f}%).")
-
-    def __len__(self):
-        return len(self.base_dataset)
-
-    def __getitem__(self, index):
-        x, label = self.base_dataset[index]
-        C = x.shape[0]
-        N, L = self.num_patches, self.patch_len
-
-        x_patches = x[:, :N * L].reshape(C, N, L)
-        coords_idx = self.base_dataset.trial_to_coords_idx[index]
-        coords = self.base_dataset.all_coords[coords_idx]
-        time_indices = torch.arange(N, dtype=torch.long)
-
-        if self.base_dataset.fft_params is not None:
-            n_fft = self.base_dataset.fft_params.get('n_fft')
-            norm = self.base_dataset.fft_params.get('norm', 'ortho')
-            x_fft = torch.fft.rfft(x_patches.reshape(C, -1), n=n_fft, dim=-1, norm=norm)
-        else:
-            x_fft = torch.empty(0)
-
-        return x_patches, coords, time_indices, label, x_fft
-
-
 class MaskedPretrainDataset(Dataset):
     """
     Wraps EEGDataset for masked pretraining.
@@ -289,50 +251,66 @@ class MaskedPretrainDataset(Dataset):
         base_dataset: EEGDataset,
         patch_len: Optional[int] = None,
         mask_ratio: float = 0.5,
-        masking_strategy: Optional[BaseMaskingStrategy] = None
+        masking_strategy: Optional[BaseMaskingStrategy] = None,
     ):
-        self.base_dataset = base_dataset
-        self.mask_ratio = mask_ratio
+        self.base_dataset     = base_dataset
         self.masking_strategy = masking_strategy or RandomMaskingStrategy()
+        self.complementary    = isinstance(self.masking_strategy, ComplementaryMaskingStrategy)
+        self.mask_ratio       = ComplementaryMaskingStrategy.MASK_RATIO if self.complementary else mask_ratio
 
         if patch_len is None:
-            model_type = base_dataset.config.get('training_params', {}).get('model_type', 'AttnVQ')
+            model_type = base_dataset.config.get('training_params', {}).get('model_type', 'MeFSQ')
             preprocess = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
             patch_len = preprocess.get('patch_length', 200)
 
         self.patch_len = patch_len
-        total_T = base_dataset.data.shape[-1]
+        total_T     = base_dataset.data.shape[-1]
         num_patches = total_T // patch_len
-        remainder = total_T % patch_len
+        remainder   = total_T % patch_len
 
+        # pre-generate one mask per trial so complementary pairs are exact inverses
+        self._masks = [
+            self.masking_strategy.generate_mask(base_dataset.Nc, num_patches, self.mask_ratio)
+            for _ in range(len(base_dataset))
+        ]
+
+        strategy_name = type(self.masking_strategy).__name__.replace('MaskingStrategy', '').lower()
+        n_effective   = len(base_dataset) * (2 if self.complementary else 1)
         print(f"\n--- MaskedPretrainDataset ---")
-        print(f"  {len(base_dataset)} trials | {num_patches} patches/trial | mask_ratio={mask_ratio}")
+        print(f"  {len(base_dataset)} trials | {num_patches} patches/trial | mask_ratio={self.mask_ratio} | strategy={strategy_name}")
+        print(f"  effective dataset size: {n_effective}")
         if remainder > 0:
             print(f"  [Truncation] {remainder} samples dropped per trial ({remainder/total_T*100:.1f}%).")
         print(f"----------------------------\n")
 
     def __len__(self):
-        return len(self.base_dataset)
+        return len(self.base_dataset) * (2 if self.complementary else 1)
 
     def __getitem__(self, index):
-        x, y = self.base_dataset[index]
+        N = len(self.base_dataset)
+        flip       = self.complementary and (index >= N)
+        trial_idx  = index % N
+
+        x, y = self.base_dataset[trial_idx]
         C, T = x.shape
         P = T // self.patch_len
         L = self.patch_len
 
-        x_patches = x[:, :P * L].reshape(C, P, L)
-        mask = self.masking_strategy.generate_mask(C, P, self.mask_ratio)
+        x_patches    = x[:, :P * L].reshape(C, P, L)
+        mask         = self._masks[trial_idx]
+        if flip:
+            mask = ~mask
         time_indices = torch.arange(P, dtype=torch.long)
 
         if self.base_dataset.fft_params is not None:
             n_fft = self.base_dataset.fft_params.get('n_fft')
-            norm = self.base_dataset.fft_params.get('norm', 'ortho')
+            norm  = self.base_dataset.fft_params.get('norm', 'ortho')
             fft_patches = torch.fft.rfft(x_patches, n=n_fft, dim=-1, norm=norm)
         else:
             fft_patches = torch.empty(0)
 
-        coords_idx = self.base_dataset.trial_to_coords_idx[index]
-        coords = self.base_dataset.all_coords[coords_idx]
+        coords_idx = self.base_dataset.trial_to_coords_idx[trial_idx]
+        coords     = self.base_dataset.all_coords[coords_idx]
 
         return x_patches, coords, mask, time_indices, y, fft_patches
 
@@ -409,13 +387,10 @@ def _resolve_target_channels(dataset_params: Dict) -> List[str]:
     return target_channels
 
 
-def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None, mode: str = 'tokenizer') -> Dataset:
+def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None, mode: str = 'pretrain') -> Dataset:
     dataset_params = config_dict.get('dataset_params', {})
-    model_type = config_dict.get('training_params', {}).get('model_type', 'AttnVQ')
-    model_params = config_dict.get('model_params', {}).get(model_type, {})
-    preprocess_params = model_params.get('preprocess', {})
-    tokenizer_params = model_params.get('tokenizer', {})
-    patch_len = preprocess_params.get('patch_length', 200)
+    pp             = config_dict.get('preprocess_params', {})
+    patch_len      = pp.get('patch_length', 100)
 
     loading_tasks = []
     for ds_name, ds_args in dataset_params.items():
@@ -450,17 +425,9 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     target_channels = _resolve_target_channels(dataset_params)
 
     fft_params = None
-    if mode in ('tokenizer', 'pretrain'):
-        freq_res = tokenizer_params.get('freq_resolution', 1.0)
-        target_fs = preprocess_params.get('target_freq', 200.0)
-        fft_params = {
-            'patch_len': patch_len,
-            'n_fft': int(target_fs / freq_res),
-            'norm': 'ortho',
-        }
 
-    assemble_trials = mode in ('tokenizer', 'pretrain')
-    assembly_params = config_dict.get('model_params', {}).get('AttnVQ', {}).get('preprocess', {})
+    assemble_trials = mode in ('pretrain',)
+    assembly_params = pp
 
     base_dataset = EEGDataset(
         config=config_dict,
@@ -473,19 +440,25 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
 
     if mode == 'base':
         return base_dataset
-    elif mode == 'tokenizer':
-        return TokenizerDataset(base_dataset, patch_len=patch_len)
     elif mode == 'pretrain':
-        mask_ratio = preprocess_params.get('mask_ratio', 0.5)
-        strategy_name = preprocess_params.get('masking_strategy', 'random')
-        if strategy_name == 'block':
-            strategy = BlockMaskingStrategy(
-                row_prob=preprocess_params.get('mask_row_prob', 0.5),
-                col_prob=preprocess_params.get('mask_col_prob', 0.5)
+        strategy_name = pp.get('masking_strategy', 'random')
+        strategy_cfg  = pp.get(strategy_name, {})
+
+        if strategy_name == 'complementary':
+            strategy   = ComplementaryMaskingStrategy()
+            mask_ratio = ComplementaryMaskingStrategy.MASK_RATIO
+        elif strategy_name == 'block':
+            strategy   = BlockMaskingStrategy(
+                row_prob=strategy_cfg.get('mask_row_prob', 0.5),
+                col_prob=strategy_cfg.get('mask_col_prob', 0.5),
             )
+            mask_ratio = strategy_cfg.get('mask_ratio', 0.5)
         else:
-            strategy = RandomMaskingStrategy()
-        return MaskedPretrainDataset(base_dataset, patch_len=patch_len, mask_ratio=mask_ratio, masking_strategy=strategy)
+            strategy   = RandomMaskingStrategy()
+            mask_ratio = strategy_cfg.get('mask_ratio', 0.5)
+
+        return MaskedPretrainDataset(base_dataset, patch_len=patch_len,
+                                     mask_ratio=mask_ratio, masking_strategy=strategy)
     elif mode == 'finetune':
         return FinetuneDataset(base_dataset)
     else:
