@@ -2,6 +2,19 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.utils.parametrize as parametrize
+
+
+class _PerHeadOrthogonal(nn.Module):
+    def __init__(self, num_heads, vq_head_vocab_size):
+        super().__init__()
+        self.H = num_heads
+        self.r = vq_head_vocab_size
+
+    def forward(self, A):
+        D = A.shape[0]
+        Q, _ = torch.linalg.qr(A.view(D, self.H, self.r).permute(1, 0, 2))  # [H, D, r]
+        return Q.permute(1, 0, 2).reshape(D, self.H * self.r)
 
 
 # ==========================================
@@ -22,11 +35,18 @@ class SpatialTemporalEmbeddings(nn.Module):
         self.proj = nn.Linear(patch_len, dim)
         self.norm = nn.LayerNorm(dim)
         self.register_buffer('pos_emb', get_sinusoidal_pos(max_patches, dim, torch.device('cpu')))
+        self.spatial_active = False
+        _coord_out = nn.Linear(dim // 4, dim)
+        nn.init.zeros_(_coord_out.weight)
+        nn.init.zeros_(_coord_out.bias)
         self.coord_proj = nn.Sequential(
             nn.Linear(3, dim // 4),
             nn.GELU(),
-            nn.Linear(dim // 4, dim),
+            _coord_out,
         )
+
+    def enable_spatial(self):
+        self.spatial_active = True
 
     def forward(self, x, coords=None, time_idx=None):
         B, C, N, L = x.shape
@@ -39,7 +59,7 @@ class SpatialTemporalEmbeddings(nn.Module):
         else:
             z = z + self.pos_emb[:, :N, :]
 
-        if coords is not None:
+        if coords is not None and self.spatial_active:
             s = self.coord_proj(coords.reshape(B * C, 3)).unsqueeze(1)  # [B*C, 1, D]
             z = z + s
 
@@ -66,8 +86,8 @@ class ConvolutionalAdditiveAttention(nn.Module):
         return self.proj(q * global_context * v)
 
 
-class ConvFFN(nn.Module):
-    def __init__(self, dim, hidden_dim, kernel_size=3):
+class FFN(nn.Module):
+    def __init__(self, dim, hidden_dim):
         super().__init__()
         self.fc1 = nn.Linear(dim, hidden_dim)
         self.act = nn.GELU()
@@ -88,7 +108,14 @@ class TSABlock(nn.Module):
         self.spatial_attn = nn.MultiheadAttention(dim, num_heads, batch_first=True)
 
         self.norm_ffn = nn.LayerNorm(dim)
-        self.conv_ffn = ConvFFN(dim, hidden_dim=int(dim * mlp_ratio), kernel_size=3)
+        self.ffn = FFN(dim, hidden_dim=int(dim * mlp_ratio))
+
+        self.spatial_active = False
+        nn.init.zeros_(self.spatial_attn.out_proj.weight)
+        nn.init.zeros_(self.spatial_attn.out_proj.bias)
+
+    def enable_spatial(self):
+        self.spatial_active = True
 
     def forward(self, x):
         B, C, N, D = x.shape
@@ -97,12 +124,13 @@ class TSABlock(nn.Module):
         x_flat = x_flat + self.conv_attn_time(self.norm_time(x_flat))
 
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
-        x_norm = self.norm_space(x_space)
-        attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm)
-        x_space = x_space + attn_out
+        if self.spatial_active:
+            x_norm = self.norm_space(x_space)
+            attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm)
+            x_space = x_space + attn_out
         x_flat = x_space.view(B, N, C, D).permute(0, 2, 1, 3).reshape(B * C, N, D)
 
-        x_flat = x_flat + self.conv_ffn(self.norm_ffn(x_flat))
+        x_flat = x_flat + self.ffn(self.norm_ffn(x_flat))
         return x_flat.view(B, C, N, D)
 
 
@@ -113,6 +141,10 @@ class TSAEncoder(nn.Module):
             TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
             for _ in range(depth)
         ])
+
+    def enable_spatial(self):
+        for block in self.blocks:
+            block.enable_spatial()
 
     def forward(self, x):
         for block in self.blocks:
@@ -136,6 +168,7 @@ class MeFSQ(nn.Module):
         self.norm = nn.LayerNorm(e_dim)
         self.A = nn.Parameter(torch.empty(e_dim, num_heads * vq_head_vocab_size))
         nn.init.orthogonal_(self.A, gain=1.0)
+        parametrize.register_parametrization(self, 'A', _PerHeadOrthogonal(num_heads, vq_head_vocab_size))
 
         self.register_buffer('avg_probs',        torch.zeros(num_heads, vq_head_vocab_size, num_discrete))
         self.register_buffer('max_prob_ema',     torch.tensor(0.0))

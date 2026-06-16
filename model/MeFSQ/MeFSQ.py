@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -30,13 +31,21 @@ class MeFSQPretrain(nn.Module):
         vq_in_dim  = embed_dim * len(self._stage_indices)
         self.mefsq = MeFSQ(vq_head_num, vq_head_vocab_size, vq_in_dim, vq_num_discrete)
 
-        vq_out_dim   = vq_head_num * vq_head_vocab_size
-        self.vq_proj = nn.Linear(vq_out_dim, embed_dim)
+        assert embed_dim % vq_head_num == 0, \
+            f"embed_dim ({embed_dim}) must be divisible by vq_head_num ({vq_head_num})"
+        self.head_dim = embed_dim // vq_head_num
+        self.vq_proj  = nn.Parameter(torch.empty(vq_head_num, self.head_dim, vq_head_vocab_size))
+        self.vq_bias  = nn.Parameter(torch.zeros(embed_dim))
+        nn.init.kaiming_uniform_(self.vq_proj, a=math.sqrt(5))
         self.decoder  = nn.Linear(embed_dim, patch_len)
 
         nn.init.normal_(self.mask_token, std=0.02)
         nn.init.trunc_normal_(self.decoder.weight, std=0.02)
         nn.init.zeros_(self.decoder.bias)
+
+    def enable_spatial(self):
+        self.embed.enable_spatial()
+        self.encoder.enable_spatial()
 
     def forward(self, x, coords, time_idx=None, bool_masked_pos=None):
         """
@@ -67,7 +76,7 @@ class MeFSQPretrain(nn.Module):
         v_q, indices, _ = self.mefsq(z_flat)              # [B*C, N, H, r]
         H, r = v_q.shape[2], v_q.shape[3]
 
-        z_q   = self.vq_proj(v_q.reshape(B_C, N, H * r))  # [B*C, N, D]
+        z_q = torch.einsum('bnhr,hdr->bnhd', v_q, self.vq_proj).reshape(B_C, N, H * self.head_dim) + self.vq_bias  # [B*C, N, D]
         recon = self.decoder(z_q).reshape(B, C, N, L)
 
         return recon, indices.reshape(B, C, N, H, r), v_q
@@ -84,10 +93,10 @@ class MeFSQPretrain(nn.Module):
             l_masked   = F.mse_loss(recon[mask4].float(),    x[mask4].float())    if mask4.any()    else recon.new_zeros(1).squeeze()
             l_unmasked = F.mse_loss(recon[unmasked].float(), x[unmasked].float()) if unmasked.any() else recon.new_zeros(1).squeeze()
         else:
-            l_masked   = F.mse_loss(recon.float(), x.float())
-            l_unmasked = l_masked
+            l_masked   = 1.0
+            l_unmasked = F.mse_loss(recon.float(), x.float())
 
-        return l_masked * mask_weight, l_masked, l_unmasked
+        return l_masked * mask_weight + l_unmasked, l_masked, l_unmasked
 
     @torch.no_grad()
     def get_metrics(self, v_q):
@@ -107,23 +116,25 @@ class MeFSQPretrain(nn.Module):
         r   = self.mefsq.r
         A3  = A.view(-1, H, r)              # [D, H, r]
 
-        svs_list, cosim_list = [], []
+        svs_list, dominant = [], []
         for h in range(H):
             U, s, _ = torch.linalg.svd(A3[:, h, :], full_matrices=False)  # U:[D,k], s:[k]
             svs_list.append(s)
-            U_n  = F.normalize(U, dim=0)   # [D, k]
-            gram = U_n.T @ U_n             # [k, k]
-            k    = gram.shape[0]
-            off  = gram[~torch.eye(k, dtype=torch.bool, device=gram.device)]
-            cosim_list.append(off.abs().mean())
+            dominant.append(U[:, 0])       # dominant direction per head [D]
 
         svs  = torch.stack(svs_list)       # [H, min(D,r)]
         cond = (svs[:, 0] / (svs[:, -1] + 1e-8)).mean()
         p    = svs / (svs.sum(dim=-1, keepdim=True) + 1e-10)
         eff_rank = torch.exp(-(p * torch.log(p + 1e-10)).sum(dim=-1)).mean()
+
+        dominant = F.normalize(torch.stack(dominant), dim=-1)  # [H, D]
+        gram     = dominant @ dominant.T                        # [H, H]
+        off_diag = gram[~torch.eye(H, dtype=torch.bool, device=gram.device)]
+        head_diversity = off_diag.abs().mean()
+
         metrics['codebook_condition_number']   = cond.item()
         metrics['codebook_active_rank']        = eff_rank.item()
         metrics['codebook_avg_singular_value'] = svs.mean().item()
-        metrics['codebook_eigvec_cosim']       = torch.stack(cosim_list).mean().item()
+        metrics['codebook_head_diversity']     = head_diversity.item()
 
         return metrics

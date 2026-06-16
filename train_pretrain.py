@@ -10,6 +10,7 @@ import logging
 import matplotlib
 matplotlib.use('Agg')
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -49,7 +50,7 @@ def _unpack_batch(batch, device):
     return x, coords, time_idx, bool_masked_pos
 
 
-def train_one_epoch(model, data_loader, optimizer, device, epoch, mask_weight=1.0):
+def train_one_epoch(model, data_loader, optimizer, device, epoch, mask_weight=1.0, vq_warmup=False):
     model.train()
     scaler = torch.amp.GradScaler('cuda')
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}",
@@ -61,9 +62,10 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch, mask_weight=1.
         x, coords, time_idx, bool_masked_pos = _unpack_batch(batch, device)
         optimizer.zero_grad()
 
+        mp = None if vq_warmup else bool_masked_pos
         with torch.amp.autocast(device_type='cuda'):
-            recon, _, v_q = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos)
-            l_total, l_masked, l_unmasked = model.get_loss(x, recon, bool_masked_pos)
+            recon, _, v_q = model(x, coords, time_idx, bool_masked_pos=mp)
+            l_total, l_masked, l_unmasked = model.get_loss(x, recon, mp)
 
         scaler.scale(l_total).backward()
         scaler.unscale_(optimizer)
@@ -72,7 +74,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch, mask_weight=1.
         scaler.update()
 
         totals["loss"]     += l_total.item()
-        totals["masked"]   += l_masked.item()
+        totals["masked"]   += float(l_masked) if not hasattr(l_masked, 'item') else l_masked.item()
         totals["unmasked"] += l_unmasked.item()
 
         if batch_idx % 5 == 0:
@@ -94,7 +96,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch, mask_weight=1.
     return epoch_metrics, last_samples
 
 
-def validate_one_epoch(model, data_loader, device, mask_weight=1.0):
+def validate_one_epoch(model, data_loader, device, mask_weight=1.0, vq_warmup=False):
     model.eval()
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
@@ -105,12 +107,13 @@ def validate_one_epoch(model, data_loader, device, mask_weight=1.0):
         for batch_idx, batch in enumerate(pbar):
             x, coords, time_idx, bool_masked_pos = _unpack_batch(batch, device)
 
+            mp = None if vq_warmup else bool_masked_pos
             with torch.amp.autocast(device_type='cuda'):
-                recon, _, v_q = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos)
-                l_total, l_masked, l_unmasked = model.get_loss(x, recon, bool_masked_pos, mask_weight=mask_weight)
+                recon, _, v_q = model(x, coords, time_idx, bool_masked_pos=mp)
+                l_total, l_masked, l_unmasked = model.get_loss(x, recon, mp, mask_weight=mask_weight)
 
             totals["loss"]     += l_total.item()
-            totals["masked"]   += l_masked.item()
+            totals["masked"]   += float(l_masked) if not hasattr(l_masked, 'item') else l_masked.item()
             totals["unmasked"] += l_unmasked.item()
 
             if batch_idx % 5 == 0:
@@ -230,13 +233,20 @@ def main():
     mask_weight = config.get('loss_params', {}).get('mask_weight', (1.0 - mask_ratio) / mask_ratio)
     logger.info(f"mask_ratio={mask_ratio}  mask_weight={mask_weight:.4f}")
 
-    best_val_loss = float('inf')
-    total_epochs  = train_params['epochs']
-    logger.info(f"Starting Masked Pretraining ({total_epochs} epochs)")
+    best_val_loss    = float('inf')
+    total_epochs     = train_params['epochs']
+    vq_warmup_epochs = train_params.get('vq_warmup_epochs', 0)
+    logger.info(f"Starting Masked Pretraining ({total_epochs} epochs, VQ warmup={vq_warmup_epochs})")
 
     for epoch in range(1, total_epochs + 1):
-        train_metrics, train_last_batch = train_one_epoch(model, train_loader, optimizer, device, epoch, mask_weight=mask_weight)
-        val_metrics,   val_last_batch   = validate_one_epoch(model, val_loader, device, mask_weight=mask_weight)
+        vq_warmup = epoch <= vq_warmup_epochs
+        if vq_warmup:
+            logger.info(f"  [VQ Warmup] epoch {epoch}/{vq_warmup_epochs} — masking disabled, spatial locked")
+        elif epoch == vq_warmup_epochs + 1:
+            model.enable_spatial()
+            logger.info(f"  [Spatial Enabled] epoch {epoch} — coord_proj + spatial_attn unlocked")
+        train_metrics, train_last_batch = train_one_epoch(model, train_loader, optimizer, device, epoch, mask_weight=mask_weight, vq_warmup=vq_warmup)
+        val_metrics,   val_last_batch   = validate_one_epoch(model, val_loader, device, mask_weight=mask_weight, vq_warmup=vq_warmup)
         scheduler.step()
 
         global_keys = {'loss', 'masked', 'unmasked'}

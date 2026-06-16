@@ -90,18 +90,18 @@ class Plotter:
             _merge_legends(ax_cb, ax_cb_r)
         ax_cb.set_title('Codebook Usage'); ax_cb.grid(True)
 
-        # [1,1] Alignment: STE gap + eigvec cosim
-        ste   = _v('codebook_ste_gap')
-        cosim = _v('codebook_eigvec_cosim')
+        # [1,1] Alignment: STE gap + head diversity
+        ste      = _v('codebook_ste_gap')
+        head_div = _v('codebook_head_diversity')
         if ste:
             ax_empty.plot(_ep(ste), ste, color='red', label='STE gap')
             ax_empty.set_ylabel('STE gap')
-        if cosim:
+        if head_div:
             ax_align_r = ax_empty.twinx()
-            ax_align_r.plot(_ep(cosim), cosim, color='darkorange', ls='--', label='Eigvec cosim', alpha=0.8)
-            ax_align_r.set_ylabel('Avg |cosine sim|')
+            ax_align_r.plot(_ep(head_div), head_div, color='darkorange', ls='--', label='Head diversity', alpha=0.8)
+            ax_align_r.set_ylabel('Avg cross-head |cosine sim|')
             _merge_legends(ax_empty, ax_align_r)
-        if not ste and not cosim:
+        if not ste and not head_div:
             ax_empty.axis('off')
         ax_empty.set_title('Codebook Alignment'); ax_empty.grid(True)
 
