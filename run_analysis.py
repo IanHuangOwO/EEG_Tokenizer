@@ -68,7 +68,7 @@ def main():
     device     = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model   = load_model(filtered, checkpoint, device)
-    dataset = build_dataset_from_config(filtered, mode='tokenizer')
+    dataset = build_dataset_from_config(filtered, mode='pretrain')
     trial_idx, subject_id = pick_trial(dataset, subject, trial_cfg)
 
     print(f"Dataset : {ds_name}")

@@ -112,13 +112,14 @@ def extract_head_psd(model, x: torch.Tensor, coords: torch.Tensor,
                      time_idx: torch.Tensor = None):
     """
     Per-head per-channel VQ activation norm.
-    Returns ([psd_ch_h], head_norms, head_affinity):
-      psd_ch_h   — [C, H] numpy array, mean ||v_q|| per channel per head
-      head_norms — [H] numpy array
+    Returns ([psd_ch_h], head_norms, head_affinity, routing_score):
+      psd_ch_h      — [C, H] numpy array, mean ||v_q|| per channel per head
+      head_norms    — [H] numpy array
       head_affinity — [H, H] cosine similarity
+      routing_score — [H] fraction of patches that selected each head (1.0 when no routing)
     """
     B, C, N, L = x.shape
-    _, _, v_q = model(x, coords=coords, time_idx=time_idx, bool_masked_pos=None)
+    _, _, v_q, gate_mask, _ = model(x, coords=coords, time_idx=time_idx, bool_masked_pos=None)
     # v_q: [B*C, N, H, r]
     H = v_q.shape[2]
 
@@ -128,7 +129,14 @@ def extract_head_psd(model, x: torch.Tensor, coords: torch.Tensor,
     head_affinity = (v_mean_n @ v_mean_n.T).cpu().numpy()
     psd_ch_h      = v_q.norm(dim=-1).reshape(B, C, N, H).mean(dim=2)[0].cpu().numpy()  # [C, H]
 
-    return [psd_ch_h], head_norms, head_affinity
+    # router importance: mean raw logit per head — more spread than sigmoid, no lb_loss flattening
+    gate_logits = getattr(model, '_last_gate_logits', None)
+    if gate_logits is not None:
+        routing_score = gate_logits.mean(dim=[0, 1]).cpu().numpy()         # [H] mean logit
+    else:
+        routing_score = (gate_mask.detach() > 0.5).float().mean(dim=[0, 1]).cpu().numpy()  # fallback
+
+    return [psd_ch_h], head_norms, head_affinity, routing_score
 
 
 # ── Heatmap ───────────────────────────────────────────────────────────────────

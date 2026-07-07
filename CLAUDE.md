@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pip install -r requirements.txt
 
 # Run pretraining
-python train_pretrain.py --config config/config.json
+python train_pretrain.py --config config/config_pretrain.json
 
 # Profile model
 python profile_model.py
@@ -54,7 +54,7 @@ EEG signals
 
 - **`model/factory.py`**: `build_model_from_config(config)` — only `MeFSQ` type supported; copies `MeFSQ.py` to `output/<model_name>/artifacts/` for reproducibility
 
-### Config (`config/config.json`)
+### Config (`config/config_pretrain.json`)
 
 Key fields:
 - `model_params.MeFSQ.pretrain`: architecture hyperparams (`patch_len`, `embed_dim`, `enc_depth`, `stage_indices`, `vq_head_num`, `vq_head_vocab_size`, `vq_num_discrete`)

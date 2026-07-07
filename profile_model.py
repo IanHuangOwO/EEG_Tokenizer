@@ -77,7 +77,7 @@ def profile_model():
     mode_str = 'TRAIN (eigh skipped)' if args.train else 'EVAL (eigh active)'
     print(f"Profiling on device: {device}  |  Mode: {mode_str}")
     
-    with open('config/config.json', 'r') as f:
+    with open('config/config_pretrain.json', 'r') as f:
         config = json.load(f)
     
     model_type = config['training_params'].get('model_type', 'MeFSQ')
@@ -135,11 +135,11 @@ def profile_model():
 
     with torch.no_grad():
         for _ in range(n_iters):
-            recon, _, v_q = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos)
+            recon, _, v_q, _, _ = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos)
             if device.type == 'cuda': torch.cuda.synchronize()
 
             t1 = time.perf_counter()
-            model.get_loss(x, recon, bool_masked_pos, v_q)
+            model.get_loss(x, recon, bool_masked_pos)
             if device.type == 'cuda': torch.cuda.synchronize()
             t2 = time.perf_counter()
             loss_times.append((t2 - t1) * 1000)

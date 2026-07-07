@@ -70,12 +70,11 @@ def run(config, output_dir, args, model=None, dataset=None,
 
     # head activation grid
     try:
-        stage_psd, head_norms, head_affinity = extract_head_psd(model, x_in, c_in, t_in)
+        stage_psd, head_norms, head_affinity, routing_score = extract_head_psd(model, x_in, c_in, t_in)
         psd_ch_h   = stage_psd[0]   # [C, H]
         H          = psd_ch_h.shape[1]
-        importance = psd_ch_h.mean(axis=0)
-        sorted_ord = np.argsort(importance)[::-1]
-        imp_ranked = importance[sorted_ord]
+        sorted_ord = np.argsort(routing_score)[::-1]
+        score_ranked = routing_score[sorted_ord]
 
         n_tc = min(16, H)
         n_tr = math.ceil(H / n_tc)
@@ -84,7 +83,7 @@ def run(config, output_dir, args, model=None, dataset=None,
 
         fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
         fig.suptitle(
-            f"Head Activation — Sub {subject_id}, Trial {trial_idx}",
+            f"Head Routing — Sub {subject_id}, Trial {trial_idx}",
             fontsize=13, fontweight='bold', y=0.998,
         )
         outer = gridspec.GridSpec(
@@ -96,12 +95,12 @@ def run(config, output_dir, args, model=None, dataset=None,
 
         ax_imp = fig.add_subplot(outer[0])
         rank_x = np.arange(H)
-        ax_imp.plot(rank_x, imp_ranked, color='steelblue', lw=1.5)
-        ax_imp.scatter(rank_x, imp_ranked, color='steelblue', s=10)
+        ax_imp.plot(rank_x, score_ranked, color='steelblue', lw=1.5)
+        ax_imp.scatter(rank_x, score_ranked, color='steelblue', s=10)
         ax_imp.set_xlim(-0.5, H - 0.5)
-        ax_imp.set_xlabel('Head rank (0 = highest norm)', fontsize=9)
-        ax_imp.set_ylabel('Mean activation norm', fontsize=9)
-        ax_imp.set_title(f'Head Importance — {H} heads', fontsize=9, fontweight='bold')
+        ax_imp.set_xlabel('Head rank (0 = highest router score)', fontsize=9)
+        ax_imp.set_ylabel('Mean gate logit (raw)', fontsize=9)
+        ax_imp.set_title(f'Head Routing Importance — {H} heads', fontsize=9, fontweight='bold')
         ax_imp.grid(alpha=0.3)
 
         gs_topo = gridspec.GridSpecFromSubplotSpec(
@@ -112,7 +111,7 @@ def run(config, output_dir, args, model=None, dataset=None,
             ax_h = fig.add_subplot(gs_topo[r, c])
             p_h  = psd_ch_h[:, h_orig]
             draw_topomap(ax_h, pos2d, p_h, cmap=cmap, vmin=p_h.min(), vmax=p_h.max())
-            ax_h.set_title(f'H{h_orig}\n{importance[h_orig]:.3f}', fontsize=5.5)
+            ax_h.set_title(f'H{h_orig}\n{routing_score[h_orig]:.3f}', fontsize=5.5)
 
         for pos in range(H, n_tr * n_tc):
             r, c = divmod(pos, n_tc)

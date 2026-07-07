@@ -17,7 +17,6 @@ def build_model_from_config(config, src_output_dir=None):
     model = MeFSQPretrain(
         embed_dim=bp.get('embed_dim', 128),
         enc_depth=bp.get('enc_depth', 8),
-        enc_heads=bp.get('enc_heads', 8),
         mlp_ratio=bp.get('mlp_ratio', 4.0),
         patch_len=bp.get('patch_len', 100),
         vq_head_num=bp.get('vq_head_num', 64),
@@ -25,6 +24,7 @@ def build_model_from_config(config, src_output_dir=None):
         vq_num_discrete=bp.get('vq_num_discrete', 5),
         spatial_heads=bp.get('spatial_heads', 8),
         stage_indices=bp.get('stage_indices', None),
+        k_active=bp.get('k_active', 16),
     )
 
     if src_output_dir is not None:
@@ -32,4 +32,3 @@ def build_model_from_config(config, src_output_dir=None):
         shutil.copy(sys.modules[model.__module__].__file__, os.path.join(src_output_dir, 'MeFSQ.py'))
 
     return model
-

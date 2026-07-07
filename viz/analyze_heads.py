@@ -23,12 +23,15 @@ import argparse
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram
 from scipy.signal import butter, sosfilt
+from sklearn.cluster import KMeans
 from sklearn.decomposition import FastICA
+from sklearn.manifold import TSNE
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -43,7 +46,7 @@ BANDS = [
     ('theta', 4.0,  8.0),
     ('alpha', 8.0,  13.0),
     ('beta',  13.0, 30.0),
-    ('gamma', 30.0, None),   # None → fs/2 - 1
+    ('gamma', 30.0, None),   # None -> fs/2 - 1
 ]
 
 
@@ -75,7 +78,7 @@ def band_spatial_fp(sig_ct, fs):
 
 
 def cosine_sim(X):
-    """X: [N, D] → [N, N] cosine similarity"""
+    """X: [N, D] -> [N, N] cosine similarity"""
     n = X / (np.linalg.norm(X, axis=1, keepdims=True) + 1e-8)
     return n @ n.T
 
@@ -121,29 +124,60 @@ def build_val_loader(config, batch_size):
 
 @torch.no_grad()
 def accumulate(model, loader, device, n_batches):
-    """Returns vq_all [B,C,N,H,r], x_all [B,C,T], coords [C,3]"""
+    """Returns vq_all [B,C,N,H,r], x_all [B,C,T], coords [C,3], head_sel_rate [H]"""
     model.eval()
-    vq_list, x_list, coords_out = [], [], None
+    vq_list, x_list, gate_list, coords_out = [], [], [], None
     for i, batch in enumerate(loader):
         if i >= n_batches:
             break
         x, coords, time_idx, _ = _unpack(batch, device)
         B, C, N, L = x.shape
-        _, _, v_q = model(x, coords, time_idx, bool_masked_pos=None)
+        _, _, v_q, gate_mask, _ = model(x, coords, time_idx, bool_masked_pos=None, use_routing=True)
         vq_list.append(v_q.float().reshape(B, C, N, v_q.shape[2], v_q.shape[3]).cpu())
         x_list.append(x.float().reshape(B, C, N * L).cpu())
+        # gate_mask [B*C, N, H] — hard 0/1 when routing active, all-1 otherwise
+        gate_list.append((gate_mask.detach() > 0.5).float().mean(dim=[0, 1]).cpu())  # [H]
         if coords_out is None:
             coords_out = coords[0].cpu().numpy()
-    return torch.cat(vq_list, 0), torch.cat(x_list, 0), coords_out
+    head_sel_rate = torch.stack(gate_list, 0).mean(0).numpy()  # [H] mean selection rate
+    return torch.cat(vq_list, 0), torch.cat(x_list, 0), coords_out, head_sel_rate
 
 
 # ── Fingerprints ──────────────────────────────────────────────────────────────
+
+def head_cluster_assignments(model, vq_all, n_clusters=8):
+    """
+    Compute rfft mean+var fingerprints per head, run sklearn KMeans for post-hoc grouping.
+    Returns (assignments [H], fp [H, 2*C*F]).
+    """
+    B, C, N, H, r = vq_all.shape
+    d         = model.head_dim
+    vq_proj   = model.vq_proj.detach().cpu().float()
+    W_dec     = model.decoder.weight.detach().cpu().float()
+    patch_len = W_dec.shape[0]
+
+    vq_flat   = vq_all.reshape(B * C, N, H, r)
+    z_all     = torch.einsum('bnhr,hdr->bnhd', vq_flat, vq_proj)
+    W_all     = W_dec.reshape(patch_len, H, d).permute(1, 0, 2)
+    recon_all = torch.einsum('bnhd,hpd->bnhp', z_all, W_all)              # [B*C, N, H, P]
+    fft_all   = torch.fft.rfft(recon_all.float(), dim=-1).abs()            # [B*C, N, H, F]
+    fft_all   = fft_all.reshape(B, C, N, H, -1)                           # [B, C, N, H, F]
+
+    fp_mean = fft_all.mean(dim=[0, 2]).permute(1, 0, 2).reshape(H, -1)   # [H, C*F]
+    fp_var  = fft_all.var(dim=[0, 2]).permute(1, 0, 2).reshape(H, -1)    # [H, C*F]
+    fp = torch.cat([F.normalize(fp_mean, dim=-1),
+                    F.normalize(fp_var,  dim=-1)], dim=-1).numpy()         # [H, 2*C*F]
+
+    km = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    assignments = km.fit_predict(fp)                                        # [H]
+    return assignments, fp
+
 
 def head_fingerprints(model, vq_all, fs):
     """
     For each head h:
       1. Reconstruct head h's contribution: recon_h [B, C, T]
-      2. Reshape to [C, B*T] and compute band_spatial_fp → [C, n_bands]
+      2. Reshape to [C, B*T] and compute band_spatial_fp -> [C, n_bands]
     Returns fps [H, C, n_bands]
     """
     B, C, N, H, r = vq_all.shape
@@ -172,7 +206,7 @@ def ica_fingerprints(x_all, n_components, fs):
     B, C, T = x_all.shape
     X = x_all.numpy().transpose(1, 0, 2).reshape(C, B * T).T    # [B*T, C]
 
-    print(f"  FastICA [{B*T}, {C}] → {n_components} components...")
+    print(f"  FastICA [{B*T}, {C}] -> {n_components} components...")
     ica = FastICA(n_components=n_components, random_state=42, max_iter=500, tol=0.01)
     S   = ica.fit_transform(X).T                                  # [K, B*T]
     A   = ica.mixing_                                             # [C, K]
@@ -214,8 +248,12 @@ def _sim_heatmap(sim, order, Z, title, out_path, labels):
     print(f"  saved {os.path.basename(out_path)}")
 
 
-def _topo_grid(fps_cb, pos2d, titles, suptitle, out_path):
-    """fps_cb: [N, C, n_bands] → broadband (sum over bands) topo per component"""
+def _topo_grid(fps_cb, pos2d, titles, suptitle, out_path, sel_rate=None):
+    """
+    fps_cb: [N, C, n_bands] -> broadband (sum over bands) topo per component
+    sel_rate: optional [N] float array, per-head routing selection frequency (0-1).
+              Shown as subtitle; dead heads (sel_rate < 0.05) get grey background.
+    """
     fps = fps_cb.sum(axis=-1)                                      # [N, C]
     N     = len(fps)
     ncols = min(10, N)
@@ -223,9 +261,18 @@ def _topo_grid(fps_cb, pos2d, titles, suptitle, out_path):
     fig, axes = plt.subplots(nrows, ncols, figsize=(2.5 * ncols, 3 * nrows), squeeze=False)
     for i in range(N):
         r, c = divmod(i, ncols)
-        draw_topomap(axes[r][c], pos2d, fps[i], cmap='YlOrRd',
+        ax = axes[r][c]
+        rate = sel_rate[i] if sel_rate is not None else 1.0
+        dead = sel_rate is not None and rate < 0.05
+        if dead:
+            ax.set_facecolor('#e0e0e0')
+        draw_topomap(ax, pos2d, fps[i], cmap='YlOrRd',
                      vmin=fps[i].min(), vmax=fps[i].max())
-        axes[r][c].set_title(titles[i], fontsize=6)
+        label = titles[i]
+        if sel_rate is not None:
+            label += f'\n{rate:.0%}'
+        color = '#888888' if dead else 'black'
+        ax.set_title(label, fontsize=6, color=color)
     for i in range(N, nrows * ncols):
         r, c = divmod(i, ncols)
         axes[r][c].axis('off')
@@ -263,17 +310,53 @@ def _band_topo_dir(fps_cb, pos2d, titles, out_dir, prefix):
         fname = os.path.join(out_dir, f'{prefix}_{band_name}.png')
         fig.savefig(fname, dpi=130, bbox_inches='tight')
         plt.close(fig)
-    print(f"  saved {prefix} band topos → {out_dir}")
+    print(f"  saved {prefix} band topos -> {out_dir}")
+
+
+def _tsne_plot(fp, assignments, K, out_path, perplexity=10):
+    """
+    fp: [H, D] rfft fingerprint numpy array
+    assignments: [H] int cluster ids
+    """
+    H = len(fp)
+    perplexity = min(perplexity, H - 1)
+    tsne  = TSNE(n_components=2, perplexity=perplexity, random_state=42, max_iter=1000)
+    proj  = tsne.fit_transform(fp)                                        # [H, 2]
+
+    cmap  = matplotlib.colormaps.get_cmap('tab20').resampled(K)
+    colors = [cmap(int(a)) for a in assignments]
+
+    fig, ax = plt.subplots(figsize=(9, 7))
+    for h in range(H):
+        ax.scatter(proj[h, 0], proj[h, 1], color=colors[h], s=80, zorder=3)
+        ax.annotate(f'H{h}', (proj[h, 0], proj[h, 1]),
+                    fontsize=5, ha='center', va='bottom',
+                    xytext=(0, 4), textcoords='offset points')
+
+    # Legend: one entry per cluster
+    for k in range(K):
+        ax.scatter([], [], color=cmap(k), label=f'G{k}', s=60)
+    ax.legend(title='Cluster', fontsize='x-small', title_fontsize='x-small',
+              loc='best', ncol=max(1, K // 8))
+
+    ax.set_title(f't-SNE of Head Fingerprints  (H={H}, K={K})', fontsize=12, fontweight='bold')
+    ax.set_xlabel('t-SNE 1'); ax.set_ylabel('t-SNE 2')
+    ax.grid(True, alpha=0.2)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=130, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  saved {os.path.basename(out_path)}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config',     default='config/config.json')
+    parser.add_argument('--config',     default='config/config_pretrain.json')
     parser.add_argument('--checkpoint', default=None)
     parser.add_argument('--n_batches',  type=int, default=20)
     parser.add_argument('--n_ica',      type=int, default=20)
+    parser.add_argument('--n_clusters', type=int, default=8)
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -290,9 +373,10 @@ def main():
     # ── Accumulate ──────────────────────────────────────────────────────
     print(f"Accumulating {args.n_batches} val batches...")
     loader = build_val_loader(config, config['training_params']['batch_size'])
-    vq_all, x_all, coords = accumulate(model, loader, device, args.n_batches)
+    vq_all, x_all, coords, head_sel_rate = accumulate(model, loader, device, args.n_batches)
     B, C, N, H, r = vq_all.shape
     print(f"  vq_all {list(vq_all.shape)}   x_all {list(x_all.shape)}")
+    print(f"  head sel_rate min={head_sel_rate.min():.2f} max={head_sel_rate.max():.2f} mean={head_sel_rate.mean():.2f}")
 
     pos2d = project_coords_2d(coords)                             # [C, 2]
 
@@ -311,7 +395,10 @@ def main():
     sim_h = cosine_sim(h_flat); h_ord, Z_h = cluster_order(sim_h)
     sim_i = cosine_sim(i_flat); i_ord, Z_i = cluster_order(sim_i)
 
-    h_labels = [f'H{h}'   for h in range(H)]
+    print(f"Computing cluster assignments (K={args.n_clusters})...")
+    cluster_assign, head_fp = head_cluster_assignments(model, vq_all, n_clusters=args.n_clusters)
+    h_labels = [f'H{h}\nG{cluster_assign[h]}' for h in range(H)]
+    print(f"  assignments: { {h: int(cluster_assign[h]) for h in range(H)} }")
     i_labels = [f'ICA{k}' for k in range(args.n_ica)]
 
     # ── Save figures ─────────────────────────────────────────────────────
@@ -327,7 +414,8 @@ def main():
 
     _topo_grid(h_fps, pos2d, h_labels,
                f'Head Broadband Spatial Power  (H={H})',
-               os.path.join(out_dir, '3_head_topos.png'))
+               os.path.join(out_dir, '3_head_topos.png'),
+               sel_rate=head_sel_rate)
 
     _topo_grid(i_fps, pos2d, i_labels,
                f'ICA Broadband Spatial Power  (K={args.n_ica})',
@@ -339,7 +427,10 @@ def main():
     _band_topo_dir(i_fps, pos2d, i_labels,
                    os.path.join(out_dir, '6_ica_band_topos'), 'ica')
 
-    print(f"\nDone → {out_dir}")
+    _tsne_plot(head_fp, cluster_assign, args.n_clusters,
+               os.path.join(out_dir, '7_head_tsne.png'))
+
+    print(f"\nDone -> {out_dir}")
 
 
 if __name__ == '__main__':

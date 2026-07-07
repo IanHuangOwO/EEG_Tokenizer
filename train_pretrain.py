@@ -10,11 +10,9 @@ import logging
 import matplotlib
 matplotlib.use('Agg')
 import torch
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from collections import defaultdict
 
 from IO.dataset import build_dataset_from_config
 from model.factory import build_model_from_config
@@ -50,22 +48,28 @@ def _unpack_batch(batch, device):
     return x, coords, time_idx, bool_masked_pos
 
 
-def train_one_epoch(model, data_loader, optimizer, device, epoch, mask_weight=1.0, vq_warmup=False):
+
+def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, mask_weight=1.0, vq_warmup=False, load_balance_weight=0.0, current_k=None):
     model.train()
-    scaler = torch.amp.GradScaler('cuda')
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
 
-    totals = {"loss": 0.0, "masked": 0.0, "unmasked": 0.0}
+    totals = {"loss": 0.0, "masked": 0.0, "unmasked": 0.0, "lb_loss": 0.0}
 
     for batch_idx, batch in enumerate(pbar):
         x, coords, time_idx, bool_masked_pos = _unpack_batch(batch, device)
+        B, C = x.shape[0], x.shape[1]
         optimizer.zero_grad()
 
         mp = None if vq_warmup else bool_masked_pos
+        use_routing = current_k < model.vq_head_num
         with torch.amp.autocast(device_type='cuda'):
-            recon, _, v_q = model(x, coords, time_idx, bool_masked_pos=mp)
+            recon, _, v_q, gate_mask, lb_loss = model(x, coords, time_idx, bool_masked_pos=mp, use_routing=use_routing, k_active_override=current_k)
             l_total, l_masked, l_unmasked = model.get_loss(x, recon, mp)
+            if use_routing:
+                model.update_head_metrics(v_q, gate_mask, B, C)
+            if use_routing and load_balance_weight > 0:
+                l_total = l_total + load_balance_weight * lb_loss
 
         scaler.scale(l_total).backward()
         scaler.unscale_(optimizer)
@@ -76,6 +80,7 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch, mask_weight=1.
         totals["loss"]     += l_total.item()
         totals["masked"]   += float(l_masked) if not hasattr(l_masked, 'item') else l_masked.item()
         totals["unmasked"] += l_unmasked.item()
+        totals["lb_loss"]  += lb_loss.item() if hasattr(lb_loss, 'item') else float(lb_loss)
 
         if batch_idx % 5 == 0:
             n = batch_idx + 1
@@ -83,20 +88,18 @@ def train_one_epoch(model, data_loader, optimizer, device, epoch, mask_weight=1.
                 'L':   f"{totals['loss']     / n:.4f}",
                 'msk': f"{totals['masked']   / n:.4f}",
                 'vis': f"{totals['unmasked'] / n:.4f}",
+                'lb':  f"{totals['lb_loss']  / n:.3f}",
             })
-
-    B, C, N, L = x.shape
-    last_samples = (x.reshape(B, C, -1).detach(), recon.reshape(B, C, -1).detach())
 
     n = batch_idx + 1
     epoch_metrics = {k: v / n for k, v in totals.items()}
     if hasattr(model, 'get_metrics'):
         epoch_metrics.update(model.get_metrics(v_q.detach()))
 
-    return epoch_metrics, last_samples
+    return epoch_metrics
 
 
-def validate_one_epoch(model, data_loader, device, mask_weight=1.0, vq_warmup=False):
+def validate_one_epoch(model, data_loader, device, mask_weight, vq_warmup=False, current_k=None):
     model.eval()
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
@@ -109,7 +112,7 @@ def validate_one_epoch(model, data_loader, device, mask_weight=1.0, vq_warmup=Fa
 
             mp = None if vq_warmup else bool_masked_pos
             with torch.amp.autocast(device_type='cuda'):
-                recon, _, v_q = model(x, coords, time_idx, bool_masked_pos=mp)
+                recon, _, v_q, _, _ = model(x, coords, time_idx, bool_masked_pos=mp, use_routing=current_k < model.vq_head_num, k_active_override=current_k)
                 l_total, l_masked, l_unmasked = model.get_loss(x, recon, mp, mask_weight=mask_weight)
 
             totals["loss"]     += l_total.item()
@@ -124,20 +127,17 @@ def validate_one_epoch(model, data_loader, device, mask_weight=1.0, vq_warmup=Fa
                     'vis': f"{totals['unmasked'] / n:.4f}",
                 })
 
-        B, C, N, L = x.shape
-        last_samples = (x.reshape(B, C, -1).detach(), recon.reshape(B, C, -1).detach())
-
     n = batch_idx + 1
     val_metrics = {k: v / n for k, v in totals.items()}
     if hasattr(model, 'get_metrics'):
         val_metrics.update(model.get_metrics(v_q.detach()))
 
-    return val_metrics, last_samples
+    return val_metrics
 
 
 def main():
     parser = argparse.ArgumentParser(description='MeFSQ Masked Pretraining')
-    parser.add_argument('--config', type=str, default='config/config.json')
+    parser.add_argument('--config', type=str, default='config/config_pretrain.json')
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
@@ -145,7 +145,6 @@ def main():
 
     train_params = config['training_params']
     device     = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    model_type = train_params.get('model_type', 'MeFSQ')
     model_name = train_params.get('model_name', 'default_run')
 
     base_output_dir = f"output/{model_name}"
@@ -209,7 +208,7 @@ def main():
     val_loader   = DataLoader(val_dataset,   batch_size=train_params['batch_size'], shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True)
 
     Nc = train_dataset.base_dataset.Nc
-    logger.info(f"Initializing {model_type} for {Nc} channels (Run: {model_name})...")
+    logger.info(f"Initializing model for {Nc} channels (Run: {model_name})...")
     model = build_model_from_config(config, src_output_dir=artifact_dir)
     model.to(device)
 
@@ -220,8 +219,10 @@ def main():
     with torch.no_grad():
         model(x, coords, time_idx, bool_masked_pos=bool_masked_pos)
 
+    scaler    = torch.amp.GradScaler('cuda')
     optimizer = optim.AdamW(model.parameters(), lr=train_params['learning_rate'], weight_decay=train_params['weight_decay'])
-    main_scheduler   = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=train_params['epochs'] - train_params['warmup_epochs'], eta_min=train_params['min_learning_rate'])
+    cosine_t_max     = max(1, train_params['epochs'] - train_params['warmup_epochs'])
+    main_scheduler   = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cosine_t_max, eta_min=train_params['min_learning_rate'])
     warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=train_params['warmup_epochs'])
     scheduler        = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[train_params['warmup_epochs']])
 
@@ -230,45 +231,36 @@ def main():
     pp          = config.get('preprocess_params', {})
     strat_name  = pp.get('masking_strategy', 'random')
     mask_ratio  = 0.5 if strat_name == 'complementary' else pp.get(strat_name, {}).get('mask_ratio', 0.5)
-    mask_weight = config.get('loss_params', {}).get('mask_weight', (1.0 - mask_ratio) / mask_ratio)
-    logger.info(f"mask_ratio={mask_ratio}  mask_weight={mask_weight:.4f}")
+    mask_weight          = config.get('loss_params', {}).get('mask_weight', (1.0 - mask_ratio) / mask_ratio)
+    load_balance_weight  = config.get('loss_params', {}).get('load_balance_weight', 0.0)
+    logger.info(f"mask_ratio={mask_ratio}  mask_weight={mask_weight:.4f}  lb_weight={load_balance_weight}")
 
     best_val_loss    = float('inf')
     total_epochs     = train_params['epochs']
     vq_warmup_epochs = train_params.get('vq_warmup_epochs', 0)
+    H                = model.vq_head_num
+    k_target         = model.k_active
     logger.info(f"Starting Masked Pretraining ({total_epochs} epochs, VQ warmup={vq_warmup_epochs})")
+    logger.info(f"Routing: k={k_target}/{H} from epoch 1")
 
     for epoch in range(1, total_epochs + 1):
-        vq_warmup = epoch <= vq_warmup_epochs
+        vq_warmup  = epoch <= vq_warmup_epochs
+        current_k  = k_target
         if vq_warmup:
-            logger.info(f"  [VQ Warmup] epoch {epoch}/{vq_warmup_epochs} — masking disabled, spatial locked")
+            logger.info(f"  [VQ Warmup] epoch {epoch}/{vq_warmup_epochs} — masking disabled, spatial locked | k_active={current_k}/{H}")
         elif epoch == vq_warmup_epochs + 1:
             model.enable_spatial()
-            logger.info(f"  [Spatial Enabled] epoch {epoch} — coord_proj + spatial_attn unlocked")
-        train_metrics, train_last_batch = train_one_epoch(model, train_loader, optimizer, device, epoch, mask_weight=mask_weight, vq_warmup=vq_warmup)
-        val_metrics,   val_last_batch   = validate_one_epoch(model, val_loader, device, mask_weight=mask_weight, vq_warmup=vq_warmup)
+            logger.info(f"  [Spatial Enabled] epoch {epoch} — coord_proj + spatial_attn unlocked | k_active={current_k}/{H}")
+        train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch, mask_weight=mask_weight, vq_warmup=vq_warmup, load_balance_weight=load_balance_weight, current_k=current_k)
+        val_metrics   = validate_one_epoch(model, val_loader, device, mask_weight=mask_weight, vq_warmup=vq_warmup, current_k=current_k)
         scheduler.step()
 
-        global_keys = {'loss', 'masked', 'unmasked'}
-        head_metrics  = defaultdict(dict)
-        other_metrics = {}
-        for k, v in train_metrics.items():
-            if k in global_keys:
-                continue
-            parts = k.rsplit('_head_', 1)
-            if len(parts) == 2 and parts[1].isdigit():
-                head_metrics[int(parts[1])][parts[0]] = v
-            else:
-                other_metrics[k] = v
+        loss_keys = {'loss', 'masked', 'unmasked'}
+        other_metrics = {k: v for k, v in train_metrics.items() if k not in loss_keys}
 
         logging.info(f"--- Epoch {epoch}/{total_epochs} Summary ---")
-        loss_keys = ["loss", "masked", "unmasked"]
-        logging.info(f"  [Train] " + " | ".join([f"{k}: {train_metrics.get(k, 0.0):.4f}" for k in loss_keys]))
-        logging.info(f"  [Val]   " + " | ".join([f"{k}: {val_metrics.get(k, 0.0):.4f}"   for k in loss_keys]))
-
-        for h_idx in sorted(head_metrics.keys()):
-            h_str = " | ".join([f"{name}: {val:.4f}" for name, val in sorted(head_metrics[h_idx].items())])
-            logging.info(f"  [Head {h_idx}] {h_str}")
+        logging.info(f"  [Train] " + " | ".join([f"{k}: {train_metrics.get(k, 0.0):.4f}" for k in ['loss', 'masked', 'unmasked']]))
+        logging.info(f"  [Val]   " + " | ".join([f"{k}: {val_metrics.get(k, 0.0):.4f}"   for k in ['loss', 'masked', 'unmasked']]))
 
         if other_metrics:
             o_str = " | ".join([f"{k}: {v:.4f}" if isinstance(v, float) else f"{k}: {v}" for k, v in other_metrics.items()])
@@ -282,14 +274,13 @@ def main():
             logger.info("  > Saved Best Checkpoint")
 
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
-        plotter.plot(); plotter.plot_metrics()
+        plotter.plot()
 
         if epoch % 10 == 0:
             try:
-                import argparse as _ap
                 run_recon_analysis(
                     config, output_dir=vis_dir,
-                    args=_ap.Namespace(), model=model,
+                    args=argparse.Namespace(), model=model,
                     dataset=val_dataset,
                     trial_idx=topo_trial_idx,
                     subject_id=topo_subject_id,

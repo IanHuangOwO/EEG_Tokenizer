@@ -212,18 +212,41 @@ class EEGDataset(Dataset):
         print(f"  [{ds_name} S{subject_id}] {N} trials x {T}pts -> {total_T}pts -> {len(assembled)} windows of {target_L}pts.")
         return assembled, torch.zeros(len(assembled), dtype=torch.long)
 
+    # Old → canonical label aliases (covers both 10-20 naming conventions)
+    _LABEL_ALIASES = {
+        'T3': 'T7', 'T4': 'T8',
+        'T5': 'P7', 'T6': 'P8',
+        'A1': 'TP9', 'A2': 'TP10',
+        # BCICIV_1-style intermediate-ring labels -> nearest canonical 10-10 site
+        'CFC1': 'FC1', 'CFC2': 'FC2', 'CFC3': 'FC3', 'CFC4': 'FC4',
+        'CFC5': 'FC5', 'CFC6': 'FC6', 'CFC7': 'FT7', 'CFC8': 'FT8',
+        'CCP1': 'CP1', 'CCP2': 'CP2', 'CCP3': 'CP3', 'CCP4': 'CP4',
+        'CCP5': 'CP5', 'CCP6': 'CP6', 'CCP7': 'TP7', 'CCP8': 'TP8',
+        'PO1': 'PO3', 'PO2': 'PO4',
+    }
+
+    def _normalize_label(self, label: str) -> str:
+        up = label.strip().upper()
+        return self._LABEL_ALIASES.get(up, up)
+
     def _map_channels(self, desired_channels: List[str], channel_config: Dict) -> Tuple[List[int], List[int]]:
         """Returns (dataset_channel_indices, positions_in_desired_list)."""
         name_to_index = {}
         for key, info in channel_config.items():
             if isinstance(key, str) and key.isdigit() and isinstance(info, dict) and 'label' in info:
-                name_to_index[info['label'].upper()] = int(key) - 1  # metadata is 1-indexed
+                norm = self._normalize_label(info['label'])
+                name_to_index[norm] = int(key) - 1  # metadata is 1-indexed
 
-        ds_indices, target_pos = [], []
+        ds_indices, target_pos, missing = [], [], []
         for i, name in enumerate(desired_channels):
-            if name.upper() in name_to_index:
-                ds_indices.append(name_to_index[name.upper()])
+            norm = self._normalize_label(name)
+            if norm in name_to_index:
+                ds_indices.append(name_to_index[norm])
                 target_pos.append(i)
+            else:
+                missing.append(name)
+        print(f"  [channel map] matched {len(ds_indices)}/{len(desired_channels)}"
+              + (f" | zero-padded: {missing}" if missing else ""))
         return ds_indices, target_pos
 
     def __getitem__(self, index):
@@ -356,11 +379,18 @@ def _resolve_loader(dataset_name: str, ds_name_key: str):
     return DialLoader  # safe fallback
 
 
-def _resolve_target_channels(dataset_params: Dict) -> List[str]:
+def _resolve_target_channels(dataset_params: Dict, pp: Dict = None) -> List[str]:
     """
-    Determines the unified channel list from the first dataset's config.
-    Applies NON_EEG_CHANNELS exclusion when channels_to_use is 'all'.
+    Determines the unified channel list.
+    If preprocess_params contains 'canonical_channels', that fixed ordered list
+    is used directly — channel index = electrode identity across all datasets.
+    Otherwise falls back to reading from the first dataset's metadata.
     """
+    if pp:
+        canonical = pp.get('canonical_channels', [])
+        if canonical:
+            return canonical
+
     first_ds_key = next(iter(dataset_params))
     first_ds_args = dataset_params[first_ds_key]
     channels_to_use = first_ds_args.get('channels_to_use', ['all'])
@@ -422,7 +452,7 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
                 'dataset_config': loader_config
             })
 
-    target_channels = _resolve_target_channels(dataset_params)
+    target_channels = _resolve_target_channels(dataset_params, pp=pp)
 
     fft_params = None
 

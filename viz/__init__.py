@@ -93,6 +93,8 @@ def load_model(config: dict, checkpoint: str, device: torch.device):
             print(f"  [ckpt] {len(missing)} missing keys (fresh init), e.g. {missing[0]}")
         if unexpected:
             print(f"  [ckpt] {len(unexpected)} unexpected keys, e.g. {unexpected[0]}")
+        # spatial_active is a plain attribute, not restored by load_state_dict
+        model.enable_spatial()
     else:
         print(f"  WARNING: checkpoint not found at {checkpoint!r}, using random weights.")
 

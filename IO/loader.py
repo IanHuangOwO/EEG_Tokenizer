@@ -183,17 +183,24 @@ class BCICIVLoader(BaseSubjectLoader):
             pos = mrk['pos'][0]
             y = mrk['y'][0]
 
-        trials, valid_y = [], []
+        trials, raw_labels = [], []
         for p, label in zip(pos, y):
             start = int(p)
             end = start + trial_len
             if end <= cnt.shape[0]:
                 trials.append(cnt[start:end, self.channel_indices].T)
-                valid_y.append(int(label) - 1 if label > 0 else 0)
+                raw_labels.append(int(label))
 
         if not trials:
             return None, None
-        return np.stack(trials), np.array(valid_y)
+
+        # Remap arbitrary label encodings (e.g. bipolar {-1, +1}, 1-indexed {1, 2, ...})
+        # to dense 0-indexed class ids.
+        raw_labels = np.array(raw_labels)
+        uniq = np.unique(raw_labels)
+        remap = {v: i for i, v in enumerate(uniq)}
+        valid_y = np.array([remap[v] for v in raw_labels])
+        return np.stack(trials), valid_y
 
 
 class InriaLoader(BaseSubjectLoader):

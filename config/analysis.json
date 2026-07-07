@@ -1,6 +1,6 @@
 {
-  "base_config": "config/config.json",
-  "checkpoint": "output/attnvq_v10/tokenizer/best_tokenizer.pth",
+  "base_config": "config/config_pretrain.json",
+  "checkpoint": "output/mefsq_pretrain_v0/pretrain/best_pretrain.pth",
 
   "dataset_params": {
     "BETA_4s": {

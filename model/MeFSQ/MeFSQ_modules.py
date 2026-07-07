@@ -1,4 +1,3 @@
-import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -208,23 +207,3 @@ class MeFSQ(nn.Module):
                 self.ema_head_ppl_std.mul_(self.ema_decay).add_(h_ppl.std(), alpha=1 - self.ema_decay)
 
         return v_q.reshape(B_sz, N_c, H, r), indices, q_soft
-
-
-class FastAdditiveDecoder(nn.Module):
-    def __init__(self, embed_dim, num_heads, fft_dim, dropout=0.0):
-        super().__init__()
-        self.num_heads = num_heads
-        self.W = nn.Parameter(torch.empty(num_heads, embed_dim, 2 * fft_dim))
-        self.bias = nn.Parameter(torch.zeros(2 * fft_dim))
-        self.drop = nn.Dropout(dropout)
-        nn.init.kaiming_uniform_(self.W, a=math.sqrt(5))
-        with torch.no_grad():
-            self.W.data.mul_(1.0 / math.sqrt(num_heads))
-
-    def forward(self, v_q, A):
-        """ v_q: [B*C, N, H, r] | A: [D, H*r] from MeFSQ """
-        B_C, N, H, r = v_q.shape
-        D = A.shape[0]
-        M   = torch.einsum('dhr,hdf->hrf', A.view(D, H, r), self.W)
-        out = torch.einsum('bnhr,hrf->bnf', v_q, M) / math.sqrt(H)
-        return self.drop(out + self.bias).sum(dim=1).chunk(2, dim=-1)  # two [B*C, F]

@@ -41,20 +41,20 @@ class Plotter:
         if 'loss' not in self.history['train'] or not self.history['train']['loss']:
             return
 
-        src_tr = self.history['train']
+        src_tr  = self.history['train']
         src_val = self.history['val']
 
         def _ep(d): return range(1, len(d) + 1)
         def _t(k):  return src_tr.get(k)
         def _v(k):  return src_val.get(k)
 
-        fig, axes = plt.subplots(2, 3, figsize=(24, 10), constrained_layout=True)
+        fig, axes = plt.subplots(3, 3, figsize=(24, 15), constrained_layout=True)
         fig.suptitle('Training Dashboard', fontsize=14, fontweight='bold')
-        (ax_loss, ax_masked, ax_unmasked,
-         ax_cb,   ax_empty,  ax_cond) = axes.flat
+        (ax_loss,    ax_masked,   ax_unmasked,
+         ax_ppl,     ax_ste,      ax_hcos,
+         ax_fpsim,   ax_fpstd,    ax_router) = axes.flat
 
         # ── Row 0: Loss curves ────────────────────────────────────────────────
-        # [0,0] Total loss
         tr_loss = _t('loss')
         if tr_loss:
             ax_loss.plot(_ep(tr_loss), tr_loss, 'b-', label='Train')
@@ -64,59 +64,83 @@ class Plotter:
         ax_loss.set_title('Total Loss'); ax_loss.set_ylabel('Loss')
         ax_loss.legend(fontsize='x-small'); ax_loss.grid(True)
 
-        # [0,1] Masked MSE
         if _t('masked'): ax_masked.plot(_ep(_t('masked')), _t('masked'), color='crimson', label='Train')
         if _v('masked'): ax_masked.plot(_ep(_v('masked')), _v('masked'), color='crimson', ls='--', alpha=0.7, label='Val')
         ax_masked.set_title('Masked MSE'); ax_masked.set_ylabel('Loss')
         ax_masked.legend(fontsize='x-small'); ax_masked.grid(True)
 
-        # [0,2] Unmasked MSE
         if _t('unmasked'): ax_unmasked.plot(_ep(_t('unmasked')), _t('unmasked'), color='steelblue', label='Train')
         if _v('unmasked'): ax_unmasked.plot(_ep(_v('unmasked')), _v('unmasked'), color='steelblue', ls='--', alpha=0.7, label='Val')
         ax_unmasked.set_title('Unmasked MSE'); ax_unmasked.set_ylabel('Loss')
         ax_unmasked.legend(fontsize='x-small'); ax_unmasked.grid(True)
 
         # ── Row 1: Codebook metrics ───────────────────────────────────────────
-        # [1,0] Usage: perplexity + active rank
-        ppl   = _v('codebook_perplexity')
-        arank = _v('codebook_active_rank')
+        # [1,0] Codebook perplexity
+        ppl = _v('codebook_perplexity')
         if ppl:
-            ax_cb.plot(_ep(ppl), ppl, color='green', label='Perplexity')
-            ax_cb.set_ylabel('Perplexity')
-        if arank:
-            ax_cb_r = ax_cb.twinx()
-            ax_cb_r.plot(_ep(arank), arank, color='purple', ls='--', label='Active rank', alpha=0.8)
-            ax_cb_r.set_ylabel('Active rank')
-            _merge_legends(ax_cb, ax_cb_r)
-        ax_cb.set_title('Codebook Usage'); ax_cb.grid(True)
+            ax_ppl.plot(_ep(ppl), ppl, color='green', label='Perplexity')
+            ax_ppl.set_ylabel('Perplexity')
+            ax_ppl.legend(fontsize='x-small')
+        else:
+            ax_ppl.axis('off')
+        ax_ppl.set_title('Codebook Perplexity'); ax_ppl.grid(True)
 
-        # [1,1] Alignment: STE gap + head diversity
-        ste      = _v('codebook_ste_gap')
-        head_div = _v('codebook_head_diversity')
+        # [1,1] STE gap
+        ste = _v('codebook_ste_gap')
         if ste:
-            ax_empty.plot(_ep(ste), ste, color='red', label='STE gap')
-            ax_empty.set_ylabel('STE gap')
-        if head_div:
-            ax_align_r = ax_empty.twinx()
-            ax_align_r.plot(_ep(head_div), head_div, color='darkorange', ls='--', label='Head diversity', alpha=0.8)
-            ax_align_r.set_ylabel('Avg cross-head |cosine sim|')
-            _merge_legends(ax_empty, ax_align_r)
-        if not ste and not head_div:
-            ax_empty.axis('off')
-        ax_empty.set_title('Codebook Alignment'); ax_empty.grid(True)
+            ax_ste.plot(_ep(ste), ste, color='red', label='STE gap')
+            ax_ste.set_ylabel('STE gap')
+            ax_ste.legend(fontsize='x-small')
+        else:
+            ax_ste.axis('off')
+        ax_ste.set_title('Codebook STE Gap'); ax_ste.grid(True)
 
-        # [1,2] A matrix geometry: condition number + avg singular value
-        cond = _v('codebook_condition_number')
-        sval = _v('codebook_avg_singular_value')
-        if cond:
-            ax_cond.plot(_ep(cond), cond, color='steelblue', label='Cond #')
-            ax_cond.set_ylabel('Condition #')
-        if sval:
-            ax_cond_r = ax_cond.twinx()
-            ax_cond_r.plot(_ep(sval), sval, color='green', ls='--', label='Avg singular val', alpha=0.8)
-            ax_cond_r.set_ylabel('Avg singular val')
-            _merge_legends(ax_cond, ax_cond_r)
-        ax_cond.set_title('A Matrix Geometry'); ax_cond.grid(True)
+        # [1,2] Head projection cosine similarity (lower = more diverse heads)
+        hcos = _t('head_cosine_sim')
+        if hcos:
+            ax_hcos.plot(_ep(hcos), hcos, color='darkorchid', label='Mean |cosine sim|')
+            ax_hcos.set_ylabel('Mean |cosine sim|')
+            ax_hcos.legend(fontsize='x-small')
+        else:
+            ax_hcos.axis('off')
+        ax_hcos.set_title('Head Projection Diversity\n(lower = more diverse)'); ax_hcos.grid(True)
+
+        # ── Row 2: Head specialization metrics ───────────────────────────────
+        # [2,0] Fingerprint mean cosine sim — monitoring only (not a loss term)
+        fp_sim_mean = _t('fp_sim_mean')
+        if fp_sim_mean and any(v > 0 for v in fp_sim_mean):
+            ax_fpsim.plot(_ep(fp_sim_mean), fp_sim_mean, color='darkorange', label='Mean |fp cosine sim|')
+            ax_fpsim.set_ylabel('Mean |cosine sim|')
+            ax_fpsim.legend(fontsize='x-small')
+        else:
+            ax_fpsim.axis('off')
+        ax_fpsim.set_title('Head Fingerprint Similarity [monitor]\n(lower = more diverse)'); ax_fpsim.grid(True)
+
+        # [2,1] Fingerprint sim std — monitoring only
+        fp_sim_std = _t('fp_sim_std')
+        if fp_sim_std and any(v > 0 for v in fp_sim_std):
+            ax_fpstd.plot(_ep(fp_sim_std), fp_sim_std, color='purple', label='Std fp cosine sim')
+            ax_fpstd.set_ylabel('Std cosine sim')
+            ax_fpstd.legend(fontsize='x-small')
+        else:
+            ax_fpstd.axis('off')
+        ax_fpstd.set_title('Fingerprint Sim Std [monitor]\n(higher = varied specialization)'); ax_fpstd.grid(True)
+
+        # [2,2] Router health: entropy (higher = balanced) + load std + lb_loss (lower = balanced)
+        r_ent = _t('router_entropy')
+        r_std = _t('router_load_std')
+        r_lb  = _t('lb_loss')
+        ax2 = ax_router.twinx()
+        if r_ent:
+            ax_router.plot(_ep(r_ent), r_ent, color='teal', label='Router entropy')
+            ax_router.set_ylabel('Entropy (higher=balanced)', color='teal')
+        if r_std:
+            ax2.plot(_ep(r_std), r_std, color='salmon', ls='--', label='Load std')
+            ax2.set_ylabel('Load std / LB loss', color='salmon')
+        if r_lb:
+            ax2.plot(_ep(r_lb), r_lb, color='peru', ls=':', label='LB loss (1.0=uniform)')
+        _merge_legends(ax_router, ax2)
+        ax_router.set_title('Router Health'); ax_router.grid(True)
 
         for ax in axes.flat:
             ax.set_xlabel('Epoch')
@@ -227,7 +251,7 @@ def visualize_masked_reconstruction(batch, model, epoch,
     B, C, P, T_patch = x_patches.shape
 
     with torch.no_grad():
-        recon, _, _ = model(x_patches, coords, time_idx=time_indices, bool_masked_pos=None)
+        recon, _, _, _, _ = model(x_patches, coords, time_idx=time_indices, bool_masked_pos=None)
         student_recon = recon.permute(0, 2, 1, 3)  # [B, P, C, T_patch]
 
     fs = 200.0
