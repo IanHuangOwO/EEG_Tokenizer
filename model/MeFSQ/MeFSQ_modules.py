@@ -252,47 +252,58 @@ class MeFSQ(nn.Module):
 
 class PerChannelHeadAttn(nn.Module):
     """
-    Per-channel softmax attention over VQ heads: each head's projected vector is first
-    averaged over patches (relevance is a per-trial property, not per-timestep), then each
-    CHANNEL independently scores and softmax-normalizes across H heads — weights sum to 1
-    PER CHANNEL, not jointly across all channel*head pairs, so channels never compete with
-    each other for weight (unlike a joint C*H softmax, which saturates near one-hot once
-    C*H gets into the thousands). The C per-channel pooled vectors are concatenated (not
-    averaged) into the classifier — channel identity/order is fixed (canonical_channels),
-    so each channel keeps its own dedicated slice of the classifier's input instead of
-    being blended away.
+    Two-stage learnable-query attention pooling, per channel:
+
+    Stage 1 (temporal): per (channel, head), a learnable query attends over the N patches
+    — replaces plain mean-over-N so patch/time relevance becomes an interpretable weight
+    (attn_n) instead of being averaged away.
+
+    Stage 2 (head): per channel, a learnable query attends over the H heads — weights sum
+    to 1 PER CHANNEL, not jointly across all channel*head pairs, so channels never compete
+    for weight (a joint C*H softmax saturates near one-hot once C*H gets into the
+    thousands). Same query-attention mechanism as stage 1, just reduced over a different
+    axis.
+
+    The C per-channel pooled vectors are concatenated (not averaged) into the classifier —
+    channel identity/order is fixed (canonical_channels), so each channel keeps its own
+    dedicated slice of the classifier's input instead of being blended away.
     """
     def __init__(self, head_dim, num_channels, num_classes, hidden=32):
         super().__init__()
-        self.score = nn.Sequential(
-            nn.Linear(head_dim, hidden), nn.Tanh(), nn.Linear(hidden, 1)
-        )
+        self.key_n   = nn.Linear(head_dim, hidden)
+        self.query_n = nn.Parameter(torch.zeros(hidden))
+        self.key_h   = nn.Linear(head_dim, hidden)
+        self.query_h = nn.Parameter(torch.zeros(hidden))
+        nn.init.normal_(self.query_n, std=0.02)
+        nn.init.normal_(self.query_h, std=0.02)
+        self.scale = hidden ** -0.5
         self.cls = nn.Linear(num_channels * head_dim, num_classes)
 
     def forward(self, z_per_head, pad_mask=None):
         """
         z_per_head: [B, C, N, H, d]
         pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels/patches)
-        Returns (logits [B, num_classes], attn [B, C, H])
+        Returns (logits [B, num_classes], attn_h [B, C, H], attn_n [B, C, H, N])
         """
-        valid_channel = None
+        # ---- stage 1: attention pool over N (patches), per channel & head ----
+        logits_n = torch.einsum('bcnhk,k->bcnh', self.key_n(z_per_head), self.query_n) * self.scale  # [B, C, N, H]
         if pad_mask is not None:
-            w = pad_mask.float().unsqueeze(-1).unsqueeze(-1)                    # [B, C, N, 1, 1]
-            z_mean = (z_per_head * w).sum(dim=2) / (w.sum(dim=2) + 1e-8)        # [B, C, H, d]
-            valid_channel = pad_mask.any(dim=2)                                 # [B, C]
-        else:
-            z_mean = z_per_head.mean(dim=2)                                     # [B, C, H, d]
+            logits_n = logits_n.masked_fill(~pad_mask.unsqueeze(-1), float('-inf'))
+        attn_n = torch.softmax(logits_n, dim=2)                                 # softmax over N, per channel & head
+        attn_n = torch.nan_to_num(attn_n)                                       # all-invalid channel -> all -inf -> nan; zero it
+        z_h = torch.einsum('bcnhd,bcnh->bchd', z_per_head, attn_n)              # [B, C, H, d]
 
-        logits = self.score(z_mean).squeeze(-1)                                 # [B, C, H]
-        # NOTE: don't mask invalid channels' logits to -inf here — softmax is over H
-        # (dim=2), so an entirely-invalid channel would have every entry -inf and produce
-        # NaN (softmax of all -inf is 0/0). Zeroed out explicitly below instead.
-        attn = torch.softmax(logits, dim=2)                                     # softmax over H, independently per channel
-        pooled_per_channel = (z_mean * attn.unsqueeze(-1)).sum(dim=2)           # [B, C, d] — weighted sum over heads
+        valid_channel = pad_mask.any(dim=-1) if pad_mask is not None else None  # [B, C]
+
+        # ---- stage 2: attention pool over H (heads), per channel ----
+        logits_h = torch.einsum('bchk,k->bch', self.key_h(z_h), self.query_h) * self.scale  # [B, C, H]
+        attn_h = torch.softmax(logits_h, dim=2)                                 # softmax over H, independently per channel
+        pooled_per_channel = (z_h * attn_h.unsqueeze(-1)).sum(dim=2)            # [B, C, d]
 
         if valid_channel is not None:
             pooled_per_channel = pooled_per_channel * valid_channel.float().unsqueeze(-1)  # zero invalid channel slots
 
         B = pooled_per_channel.shape[0]
         pooled = pooled_per_channel.reshape(B, -1)                              # [B, C*d] — concatenated, not averaged
-        return self.cls(pooled), attn
+        attn_n = attn_n.permute(0, 1, 3, 2)                                     # [B, C, H, N] for interpretability
+        return self.cls(pooled), attn_h, attn_n

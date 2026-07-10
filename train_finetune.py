@@ -109,7 +109,7 @@ def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, load_b
         optimizer.zero_grad()
 
         with torch.amp.autocast(device_type='cuda'):
-            logits, _, lb_loss, v_q_gated, gate_mask, B_, C_ = model(
+            logits, _, _, lb_loss, v_q_gated, gate_mask, B_, C_ = model(
                 x, coords, time_idx=time_idx, pad_mask=pad_mask, return_head_stats=True)
             loss = nn.functional.cross_entropy(logits, labels)
             if load_balance_weight > 0:
@@ -153,7 +153,7 @@ def validate_one_epoch(model, data_loader, device):
             x, coords, time_idx, labels, pad_mask = _unpack_batch(batch, device)
 
             with torch.amp.autocast(device_type='cuda'):
-                logits, _, _, v_q_gated, _, _, _ = model(
+                logits, _, _, _, v_q_gated, _, _, _ = model(
                     x, coords, time_idx=time_idx, pad_mask=pad_mask, return_head_stats=True)
                 loss = nn.functional.cross_entropy(logits, labels)
 

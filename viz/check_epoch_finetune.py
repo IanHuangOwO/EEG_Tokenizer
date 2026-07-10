@@ -3,10 +3,11 @@ Finetune-stage epoch snapshot.
   recon/  power topomap (raw vs backbone-recon) + per-head activation topomap grid —
           identical in spirit to viz.check_epoch (pretrain), reusing the same backbone
           forward contract (recon, indices, v_q, gate_mask, lb_loss) via model.backbone.
-  attn/   the finetune classification head's own attention (PerChannelHeadAttn) — each
-          CHANNEL independently softmaxes over VQ heads (weights sum to 1 per channel, not
-          jointly), computed after averaging over patches. Shown as a channel x head
-          heatmap, and as one topomap per head.
+  attn/   the finetune classification head's own attention (PerChannelHeadAttn), two stages:
+          attn_h [C, H] — each CHANNEL independently softmaxes over VQ heads (weights sum to
+          1 per channel, not jointly), shown as a channel x head heatmap and one topomap per
+          head. attn_n [C, H, N] — per channel & head, softmax over patches (temporal
+          attention), shown as a channel x patch heatmap for the top-scoring head.
 """
 import os
 import math
@@ -87,8 +88,9 @@ def run(config, output_dir, model, dataset, trial_idx, subject_id=None, epoch=No
     # attn is computed once and used to rank heads in BOTH recon/ and attn/ grids: sum,
     # over channels, of the per-channel softmax weight each head received — a head that
     # many channels lean on heavily ranks first, regardless of which grid is being drawn.
-    _, attn, _ = model(x_in, c_in, time_idx=t_in, pad_mask=pad_mask)
-    attn_np = attn[0].detach().cpu().numpy()  # [C, H]
+    _, attn_h, attn_n, _ = model(x_in, c_in, time_idx=t_in, pad_mask=pad_mask)
+    attn_np = attn_h[0].detach().cpu().numpy()      # [C, H]
+    attn_n_np = attn_n[0].detach().cpu().numpy()     # [C, H, N]
     head_score = attn_np.sum(axis=0)
     head_order = np.argsort(head_score)[::-1]
 
@@ -128,15 +130,37 @@ def run(config, output_dir, model, dataset, trial_idx, subject_id=None, epoch=No
     os.makedirs(attn_dir, exist_ok=True)
 
     H = attn_np.shape[1]
-    fig2, ax2 = plt.subplots(figsize=(max(6.0, H * 0.25), max(6.0, len(channel_names) * 0.18)))
+    n_tc = min(8, H)
+    n_tr = math.ceil(H / n_tc)
+    fig2 = plt.figure(figsize=(max(10.0, H * 0.25) + n_tc * 2.2, max(6.0, len(channel_names) * 0.18, n_tr * 2.4)))
+    gs = fig2.add_gridspec(1, 2, width_ratios=[H * 0.25, n_tc * 2.2])
+
+    # left: channel x head heatmap
+    ax2 = fig2.add_subplot(gs[0, 0])
     im2 = ax2.imshow(attn_np, aspect='auto', cmap='viridis')
     ax2.set_yticks(range(len(channel_names)))
     ax2.set_yticklabels(channel_names, fontsize=5)
     ax2.set_xlabel('VQ head')
     ax2.set_ylabel('Channel')
-    ax2.set_title(f"Per-Channel Head Attention — Sub {subject_id}, Trial {trial_idx}{epoch_tag} [finetune]",
+    ax2.set_title('Per-Channel Head Attention', fontsize=9, fontweight='bold')
+    fig2.colorbar(im2, ax=ax2, fraction=0.05, pad=0.02, label='Attn weight')
+
+    # right: grid of channel x patch temporal-attention subplots, one per head, ordered by head_score
+    gs_right = gs[0, 1].subgridspec(n_tr, n_tc, hspace=0.6, wspace=0.3)
+    for pos, h in enumerate(head_order):
+        r, c = divmod(pos, n_tc)
+        axr = fig2.add_subplot(gs_right[r, c])
+        axr.imshow(attn_n_np[:, h, :], aspect='auto', cmap='viridis')
+        axr.set_yticks(range(len(channel_names)))
+        axr.set_yticklabels(channel_names if c == 0 else [], fontsize=3)
+        axr.set_xticks([])
+        axr.set_title(f'H{h} ({head_score[h]:.3f})', fontsize=5.5)
+    for pos in range(H, n_tr * n_tc):
+        r, c = divmod(pos, n_tc)
+        fig2.add_subplot(gs_right[r, c]).axis('off')
+
+    fig2.suptitle(f"Per-Channel Head + Temporal Attention — Sub {subject_id}, Trial {trial_idx}{epoch_tag} [finetune]",
                   fontsize=10, fontweight='bold')
-    fig2.colorbar(im2, ax=ax2, fraction=0.03, pad=0.02, label='Attention weight')
     fig2.savefig(os.path.join(attn_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_heatmap.png"),
                  dpi=120, bbox_inches='tight')
     plt.close(fig2)

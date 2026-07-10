@@ -274,7 +274,7 @@ class MeFSQFinetune(nn.Module):
         x: [B, C, N, L]
         coords: [B, C, 3]
         pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels)
-        returns: (logits [B, num_classes], attn [B, C, H], lb_loss scalar)
+        returns: (logits [B, num_classes], attn_h [B, C, H], attn_n [B, C, H, N], lb_loss scalar)
         if return_head_stats: also (v_q_gated, gate_mask, B, C) for head/fingerprint diversity monitoring
         """
         B, C, N, L = x.shape
@@ -286,8 +286,8 @@ class MeFSQFinetune(nn.Module):
 
         bb = self.backbone
         z_per_head = torch.einsum('bnhr,hdr->bnhd', v_q_gated, bb.vq_proj).view(B, C, N, bb.vq_head_num, bb.head_dim)
-        logits, attn = self.head(z_per_head, pad_mask=pad_mask)  # attn: [B, C, H]
+        logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)  # attn_h: [B, C, H], attn_n: [B, C, H, N]
 
         if return_head_stats:
-            return logits, attn, lb_loss, v_q_gated, gate_mask, B, C
-        return logits, attn, lb_loss
+            return logits, attn_h, attn_n, lb_loss, v_q_gated, gate_mask, B, C
+        return logits, attn_h, attn_n, lb_loss
