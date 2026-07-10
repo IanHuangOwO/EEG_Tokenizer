@@ -193,7 +193,7 @@ def add_args(parser):
 
 
 def run(config, output_dir, args, model=None, dataset=None, trial_idx=None, subject_id=None):
-    if config['training_params'].get('model_type') != 'MeFSQ':
+    if config['training_params']['pretrain'].get('model_type') != 'MeFSQ':
         print("  [codebook] Skipping: not an MeFSQ model.")
         return
 

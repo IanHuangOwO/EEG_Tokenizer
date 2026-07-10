@@ -49,7 +49,8 @@ def _unpack_batch(batch, device):
 
 
 
-def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, mask_weight=1.0, vq_warmup=False, load_balance_weight=0.0, current_k=None):
+def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, mask_weight=1.0, vq_warmup=False,
+                     load_balance_weight=0.0, diversity_weight=0.0, current_k=None):
     model.train()
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
@@ -67,7 +68,9 @@ def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, mask_w
             recon, _, v_q, gate_mask, lb_loss = model(x, coords, time_idx, bool_masked_pos=mp, use_routing=use_routing, k_active_override=current_k)
             l_total, l_masked, l_unmasked = model.get_loss(x, recon, mp)
             if use_routing:
-                model.update_head_metrics(v_q, gate_mask, B, C)
+                model.update_head_metrics(gate_mask)
+                if diversity_weight > 0:
+                    l_total = l_total + diversity_weight * model.get_diversity_loss(v_q, gate_mask, B, C)
             if use_routing and load_balance_weight > 0:
                 l_total = l_total + load_balance_weight * lb_loss
 
@@ -137,13 +140,13 @@ def validate_one_epoch(model, data_loader, device, mask_weight, vq_warmup=False,
 
 def main():
     parser = argparse.ArgumentParser(description='MeFSQ Masked Pretraining')
-    parser.add_argument('--config', type=str, default='config/config_pretrain.json')
+    parser.add_argument('--config', type=str, default='config/config.json')
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
         config = json.load(f)
 
-    train_params = config['training_params']
+    train_params = config['training_params']['pretrain']
     device     = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     model_name = train_params.get('model_name', 'default_run')
 
@@ -159,7 +162,7 @@ def main():
     logger = setup_logger(artifact_dir)
     shutil.copy(args.config, os.path.join(artifact_dir, 'config.json'))
 
-    dataset_params = config['dataset_params']
+    dataset_params = config['dataset_params']['pretrain']
     split_ratio = train_params.get('train_val_split', 0.9)
     random.seed(42)
 
@@ -190,8 +193,8 @@ def main():
         if n_train == 0 and len(subjects_to_split) > 0:
             n_train = 1
 
-        train_config['dataset_params'][ds_name]['subject_to_use'] = subjects_to_split[:n_train]
-        val_config['dataset_params'][ds_name]['subject_to_use']   = subjects_to_split[n_train:]
+        train_config['dataset_params']['pretrain'][ds_name]['subject_to_use'] = subjects_to_split[:n_train]
+        val_config['dataset_params']['pretrain'][ds_name]['subject_to_use']   = subjects_to_split[n_train:]
         logger.info(f"Dataset {ds_name}: {n_train} Train, {len(subjects_to_split) - n_train} Val subjects")
 
     logger.info("Building Training Dataset...")
@@ -231,9 +234,11 @@ def main():
     pp          = config.get('preprocess_params', {})
     strat_name  = pp.get('masking_strategy', 'random')
     mask_ratio  = 0.5 if strat_name == 'complementary' else pp.get(strat_name, {}).get('mask_ratio', 0.5)
-    mask_weight          = config.get('loss_params', {}).get('mask_weight', (1.0 - mask_ratio) / mask_ratio)
-    load_balance_weight  = config.get('loss_params', {}).get('load_balance_weight', 0.0)
-    logger.info(f"mask_ratio={mask_ratio}  mask_weight={mask_weight:.4f}  lb_weight={load_balance_weight}")
+    loss_params          = config.get('loss_params', {}).get('pretrain', {})
+    mask_weight          = loss_params.get('mask_weight', (1.0 - mask_ratio) / mask_ratio)
+    load_balance_weight  = loss_params.get('load_balance_weight', 0.0)
+    diversity_weight     = loss_params.get('diversity_weight', 0.0)
+    logger.info(f"mask_ratio={mask_ratio}  mask_weight={mask_weight:.4f}  lb_weight={load_balance_weight}  diversity_weight={diversity_weight}")
 
     best_val_loss    = float('inf')
     total_epochs     = train_params['epochs']
@@ -251,7 +256,7 @@ def main():
         elif epoch == vq_warmup_epochs + 1:
             model.enable_spatial()
             logger.info(f"  [Spatial Enabled] epoch {epoch} — coord_proj + spatial_attn unlocked | k_active={current_k}/{H}")
-        train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch, mask_weight=mask_weight, vq_warmup=vq_warmup, load_balance_weight=load_balance_weight, current_k=current_k)
+        train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch, mask_weight=mask_weight, vq_warmup=vq_warmup, load_balance_weight=load_balance_weight, diversity_weight=diversity_weight, current_k=current_k)
         val_metrics   = validate_one_epoch(model, val_loader, device, mask_weight=mask_weight, vq_warmup=vq_warmup, current_k=current_k)
         scheduler.step()
 

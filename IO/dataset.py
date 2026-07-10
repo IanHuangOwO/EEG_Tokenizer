@@ -111,6 +111,8 @@ class EEGDataset(Dataset):
         all_subject_chunks: List[torch.Tensor] = []
         all_dataset_names: List[str] = []
         all_coords: List[torch.Tensor] = []
+        all_valid_channels: List[torch.Tensor] = []  # per-task [Nc] bool, True = real (not zero-padded) channel
+        all_valid_length: List[int] = []             # per-task original T, before cross-subject max_T padding
 
         print(f"Loading {len(loading_tasks)} subject-dataset tasks... (assembly={'on' if assemble_trials else 'off'})")
         for task in loading_tasks:
@@ -136,6 +138,7 @@ class EEGDataset(Dataset):
 
                 if transform is not None:
                     padded = torch.stack([transform(padded[i]) for i in range(N)])
+                post_transform_T = padded.shape[-1]  # real (non-padded) length for finetune's per-trial mask
 
                 if self.assemble_trials:
                     padded, labels = self._window_subject_signal(padded, ds_name, subject_id)
@@ -150,6 +153,11 @@ class EEGDataset(Dataset):
                 task_coords = torch.zeros((self.Nc, 3), dtype=torch.float32)
                 task_coords[target_pos] = torch.from_numpy(subject_data['coords'])
                 all_coords.append(task_coords)
+
+                valid_channels = torch.zeros(self.Nc, dtype=torch.bool)
+                valid_channels[target_pos] = True
+                all_valid_channels.append(valid_channels)
+                all_valid_length.append(post_transform_T)
 
             except Exception as e:
                 print(f"Failed to load Subject {task.get('subject_id')} ({task.get('dataset_name')}): {e}")
@@ -171,6 +179,8 @@ class EEGDataset(Dataset):
         self.subject_data = torch.cat(all_subject_chunks)
         self.dataset_names = all_dataset_names
         self.all_coords = all_coords
+        self.all_valid_channels = all_valid_channels
+        self.all_valid_length = all_valid_length
 
         self.trial_to_coords_idx = []
         for i, d in enumerate(standardized):
@@ -282,7 +292,7 @@ class MaskedPretrainDataset(Dataset):
         self.mask_ratio       = ComplementaryMaskingStrategy.MASK_RATIO if self.complementary else mask_ratio
 
         if patch_len is None:
-            model_type = base_dataset.config.get('training_params', {}).get('model_type', 'MeFSQ')
+            model_type = base_dataset.config.get('training_params', {}).get('pretrain', {}).get('model_type', 'MeFSQ')
             preprocess = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
             patch_len = preprocess.get('patch_length', 200)
 
@@ -342,10 +352,12 @@ class FinetuneDataset(Dataset):
     """
     Wraps EEGDataset for supervised finetuning and trial-level inspection.
     Preserves original trial boundaries and labels.
-    Yields: (x, coords, label)
-      x:      [C, T]
-      coords: [C, 3]
-      label:  scalar
+    Yields: (x, coords, label, valid_channels, valid_length)
+      x:              [C, T]
+      coords:         [C, 3]
+      label:          scalar
+      valid_channels: [C] bool, True = real (not zero-padded) channel
+      valid_length:   scalar int, real (non-padded) time length
     """
     def __init__(self, base_dataset: EEGDataset):
         self.base_dataset = base_dataset
@@ -357,9 +369,11 @@ class FinetuneDataset(Dataset):
 
     def __getitem__(self, index):
         x, label = self.base_dataset[index]
-        coords_idx = self.base_dataset.trial_to_coords_idx[index]
-        coords = self.base_dataset.all_coords[coords_idx]
-        return x, coords, label
+        task_idx = self.base_dataset.trial_to_coords_idx[index]
+        coords = self.base_dataset.all_coords[task_idx]
+        valid_channels = self.base_dataset.all_valid_channels[task_idx]
+        valid_length = self.base_dataset.all_valid_length[task_idx]
+        return x, coords, label, valid_channels, valid_length
 
 
 # --- Factory ---
@@ -418,7 +432,8 @@ def _resolve_target_channels(dataset_params: Dict, pp: Dict = None) -> List[str]
 
 
 def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None, mode: str = 'pretrain') -> Dataset:
-    dataset_params = config_dict.get('dataset_params', {})
+    ds_mode        = mode if mode in ('pretrain', 'finetune') else 'pretrain'
+    dataset_params = config_dict.get('dataset_params', {}).get(ds_mode, {})
     pp             = config_dict.get('preprocess_params', {})
     patch_len      = pp.get('patch_length', 100)
 

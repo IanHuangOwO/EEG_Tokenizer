@@ -35,55 +35,56 @@ def load_config(path: str) -> dict:
     return cfg
 
 
-def resolve_output_dir(config: dict, *sub_dirs: str) -> str:
+def resolve_output_dir(config: dict, *sub_dirs: str, mode: str = 'pretrain') -> str:
     """Return output/{model_name}/visualization/{sub_dirs...} and create it."""
-    model_name = config['training_params']['model_name']
+    model_name = config['training_params'][mode]['model_name']
     path = os.path.join('output', model_name, 'visualization', *sub_dirs)
     os.makedirs(path, exist_ok=True)
     return path
 
 
-def select_subject_dataset(config: dict, subject=None, dataset_name: str = None):
+def select_subject_dataset(config: dict, subject=None, dataset_name: str = None, mode: str = 'pretrain'):
     """
     Resolve (dataset_name, subject_id) using:
       1. CLI arguments (highest priority)
       2. The dataset_params entry that has trial_to_use set
       3. First key of dataset_params as last resort
     """
+    ds_params = config['dataset_params'][mode]
     if dataset_name is None:
-        for ds, ds_cfg in config['dataset_params'].items():
+        for ds, ds_cfg in ds_params.items():
             if 'trial_to_use' in ds_cfg:
                 dataset_name = ds
                 break
         if dataset_name is None:
-            dataset_name = next(iter(config['dataset_params']))
+            dataset_name = next(iter(ds_params))
     if subject is None:
-        ds_cfg = config['dataset_params'][dataset_name]
+        ds_cfg = ds_params[dataset_name]
         subs = ds_cfg.get('subject_to_use', [])
         subject = subs[0] if subs and subs[0] != 'all' else None
     if subject is None:
-        meta_path = os.path.join(config['dataset_params'][dataset_name]['dataset_path'], 'metadata.json')
+        meta_path = os.path.join(ds_params[dataset_name]['dataset_path'], 'metadata.json')
         with open(meta_path, 'r') as f:
             all_subs = list(json.load(f).get('data_structure', {}).keys())
         subject = int(all_subs[0]) if str(all_subs[0]).isdigit() else random.choice(all_subs)
     return dataset_name, subject
 
 
-def filter_config_to_subject(config: dict, dataset_name: str, subject) -> dict:
-    """Return config copy with dataset_params reduced to one dataset + subject."""
+def filter_config_to_subject(config: dict, dataset_name: str, subject, mode: str = 'pretrain') -> dict:
+    """Return config copy with dataset_params[mode] reduced to one dataset + subject."""
     cfg = copy.deepcopy(config)
-    orig = cfg['dataset_params'][dataset_name]
-    cfg['dataset_params'] = {
+    orig = cfg['dataset_params'][mode][dataset_name]
+    cfg['dataset_params'][mode] = {
         dataset_name: {**orig, 'subject_to_use': [subject]}
     }
     return cfg
 
 
-def load_model(config: dict, checkpoint: str, device: torch.device):
+def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 'pretrain'):
     """Build model from config, load checkpoint with strict=False, return eval."""
     from model.factory import build_model_from_config
 
-    model = build_model_from_config(config).to(device)
+    model = build_model_from_config(config, mode=mode).to(device)
 
     if checkpoint and os.path.exists(checkpoint):
         ckpt = torch.load(checkpoint, map_location=device, weights_only=False)

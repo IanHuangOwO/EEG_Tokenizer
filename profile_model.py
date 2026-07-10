@@ -77,10 +77,10 @@ def profile_model():
     mode_str = 'TRAIN (eigh skipped)' if args.train else 'EVAL (eigh active)'
     print(f"Profiling on device: {device}  |  Mode: {mode_str}")
     
-    with open('config/config_pretrain.json', 'r') as f:
+    with open('config/config.json', 'r') as f:
         config = json.load(f)
-    
-    model_type = config['training_params'].get('model_type', 'MeFSQ')
+
+    model_type = config['training_params']['pretrain'].get('model_type', 'MeFSQ')
     preprocess = config['preprocess_params']
     
     # 2. Dummy Input - Dynamically extracted from config

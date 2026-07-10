@@ -166,7 +166,7 @@ if __name__ == '__main__':
     device   = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     mdl      = load_model(filtered, checkpoint, device)
     ds       = build_dataset_from_config(filtered, mode='pretrain')
-    trial_cfg = args.trial if args.trial is not None else cfg['dataset_params'][ds_name].get('trial_to_use')
+    trial_cfg = args.trial if args.trial is not None else cfg['dataset_params']['pretrain'][ds_name].get('trial_to_use')
     t_idx, subject_id = pick_trial(ds, subject, trial_cfg)
     out      = resolve_output_dir(filtered, 'check')
     run(filtered, out, args, model=mdl, dataset=ds,

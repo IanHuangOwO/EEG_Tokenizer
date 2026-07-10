@@ -58,9 +58,9 @@ def main():
     cfg        = load_config(args.config)
     checkpoint = args.checkpoint or cfg.get('checkpoint', '')
     ds_key     = args.dataset or next(
-        (ds for ds, dc in cfg['dataset_params'].items() if 'trial_to_use' in dc),
-        next(iter(cfg['dataset_params'])))
-    trial_cfg  = args.trial if args.trial is not None else cfg['dataset_params'][ds_key].get('trial_to_use')
+        (ds for ds, dc in cfg['dataset_params']['pretrain'].items() if 'trial_to_use' in dc),
+        next(iter(cfg['dataset_params']['pretrain'])))
+    trial_cfg  = args.trial if args.trial is not None else cfg['dataset_params']['pretrain'][ds_key].get('trial_to_use')
 
     ds_name, subject = select_subject_dataset(cfg, args.subject, args.dataset)
     filtered   = filter_config_to_subject(cfg, ds_name, subject)

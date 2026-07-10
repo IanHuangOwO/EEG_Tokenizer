@@ -4,8 +4,8 @@ import shutil
 from model.MeFSQ.MeFSQ import MeFSQPretrain
 
 
-def build_model_from_config(config, src_output_dir=None):
-    train_params = config['training_params']
+def build_model_from_config(config, src_output_dir=None, mode='pretrain'):
+    train_params = config['training_params'][mode]
     model_params = config['model_params']
     model_type   = train_params.get('model_type', 'MeFSQ')
 

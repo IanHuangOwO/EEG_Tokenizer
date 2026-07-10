@@ -31,13 +31,16 @@ class Plotter:
                     self.history['val'][k] = []
                 self.history['val'][k].append(v)
 
-    def plot(self, filename=None):
-        self.plot_all()
+    def plot(self, filename=None, mode='pretrain', freeze_backbone=False):
+        self.plot_all(mode=mode, freeze_backbone=freeze_backbone)
 
     def plot_metrics(self, filename=None):
         pass  # merged into plot_all
 
-    def plot_all(self, filename='training_dashboard.png'):
+    def plot_all(self, filename='training_dashboard.png', mode='pretrain', freeze_backbone=False):
+        """mode='finetune' drops the MSE plots (never used post-pretrain).
+        freeze_backbone=True zeroes codebook metrics that can't move with a frozen backbone,
+        but still shows head/fingerprint diversity (those reflect classifier-head behavior)."""
         if 'loss' not in self.history['train'] or not self.history['train']['loss']:
             return
 
@@ -47,6 +50,14 @@ class Plotter:
         def _ep(d): return range(1, len(d) + 1)
         def _t(k):  return src_tr.get(k)
         def _v(k):  return src_val.get(k)
+        n_epochs = len(src_tr['loss'])
+
+        def _plot_tr_val(ax, key, color, title, ylabel):
+            """Plot train (solid) + val (dashed) series for `key` on `ax`."""
+            if _t(key): ax.plot(_ep(_t(key)), _t(key), color=color, label='Train')
+            if _v(key): ax.plot(_ep(_v(key)), _v(key), color=color, ls='--', alpha=0.7, label='Val')
+            ax.set_title(title); ax.set_ylabel(ylabel)
+            ax.legend(fontsize='x-small'); ax.grid(True)
 
         fig, axes = plt.subplots(3, 3, figsize=(24, 15), constrained_layout=True)
         fig.suptitle('Training Dashboard', fontsize=14, fontweight='bold')
@@ -54,46 +65,38 @@ class Plotter:
          ax_ppl,     ax_ste,      ax_hcos,
          ax_fpsim,   ax_fpstd,    ax_router) = axes.flat
 
-        # ── Row 0: Loss curves ────────────────────────────────────────────────
-        tr_loss = _t('loss')
-        if tr_loss:
-            ax_loss.plot(_ep(tr_loss), tr_loss, 'b-', label='Train')
-        vl_loss = _v('loss')
-        if vl_loss:
-            ax_loss.plot(_ep(vl_loss), vl_loss, 'b--', alpha=0.7, label='Val')
-        ax_loss.set_title('Total Loss'); ax_loss.set_ylabel('Loss')
-        ax_loss.legend(fontsize='x-small'); ax_loss.grid(True)
+        # ── Row 0: Loss / task curves ─────────────────────────────────────────
+        _plot_tr_val(ax_loss, 'loss', 'b', 'Total Loss', 'Loss')
 
-        if _t('masked'): ax_masked.plot(_ep(_t('masked')), _t('masked'), color='crimson', label='Train')
-        if _v('masked'): ax_masked.plot(_ep(_v('masked')), _v('masked'), color='crimson', ls='--', alpha=0.7, label='Val')
-        ax_masked.set_title('Masked MSE'); ax_masked.set_ylabel('Loss')
-        ax_masked.legend(fontsize='x-small'); ax_masked.grid(True)
-
-        if _t('unmasked'): ax_unmasked.plot(_ep(_t('unmasked')), _t('unmasked'), color='steelblue', label='Train')
-        if _v('unmasked'): ax_unmasked.plot(_ep(_v('unmasked')), _v('unmasked'), color='steelblue', ls='--', alpha=0.7, label='Val')
-        ax_unmasked.set_title('Unmasked MSE'); ax_unmasked.set_ylabel('Loss')
-        ax_unmasked.legend(fontsize='x-small'); ax_unmasked.grid(True)
+        if mode == 'finetune':
+            _plot_tr_val(ax_masked,   'acc', 'crimson',   'Accuracy',    'Acc')
+            _plot_tr_val(ax_unmasked, 'f1',  'steelblue', 'F1 (macro)',  'F1')
+        else:
+            _plot_tr_val(ax_masked,   'masked',   'crimson',   'Masked MSE',   'Loss')
+            _plot_tr_val(ax_unmasked, 'unmasked', 'steelblue', 'Unmasked MSE', 'Loss')
 
         # ── Row 1: Codebook metrics ───────────────────────────────────────────
+        # frozen backbone: perplexity/STE can't move post-freeze, so show a flat
+        # zero line instead of a stale/misleading real value
         # [1,0] Codebook perplexity
-        ppl = _v('codebook_perplexity')
+        ppl = [0.0] * n_epochs if freeze_backbone else _v('codebook_perplexity')
         if ppl:
             ax_ppl.plot(_ep(ppl), ppl, color='green', label='Perplexity')
             ax_ppl.set_ylabel('Perplexity')
             ax_ppl.legend(fontsize='x-small')
         else:
             ax_ppl.axis('off')
-        ax_ppl.set_title('Codebook Perplexity'); ax_ppl.grid(True)
+        ax_ppl.set_title('Codebook Perplexity' + (' [frozen]' if freeze_backbone else '')); ax_ppl.grid(True)
 
         # [1,1] STE gap
-        ste = _v('codebook_ste_gap')
+        ste = [0.0] * n_epochs if freeze_backbone else _v('codebook_ste_gap')
         if ste:
             ax_ste.plot(_ep(ste), ste, color='red', label='STE gap')
             ax_ste.set_ylabel('STE gap')
             ax_ste.legend(fontsize='x-small')
         else:
             ax_ste.axis('off')
-        ax_ste.set_title('Codebook STE Gap'); ax_ste.grid(True)
+        ax_ste.set_title('Codebook STE Gap' + (' [frozen]' if freeze_backbone else '')); ax_ste.grid(True)
 
         # [1,2] Head projection cosine similarity (lower = more diverse heads)
         hcos = _t('head_cosine_sim')
@@ -127,13 +130,20 @@ class Plotter:
         ax_fpstd.set_title('Fingerprint Sim Std [monitor]\n(higher = varied specialization)'); ax_fpstd.grid(True)
 
         # [2,2] Router health: entropy (higher = balanced) + load std + lb_loss (lower = balanced)
+        # top-k softmax routing: gate_entropy is the entropy of the softmax weight distribution
+        # AMONG the k selected heads per patch — low = one head dominates (peaked/confident),
+        # high (up to log(k)) = weight split near-uniformly. Old hard-mask scheme had no
+        # analog (every selected head always got weight exactly 1).
         r_ent = _t('router_entropy')
+        r_gate_ent = _t('gate_entropy')
         r_std = _t('router_load_std')
         r_lb  = _t('lb_loss')
         ax2 = ax_router.twinx()
         if r_ent:
-            ax_router.plot(_ep(r_ent), r_ent, color='teal', label='Router entropy')
+            ax_router.plot(_ep(r_ent), r_ent, color='teal', label='Router entropy (selection)')
             ax_router.set_ylabel('Entropy (higher=balanced)', color='teal')
+        if r_gate_ent:
+            ax_router.plot(_ep(r_gate_ent), r_gate_ent, color='darkgoldenrod', label='Gate entropy (softmax weight)')
         if r_std:
             ax2.plot(_ep(r_std), r_std, color='salmon', ls='--', label='Load std')
             ax2.set_ylabel('Load std / LB loss', color='salmon')

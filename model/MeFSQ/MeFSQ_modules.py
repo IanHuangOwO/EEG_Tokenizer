@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -155,6 +156,42 @@ class TSAEncoder(nn.Module):
 # VQ & Decoder
 # ==========================================
 
+class MultiHeadDecoder(nn.Module):
+    """
+    Per-head decoder: each VQ head gets its own independent 2-layer MLP mapping its
+    embed_dim vector to a patch_len reconstruction. Heads share no weights — replaces a
+    single shared nn.Linear so that "sum after decode" is a genuinely different (and
+    correct) operation from "sum before decode": each head is now a real nonlinear
+    function of its own input, not just a linear slice of one shared matrix.
+
+    Vectorized across heads via batched matmul (einsum), not a Python loop over H modules.
+
+    Nonlinearity (activation) sits on the HIDDEN layer only. The final projection to
+    patch_len is a plain linear map — it's compared directly against raw EEG amplitude via
+    MSE, so squashing it with activation/norm would clip or zero real signal ranges before
+    the loss ever sees them.
+    """
+    def __init__(self, num_heads, embed_dim, patch_len, hidden=None, activation=nn.GELU):
+        super().__init__()
+        hidden = hidden or embed_dim
+
+        self.w1 = nn.Parameter(torch.empty(num_heads, embed_dim, hidden))
+        self.b1 = nn.Parameter(torch.zeros(num_heads, hidden))
+        self.act  = activation()
+        self.w2 = nn.Parameter(torch.empty(num_heads, hidden, patch_len))
+        self.b2 = nn.Parameter(torch.zeros(num_heads, patch_len))
+
+        for h in range(num_heads):
+            nn.init.kaiming_uniform_(self.w1[h], a=math.sqrt(5))
+            nn.init.kaiming_uniform_(self.w2[h], a=math.sqrt(5))
+
+    def forward(self, z_per_head):
+        """z_per_head: [..., H, embed_dim] -> recon_per_head [..., H, patch_len]"""
+        h = torch.einsum('...hd,hdk->...hk', z_per_head, self.w1) + self.b1   # [..., H, hidden]
+        h = self.act(h)
+        return torch.einsum('...hk,hkp->...hp', h, self.w2) + self.b2         # [..., H, patch_len]
+
+
 class MeFSQ(nn.Module):
     def __init__(self, num_heads, vq_head_vocab_size, e_dim, num_discrete=5, sigmoid_gain=1.0):
         super().__init__()
@@ -207,3 +244,55 @@ class MeFSQ(nn.Module):
                 self.ema_head_ppl_std.mul_(self.ema_decay).add_(h_ppl.std(), alpha=1 - self.ema_decay)
 
         return v_q.reshape(B_sz, N_c, H, r), indices, q_soft
+
+
+# ==========================================
+# Finetune head
+# ==========================================
+
+class PerChannelHeadAttn(nn.Module):
+    """
+    Per-channel softmax attention over VQ heads: each head's projected vector is first
+    averaged over patches (relevance is a per-trial property, not per-timestep), then each
+    CHANNEL independently scores and softmax-normalizes across H heads — weights sum to 1
+    PER CHANNEL, not jointly across all channel*head pairs, so channels never compete with
+    each other for weight (unlike a joint C*H softmax, which saturates near one-hot once
+    C*H gets into the thousands). The C per-channel pooled vectors are concatenated (not
+    averaged) into the classifier — channel identity/order is fixed (canonical_channels),
+    so each channel keeps its own dedicated slice of the classifier's input instead of
+    being blended away.
+    """
+    def __init__(self, head_dim, num_channels, num_classes, hidden=32):
+        super().__init__()
+        self.score = nn.Sequential(
+            nn.Linear(head_dim, hidden), nn.Tanh(), nn.Linear(hidden, 1)
+        )
+        self.cls = nn.Linear(num_channels * head_dim, num_classes)
+
+    def forward(self, z_per_head, pad_mask=None):
+        """
+        z_per_head: [B, C, N, H, d]
+        pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels/patches)
+        Returns (logits [B, num_classes], attn [B, C, H])
+        """
+        valid_channel = None
+        if pad_mask is not None:
+            w = pad_mask.float().unsqueeze(-1).unsqueeze(-1)                    # [B, C, N, 1, 1]
+            z_mean = (z_per_head * w).sum(dim=2) / (w.sum(dim=2) + 1e-8)        # [B, C, H, d]
+            valid_channel = pad_mask.any(dim=2)                                 # [B, C]
+        else:
+            z_mean = z_per_head.mean(dim=2)                                     # [B, C, H, d]
+
+        logits = self.score(z_mean).squeeze(-1)                                 # [B, C, H]
+        # NOTE: don't mask invalid channels' logits to -inf here — softmax is over H
+        # (dim=2), so an entirely-invalid channel would have every entry -inf and produce
+        # NaN (softmax of all -inf is 0/0). Zeroed out explicitly below instead.
+        attn = torch.softmax(logits, dim=2)                                     # softmax over H, independently per channel
+        pooled_per_channel = (z_mean * attn.unsqueeze(-1)).sum(dim=2)           # [B, C, d] — weighted sum over heads
+
+        if valid_channel is not None:
+            pooled_per_channel = pooled_per_channel * valid_channel.float().unsqueeze(-1)  # zero invalid channel slots
+
+        B = pooled_per_channel.shape[0]
+        pooled = pooled_per_channel.reshape(B, -1)                              # [B, C*d] — concatenated, not averaged
+        return self.cls(pooled), attn

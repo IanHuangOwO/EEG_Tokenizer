@@ -105,7 +105,7 @@ def _unpack(batch, device):
 def build_val_loader(config, batch_size):
     random.seed(42)
     val_cfg = copy.deepcopy(config)
-    for ds_name, ds_args in config['dataset_params'].items():
+    for ds_name, ds_args in config['dataset_params']['pretrain'].items():
         meta_path = os.path.join(ds_args['dataset_path'], 'metadata.json')
         with open(meta_path) as f:
             meta = json.load(f)
@@ -115,8 +115,8 @@ def build_val_loader(config, batch_size):
         except Exception:
             all_subs = sorted(all_subs)
         random.shuffle(all_subs)
-        split = max(1, int(len(all_subs) * config['training_params'].get('train_val_split', 0.9)))
-        val_cfg['dataset_params'][ds_name]['subject_to_use'] = all_subs[split:]
+        split = max(1, int(len(all_subs) * config['training_params']['pretrain'].get('train_val_split', 0.9)))
+        val_cfg['dataset_params']['pretrain'][ds_name]['subject_to_use'] = all_subs[split:]
     dataset = build_dataset_from_config(val_cfg, transform=None, mode='pretrain')
     return DataLoader(dataset, batch_size=batch_size, shuffle=False,
                       num_workers=4, pin_memory=True)
@@ -135,8 +135,9 @@ def accumulate(model, loader, device, n_batches):
         _, _, v_q, gate_mask, _ = model(x, coords, time_idx, bool_masked_pos=None, use_routing=True)
         vq_list.append(v_q.float().reshape(B, C, N, v_q.shape[2], v_q.shape[3]).cpu())
         x_list.append(x.float().reshape(B, C, N * L).cpu())
-        # gate_mask [B*C, N, H] — hard 0/1 when routing active, all-1 otherwise
-        gate_list.append((gate_mask.detach() > 0.5).float().mean(dim=[0, 1]).cpu())  # [H]
+        # gate_mask [B*C, N, H] — softmax weight (nonzero) for selected heads when routing
+        # active, all-1 otherwise; "selected" means nonzero, not "above 0.5"
+        gate_list.append((gate_mask.detach() > 0).float().mean(dim=[0, 1]).cpu())  # [H]
         if coords_out is None:
             coords_out = coords[0].cpu().numpy()
     head_sel_rate = torch.stack(gate_list, 0).mean(0).numpy()  # [H] mean selection rate
@@ -151,15 +152,13 @@ def head_cluster_assignments(model, vq_all, n_clusters=8):
     Returns (assignments [H], fp [H, 2*C*F]).
     """
     B, C, N, H, r = vq_all.shape
-    d         = model.head_dim
     vq_proj   = model.vq_proj.detach().cpu().float()
-    W_dec     = model.decoder.weight.detach().cpu().float()
-    patch_len = W_dec.shape[0]
+    decoder   = copy.deepcopy(model.decoder).cpu().eval()   # per-head decoder, moved off-GPU for this analysis
 
     vq_flat   = vq_all.reshape(B * C, N, H, r)
-    z_all     = torch.einsum('bnhr,hdr->bnhd', vq_flat, vq_proj)
-    W_all     = W_dec.reshape(patch_len, H, d).permute(1, 0, 2)
-    recon_all = torch.einsum('bnhd,hpd->bnhp', z_all, W_all)              # [B*C, N, H, P]
+    with torch.no_grad():
+        z_all     = torch.einsum('bnhr,hdr->bnhd', vq_flat, vq_proj)     # [B*C, N, H, embed_dim]
+        recon_all = decoder(z_all)                                       # [B*C, N, H, P] — decoder already per-head & vectorized
     fft_all   = torch.fft.rfft(recon_all.float(), dim=-1).abs()            # [B*C, N, H, F]
     fft_all   = fft_all.reshape(B, C, N, H, -1)                           # [B, C, N, H, F]
 
@@ -181,20 +180,20 @@ def head_fingerprints(model, vq_all, fs):
     Returns fps [H, C, n_bands]
     """
     B, C, N, H, r = vq_all.shape
-    d       = model.head_dim
-    W_dec   = model.decoder.weight.detach().cpu().float()   # [patch_len, H*d]
-    vq_proj = model.vq_proj.detach().cpu().float()          # [H, d, r]
-    patch_len = W_dec.shape[0]
+    vq_proj = model.vq_proj.detach().cpu().float()          # [H, embed_dim, r]
+    decoder = copy.deepcopy(model.decoder).cpu().eval()     # per-head decoder, moved off-GPU for this analysis
     vq_flat = vq_all.reshape(B * C, N, H, r)
+
+    with torch.no_grad():
+        z_all     = torch.einsum('bnhr,hdr->bnhd', vq_flat, vq_proj)  # [B*C, N, H, embed_dim]
+        recon_all = decoder(z_all)                                    # [B*C, N, H, patch_len] — per-head, vectorized
+    patch_len = recon_all.shape[-1]
 
     fps = np.zeros((H, C, len(BANDS)), dtype=np.float32)
     for h in range(H):
-        z_h     = torch.einsum('bnr,dr->bnd', vq_flat[:, :, h, :], vq_proj[h])  # [B*C, N, d]
-        W_h     = W_dec[:, h * d:(h + 1) * d]                                    # [patch_len, d]
-        recon_h = torch.einsum('bnd,pd->bnp', z_h, W_h)                          # [B*C, N, patch_len]
-        sig     = recon_h.reshape(B, C, N * patch_len).numpy()                   # [B, C, T]
-        sig_ct  = sig.transpose(1, 0, 2).reshape(C, B * N * patch_len)           # [C, B*T]
-        fps[h]  = band_spatial_fp(sig_ct, fs)
+        sig    = recon_all[:, :, h, :].reshape(B, C, N * patch_len).numpy()   # [B, C, T]
+        sig_ct = sig.transpose(1, 0, 2).reshape(C, B * N * patch_len)         # [C, B*T]
+        fps[h] = band_spatial_fp(sig_ct, fs)
     return fps                                                                     # [H, C, n_bands]
 
 
@@ -352,7 +351,7 @@ def _tsne_plot(fp, assignments, K, out_path, perplexity=10):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config',     default='config/config_pretrain.json')
+    parser.add_argument('--config',     default='config/config.json')
     parser.add_argument('--checkpoint', default=None)
     parser.add_argument('--n_batches',  type=int, default=20)
     parser.add_argument('--n_ica',      type=int, default=20)
@@ -364,7 +363,7 @@ def main():
     fs     = float(config['preprocess_params'].get('target_freq', 200.0))
 
     checkpoint = args.checkpoint or os.path.join(
-        'output', config['training_params']['model_name'], 'pretrain', 'best_pretrain.pth')
+        'output', config['training_params']['pretrain']['model_name'], 'pretrain', 'best_pretrain.pth')
     print(f"Checkpoint: {checkpoint}")
 
     model   = load_model(config, checkpoint, device)
@@ -372,7 +371,7 @@ def main():
 
     # ── Accumulate ──────────────────────────────────────────────────────
     print(f"Accumulating {args.n_batches} val batches...")
-    loader = build_val_loader(config, config['training_params']['batch_size'])
+    loader = build_val_loader(config, config['training_params']['pretrain']['batch_size'])
     vq_all, x_all, coords, head_sel_rate = accumulate(model, loader, device, args.n_batches)
     B, C, N, H, r = vq_all.shape
     print(f"  vq_all {list(vq_all.shape)}   x_all {list(x_all.shape)}")
