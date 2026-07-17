@@ -17,21 +17,36 @@ class MeFSQPretrain(nn.Module):
         vq_head_vocab_size=16,
         vq_num_discrete=5,
         spatial_heads=8,
-        stage_indices=None,
-        k_active=16,
+        vq_k_active=16,
+        dropout=0.0,
     ):
         super().__init__()
         self.patch_len  = patch_len
-        self.k_active   = k_active
+        self.vq_k_active = vq_k_active
         self.vq_head_num = vq_head_num
-        self._stage_indices = sorted(stage_indices or [enc_depth - 1])
 
         self.embed      = SpatialTemporalEmbeddings(patch_len, embed_dim)
-        self.encoder    = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio)
+        self.encoder    = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
+                                      dropout=dropout)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
 
-        vq_in_dim  = embed_dim * len(self._stage_indices)
-        self.mefsq = MeFSQ(vq_head_num, vq_head_vocab_size, vq_in_dim, vq_num_discrete)
+        # Every encoder block's output is a candidate stage — no curated subset. Each head
+        # gets its OWN softmax-weighted combination over all enc_depth stages (all D-dim) —
+        # H*S params (e.g. 50*8=400), not S — so different heads can mix depths/temporal
+        # resolutions differently instead of every head reading the same fused vector.
+        # Tradeoff (measured): this makes every downstream activation H-times wider (each
+        # head now carries its own full D-dim vector into stage_bn/router/VQ instead of one
+        # shared D-dim vector), which measurably slows training. Accepted deliberately for
+        # the head specialization it buys. Init at 0 -> softmax gives uniform 1/S per head
+        # at the start of training.
+        self.num_stages = enc_depth
+        self.stage_weight = nn.Parameter(torch.zeros(vq_head_num, self.num_stages))
+        # BatchNorm per (head, dim) channel right after the weighted sum — with all
+        # enc_depth stages now eligible (not a curated, magnitude-matched subset), fused
+        # activations from early vs. late blocks can sit at very different scales; this
+        # normalizes before router/VQ.
+        self.stage_bn = nn.BatchNorm1d(vq_head_num * embed_dim)
+        self.mefsq = MeFSQ(vq_head_num, vq_head_vocab_size, embed_dim, vq_num_discrete)
 
         # Each head projects its own r-dim code to the FULL embed_dim (not a disjoint slice) —
         # heads are independent full-width sub-embeddings. head_dim == embed_dim; kept as its
@@ -44,9 +59,10 @@ class MeFSQPretrain(nn.Module):
         # heads combine by SUMMING their decoded reconstructions — see forward()
         self.decoder  = MultiHeadDecoder(vq_head_num, embed_dim, patch_len)
 
-        # Router: scores each head per patch from pre-VQ features
-        self.router = nn.Linear(vq_in_dim, vq_head_num, bias=False)
-        nn.init.normal_(self.router.weight, std=0.01)
+        # Router: scores each head per patch from that head's OWN fused input (per-head dot
+        # product, consistent with stage_weight/A both being per-head).
+        self.router_weight = nn.Parameter(torch.empty(vq_head_num, embed_dim))
+        nn.init.normal_(self.router_weight, std=0.01)
 
         nn.init.normal_(self.mask_token, std=0.02)
 
@@ -61,85 +77,139 @@ class MeFSQPretrain(nn.Module):
         self.embed.enable_spatial()
         self.encoder.enable_spatial()
 
-    def forward(self, x, coords, time_idx=None, bool_masked_pos=None, use_routing=True, k_active_override=None):
+    def freeze_vq_and_decoder(self):
         """
-        x: [B, C, N, L]
-        coords: [B, C, 3]
-        bool_masked_pos: [B, C, N] bool
-        use_routing: if False, routing is skipped (VQ warmup)
-        k_active_override: int, overrides self.k_active for this forward pass (ramp schedule)
-        returns: (recon [B,C,N,L], indices [B,C,N,H,r], v_q [B*C,N,H,r], gate_mask [B*C,N,H], lb_loss scalar)
+        After VQ warmup, lock the entire VQ apparatus — quantizer (mefsq: A + norm),
+        reconstruction path (vq_proj, decoder), and the routing/fusion params that feed it
+        (stage_weight, stage_bn, router_weight; the latter two both depend on stage_weight's
+        output distribution, so leaving them trainable while stage_weight is frozen would
+        just chase noise in an otherwise-fixed input). Everything left trainable is the main
+        transformer: embed, encoder, mask_token. Mirrors LaBraM's split (frozen tokenizer,
+        encoder does the remaining learning), except here the tokenizer/decoder were trained
+        jointly with the encoder up to this point rather than pretrained standalone first.
         """
-        B, C, N, L = x.shape
+        for p in self.mefsq.parameters():
+            p.requires_grad_(False)
+        self.vq_proj.requires_grad_(False)
+        for p in self.decoder.parameters():
+            p.requires_grad_(False)
+        self.stage_weight.requires_grad_(False)
+        for p in self.stage_bn.parameters():
+            p.requires_grad_(False)
+        self.router_weight.requires_grad_(False)
 
+    def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None):
+        """
+        Multi-stage feature extraction. Returns z_stack [B, C, N, S, D] — every encoder
+        block's output stacked (not fused), before per-head stage_weight and the mefsq
+        quantizer. S == enc_depth.
+        """
         z = self.embed(x, coords=coords, time_idx=time_idx)  # [B, C, N, D]
 
         if bool_masked_pos is not None:
             mask = bool_masked_pos.unsqueeze(-1).type_as(z)  # [B, C, N, 1]
             z = z * (1.0 - mask) + self.mask_token * mask
 
-        needed = set(self._stage_indices)
-        stage_outs = {}
-        for i, block in enumerate(self.encoder.blocks):
+        stage_outs = []
+        for block in self.encoder.blocks:
             z = block(z)
-            if i in needed:
-                stage_outs[i] = z
+            stage_outs.append(z)
 
-        z_cat = torch.cat([stage_outs[si] for si in self._stage_indices], dim=-1)  # [B, C, N, D*S]
+        return torch.stack(stage_outs, dim=-2)  # [B, C, N, S, D]
 
-        B_C = B * C
-        z_flat = z_cat.reshape(B_C, N, -1)                   # [B*C, N, D*S]
+    def encode_pre_vq(self, x, coords, time_idx=None):
+        """
+        The continuous, unquantized per-head vector right before MeFSQ's A projection —
+        same per-head stage fusion + stage_bn as forward(), plus MeFSQ's own LayerNorm
+        applied explicitly here (forward() lets self.mefsq apply it internally). For
+        finetune to read features that haven't been through the discrete VQ bottleneck.
+        Returns z_h [B, C, N, H, D] — real per-head vectors, not a shared/dummy axis.
+        """
+        B, C, N, L = x.shape
+        H, D = self.vq_head_num, self.head_dim
+        z_stack = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, S, D]
+        M = B * C * N
+        z_stack = z_stack.reshape(M, self.num_stages, -1)
+        stage_w = torch.softmax(self.stage_weight, dim=-1)              # [H, S]
+        z_h = torch.einsum('msd,hs->mhd', z_stack, stage_w)             # [M, H, D]
+        z_h = self.stage_bn(z_h.reshape(M, H * D)).reshape(M, H, D)
+        z_h = self.mefsq.norm(z_h)
+        return z_h.reshape(B, C, N, H, D)
+
+    def forward(self, x, coords, time_idx=None, bool_masked_pos=None, use_routing=True, vq_k_active_override=None):
+        """
+        x: [B, C, N, L]
+        coords: [B, C, 3]
+        bool_masked_pos: [B, C, N] bool
+        use_routing: if False, routing is skipped (VQ warmup)
+        vq_k_active_override: int, overrides self.vq_k_active for this forward pass (ramp schedule)
+        returns: (recon [B,C,N,L], indices [B,C,N,H,r], v_q [B*C*N,H,r], gate_mask [B*C*N,H], lb_loss scalar)
+        """
+        B, C, N, L = x.shape
+
+        z_stack = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos)  # [B, C, N, S, D]
+
+        # N has no cross-patch interaction from here on (router/mefsq/decoder are all
+        # elementwise over the batch dim) — fold it into the batch dim alongside B*C so the
+        # rest of the pipeline runs as a single flat batch of M=B*C*N independent patches.
+        H, D = self.vq_head_num, self.head_dim
+        M = B * C * N
+        z_stack = z_stack.reshape(M, self.num_stages, -1)                  # [M, S, D]
+        stage_w = torch.softmax(self.stage_weight, dim=-1)                 # [H, S]
+        z_h = torch.einsum('msd,hs->mhd', z_stack, stage_w)                # [M, H, D] — per-head fused input
+
+        z_h = self.stage_bn(z_h.reshape(M, H * D)).reshape(M, H, D)
 
         # Routing: top-K head selection per patch, weighted by softmax over the K selected
         # (not a hard 0/1 mask + STE) — weights always sum to 1 regardless of k, so no manual
         # energy-compensation scaling is needed, and gradients flow smoothly through the actual
         # forward values (no forward/backward mismatch from a straight-through estimator).
-        H = self.vq_head_num
-        k = k_active_override if k_active_override is not None else self.k_active
+        k = vq_k_active_override if vq_k_active_override is not None else self.vq_k_active
         if use_routing and k < H:
-            gate_logits = self.router(z_flat)                              # [B*C, N, H]
-            topk_val, topk_idx = gate_logits.topk(k, dim=-1)                # [B*C, N, K]
+            gate_logits = torch.einsum('mhd,hd->mh', z_h, self.router_weight)  # [M, H]
+            topk_val, topk_idx = gate_logits.topk(k, dim=-1)                # [M, K]
             # softmax is autocast-promoted to fp32 for stability — cast back to match
             # gate_logits' dtype (may be fp16 under AMP) before scatter
             topk_weight = torch.softmax(topk_val, dim=-1).to(gate_logits.dtype)  # normalized over the K selected
-            gate_mask = torch.zeros_like(gate_logits).scatter_(-1, topk_idx, topk_weight)  # [B*C, N, H]
+            gate_mask = torch.zeros_like(gate_logits).scatter_(-1, topk_idx, topk_weight)  # [M, H]
 
             # Load balance loss: Switch-Transformer style (= 1.0 at uniform routing).
             # f = selection frequency (detached, no grad); p = dense softmax over ALL heads
             # (not just the selected K) so non-selected heads still get gradient signal —
             # without this, a head that's never in the top-k would never get pushed back in.
-            f = (gate_mask.detach() > 0).float().mean(dim=[0, 1])          # [H] routing freq
-            p = torch.softmax(gate_logits, dim=-1).mean(dim=[0, 1])        # [H] dense prob (has grad)
+            f = (gate_mask.detach() > 0).float().mean(dim=0)               # [H] routing freq
+            p = torch.softmax(gate_logits, dim=-1).mean(dim=0)             # [H] dense prob (has grad)
             lb_loss = H * ((f / (f.sum() + 1e-8)) * (p / (p.sum() + 1e-8))).sum()
             self._last_gate_logits = gate_logits.detach()                  # stash for viz (router importance)
         else:
-            gate_mask = torch.ones(B_C, N, H, device=z_flat.device, dtype=z_flat.dtype)
-            lb_loss   = z_flat.new_zeros(1).squeeze()
+            gate_mask = torch.ones(M, H, device=z_h.device, dtype=z_h.dtype)
+            lb_loss   = z_h.new_zeros(1).squeeze()
             self._last_gate_logits = None
 
-        v_q, indices, _ = self.mefsq(z_flat)                 # [B*C, N, H, r]
+        v_q, indices, _ = self.mefsq(z_h)                     # [M, H, r]
         v_q_gated = v_q * gate_mask.unsqueeze(-1)            # zero non-selected heads, softmax-weighted otherwise
 
-        z_per_head    = torch.einsum('bnhr,hdr->bnhd', v_q_gated, self.vq_proj)  # [B_C, N, H, embed_dim]
-        recon_per_head = self.decoder(z_per_head)                                # [B_C, N, H, patch_len] — each head decodes independently
-        recon = recon_per_head.sum(dim=2).reshape(B, C, N, L)                    # combine AFTER decode
+        z_per_head    = torch.einsum('mhr,hdr->mhd', v_q_gated, self.vq_proj)  # [M, H, embed_dim]
+        recon_per_head = self.decoder(z_per_head)                                # [M, H, patch_len] — each head decodes independently
+        recon = recon_per_head.sum(dim=1).reshape(B, C, N, L)                    # combine AFTER decode
 
-        return recon, indices.reshape(B, C, N, H, v_q.shape[3]), v_q_gated, gate_mask, lb_loss
+        return recon, indices.reshape(B, C, N, H, v_q.shape[-1]), v_q_gated, gate_mask, lb_loss
 
     def _head_fingerprints(self, v_q_gated, gate_mask, B, C):
         """
         Compute gate-weighted mean+var fingerprint per head.
-        v_q_gated: [B*C, N, H, r]
-        gate_mask:  [B*C, N, H]  (hard 0/1 in forward)
+        v_q_gated: [M, H, r]  (M = B*C*N)
+        gate_mask: [M, H]     (hard 0/1 in forward)
         Returns fp [H, 2*C*F]
         """
-        H, N = v_q_gated.shape[2], v_q_gated.shape[1]
+        M, H, r = v_q_gated.shape
+        N = M // (B * C)
 
-        z_all     = torch.einsum('bnhr,hdr->bnhd', v_q_gated, self.vq_proj)   # [B*C, N, H, embed_dim]
-        recon_all = self.decoder(z_all)                                      # [B*C, N, H, P] — decoder is already per-head & vectorized
+        z_all     = torch.einsum('mhr,hdr->mhd', v_q_gated, self.vq_proj)     # [M, H, embed_dim]
+        recon_all = self.decoder(z_all)                                      # [M, H, P] — decoder is already per-head & vectorized
 
         fft_c   = torch.fft.rfft(recon_all.float(), dim=-1)
-        fft_all = (fft_c.real.pow(2) + fft_c.imag.pow(2)).clamp(min=1e-8).sqrt()  # [B*C, N, H, F]
+        fft_all = (fft_c.real.pow(2) + fft_c.imag.pow(2)).clamp(min=1e-8).sqrt()  # [M, H, F]
         fft_all = fft_all.reshape(B, C, N, H, -1)                             # [B, C, N, H, F]
 
         # Gate-weighted mean per (C, H): normalize weights over (B, N) independently
@@ -167,7 +237,7 @@ class MeFSQPretrain(nn.Module):
         becomes equally, highly similar). Also updates the EMA monitoring buffers from
         this same computation so nothing is computed twice.
         """
-        H = v_q_gated.shape[2]
+        H = v_q_gated.shape[1]
         fp   = self._head_fingerprints(v_q_gated, gate_mask, B, C)   # [H, 2*C*F], WITH grad
         fp_n = F.normalize(fp, dim=-1)
         sim  = fp_n @ fp_n.T                                          # [H, H]
@@ -188,7 +258,7 @@ class MeFSQPretrain(nn.Module):
         # gate_mask is now a softmax weight (typically << 0.5 per selected head, not a
         # hard 0/1) — "selected" means nonzero, not "above 0.5"
         selected = (gate_mask.detach() > 0).float()
-        load = selected.mean(dim=[0, 1])
+        load = selected.mean(dim=0)
         load_p = load / (load.sum() + 1e-8)
         router_entropy = -(load_p * torch.log(load_p + 1e-10)).sum()
 
@@ -255,38 +325,53 @@ class MeFSQPretrain(nn.Module):
 class MeFSQFinetune(nn.Module):
     """
     Wraps a pretrained MeFSQPretrain backbone (unmodified) with a per-channel head-attention
-    classification head (PerChannelHeadAttn). Recomputes each head's projected embedding
-    from the backbone's own v_q_gated/vq_proj rather than touching MeFSQPretrain.forward's
-    return contract — classification bypasses the backbone's per-head decoder entirely.
+    classification head (PerChannelHeadAttn).
+
+    pre_vq=False (default): recomputes each head's projected embedding from the backbone's
+    own v_q_gated/vq_proj — classification sees the discrete, quantized per-head codes.
+
+    pre_vq=True: reads backbone.encode_pre_vq instead — the continuous, unquantized
+    per-head vector right before MeFSQ's A projection (real H heads, each with its own
+    stage-weighted fusion — not a shared/dummy axis). Fed to PerChannelHeadAttn exactly
+    like the quantized path, just skipping the VQ round-trip. Use when the discrete VQ
+    codebook is suspected of destroying task-relevant fine detail the classifier needs.
     """
-    def __init__(self, backbone: MeFSQPretrain, num_channels, num_classes, hidden=128, freeze_backbone=False):
+    def __init__(self, backbone: MeFSQPretrain, num_channels, num_classes, hidden=128, freeze_backbone=False,
+                 dropout=0.1, pre_vq=False):
         super().__init__()
         self.backbone = backbone
-        self.head = PerChannelHeadAttn(backbone.head_dim, num_channels, num_classes, hidden=hidden)
+        self.pre_vq = pre_vq
+        self.head = PerChannelHeadAttn(backbone.head_dim, num_channels, num_classes, hidden=hidden, dropout=dropout)
 
         if freeze_backbone:
             for p in self.backbone.parameters():
                 p.requires_grad_(False)
 
-    def forward(self, x, coords, time_idx=None, pad_mask=None, use_routing=True, k_active_override=None,
+    def forward(self, x, coords, time_idx=None, pad_mask=None, use_routing=True, vq_k_active_override=None,
                 return_head_stats=False):
         """
         x: [B, C, N, L]
         coords: [B, C, 3]
         pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels)
         returns: (logits [B, num_classes], attn_h [B, C, H], attn_n [B, C, H, N], lb_loss scalar)
-        if return_head_stats: also (v_q_gated, gate_mask, B, C) for head/fingerprint diversity monitoring
+        if return_head_stats: also (v_q_gated, gate_mask, B, C) for head/fingerprint diversity
+        monitoring — both None in pre_vq mode, since there's no VQ routing to monitor.
         """
         B, C, N, L = x.shape
-
-        _, _, v_q_gated, gate_mask, lb_loss = self.backbone(
-            x, coords, time_idx=time_idx, bool_masked_pos=None,
-            use_routing=use_routing, k_active_override=k_active_override,
-        )
-
         bb = self.backbone
-        z_per_head = torch.einsum('bnhr,hdr->bnhd', v_q_gated, bb.vq_proj).view(B, C, N, bb.vq_head_num, bb.head_dim)
-        logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)  # attn_h: [B, C, H], attn_n: [B, C, H, N]
+
+        if self.pre_vq:
+            z_per_head = bb.encode_pre_vq(x, coords, time_idx=time_idx)  # [B, C, N, H, D]
+            logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)
+            lb_loss = x.new_zeros(())
+            v_q_gated, gate_mask = None, None
+        else:
+            _, _, v_q_gated, gate_mask, lb_loss = bb(
+                x, coords, time_idx=time_idx, bool_masked_pos=None,
+                use_routing=use_routing, vq_k_active_override=vq_k_active_override,
+            )
+            z_per_head = torch.einsum('mhr,hdr->mhd', v_q_gated, bb.vq_proj).view(B, C, N, bb.vq_head_num, bb.head_dim)
+            logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)  # attn_h: [B, C, H], attn_n: [B, C, H, N]
 
         if return_head_stats:
             return logits, attn_h, attn_n, lb_loss, v_q_gated, gate_mask, B, C

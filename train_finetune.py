@@ -89,10 +89,12 @@ def _macro_f1(labels, preds):
 
 
 def _finalize_epoch(model, totals, n, all_labels, all_preds, v_q_gated):
-    """Average running totals, add macro F1, and merge backbone head/fingerprint metrics."""
+    """Average running totals, add macro F1, and merge backbone head/fingerprint metrics.
+    v_q_gated is None in pre_vq mode (no VQ routing to report on) — skip the merge."""
     metrics = {k: v / n for k, v in totals.items()}
     metrics['f1'] = _macro_f1(all_labels, all_preds)
-    metrics.update(model.backbone.get_metrics(v_q_gated.detach()))
+    if v_q_gated is not None:
+        metrics.update(model.backbone.get_metrics(v_q_gated.detach()))
     return metrics
 
 
@@ -112,11 +114,14 @@ def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, load_b
             logits, _, _, lb_loss, v_q_gated, gate_mask, B_, C_ = model(
                 x, coords, time_idx=time_idx, pad_mask=pad_mask, return_head_stats=True)
             loss = nn.functional.cross_entropy(logits, labels)
-            if load_balance_weight > 0:
-                loss = loss + load_balance_weight * lb_loss
-            model.backbone.update_head_metrics(gate_mask)
-            if diversity_weight > 0:
-                loss = loss + diversity_weight * model.backbone.get_diversity_loss(v_q_gated, gate_mask, B_, C_)
+            # gate_mask is None in pre_vq mode — no VQ routing to add loss terms for or monitor
+            if gate_mask is not None:
+                if load_balance_weight > 0:
+                    loss = loss + load_balance_weight * lb_loss
+                model.backbone.update_head_metrics(gate_mask)
+                div_loss = model.backbone.get_diversity_loss(v_q_gated, gate_mask, B_, C_)
+                if diversity_weight > 0:
+                    loss = loss + diversity_weight * div_loss
 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -269,17 +274,31 @@ def main():
 
     ft_params = config['model_params']['MeFSQ'].get('finetune', {})
     freeze_backbone = ft_params.get('freeze_backbone', False)
+    pre_vq = ft_params.get('pre_vq', False)
     num_channels = train_dataset.base_dataset.Nc
     model = MeFSQFinetune(
         backbone, num_channels, num_classes,
         hidden=ft_params.get('hidden', 128),
         freeze_backbone=freeze_backbone,
+        dropout=ft_params.get('dropout', 0.1),
+        pre_vq=pre_vq,
     )
     model.to(device)
+    logger.info(f"pre_vq={pre_vq} (classifier reads {'pre-VQ continuous features' if pre_vq else 'quantized VQ codes'})")
 
-    scaler    = torch.amp.GradScaler('cuda')
-    optimizer = optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
-                             lr=train_params['learning_rate'], weight_decay=train_params['weight_decay'])
+    scaler = torch.amp.GradScaler('cuda')
+    # backbone_lr_mult: unfrozen backbone shares gradients with a head that has orders of
+    # magnitude fewer params and far less signal-to-noise (few subjects) — full-speed backbone
+    # updates memorize per-subject artifacts within a handful of epochs (see finetune log:
+    # train acc 98% by epoch 32, val loss 3.7 -> 12.5). Default 0.1x keeps backbone adaptation
+    # slow relative to the head instead of turning it off entirely (freeze_backbone=True).
+    backbone_lr_mult = train_params.get('backbone_lr_mult', 0.1)
+    head_params     = list(model.head.parameters())
+    backbone_params = [p for p in model.backbone.parameters() if p.requires_grad]
+    param_groups = [{'params': head_params, 'lr': train_params['learning_rate']}]
+    if backbone_params:
+        param_groups.append({'params': backbone_params, 'lr': train_params['learning_rate'] * backbone_lr_mult})
+    optimizer = optim.AdamW(param_groups, weight_decay=train_params['weight_decay'])
     cosine_t_max     = max(1, train_params['epochs'] - train_params['warmup_epochs'])
     main_scheduler   = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cosine_t_max, eta_min=train_params['min_learning_rate'])
     warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=train_params['warmup_epochs'])

@@ -23,8 +23,8 @@ def build_model_from_config(config, src_output_dir=None, mode='pretrain'):
         vq_head_vocab_size=bp.get('vq_head_vocab_size', 16),
         vq_num_discrete=bp.get('vq_num_discrete', 5),
         spatial_heads=bp.get('spatial_heads', 8),
-        stage_indices=bp.get('stage_indices', None),
-        k_active=bp.get('k_active', 16),
+        vq_k_active=bp.get('vq_k_active', 16),
+        dropout=bp.get('dropout', 0.0),
     )
 
     if src_output_dir is not None:

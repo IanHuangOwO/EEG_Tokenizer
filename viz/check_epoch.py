@@ -20,7 +20,7 @@ from viz import (
     filter_config_to_subject,
     pick_trial,
 )
-from viz.draw import project_coords_2d, draw_topomap, extract_head_psd
+from viz.draw import project_coords_2d, draw_topomap, extract_head_psd, extract_head_spectra
 from viz.compute import _run_reconstruction
 from viz.train import visualize_reconstruction
 
@@ -126,6 +126,86 @@ def run(config, output_dir, args, model=None, dataset=None,
         print(f"  [epoch] -> {out_path}")
     except Exception as e:
         print(f"  [epoch] head topo failed: {e}")
+
+    # Per-head PSD grid — same layout as the head-topo grid above, but each panel is a
+    # channel x frequency heatmap of that head's own decoded reconstruction instead of a
+    # spatial topomap, so head specialization by frequency band is visible directly.
+    try:
+        pp = config.get('preprocess_params', {})
+        fs = pp.get('target_freq')
+        l_freq, h_freq = pp.get('l_freq'), pp.get('h_freq')
+        psd_h, freqs, routing_score = extract_head_spectra(model, x_in, c_in, t_in, fs=fs, freq_resolution=0.2)
+
+        # crop to the same band the preprocessing bandpass already restricted the signal to —
+        # showing anything outside it is just FFT noise, not real head specialization.
+        if l_freq is not None and h_freq is not None:
+            band = (freqs >= l_freq) & (freqs <= h_freq)
+            freqs = freqs[band]
+            psd_h = psd_h[:, :, band]
+
+        H = psd_h.shape[0]
+        sorted_ord = np.argsort(routing_score)[::-1]
+        score_ranked = routing_score[sorted_ord]
+
+        n_tc = min(4, H)
+        n_tr = math.ceil(H / n_tc)
+        fig_w = max(28.0, n_tc * 7.0)
+        fig_h = max(9.0, 3.8 + n_tr * 3.4)
+
+        fig = plt.figure(figsize=(fig_w, fig_h), constrained_layout=False)
+        fig.suptitle(
+            f"Head PSD — Sub {subject_id}, Trial {trial_idx}",
+            fontsize=13, fontweight='bold', y=0.998,
+        )
+        outer = gridspec.GridSpec(
+            2, 1, figure=fig,
+            height_ratios=[3.8, n_tr * 3.0],
+            hspace=0.32,
+            top=0.95, bottom=0.03, left=0.03, right=0.975,
+        )
+
+        ax_imp = fig.add_subplot(outer[0])
+        rank_x = np.arange(H)
+        ax_imp.plot(rank_x, score_ranked, color='steelblue', lw=1.5)
+        ax_imp.scatter(rank_x, score_ranked, color='steelblue', s=10)
+        ax_imp.set_xlim(-0.5, H - 0.5)
+        ax_imp.set_xlabel('Head rank (0 = highest router score)', fontsize=9)
+        ax_imp.set_ylabel('Mean gate logit (raw)', fontsize=9)
+        ax_imp.set_title(f'Head Routing Importance — {H} heads', fontsize=9, fontweight='bold')
+        ax_imp.grid(alpha=0.3)
+
+        gs_psd = gridspec.GridSpecFromSubplotSpec(
+            n_tr, n_tc, subplot_spec=outer[1], hspace=0.6, wspace=0.12,
+        )
+        freq_label = 'Hz' if fs else 'cyc/patch'
+        freq_ticks = np.linspace(freqs[0], freqs[-1], 5)
+        for pos, h_orig in enumerate(sorted_ord):
+            r, c = divmod(pos, n_tc)
+            ax_h = fig.add_subplot(gs_psd[r, c])
+            p_h  = psd_h[h_orig]  # [C, F]
+            ax_h.imshow(p_h, aspect='auto', cmap=cmap, origin='lower',
+                        extent=[freqs[0], freqs[-1], 0, p_h.shape[0]])
+            ax_h.set_title(f'H{h_orig}\n{routing_score[h_orig]:.3f}', fontsize=5.5)
+            ax_h.set_xticks(freq_ticks)
+            ax_h.set_xticklabels([f'{f:.0f}' for f in freq_ticks], fontsize=5)
+            ax_h.set_xlabel(freq_label, fontsize=6)
+            ax_h.set_yticks([])
+
+        for pos in range(H, n_tr * n_tc):
+            r, c = divmod(pos, n_tc)
+            fig.add_subplot(gs_psd[r, c]).axis('off')
+
+        fig.text(0.5, 0.01, 'Channel (Fp1 -> Iz) on Y-axis', ha='center', fontsize=8)
+
+        out_path = os.path.join(
+            viz_dir,
+            f"sub{subject_id}_trial{trial_idx}{epoch_tag}_psd_heads.png",
+        )
+        fig.savefig(out_path, dpi=120, bbox_inches='tight')
+        plt.close(fig)
+        print(f"  [epoch] -> {out_path}")
+    except Exception as e:
+        print(f"  [epoch] head PSD grid failed: {e}")
 
     # Raw vs recon power topomap
     try:

@@ -65,12 +65,15 @@ def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, mask_w
         mp = None if vq_warmup else bool_masked_pos
         use_routing = current_k < model.vq_head_num
         with torch.amp.autocast(device_type='cuda'):
-            recon, _, v_q, gate_mask, lb_loss = model(x, coords, time_idx, bool_masked_pos=mp, use_routing=use_routing, k_active_override=current_k)
+            recon, _, v_q, gate_mask, lb_loss = model(x, coords, time_idx, bool_masked_pos=mp, use_routing=use_routing, vq_k_active_override=current_k)
             l_total, l_masked, l_unmasked = model.get_loss(x, recon, mp)
-            if use_routing:
-                model.update_head_metrics(gate_mask)
-                if diversity_weight > 0:
-                    l_total = l_total + diversity_weight * model.get_diversity_loss(v_q, gate_mask, B, C)
+            # head/fingerprint diagnostics are meaningful even with routing disabled
+            # (k_active == vq_head_num, all heads always active, gate_mask all-ones) —
+            # only lb_loss is routing-specific (0 already when use_routing is False).
+            model.update_head_metrics(gate_mask)
+            div_loss = model.get_diversity_loss(v_q, gate_mask, B, C)
+            if diversity_weight > 0:
+                l_total = l_total + diversity_weight * div_loss
             if use_routing and load_balance_weight > 0:
                 l_total = l_total + load_balance_weight * lb_loss
 
@@ -115,7 +118,7 @@ def validate_one_epoch(model, data_loader, device, mask_weight, vq_warmup=False,
 
             mp = None if vq_warmup else bool_masked_pos
             with torch.amp.autocast(device_type='cuda'):
-                recon, _, v_q, _, _ = model(x, coords, time_idx, bool_masked_pos=mp, use_routing=current_k < model.vq_head_num, k_active_override=current_k)
+                recon, _, v_q, _, _ = model(x, coords, time_idx, bool_masked_pos=mp, use_routing=current_k < model.vq_head_num, vq_k_active_override=current_k)
                 l_total, l_masked, l_unmasked = model.get_loss(x, recon, mp, mask_weight=mask_weight)
 
             totals["loss"]     += l_total.item()
@@ -244,7 +247,7 @@ def main():
     total_epochs     = train_params['epochs']
     vq_warmup_epochs = train_params.get('vq_warmup_epochs', 0)
     H                = model.vq_head_num
-    k_target         = model.k_active
+    k_target         = model.vq_k_active
     logger.info(f"Starting Masked Pretraining ({total_epochs} epochs, VQ warmup={vq_warmup_epochs})")
     logger.info(f"Routing: k={k_target}/{H} from epoch 1")
 
@@ -252,10 +255,12 @@ def main():
         vq_warmup  = epoch <= vq_warmup_epochs
         current_k  = k_target
         if vq_warmup:
-            logger.info(f"  [VQ Warmup] epoch {epoch}/{vq_warmup_epochs} — masking disabled, spatial locked | k_active={current_k}/{H}")
+            logger.info(f"  [VQ Warmup] epoch {epoch}/{vq_warmup_epochs} — masking disabled, spatial locked | vq_k_active={current_k}/{H}")
         elif epoch == vq_warmup_epochs + 1:
             model.enable_spatial()
-            logger.info(f"  [Spatial Enabled] epoch {epoch} — coord_proj + spatial_attn unlocked | k_active={current_k}/{H}")
+            model.freeze_vq_and_decoder()
+            logger.info(f"  [Spatial Enabled] epoch {epoch} — coord_proj + spatial_attn unlocked | vq_k_active={current_k}/{H}")
+            logger.info(f"  [VQ+Decoder Frozen] epoch {epoch} — mefsq/vq_proj/decoder locked, only main transformer trains from here")
         train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch, mask_weight=mask_weight, vq_warmup=vq_warmup, load_balance_weight=load_balance_weight, diversity_weight=diversity_weight, current_k=current_k)
         val_metrics   = validate_one_epoch(model, val_loader, device, mask_weight=mask_weight, vq_warmup=vq_warmup, current_k=current_k)
         scheduler.step()

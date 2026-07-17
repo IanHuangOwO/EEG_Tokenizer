@@ -4,18 +4,20 @@
       "pretrain": {
         "patch_len": 100,
         "embed_dim": 100,
-        "enc_depth": 8,
+        "enc_depth": 12,
         "spatial_heads": 10,
         "mlp_ratio": 4.0,
-        "stage_indices": [0, 1, 3, 7],
-        "vq_head_num": 50,
-        "vq_head_vocab_size": 50,
-        "vq_num_discrete": 5,
-        "k_active": 10
+        "vq_head_num": 100,
+        "vq_k_active": 100,
+        "vq_head_vocab_size": 10,
+        "vq_num_discrete": 3,
+        "dropout": 0.1
       },
       "finetune": {
-        "hidden": 128,
-        "freeze_backbone": true
+        "hidden": 100,
+        "freeze_backbone": false,
+        "dropout": 0.3,
+        "pre_vq": true
       }
     }
   },
@@ -51,15 +53,40 @@
   },
   "dataset_params": {
     "pretrain": {
+      "BETA_3s": {
+        "dataset_path": "datas/BETA_3s",
+        "subject_to_use": ["all"],
+        "channels_to_use": ["all"]
+      },
       "BETA_4s": {
         "dataset_path": "datas/BETA_4s",
+        "subject_to_use": ["all"],
+        "channels_to_use": ["all"]
+      },
+      "Inria_Train": {
+        "dataset_path": "datas/Inria_Train",
+        "subject_to_use": ["all"],
+        "channels_to_use": ["all"]
+      },
+      "Inria_Val": {
+        "dataset_path": "datas/Inria_Val",
+        "subject_to_use": ["all"],
+        "channels_to_use": ["all"]
+      },
+      "EEGMMIdb": {
+        "dataset_path": "datas/EEGMMIdb",
+        "subject_to_use": ["all"],
+        "channels_to_use": ["all"]
+      },
+      "Dial": {
+        "dataset_path": "datas/Dial",
         "subject_to_use": ["all"],
         "channels_to_use": ["all"]
       }
     },
     "finetune": {
-      "BETA_3s": {
-        "dataset_path": "datas/BETA_3s",
+      "BETA_4s": {
+        "dataset_path": "datas/BETA_4s",
         "subject_to_use": ["all"],
         "channels_to_use": ["all"]
       }
@@ -74,34 +101,35 @@
       "epochs": 50,
       "warmup_epochs": 5,
       "vq_warmup_epochs": 5,
-      "batch_size": 32,
-      "weight_decay": 0.0001,
+      "batch_size": 16,
+      "weight_decay": 0.05,
       "device": "cuda",
       "train_val_split": 0.9
     },
     "finetune": {
       "model_type": "MeFSQ",
-      "model_name": "mefsq_finetune_v0",
+      "model_name": "mefsq_finetune_v1",
       "pretrained_checkpoint": "output/mefsq_pretrain_v0/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
+      "backbone_lr_mult": 0.1,
       "epochs": 50,
       "warmup_epochs": 5,
-      "batch_size": 32,
-      "weight_decay": 0.0001,
+      "batch_size": 16,
+      "weight_decay": 0.05,
       "device": "cuda",
-      "train_val_split": 0.7
+      "train_val_split": 0.8
     }
   },
   "loss_params": {
     "pretrain": {
       "mask_weight": 1.0,
       "load_balance_weight": 0.05,
-      "diversity_weight": 0.05
+      "diversity_weight": 0.0
     },
     "finetune": {
       "load_balance_weight": 0.05,
-      "diversity_weight": 0.05
+      "diversity_weight": 0.0
     }
   }
 }

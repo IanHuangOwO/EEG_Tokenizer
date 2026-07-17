@@ -6,15 +6,10 @@ import torch.nn.utils.parametrize as parametrize
 
 
 class _PerHeadOrthogonal(nn.Module):
-    def __init__(self, num_heads, vq_head_vocab_size):
-        super().__init__()
-        self.H = num_heads
-        self.r = vq_head_vocab_size
-
+    """QR-orthogonalizes each head's [D, r] slice independently (batched over the H dim)."""
     def forward(self, A):
-        D = A.shape[0]
-        Q, _ = torch.linalg.qr(A.view(D, self.H, self.r).permute(1, 0, 2))  # [H, D, r]
-        return Q.permute(1, 0, 2).reshape(D, self.H * self.r)
+        Q, _ = torch.linalg.qr(A)  # A: [H, D, r] -> Q: [H, D, r], orthonormal columns per head
+        return Q
 
 
 # ==========================================
@@ -87,28 +82,31 @@ class ConvolutionalAdditiveAttention(nn.Module):
 
 
 class FFN(nn.Module):
-    def __init__(self, dim, hidden_dim):
+    def __init__(self, dim, hidden_dim, dropout=0.0):
         super().__init__()
         self.fc1 = nn.Linear(dim, hidden_dim)
         self.act = nn.GELU()
+        self.drop = nn.Dropout(dropout)
         self.fc2 = nn.Linear(hidden_dim, dim)
 
     def forward(self, x):
         """ x: [B*C, N, D] """
-        return self.fc2(self.act(self.fc1(x)))
+        return self.fc2(self.drop(self.act(self.fc1(x))))
 
 
 class TSABlock(nn.Module):
-    def __init__(self, dim, num_heads=8, mlp_ratio=4.):
+    def __init__(self, dim, num_heads=8, mlp_ratio=4., dropout=0.0):
         super().__init__()
         self.norm_time = nn.LayerNorm(dim)
-        self.conv_attn_time = ConvolutionalAdditiveAttention(dim, kernel_size=3)
+        self.temporal_attn = ConvolutionalAdditiveAttention(dim, kernel_size=3)
+        self.drop_t = nn.Dropout(dropout)
 
         self.norm_space = nn.LayerNorm(dim)
         self.spatial_attn = nn.MultiheadAttention(dim, num_heads, batch_first=True)
+        self.drop_s = nn.Dropout(dropout)
 
         self.norm_ffn = nn.LayerNorm(dim)
-        self.ffn = FFN(dim, hidden_dim=int(dim * mlp_ratio))
+        self.ffn = FFN(dim, hidden_dim=int(dim * mlp_ratio), dropout=dropout)
 
         self.spatial_active = False
         nn.init.zeros_(self.spatial_attn.out_proj.weight)
@@ -121,13 +119,15 @@ class TSABlock(nn.Module):
         B, C, N, D = x.shape
         x_flat = x.view(B * C, N, D)
 
-        x_flat = x_flat + self.conv_attn_time(self.norm_time(x_flat))
+        x_norm_t = self.norm_time(x_flat)
+        attn_out_t = self.temporal_attn(x_norm_t)
+        x_flat = x_flat + self.drop_t(attn_out_t)
 
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
         if self.spatial_active:
             x_norm = self.norm_space(x_space)
             attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm)
-            x_space = x_space + attn_out
+            x_space = x_space + self.drop_s(attn_out)
         x_flat = x_space.view(B, N, C, D).permute(0, 2, 1, 3).reshape(B * C, N, D)
 
         x_flat = x_flat + self.ffn(self.norm_ffn(x_flat))
@@ -135,10 +135,10 @@ class TSABlock(nn.Module):
 
 
 class TSAEncoder(nn.Module):
-    def __init__(self, dim, depth=12, num_heads=8, mlp_ratio=4.):
+    def __init__(self, dim, depth=12, num_heads=8, mlp_ratio=4., dropout=0.0):
         super().__init__()
         self.blocks = nn.ModuleList([
-            TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio)
+            TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout)
             for _ in range(depth)
         ])
 
@@ -202,9 +202,15 @@ class MeFSQ(nn.Module):
         self.sigmoid_gain = sigmoid_gain
 
         self.norm = nn.LayerNorm(e_dim)
-        self.A = nn.Parameter(torch.empty(e_dim, num_heads * vq_head_vocab_size))
-        nn.init.orthogonal_(self.A, gain=1.0)
-        parametrize.register_parametrization(self, 'A', _PerHeadOrthogonal(num_heads, vq_head_vocab_size))
+        # [H, D, r] — same shared D-dim input z broadcasts against every head's own [D, r]
+        # slice (via einsum, no need to materialize a per-head copy of z) — smaller than the
+        # old flat [D, H*r] matrix would suggest per-head specialization requires, at the
+        # same total param count.
+        self.A = nn.Parameter(torch.empty(num_heads, e_dim, vq_head_vocab_size))
+        with torch.no_grad():
+            for h in range(num_heads):
+                nn.init.orthogonal_(self.A[h], gain=1.0)
+        parametrize.register_parametrization(self, 'A', _PerHeadOrthogonal())
 
         self.register_buffer('avg_probs',        torch.zeros(num_heads, vq_head_vocab_size, num_discrete))
         self.register_buffer('max_prob_ema',     torch.tensor(0.0))
@@ -213,13 +219,14 @@ class MeFSQ(nn.Module):
         self.ema_decay = 0.99
 
     def forward(self, z):
-        B_sz, N_c, D = z.shape
+        """z: [M, H, D] — a separate D-dim input per head (per-head stage-weighted fusion upstream)."""
+        M, H, D = z.shape
         z = self.norm(z)
 
-        H, r, N_d = self.num_heads, self.r, self.num_discrete
+        r, N_d = self.r, self.num_discrete
         half_range = (N_d - 1) / 2.0
 
-        q = torch.matmul(z.reshape(B_sz * N_c, D), self.A).reshape(B_sz, N_c, H, r)
+        q = torch.einsum('mhd,hdr->mhr', z, self.A)
         q_soft = (N_d - 1) * torch.sigmoid(self.sigmoid_gain * q) - half_range
         q_quant = torch.round(q_soft)
         v_q = q_soft + (q_quant - q_soft).detach()
@@ -227,8 +234,8 @@ class MeFSQ(nn.Module):
 
         if not self.training:
             with torch.no_grad():
-                B_total = B_sz * N_c
-                flat_idx = indices.view(B_total, H * r).t().clamp(0, N_d - 1)
+                B_total = M
+                flat_idx = indices.reshape(B_total, H * r).t().clamp(0, N_d - 1)
                 batch_probs = torch.zeros(H * r, N_d, device=indices.device)
                 batch_probs.scatter_add_(1, flat_idx, torch.ones_like(flat_idx, dtype=torch.float32))
                 batch_probs = (batch_probs / B_total).view(H, r, N_d)
@@ -243,7 +250,7 @@ class MeFSQ(nn.Module):
                 h_ppl = torch.exp(h_entropy).mean(dim=-1)
                 self.ema_head_ppl_std.mul_(self.ema_decay).add_(h_ppl.std(), alpha=1 - self.ema_decay)
 
-        return v_q.reshape(B_sz, N_c, H, r), indices, q_soft
+        return v_q, indices, q_soft
 
 
 # ==========================================
@@ -252,7 +259,7 @@ class MeFSQ(nn.Module):
 
 class PerChannelHeadAttn(nn.Module):
     """
-    Two-stage learnable-query attention pooling, per channel:
+    Three-stage learnable-query attention pooling:
 
     Stage 1 (temporal): per (channel, head), a learnable query attends over the N patches
     — replaces plain mean-over-N so patch/time relevance becomes an interpretable weight
@@ -264,20 +271,28 @@ class PerChannelHeadAttn(nn.Module):
     thousands). Same query-attention mechanism as stage 1, just reduced over a different
     axis.
 
-    The C per-channel pooled vectors are concatenated (not averaged) into the classifier —
-    channel identity/order is fixed (canonical_channels), so each channel keeps its own
-    dedicated slice of the classifier's input instead of being blended away.
+    Stage 3 (channel): a learnable query attends over the C channels, pooling to a single
+    [B, d] vector fed into cls. Replaces the earlier per-channel concat (cls input was
+    C*head_dim, e.g. 6400 for 64ch/embed_dim=100 — with only ~1-2k finetune trials that
+    massively overparameterized linear layer memorized train labels outright while val
+    stayed at chance; see finetune log where train acc hits 1.0 by epoch ~17 and val never
+    moves off 1/num_classes). Pooling over C trades away per-channel dedicated slices for a
+    classifier small enough to actually generalize from frozen-backbone features.
     """
-    def __init__(self, head_dim, num_channels, num_classes, hidden=32):
+    def __init__(self, head_dim, num_channels, num_classes, hidden=32, dropout=0.1):
         super().__init__()
         self.key_n   = nn.Linear(head_dim, hidden)
         self.query_n = nn.Parameter(torch.zeros(hidden))
         self.key_h   = nn.Linear(head_dim, hidden)
         self.query_h = nn.Parameter(torch.zeros(hidden))
+        self.key_c   = nn.Linear(head_dim, hidden)
+        self.query_c = nn.Parameter(torch.zeros(hidden))
         nn.init.normal_(self.query_n, std=0.02)
         nn.init.normal_(self.query_h, std=0.02)
+        nn.init.normal_(self.query_c, std=0.02)
         self.scale = hidden ** -0.5
-        self.cls = nn.Linear(num_channels * head_dim, num_classes)
+        self.drop = nn.Dropout(dropout)
+        self.cls = nn.Linear(head_dim, num_classes)
 
     def forward(self, z_per_head, pad_mask=None):
         """
@@ -300,10 +315,13 @@ class PerChannelHeadAttn(nn.Module):
         attn_h = torch.softmax(logits_h, dim=2)                                 # softmax over H, independently per channel
         pooled_per_channel = (z_h * attn_h.unsqueeze(-1)).sum(dim=2)            # [B, C, d]
 
+        # ---- stage 3: attention pool over C (channels) ----
+        logits_c = torch.einsum('bck,k->bc', self.key_c(pooled_per_channel), self.query_c) * self.scale  # [B, C]
         if valid_channel is not None:
-            pooled_per_channel = pooled_per_channel * valid_channel.float().unsqueeze(-1)  # zero invalid channel slots
+            logits_c = logits_c.masked_fill(~valid_channel, float('-inf'))
+        attn_c = torch.softmax(logits_c, dim=1)                                 # [B, C]
+        attn_c = torch.nan_to_num(attn_c)                                       # all-invalid batch item -> nan; zero it
+        pooled = (pooled_per_channel * attn_c.unsqueeze(-1)).sum(dim=1)         # [B, d]
 
-        B = pooled_per_channel.shape[0]
-        pooled = pooled_per_channel.reshape(B, -1)                              # [B, C*d] — concatenated, not averaged
         attn_n = attn_n.permute(0, 1, 3, 2)                                     # [B, C, H, N] for interpretability
-        return self.cls(pooled), attn_h, attn_n
+        return self.cls(self.drop(pooled)), attn_h, attn_n

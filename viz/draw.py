@@ -120,11 +120,11 @@ def extract_head_psd(model, x: torch.Tensor, coords: torch.Tensor,
     """
     B, C, N, L = x.shape
     _, _, v_q, gate_mask, _ = model(x, coords=coords, time_idx=time_idx, bool_masked_pos=None)
-    # v_q: [B*C, N, H, r]
-    H = v_q.shape[2]
+    # v_q: [B*C*N, H, r]
+    H = v_q.shape[1]
 
-    head_norms    = v_q.norm(dim=-1).mean(dim=(0, 1)).cpu().numpy()  # [H]
-    v_mean_h      = v_q.mean(dim=(0, 1))
+    head_norms    = v_q.norm(dim=-1).mean(dim=0).cpu().numpy()  # [H]
+    v_mean_h      = v_q.mean(dim=0)
     v_mean_n      = F.normalize(v_mean_h, dim=-1)
     head_affinity = (v_mean_n @ v_mean_n.T).cpu().numpy()
     psd_ch_h      = v_q.norm(dim=-1).reshape(B, C, N, H).mean(dim=2)[0].cpu().numpy()  # [C, H]
@@ -132,11 +132,55 @@ def extract_head_psd(model, x: torch.Tensor, coords: torch.Tensor,
     # router importance: mean raw logit per head — more spread than sigmoid, no lb_loss flattening
     gate_logits = getattr(model, '_last_gate_logits', None)
     if gate_logits is not None:
-        routing_score = gate_logits.mean(dim=[0, 1]).cpu().numpy()         # [H] mean logit
+        routing_score = gate_logits.mean(dim=0).cpu().numpy()              # [H] mean logit
     else:
-        routing_score = (gate_mask.detach() > 0.5).float().mean(dim=[0, 1]).cpu().numpy()  # fallback
+        routing_score = (gate_mask.detach() > 0.5).float().mean(dim=0).cpu().numpy()  # fallback
 
     return [psd_ch_h], head_norms, head_affinity, routing_score
+
+
+@torch.no_grad()
+def extract_head_spectra(model, x: torch.Tensor, coords: torch.Tensor,
+                          time_idx: torch.Tensor = None, fs: float = None,
+                          freq_resolution: float = None):
+    """
+    Per-head, per-channel power spectrum of that head's OWN decoded reconstruction
+    (v_q -> vq_proj -> decoder, per head, un-gated so every head shows what it would
+    reconstruct if selected) — not the shared-embedding VQ activation norm extract_head_psd
+    reports, an actual frequency-domain view of each head's specialization.
+    Returns (psd [H, C, F] numpy, freqs [F] numpy, routing_score [H] numpy).
+    fs: sample rate in Hz for the freq axis; if None, freqs are cycles/patch (bin index).
+    freq_resolution: Hz per bin via zero-padded FFT (n_fft = fs / freq_resolution) — the
+    patch itself (L samples) is far shorter than what a fine resolution needs, so this is
+    padding for display resolution, not real added information beyond the L-sample window.
+    """
+    B, C, N, L = x.shape
+    _, _, v_q, gate_mask, _ = model(x, coords=coords, time_idx=time_idx, bool_masked_pos=None)
+    # v_q: [B*C*N, H, r], un-gated (every head's own code, not zeroed by routing)
+    H = v_q.shape[1]
+
+    z_all     = torch.einsum('mhr,hdr->mhd', v_q, model.vq_proj)       # [M, H, D]
+    recon_all = model.decoder(z_all)                                   # [M, H, L]
+    recon_all = recon_all.reshape(B, C, N, H, L)[0]                    # [C, N, H, L] (single trial)
+
+    n_fft = L
+    if fs and freq_resolution:
+        n_fft = max(L, int(round(fs / freq_resolution)))
+
+    fft_c = torch.fft.rfft(recon_all.float(), n=n_fft, dim=-1)
+    psd   = fft_c.real.pow(2) + fft_c.imag.pow(2)                      # [C, N, H, F]
+    psd   = psd.mean(dim=1)                                            # [C, H, F] — average over patches
+    psd   = psd.permute(1, 0, 2).cpu().numpy()                         # [H, C, F]
+
+    freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
+
+    gate_logits = getattr(model, '_last_gate_logits', None)
+    if gate_logits is not None:
+        routing_score = gate_logits.mean(dim=0).cpu().numpy()          # [H] mean logit
+    else:
+        routing_score = (gate_mask.detach() > 0.5).float().mean(dim=0).cpu().numpy()  # fallback
+
+    return psd, freqs, routing_score
 
 
 # ── Heatmap ───────────────────────────────────────────────────────────────────

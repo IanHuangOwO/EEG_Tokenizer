@@ -133,11 +133,11 @@ def accumulate(model, loader, device, n_batches):
         x, coords, time_idx, _ = _unpack(batch, device)
         B, C, N, L = x.shape
         _, _, v_q, gate_mask, _ = model(x, coords, time_idx, bool_masked_pos=None, use_routing=True)
-        vq_list.append(v_q.float().reshape(B, C, N, v_q.shape[2], v_q.shape[3]).cpu())
+        vq_list.append(v_q.float().reshape(B, C, N, v_q.shape[1], v_q.shape[2]).cpu())
         x_list.append(x.float().reshape(B, C, N * L).cpu())
-        # gate_mask [B*C, N, H] — softmax weight (nonzero) for selected heads when routing
+        # gate_mask [B*C*N, H] — softmax weight (nonzero) for selected heads when routing
         # active, all-1 otherwise; "selected" means nonzero, not "above 0.5"
-        gate_list.append((gate_mask.detach() > 0).float().mean(dim=[0, 1]).cpu())  # [H]
+        gate_list.append((gate_mask.detach() > 0).float().mean(dim=0).cpu())  # [H]
         if coords_out is None:
             coords_out = coords[0].cpu().numpy()
     head_sel_rate = torch.stack(gate_list, 0).mean(0).numpy()  # [H] mean selection rate

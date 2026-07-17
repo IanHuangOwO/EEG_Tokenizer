@@ -1,8 +1,9 @@
 """
 Finetune-stage epoch snapshot.
-  recon/  power topomap (raw vs backbone-recon) + per-head activation topomap grid —
-          identical in spirit to viz.check_epoch (pretrain), reusing the same backbone
-          forward contract (recon, indices, v_q, gate_mask, lb_loss) via model.backbone.
+  recon/  power topomap (raw vs backbone-recon) + per-head activation topomap grid +
+          per-head PSD grid — identical in spirit to viz.check_epoch (pretrain), reusing
+          the same backbone forward contract (recon, indices, v_q, gate_mask, lb_loss)
+          via model.backbone.
   attn/   the finetune classification head's own attention (PerChannelHeadAttn), two stages:
           attn_h [C, H] — each CHANNEL independently softmaxes over VQ heads (weights sum to
           1 per channel, not jointly), shown as a channel x head heatmap and one topomap per
@@ -18,7 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from viz.draw import project_coords_2d, draw_topomap, extract_head_psd
+from viz.draw import project_coords_2d, draw_topomap, extract_head_psd, extract_head_spectra
 
 
 def _patchify(x, patch_len):
@@ -51,6 +52,31 @@ def _save_grid(values, sorted_ord, panel_scores, pos2d, cmap, suptitle, out_path
         draw_topomap(axes[r][c], pos2d, v, cmap=cmap, vmin=v.min(), vmax=v.max())
         axes[r][c].set_title(label_fmt(i, panel_scores), fontsize=5.5)
     for pos in range(N, n_tr * n_tc):
+        r, c = divmod(pos, n_tc)
+        axes[r][c].axis('off')
+    fig.suptitle(suptitle, fontsize=12, fontweight='bold')
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+
+
+def _save_psd_grid(psd, freqs, sorted_ord, panel_scores, cmap, suptitle, out_path, label_fmt, freq_label='Hz'):
+    """psd: [H, C, F]. One channel x frequency heatmap per head, ordered by `sorted_ord`."""
+    H = psd.shape[0]
+    n_tc = min(4, H)
+    n_tr = math.ceil(H / n_tc)
+    freq_ticks = np.linspace(freqs[0], freqs[-1], 5)
+    fig, axes = plt.subplots(n_tr, n_tc, figsize=(max(28.0, n_tc * 7.0), max(4.0, n_tr * 3.4)), squeeze=False)
+    for pos, h in enumerate(sorted_ord):
+        r, c = divmod(pos, n_tc)
+        p_h = psd[h]  # [C, F]
+        axes[r][c].imshow(p_h, aspect='auto', cmap=cmap, origin='lower',
+                           extent=[freqs[0], freqs[-1], 0, p_h.shape[0]])
+        axes[r][c].set_title(label_fmt(h, panel_scores), fontsize=5.5)
+        axes[r][c].set_xticks(freq_ticks)
+        axes[r][c].set_xticklabels([f'{f:.0f}' for f in freq_ticks], fontsize=5)
+        axes[r][c].set_xlabel(freq_label, fontsize=6)
+        axes[r][c].set_yticks([])
+    for pos in range(H, n_tr * n_tc):
         r, c = divmod(pos, n_tc)
         axes[r][c].axis('off')
     fig.suptitle(suptitle, fontsize=12, fontweight='bold')
@@ -123,6 +149,24 @@ def run(config, output_dir, model, dataset, trial_idx, subject_id=None, epoch=No
         f"Head Activation — Sub {subject_id}, Trial {trial_idx}{epoch_tag} [finetune]",
         os.path.join(recon_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_heads.png"),
         label_fmt=lambda h, scores: f'H{h}\n{scores[h]:.3f}',
+    )
+
+    # Per-head PSD grid — channel x frequency heatmap of each head's own decoded
+    # reconstruction, cropped to the same bandpass range preprocessing already restricted
+    # the signal to. Ranked by the same attn head_order as the other grids in this file.
+    l_freq, h_freq = pp.get('l_freq'), pp.get('h_freq')
+    fs = pp.get('target_freq')
+    psd_hcf, freqs, _ = extract_head_spectra(backbone, x_in, c_in, t_in, fs=fs, freq_resolution=0.2)
+    if l_freq is not None and h_freq is not None:
+        band = (freqs >= l_freq) & (freqs <= h_freq)
+        freqs = freqs[band]
+        psd_hcf = psd_hcf[:, :, band]
+    _save_psd_grid(
+        psd_hcf, freqs, head_order, head_score, cmap,
+        f"Head PSD — Sub {subject_id}, Trial {trial_idx}{epoch_tag} [finetune]",
+        os.path.join(recon_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_psd_heads.png"),
+        label_fmt=lambda h, scores: f'H{h}\n{scores[h]:.3f}',
+        freq_label='Hz' if fs else 'cyc/patch',
     )
 
     # ── attn/ ───────────────────────────────────────────────────────────
