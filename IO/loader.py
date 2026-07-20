@@ -24,6 +24,49 @@ class BaseSubjectLoader(ABC):
         self.standard_window = acquisition.get('window_size_seconds', None)
         self.target_points = int(self.standard_window * self.sample_freq) if self.standard_window else None
 
+    def _require_subject(self, subject_id) -> Dict:
+        """Looks up this subject's data_structure entry, raising a clear error if missing."""
+        subject_str = str(subject_id)
+        structure = self.config['data_structure']
+        if subject_str not in structure:
+            raise ValueError(f"Subject {subject_id} not found in data structure.")
+        return structure[subject_str]
+
+    def _resolve(self, rel_path: str) -> str:
+        """Joins a data_structure-relative path onto this dataset's root."""
+        return os.path.join(self.data_root, rel_path.lstrip('./'))
+
+    def _resample_if_needed(self, raw) -> None:
+        if raw.info['sfreq'] != self.sample_freq:
+            raw.resample(self.sample_freq)
+
+    @staticmethod
+    def _segment_by_annotations(
+        raw, trial_len_pts: int, code_to_label: Dict[str, int], channel_indices: List[int]
+    ) -> Tuple[List[np.ndarray], List[int]]:
+        """
+        Cuts fixed-length [C, trial_len_pts] windows starting at each MNE
+        annotation whose description is a key of code_to_label. Shared by the
+        GDF/EDF event-marker loaders (EEGMMIdb, BCICIV2a, BCICIV2b).
+        """
+        import mne
+        events, event_id = mne.events_from_annotations(raw, verbose=False)
+        label_for_code = {event_id[k]: v for k, v in code_to_label.items() if k in event_id}
+        if not label_for_code:
+            return [], []
+
+        data_np = raw.get_data(picks=channel_indices)
+        trials, labels = [], []
+        for start_pts, _, code in events:
+            label = label_for_code.get(code, -1)
+            if label == -1:
+                continue
+            end_pts = start_pts + trial_len_pts
+            if end_pts <= data_np.shape[1]:
+                trials.append(data_np[:, start_pts:end_pts])
+                labels.append(label)
+        return trials, labels
+
     def _get_standard_coords(self, ch_name: str) -> Optional[np.ndarray]:
         try:
             import mne
@@ -91,11 +134,7 @@ class BaseSubjectLoader(ABC):
 class BETALoader(BaseSubjectLoader):
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
-        subject_str = str(subject_id)
-        structure = config['data_structure']
-        if subject_str not in structure:
-            raise ValueError(f"Subject {subject_id} not found in data structure.")
-        self.file_path = os.path.join(self.data_root, structure[subject_str]['file'].lstrip('./'))
+        self.file_path = self._resolve(self._require_subject(subject_id)['file'])
 
     def _load_coords(self) -> np.ndarray:
         return self._load_coords_from_metadata()
@@ -123,12 +162,9 @@ class BETALoader(BaseSubjectLoader):
 class DialLoader(BaseSubjectLoader):
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
-        subject_str = str(subject_id)
-        structure = config['data_structure']
-        if subject_str not in structure:
-            raise ValueError(f"Subject {subject_id} not found in data structure.")
-        self.signal_path = os.path.join(self.data_root, structure[subject_str]['signals'].lstrip('./'))
-        self.label_path = os.path.join(self.data_root, structure[subject_str]['labels'].lstrip('./'))
+        entry = self._require_subject(subject_id)
+        self.signal_path = self._resolve(entry['signals'])
+        self.label_path = self._resolve(entry['labels'])
 
     def _load_coords(self) -> np.ndarray:
         return self._load_coords_from_metadata()
@@ -156,9 +192,7 @@ class DialLoader(BaseSubjectLoader):
 class BCICIVLoader(BaseSubjectLoader):
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
-        subject_str = str(subject_id)
-        structure = config['data_structure']
-        self.file_path = os.path.join(self.data_root, structure[subject_str]['file'].lstrip('./'))
+        self.file_path = self._resolve(self._require_subject(subject_id)['file'])
 
     def _load_coords(self) -> np.ndarray:
         return self._load_coords_from_metadata()
@@ -204,54 +238,61 @@ class BCICIVLoader(BaseSubjectLoader):
 
 
 class InriaLoader(BaseSubjectLoader):
+    """
+    Loader for the Inria BCI Challenge (P300 speller error-related potential,
+    ErrP) dataset. Each real subject has 5 recording sessions, listed under
+    'signals' as a list so trials from all sessions concatenate under one
+    subject key -- keeps the train/val subject split (train_pretrain.py) from
+    ever putting two sessions of the same person on opposite sides.
+    """
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
-        subject_str = str(subject_id)
-        structure = config['data_structure']
-        self.signal_path = os.path.join(self.data_root, structure[subject_str]['signals'].lstrip('./'))
-        self.label_path = os.path.join(self.data_root, structure[subject_str]['labels'].lstrip('./'))
+        entry = self._require_subject(subject_id)
+        signals = entry['signals']
+        self.signal_paths = [self._resolve(p) for p in signals] if isinstance(signals, list) else [self._resolve(signals)]
+        self.label_path = self._resolve(entry['labels'])
 
     def _load_coords(self) -> np.ndarray:
         return self._load_coords_from_metadata()
 
     def _load_data(self):
-        if not os.path.exists(self.signal_path):
-            return None, None
         import pandas as pd
-        df = pd.read_csv(self.signal_path)
-        data = df.iloc[:, 1:-1].values    # (Time, Channels)
-        markers = df.iloc[:, -1].values   # (Time,)
-
-        trig_indices = np.where(markers == 1)[0]
-
-        sub_sess = os.path.basename(self.signal_path).replace('Data_', '').replace('.csv', '')
         labels_df = pd.read_csv(self.label_path)
-        sub_labels = labels_df[labels_df['IdFeedBack'].str.contains(sub_sess)]['Prediction'].values
+        alt_path = os.path.join(os.path.dirname(self.label_path), 'SampleSubmission.csv')
+        alt_df = pd.read_csv(alt_path) if os.path.exists(alt_path) else None
 
-        if len(sub_labels) == 0:
-            alt_path = os.path.join(os.path.dirname(self.label_path), 'SampleSubmission.csv')
-            if os.path.exists(alt_path):
-                alt_df = pd.read_csv(alt_path)
+        all_trials, all_labels = [], []
+        for signal_path in self.signal_paths:
+            if not os.path.exists(signal_path):
+                continue
+            df = pd.read_csv(signal_path)
+            data = df.iloc[:, 1:-1].values    # (Time, Channels)
+            markers = df.iloc[:, -1].values   # (Time,)
+
+            trig_indices = np.where(markers == 1)[0]
+
+            sub_sess = os.path.basename(signal_path).replace('Data_', '').replace('.csv', '')
+            sub_labels = labels_df[labels_df['IdFeedBack'].str.contains(sub_sess)]['Prediction'].values
+            if len(sub_labels) == 0 and alt_df is not None:
                 sub_labels = alt_df[alt_df['IdFeedBack'].str.contains(sub_sess)]['Prediction'].values
 
-        if self.standard_window:
-            trial_len = int(self.standard_window * self.sample_freq)
-        elif len(trig_indices) > 1:
-            trial_len = int(np.median(np.diff(trig_indices)))
-        else:
-            return None, None
+            if self.standard_window:
+                trial_len = int(self.standard_window * self.sample_freq)
+            elif len(trig_indices) > 1:
+                trial_len = int(np.median(np.diff(trig_indices)))
+            else:
+                continue
 
-        trials, final_y = [], []
-        for i, idx in enumerate(trig_indices):
-            if i < len(sub_labels):
-                end = idx + trial_len
-                if end <= data.shape[0]:
-                    trials.append(data[idx:end, self.channel_indices].T)
-                    final_y.append(int(sub_labels[i]))
+            for i, idx in enumerate(trig_indices):
+                if i < len(sub_labels):
+                    end = idx + trial_len
+                    if end <= data.shape[0]:
+                        all_trials.append(data[idx:end, self.channel_indices].T)
+                        all_labels.append(int(sub_labels[i]))
 
-        if not trials:
+        if not all_trials:
             return None, None
-        return np.stack(trials), np.array(final_y)
+        return np.stack(all_trials), np.array(all_labels)
 
 
 class EEGMMIdbLoader(BaseSubjectLoader):
@@ -259,14 +300,12 @@ class EEGMMIdbLoader(BaseSubjectLoader):
     Loader for PhysioNet Motor Imagery (BCI2000) dataset.
     Segments EDF files by T0 (rest), T1, and T2 annotations.
     """
+    _EVENT_TO_LABEL = {'T0': 0, 'T1': 1, 'T2': 2}
+
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
-        subject_str = str(subject_id)
-        structure = config['data_structure']
-        if subject_str not in structure:
-            raise ValueError(f"Subject {subject_id} not found in EEGMMIdb data structure.")
-        sub_info = structure[subject_str]
-        self.run_paths = [os.path.join(self.data_root, sub_info['folder'], r) for r in sub_info['runs']]
+        entry = self._require_subject(subject_id)
+        self.run_paths = [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
 
     def _load_coords(self) -> np.ndarray:
         return self._load_coords_from_metadata()
@@ -285,32 +324,14 @@ class EEGMMIdbLoader(BaseSubjectLoader):
                 continue
             try:
                 raw = mne.io.read_raw_edf(run_path, preload=True, verbose=False)
-                if raw.info['sfreq'] != self.sample_freq:
-                    raw.resample(self.sample_freq)
+                self._resample_if_needed(raw)
 
-                events, event_id = mne.events_from_annotations(raw, verbose=False)
-                if events.size == 0 or not event_id:
+                trials, labels = self._segment_by_annotations(raw, trial_len_pts, self._EVENT_TO_LABEL, self.channel_indices)
+                if not trials:
+                    print(f"  [Warning] {os.path.basename(run_path)}: no T0/T1/T2 events found.")
                     continue
-
-                t0_id = event_id.get('T0')
-                t1_id = event_id.get('T1')
-                t2_id = event_id.get('T2')
-
-                if t0_id is None and t1_id is None and t2_id is None:
-                    print(f"  [Warning] {os.path.basename(run_path)}: No T0/T1/T2 events. Found: {list(event_id.keys())}")
-                    continue
-
-                data_np = raw.get_data(picks=self.channel_indices)
-                label_map = {t0_id: 0, t1_id: 1, t2_id: 2}
-
-                for event in events:
-                    start_pts = event[0]
-                    label = label_map.get(event[2], -1)
-                    if label != -1:
-                        end_pts = start_pts + trial_len_pts
-                        if end_pts <= data_np.shape[1]:
-                            all_trials.append(data_np[:, start_pts:end_pts])
-                            all_labels.append(label)
+                all_trials.extend(trials)
+                all_labels.extend(labels)
 
             except Exception as e:
                 print(f"  [Warning] Error loading {os.path.basename(run_path)}: {e}")
@@ -318,3 +339,169 @@ class EEGMMIdbLoader(BaseSubjectLoader):
         if not all_trials:
             return None, None
         return np.stack(all_trials), np.array(all_labels)
+
+
+class BCICIV2aLoader(BaseSubjectLoader):
+    """
+    Loader for BCI Competition IV Dataset 2a (GDF, 4-class motor imagery).
+    Only *T (training) session files are referenced in metadata.json -- the
+    *E (evaluation) session's true labels ship as separate .mat files not
+    included in this raw download, so E trials have no usable label.
+    Segments each recording into fixed-length windows starting at the
+    per-class cue event (769/770/771/772).
+    """
+    _EVENT_TO_LABEL = {'769': 0, '770': 1, '771': 2, '772': 3}
+
+    def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
+        super().__init__(config, subject_id, desired_channel_indices)
+        self.file_path = self._resolve(self._require_subject(subject_id)['file'])
+
+    def _load_coords(self) -> np.ndarray:
+        return self._load_coords_from_metadata()
+
+    def _load_data(self):
+        if not os.path.exists(self.file_path):
+            return None, None
+        if self.standard_window is None:
+            print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
+            return None, None
+
+        import mne
+        raw = mne.io.read_raw_gdf(self.file_path, preload=True, verbose=False)
+        self._resample_if_needed(raw)
+
+        trial_len_pts = int(self.standard_window * self.sample_freq)
+        trials, labels = self._segment_by_annotations(raw, trial_len_pts, self._EVENT_TO_LABEL, self.channel_indices)
+        if not trials:
+            print(f"  [Warning] Subject {self.subject_id}: no cue events (769-772) found.")
+            return None, None
+        return np.stack(trials), np.array(labels)
+
+
+class BCICIV2bLoader(BaseSubjectLoader):
+    """
+    Loader for BCI Competition IV Dataset 2b (GDF, 2-class motor imagery,
+    bipolar C3/Cz/C4). Each subject has 3 *T (training) session files with
+    real labels -- referenced via 'runs' in metadata.json. The 2 *E
+    (evaluation) sessions' true labels ship as separate .mat files not
+    included in this raw download, so they're excluded. Segments each
+    recording into fixed-length windows starting at the per-class cue event
+    (769/770), concatenated across all 3 runs for the subject.
+    """
+    _EVENT_TO_LABEL = {'769': 0, '770': 1}
+
+    def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
+        super().__init__(config, subject_id, desired_channel_indices)
+        entry = self._require_subject(subject_id)
+        self.run_paths = [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
+
+    def _load_coords(self) -> np.ndarray:
+        return self._load_coords_from_metadata()
+
+    def _load_data(self):
+        if self.standard_window is None:
+            print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
+            return None, None
+
+        import mne
+        trial_len_pts = int(self.standard_window * self.sample_freq)
+        all_trials, all_labels = [], []
+
+        for run_path in self.run_paths:
+            if not os.path.exists(run_path):
+                continue
+            try:
+                raw = mne.io.read_raw_gdf(run_path, preload=True, verbose=False)
+                self._resample_if_needed(raw)
+
+                trials, labels = self._segment_by_annotations(raw, trial_len_pts, self._EVENT_TO_LABEL, self.channel_indices)
+                if not trials:
+                    print(f"  [Warning] {os.path.basename(run_path)}: no cue events (769/770) found.")
+                    continue
+                all_trials.extend(trials)
+                all_labels.extend(labels)
+
+            except Exception as e:
+                print(f"  [Warning] Error loading {os.path.basename(run_path)}: {e}")
+
+        if not all_trials:
+            return None, None
+        return np.stack(all_trials), np.array(all_labels)
+
+
+class GraspAndLiftLoader(BaseSubjectLoader):
+    """
+    Loader for the Kaggle "Grasp-and-Lift EEG Detection" dataset. Each
+    series is a continuous recording annotated with 6 binary event columns
+    (HandStart/FirstDigitTouch/BothStartLoadPhase/LiftOff/Replace/
+    BothReleased) that overlap in time -- a multi-label sequence-labeling
+    task, not one discrete class per trial like every other loader here.
+    Rather than force that into a single dense label, this just chops each
+    series into fixed-length non-overlapping windows (like BCICIVLoader's
+    no-mrk fallback) with dummy label 0 -- fine for self-supervised
+    pretraining, real event columns are read but discarded. Do not use for
+    supervised finetune/eval of the event-detection task as-is.
+    """
+    def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
+        super().__init__(config, subject_id, desired_channel_indices)
+        entry = self._require_subject(subject_id)
+        self.file_pairs = [(self._resolve(f['data']), self._resolve(f['events'])) for f in entry['files']]
+
+    def _load_coords(self) -> np.ndarray:
+        return self._load_coords_from_metadata()
+
+    def _load_data(self):
+        if self.standard_window is None:
+            print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
+            return None, None
+
+        import pandas as pd
+        trial_len = int(self.standard_window * self.sample_freq)
+        all_trials = []
+
+        for data_path, events_path in self.file_pairs:
+            if not os.path.exists(data_path):
+                continue
+            df = pd.read_csv(data_path)
+            data = df.iloc[:, 1:].values.astype(np.float32)  # (Time, Channels), drop 'id' column
+
+            n_windows = data.shape[0] // trial_len
+            for i in range(n_windows):
+                start = i * trial_len
+                all_trials.append(data[start:start + trial_len, self.channel_indices].T)
+
+        if not all_trials:
+            return None, None
+        trials = np.stack(all_trials)
+        return trials, np.zeros(len(trials), dtype=np.int64)
+
+
+class TemplateLoader(BaseSubjectLoader):
+    """
+    Copy-paste starting point for a new dataset. Not registered in
+    IO/dataset.py's _resolve_loader() — rename the class, fill in
+    _load_data(), then register it. See DATASET_FORMAT.md for the full
+    walkthrough (metadata.json schema, array shape contract, wiring steps).
+    """
+    def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
+        super().__init__(config, subject_id, desired_channel_indices)
+        entry = self._require_subject(subject_id)
+        # Single-file style (BETA):        self.file_path = self._resolve(entry['file'])
+        # Split signal/label style (Dial):  self._resolve(entry['signals']) / self._resolve(entry['labels'])
+        # Multi-run style (EEGMMIdb):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
+        self.file_path = self._resolve(entry['file'])
+
+    def _load_coords(self) -> np.ndarray:
+        return self._load_coords_from_metadata()
+
+    def _load_data(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        if not os.path.exists(self.file_path):
+            return None, None
+
+        # TODO: read the raw file, subset channels via self.channel_indices,
+        # and produce:
+        #   eeg_data: np.ndarray (N, C, T) — N trials, C = len(self.channel_indices)
+        #   labels:   np.ndarray (N,) int, 0-indexed, dense in [0, self.num_targets)
+        # For GDF/EDF event-marker datasets, self._segment_by_annotations(raw,
+        # trial_len_pts, code_to_label, self.channel_indices) does the windowing.
+        raise NotImplementedError("Fill in TemplateLoader._load_data for your dataset.")

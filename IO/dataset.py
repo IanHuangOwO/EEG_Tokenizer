@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 from typing import List, Dict, Optional, Tuple, Callable, Any
 from abc import ABC, abstractmethod
 
-from .loader import BETALoader, DialLoader, BCICIVLoader, InriaLoader, EEGMMIdbLoader
+from .loader import BETALoader, DialLoader, BCICIVLoader, InriaLoader, EEGMMIdbLoader, BCICIV2aLoader, BCICIV2bLoader, GraspAndLiftLoader
 from IO.preprocessing import build_preprocessing_from_config
 
 # Channels excluded by default when channels_to_use is "all".
@@ -117,50 +117,20 @@ class EEGDataset(Dataset):
         print(f"Loading {len(loading_tasks)} subject-dataset tasks... (assembly={'on' if assemble_trials else 'off'})")
         for task in loading_tasks:
             try:
-                ds_name = task['dataset_name']
-                subject_id = task['subject_id']
-                loader_cls = task['loader_class']
-                transform = task['transform']
-                ds_config = task['dataset_config']
-
-                ds_indices, target_pos = self._map_channels(desired_channels, ds_config['data_metadata']['channels'])
-                loader = loader_cls(config=ds_config, subject_id=subject_id, desired_channel_indices=ds_indices)
-                subject_data = loader.get_subject_data()
-
-                if subject_data is None:
-                    continue
-
-                raw_data = torch.from_numpy(subject_data['data'])  # (N, C, T)
-                N, _, T = raw_data.shape
-
-                padded = torch.zeros((N, self.Nc, T), dtype=torch.float32)
-                padded[:, target_pos, :] = raw_data
-
-                if transform is not None:
-                    padded = torch.stack([transform(padded[i]) for i in range(N)])
-                post_transform_T = padded.shape[-1]  # real (non-padded) length for finetune's per-trial mask
-
-                if self.assemble_trials:
-                    padded, labels = self._window_subject_signal(padded, ds_name, subject_id)
-                else:
-                    labels = torch.from_numpy(subject_data['labels'])
-
-                all_data_chunks.append(padded)
-                all_label_chunks.append(labels)
-                all_subject_chunks.append(torch.full((len(padded),), int(subject_id), dtype=torch.long))
-                all_dataset_names.extend([ds_name] * len(padded))
-
-                task_coords = torch.zeros((self.Nc, 3), dtype=torch.float32)
-                task_coords[target_pos] = torch.from_numpy(subject_data['coords'])
-                all_coords.append(task_coords)
-
-                valid_channels = torch.zeros(self.Nc, dtype=torch.bool)
-                valid_channels[target_pos] = True
-                all_valid_channels.append(valid_channels)
-                all_valid_length.append(post_transform_T)
-
+                result = self._load_task(task, desired_channels)
             except Exception as e:
                 print(f"Failed to load Subject {task.get('subject_id')} ({task.get('dataset_name')}): {e}")
+                continue
+            if result is None:
+                continue
+
+            all_data_chunks.append(result['data'])
+            all_label_chunks.append(result['labels'])
+            all_subject_chunks.append(torch.full((len(result['data']),), int(result['subject_id']), dtype=torch.long))
+            all_dataset_names.extend([result['dataset_name']] * len(result['data']))
+            all_coords.append(result['coords'])
+            all_valid_channels.append(result['valid_channels'])
+            all_valid_length.append(result['valid_length'])
 
         if not all_data_chunks:
             raise RuntimeError("No datasets were loaded successfully.")
@@ -187,6 +157,56 @@ class EEGDataset(Dataset):
             self.trial_to_coords_idx.extend([i] * d.shape[0])
 
         print(f"Loaded {len(self.data)} trials, standardized to length {max_T}. Shape: {tuple(self.data.shape)}")
+
+    def _load_task(self, task: Dict[str, Any], desired_channels: List[str]) -> Optional[Dict[str, Any]]:
+        """
+        Loads one subject-dataset task, channel-pads it into self.Nc unified
+        channels, applies the preprocessing transform, and (for pretrain)
+        windows it into fixed-length trials. Returns None if the subject has
+        no data to load.
+        """
+        ds_name = task['dataset_name']
+        subject_id = task['subject_id']
+        loader_cls = task['loader_class']
+        transform = task['transform']
+        ds_config = task['dataset_config']
+
+        ds_indices, target_pos = self._map_channels(desired_channels, ds_config['data_metadata']['channels'])
+        loader = loader_cls(config=ds_config, subject_id=subject_id, desired_channel_indices=ds_indices)
+        subject_data = loader.get_subject_data()
+        if subject_data is None:
+            return None
+
+        raw_data = torch.from_numpy(subject_data['data'])  # (N, C, T)
+        N, _, T = raw_data.shape
+
+        padded = torch.zeros((N, self.Nc, T), dtype=torch.float32)
+        padded[:, target_pos, :] = raw_data
+
+        if transform is not None:
+            padded = torch.stack([transform(padded[i]) for i in range(N)])
+        post_transform_T = padded.shape[-1]  # real (non-padded) length for finetune's per-trial mask
+
+        if self.assemble_trials:
+            padded, labels = self._window_subject_signal(padded, ds_name, subject_id)
+        else:
+            labels = torch.from_numpy(subject_data['labels'])
+
+        task_coords = torch.zeros((self.Nc, 3), dtype=torch.float32)
+        task_coords[target_pos] = torch.from_numpy(subject_data['coords'])
+
+        valid_channels = torch.zeros(self.Nc, dtype=torch.bool)
+        valid_channels[target_pos] = True
+
+        return {
+            'data': padded,
+            'labels': labels,
+            'dataset_name': ds_name,
+            'subject_id': subject_id,
+            'coords': task_coords,
+            'valid_channels': valid_channels,
+            'valid_length': post_transform_T,
+        }
 
     def _window_subject_signal(self, trials: torch.Tensor, ds_name: str, subject_id: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -382,10 +402,16 @@ def _resolve_loader(dataset_name: str, ds_name_key: str):
     for name in (dataset_name, ds_name_key):
         if 'BETA' in name:
             return BETALoader
+        if 'BCICIV2a' in name:
+            return BCICIV2aLoader
+        if 'BCICIV2b' in name:
+            return BCICIV2bLoader
         if 'BCICIV' in name:
             return BCICIVLoader
         if 'Inria' in name:
             return InriaLoader
+        if 'GraspAndLift' in name:
+            return GraspAndLiftLoader
         if 'EEGMMIdb' in name:
             return EEGMMIdbLoader
         if 'Dial' in name:
