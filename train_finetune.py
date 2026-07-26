@@ -8,6 +8,7 @@ import copy
 import random
 import logging
 import warnings
+import statistics
 import matplotlib
 matplotlib.use('Agg')
 import torch
@@ -15,7 +16,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, balanced_accuracy_score, cohen_kappa_score
 
 from IO.dataset import build_dataset_from_config
 from model.factory import build_model_from_config
@@ -80,25 +81,29 @@ def _unpack_batch(batch, device):
             labels.to(device), pad_mask.to(device))
 
 
-def _macro_f1(labels, preds):
+def _classification_metrics(all_labels, all_preds):
     """sklearn warns 'looks like regression' when a partial batch has few samples vs
     many classes — a false positive here since labels are always integer class ids."""
+    labels = torch.cat(all_labels).numpy()
+    preds  = torch.cat(all_preds).numpy()
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
-        return f1_score(torch.cat(labels), torch.cat(preds), average='macro', zero_division=0)
+        return {
+            'f1':           f1_score(labels, preds, average='macro', zero_division=0),
+            'f1_weighted':  f1_score(labels, preds, average='weighted', zero_division=0),
+            'balanced_acc': balanced_accuracy_score(labels, preds),
+            'kappa':        cohen_kappa_score(labels, preds),
+        }
 
 
-def _finalize_epoch(model, totals, n, all_labels, all_preds, v_q_gated):
-    """Average running totals, add macro F1, and merge backbone head/fingerprint metrics.
-    v_q_gated is None in pre_vq mode (no VQ routing to report on) — skip the merge."""
+def _finalize_epoch(totals, n, all_labels, all_preds):
+    """Average running totals and add classification metrics."""
     metrics = {k: v / n for k, v in totals.items()}
-    metrics['f1'] = _macro_f1(all_labels, all_preds)
-    if v_q_gated is not None:
-        metrics.update(model.backbone.get_metrics(v_q_gated.detach()))
+    metrics.update(_classification_metrics(all_labels, all_preds))
     return metrics
 
 
-def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, load_balance_weight=0.0, diversity_weight=0.0):
+def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch):
     model.train()
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
@@ -111,17 +116,8 @@ def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, load_b
         optimizer.zero_grad()
 
         with torch.amp.autocast(device_type='cuda'):
-            logits, _, _, lb_loss, v_q_gated, gate_mask, B_, C_ = model(
-                x, coords, time_idx=time_idx, pad_mask=pad_mask, return_head_stats=True)
+            logits, _, _, _ = model(x, coords, time_idx=time_idx, pad_mask=pad_mask)
             loss = nn.functional.cross_entropy(logits, labels)
-            # gate_mask is None in pre_vq mode — no VQ routing to add loss terms for or monitor
-            if gate_mask is not None:
-                if load_balance_weight > 0:
-                    loss = loss + load_balance_weight * lb_loss
-                model.backbone.update_head_metrics(gate_mask)
-                div_loss = model.backbone.get_diversity_loss(v_q_gated, gate_mask, B_, C_)
-                if diversity_weight > 0:
-                    loss = loss + diversity_weight * div_loss
 
         scaler.scale(loss).backward()
         scaler.unscale_(optimizer)
@@ -138,11 +134,10 @@ def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, load_b
 
         if batch_idx % 5 == 0:
             n = batch_idx + 1
-            running_f1 = _macro_f1(all_labels, all_preds)
-            pbar.set_postfix({'L': f"{totals['loss'] / n:.4f}", 'acc': f"{totals['acc'] / n:.4f}", 'f1': f"{running_f1:.4f}"})
+            pbar.set_postfix({'L': f"{totals['loss'] / n:.4f}", 'acc': f"{totals['acc'] / n:.4f}"})
 
     n = batch_idx + 1
-    return _finalize_epoch(model, totals, n, all_labels, all_preds, v_q_gated)
+    return _finalize_epoch(totals, n, all_labels, all_preds)
 
 
 def validate_one_epoch(model, data_loader, device):
@@ -158,8 +153,7 @@ def validate_one_epoch(model, data_loader, device):
             x, coords, time_idx, labels, pad_mask = _unpack_batch(batch, device)
 
             with torch.amp.autocast(device_type='cuda'):
-                logits, _, _, _, v_q_gated, _, _, _ = model(
-                    x, coords, time_idx=time_idx, pad_mask=pad_mask, return_head_stats=True)
+                logits, _, _, _ = model(x, coords, time_idx=time_idx, pad_mask=pad_mask)
                 loss = nn.functional.cross_entropy(logits, labels)
 
             preds = logits.argmax(dim=-1)
@@ -171,60 +165,43 @@ def validate_one_epoch(model, data_loader, device):
 
             if batch_idx % 5 == 0:
                 n = batch_idx + 1
-                running_f1 = _macro_f1(all_labels, all_preds)
-                pbar.set_postfix({'L': f"{totals['loss'] / n:.4f}", 'acc': f"{totals['acc'] / n:.4f}", 'f1': f"{running_f1:.4f}"})
+                pbar.set_postfix({'L': f"{totals['loss'] / n:.4f}", 'acc': f"{totals['acc'] / n:.4f}"})
 
     n = batch_idx + 1
-    return _finalize_epoch(model, totals, n, all_labels, all_preds, v_q_gated)
+    return _finalize_epoch(totals, n, all_labels, all_preds)
 
 
-def main():
-    parser = argparse.ArgumentParser(description='MeFSQ Finetuning')
-    parser.add_argument('--config', type=str, default='config/config.json')
-    args = parser.parse_args()
+def _underlying_base_dataset(ds):
+    return ds.base_dataset
 
-    with open(args.config, 'r') as f:
-        config = json.load(f)
 
-    train_params = config['training_params']['finetune']
-    device     = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    model_name = train_params.get('model_name', 'default_finetune_run')
+def _resolve_all_subjects(data_root):
+    with open(os.path.join(data_root, 'metadata.json'), 'r') as f:
+        meta = json.load(f)
+    all_available_subjects = list(meta.get('data_structure', {}).keys())
+    try:
+        return sorted([int(s) for s in all_available_subjects])
+    except ValueError:
+        return sorted(all_available_subjects)
 
-    base_output_dir = f"output/{model_name}"
-    checkpoint_dir  = os.path.join(base_output_dir, "finetune")
-    artifact_dir    = os.path.join(base_output_dir, "artifacts")
-    vis_dir         = os.path.join(base_output_dir, "visualization")
 
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    os.makedirs(artifact_dir, exist_ok=True)
-    os.makedirs(vis_dir, exist_ok=True)
+def _resolve_requested_subjects(ds_args, all_available_subjects):
+    requested_subjects = ds_args['subject_to_use']
+    if requested_subjects in (["all"], "all"):
+        return list(all_available_subjects)
+    return [s for s in requested_subjects if s in all_available_subjects or str(s) in all_available_subjects]
 
-    logger = setup_logger(artifact_dir)
-    shutil.copy(args.config, os.path.join(artifact_dir, 'config.json'))
 
-    dataset_params = config['dataset_params']['finetune']
-    split_ratio = train_params.get('train_val_split', 0.9)
+def build_subject_split_datasets(config, dataset_params, split_ratio, logger):
+    """Subject-level holdout: shuffle subjects per dataset, split by ratio.
+    Never leaks trials from the same subject across train/val."""
     random.seed(42)
-
     train_config = copy.deepcopy(config)
     val_config   = copy.deepcopy(config)
 
     for ds_name, ds_args in dataset_params.items():
-        data_root = ds_args['dataset_path']
-        with open(os.path.join(data_root, 'metadata.json'), 'r') as f:
-            meta = json.load(f)
-
-        all_available_subjects = list(meta.get('data_structure', {}).keys())
-        try:
-            all_available_subjects = sorted([int(s) for s in all_available_subjects])
-        except:
-            all_available_subjects = sorted(all_available_subjects)
-
-        requested_subjects = ds_args['subject_to_use']
-        if requested_subjects in (["all"], "all"):
-            subjects_to_split = all_available_subjects
-        else:
-            subjects_to_split = [s for s in requested_subjects if s in all_available_subjects or str(s) in all_available_subjects]
+        all_available_subjects = _resolve_all_subjects(ds_args['dataset_path'])
+        subjects_to_split = _resolve_requested_subjects(ds_args, all_available_subjects)
 
         random.shuffle(subjects_to_split)
         n_train = int(len(subjects_to_split) * split_ratio)
@@ -235,56 +212,88 @@ def main():
 
         train_config['dataset_params']['finetune'][ds_name]['subject_to_use'] = subjects_to_split[:n_train]
         val_config['dataset_params']['finetune'][ds_name]['subject_to_use']   = subjects_to_split[n_train:]
-        logger.info(f"Dataset {ds_name}: {n_train} Train, {len(subjects_to_split) - n_train} Val subjects")
+        logger.info(f"Dataset {ds_name}: {n_train} Train, {len(subjects_to_split) - n_train} Val subjects (subject split)")
 
-    logger.info("Building Training Dataset...")
     train_dataset = build_dataset_from_config(train_config, transform=None, mode='finetune')
-    logger.info("Building Validation Dataset...")
     val_dataset   = build_dataset_from_config(val_config,   transform=None, mode='finetune')
-    logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
+    return train_dataset, val_dataset
 
-    _first_subject = train_dataset.base_dataset.subject_data[0].item()
-    topo_trial_idx, topo_subject_id = pick_trial(train_dataset, _first_subject, trial=1)
-    logger.info(f"Topo viz: subject={topo_subject_id}, trial_idx={topo_trial_idx}")
 
-    train_labels = set(train_dataset.base_dataset.labels.tolist())
-    val_labels   = set(val_dataset.base_dataset.labels.tolist())
+def _loso_fold_configs(config, dataset_params, ds_name, held_out_subject):
+    """Train config: every subject except held_out_subject in ds_name (other datasets
+    in dataset_params, if any, contribute fully to train — held-out is only ever
+    pulled from its own dataset). Val config: just held_out_subject in ds_name."""
+    train_config = copy.deepcopy(config)
+    val_config   = copy.deepcopy(config)
+
+    for name, ds_args in dataset_params.items():
+        all_available_subjects = _resolve_all_subjects(ds_args['dataset_path'])
+        subjects = _resolve_requested_subjects(ds_args, all_available_subjects)
+
+        if name == ds_name:
+            train_config['dataset_params']['finetune'][name]['subject_to_use'] = [
+                s for s in subjects if s != held_out_subject
+            ]
+            val_config['dataset_params']['finetune'][name]['subject_to_use'] = [held_out_subject]
+        else:
+            train_config['dataset_params']['finetune'][name]['subject_to_use'] = subjects
+            val_config['dataset_params']['finetune'][name]['subject_to_use']   = []
+
+    return train_config, val_config
+
+
+def _loso_folds(dataset_params):
+    """List of (ds_name, subject) pairs, one per LOSO fold."""
+    folds = []
+    for ds_name, ds_args in dataset_params.items():
+        all_available_subjects = _resolve_all_subjects(ds_args['dataset_path'])
+        subjects = _resolve_requested_subjects(ds_args, all_available_subjects)
+        folds.extend((ds_name, subject) for subject in subjects)
+    return folds
+
+
+def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_dir,
+                       artifact_dir, logger, patch_len, fold_tag=""):
+    """Builds the finetune model/optimizer/scheduler and runs the full epoch loop for one
+    train/val dataset pair. Returns the metrics dict (train+val) from the best-val-acc epoch."""
+    train_params = config['training_params']['finetune']
+    device = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+
+    collate_fn = FinetuneCollate(patch_len)
+    train_loader = DataLoader(train_dataset, batch_size=train_params['batch_size'], shuffle=True,  num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True, collate_fn=collate_fn)
+    val_loader   = DataLoader(val_dataset,   batch_size=train_params['batch_size'], shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True, collate_fn=collate_fn)
+
+    train_base = _underlying_base_dataset(train_dataset)
+    val_base   = _underlying_base_dataset(val_dataset)
+
+    train_labels = set(train_base.labels.tolist())
+    val_labels   = set(val_base.labels.tolist())
     all_labels   = train_labels | val_labels
     num_classes  = len(all_labels)
     assert all_labels == set(range(num_classes)), \
         f"labels must be contiguous 0..{num_classes - 1}, got {sorted(all_labels)}"
     if val_labels - train_labels:
-        logger.info(f"WARNING: classes {sorted(val_labels - train_labels)} only appear in val, never trained on")
-    logger.info(f"num_classes={num_classes}")
+        logger.info(f"  WARNING [{fold_tag}]: classes {sorted(val_labels - train_labels)} only appear in val, never trained on")
+    logger.info(f"[{fold_tag}] num_classes={num_classes}")
 
-    pp = config.get('preprocess_params', {})
-    patch_len = pp.get('patch_length', 100)
-    collate_fn = FinetuneCollate(patch_len)
-
-    train_loader = DataLoader(train_dataset, batch_size=train_params['batch_size'], shuffle=True,  num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True, collate_fn=collate_fn)
-    val_loader   = DataLoader(val_dataset,   batch_size=train_params['batch_size'], shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True, collate_fn=collate_fn)
-
-    logger.info(f"Loading pretrained backbone (Run: {model_name})...")
+    logger.info(f"[{fold_tag}] Loading pretrained backbone...")
     backbone = build_model_from_config(config, src_output_dir=artifact_dir, mode='finetune')
     ckpt_path = train_params['pretrained_checkpoint']
     state = torch.load(ckpt_path, map_location='cpu')
     backbone.load_state_dict(state['model_state_dict'])
     backbone.enable_spatial()
-    logger.info(f"Loaded backbone weights from {ckpt_path}")
+    logger.info(f"[{fold_tag}] Loaded backbone weights from {ckpt_path}")
 
     ft_params = config['model_params']['MeFSQ'].get('finetune', {})
     freeze_backbone = ft_params.get('freeze_backbone', False)
-    pre_vq = ft_params.get('pre_vq', False)
-    num_channels = train_dataset.base_dataset.Nc
+    num_channels = train_base.Nc
     model = MeFSQFinetune(
         backbone, num_channels, num_classes,
         hidden=ft_params.get('hidden', 128),
         freeze_backbone=freeze_backbone,
         dropout=ft_params.get('dropout', 0.1),
-        pre_vq=pre_vq,
     )
     model.to(device)
-    logger.info(f"pre_vq={pre_vq} (classifier reads {'pre-VQ continuous features' if pre_vq else 'quantized VQ codes'})")
 
     scaler = torch.amp.GradScaler('cuda')
     # backbone_lr_mult: unfrozen backbone shares gradients with a head that has orders of
@@ -305,35 +314,40 @@ def main():
     scheduler        = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[train_params['warmup_epochs']])
 
     plotter = Plotter(output_dir=vis_dir)
-    ft_loss_params = config.get('loss_params', {}).get('finetune', {})
-    load_balance_weight = ft_loss_params.get('load_balance_weight', 0.0)
-    diversity_weight     = ft_loss_params.get('diversity_weight', 0.0)
+
+    topo_trial_idx = topo_subject_id = None
+    try:
+        _first_subject = train_base.subject_data[0].item()
+        topo_trial_idx, topo_subject_id = pick_trial(train_dataset, _first_subject, trial=1)
+        logger.info(f"[{fold_tag}] Topo viz: subject={topo_subject_id}, trial_idx={topo_trial_idx}")
+    except Exception as e:
+        logger.warning(f"[{fold_tag}] Topo trial pick failed: {e}")
 
     best_val_acc = 0.0
+    best_metrics = None
     total_epochs = train_params['epochs']
-    logger.info(f"Starting Finetuning ({total_epochs} epochs, freeze_backbone={freeze_backbone}, "
-                f"lb_weight={load_balance_weight}, diversity_weight={diversity_weight})")
+    logger.info(f"[{fold_tag}] Starting Finetuning ({total_epochs} epochs, freeze_backbone={freeze_backbone})")
 
     for epoch in range(1, total_epochs + 1):
-        train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch,
-                                        load_balance_weight=load_balance_weight, diversity_weight=diversity_weight)
+        train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch)
         val_metrics   = validate_one_epoch(model, val_loader, device)
         scheduler.step()
 
-        logger.info(f"--- Epoch {epoch}/{total_epochs} Summary ---")
-        logger.info(f"  [Train] loss: {train_metrics['loss']:.4f} | acc: {train_metrics['acc']:.4f} | f1: {train_metrics['f1']:.4f}")
-        logger.info(f"  [Val]   loss: {val_metrics['loss']:.4f} | acc: {val_metrics['acc']:.4f} | f1: {val_metrics['f1']:.4f}")
+        logger.info(f"--- [{fold_tag}] Epoch {epoch}/{total_epochs} Summary ---")
+        logger.info(f"  [Train] loss: {train_metrics['loss']:.4f} | acc: {train_metrics['acc']:.4f} | f1: {train_metrics['f1']:.4f} | f1_w: {train_metrics['f1_weighted']:.4f} | bal_acc: {train_metrics['balanced_acc']:.4f} | kappa: {train_metrics['kappa']:.4f}")
+        logger.info(f"  [Val]   loss: {val_metrics['loss']:.4f} | acc: {val_metrics['acc']:.4f} | f1: {val_metrics['f1']:.4f} | f1_w: {val_metrics['f1_weighted']:.4f} | bal_acc: {val_metrics['balanced_acc']:.4f} | kappa: {val_metrics['kappa']:.4f}")
         logger.info("-" * 40)
 
         if val_metrics['acc'] > best_val_acc:
             best_val_acc = val_metrics['acc']
+            best_metrics = {'epoch': epoch, 'train': train_metrics, 'val': val_metrics}
             torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_finetune.pth'))
-            logger.info("  > Saved Best Checkpoint")
+            logger.info(f"  > [{fold_tag}] Saved Best Checkpoint")
 
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
         plotter.plot(mode='finetune', freeze_backbone=freeze_backbone)
 
-        if epoch % 10 == 0:
+        if epoch % 5 == 0 and topo_trial_idx is not None:
             try:
                 run_recon_analysis_finetune(
                     config, output_dir=vis_dir,
@@ -346,6 +360,107 @@ def main():
             except Exception as e:
                 logger.warning(f"  Topomap viz failed (epoch {epoch}): {e}")
 
+    logger.info(f"[{fold_tag}] Finetuning Complete. Best val acc: {best_val_acc:.4f} (epoch {best_metrics['epoch'] if best_metrics else 'n/a'})")
+    return best_metrics
+
+
+def _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, patch_len):
+    folds = _loso_folds(dataset_params)
+    logger.info(f"LOSO: {len(folds)} folds ({', '.join(f'{ds}:{s}' for ds, s in folds)})")
+
+    fold_results = {}
+    for ds_name, subject in folds:
+        fold_tag = f"{ds_name}_{subject}"
+        logger.info(f"===== LOSO fold {fold_tag} =====")
+        train_config, val_config = _loso_fold_configs(config, dataset_params, ds_name, subject)
+
+        train_dataset = build_dataset_from_config(train_config, transform=None, mode='finetune')
+        val_dataset   = build_dataset_from_config(val_config,   transform=None, mode='finetune')
+        logger.info(f"[{fold_tag}] Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
+
+        checkpoint_dir = os.path.join(base_output_dir, "finetune", f"fold_{fold_tag}")
+        vis_dir        = os.path.join(base_output_dir, "visualization", f"fold_{fold_tag}")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        os.makedirs(vis_dir, exist_ok=True)
+
+        best_metrics = run_training_loop(
+            config, train_dataset, val_dataset, checkpoint_dir, vis_dir,
+            artifact_dir, logger, patch_len, fold_tag=fold_tag,
+        )
+        fold_results[fold_tag] = best_metrics
+
+    logger.info("===== LOSO Summary (best-val-acc epoch per fold) =====")
+    metric_keys = ['acc', 'f1', 'f1_weighted', 'balanced_acc', 'kappa']
+    per_metric = {k: [] for k in metric_keys}
+    for fold_tag, best_metrics in fold_results.items():
+        if best_metrics is None:
+            logger.info(f"  {fold_tag}: no valid epoch")
+            continue
+        v = best_metrics['val']
+        logger.info(f"  {fold_tag}: " + " | ".join(f"{k}={v[k]:.4f}" for k in metric_keys))
+        for k in metric_keys:
+            per_metric[k].append(v[k])
+
+    summary = {'folds': {}, 'aggregate': {}}
+    for fold_tag, best_metrics in fold_results.items():
+        summary['folds'][fold_tag] = best_metrics
+    for k in metric_keys:
+        vals = per_metric[k]
+        if vals:
+            mean = statistics.mean(vals)
+            std  = statistics.pstdev(vals) if len(vals) > 1 else 0.0
+            summary['aggregate'][k] = {'mean': mean, 'std': std}
+            logger.info(f"  MEAN {k}: {mean:.4f} +/- {std:.4f}")
+
+    summary_path = os.path.join(artifact_dir, 'loso_summary.json')
+    with open(summary_path, 'w') as f:
+        json.dump(summary, f, indent=2)
+    logger.info(f"LOSO summary written to {summary_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description='MeFSQ Finetuning')
+    parser.add_argument('--config', type=str, default='config/config.json')
+    args = parser.parse_args()
+
+    with open(args.config, 'r') as f:
+        config = json.load(f)
+
+    train_params = config['training_params']['finetune']
+    model_name = train_params.get('model_name', 'default_finetune_run')
+
+    base_output_dir = f"output/{model_name}"
+    checkpoint_dir  = os.path.join(base_output_dir, "finetune")
+    artifact_dir    = os.path.join(base_output_dir, "artifacts")
+    vis_dir         = os.path.join(base_output_dir, "visualization")
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    os.makedirs(artifact_dir, exist_ok=True)
+    os.makedirs(vis_dir, exist_ok=True)
+
+    logger = setup_logger(artifact_dir)
+    shutil.copy(args.config, os.path.join(artifact_dir, 'config.json'))
+
+    dataset_params = config['dataset_params']['finetune']
+    split_ratio = train_params.get('train_val_split', 0.9)
+    split_mode  = train_params.get('split_mode', 'subject')
+
+    pp = config.get('preprocess_params', {})
+    patch_len = pp.get('patch_length', 100)
+
+    logger.info(f"split_mode={split_mode}")
+
+    if split_mode == 'loso':
+        _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, patch_len)
+        return
+
+    if split_mode == 'subject':
+        train_dataset, val_dataset = build_subject_split_datasets(config, dataset_params, split_ratio, logger)
+    else:
+        raise ValueError(f"Unknown split_mode: {split_mode!r} (expected 'subject' or 'loso')")
+
+    logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
+    run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_dir, artifact_dir, logger, patch_len, fold_tag=split_mode)
     logger.info("Finetuning Complete.")
 
 

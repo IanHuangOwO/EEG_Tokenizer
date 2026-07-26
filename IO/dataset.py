@@ -1,13 +1,12 @@
 import os
 import json
-import numpy as np
 import torch
 from torch.utils.data import Dataset
 from typing import List, Dict, Optional, Tuple, Callable, Any
-from abc import ABC, abstractmethod
 
 from .loader import BETALoader, DialLoader, BCICIVLoader, InriaLoader, EEGMMIdbLoader, BCICIV2aLoader, BCICIV2bLoader, GraspAndLiftLoader
 from IO.preprocessing import build_preprocessing_from_config
+from IO.masking import BaseMaskingStrategy, RandomMaskingStrategy, ComplementaryMaskingStrategy
 
 # Channels excluded by default when channels_to_use is "all".
 # Set include_non_eeg_channels: true in dataset_params to override.
@@ -19,68 +18,6 @@ NON_EEG_CHANNELS = {
     'REF', 'LREF', 'RREF',
     'STI', 'STIM', 'STATUS', 'TRIGGER',
 }
-
-# --- Masking Strategies ---
-
-class BaseMaskingStrategy(ABC):
-    @abstractmethod
-    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
-        """Returns a boolean mask of shape (num_channels * num_patches,)."""
-        pass
-
-
-class RandomMaskingStrategy(BaseMaskingStrategy):
-    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
-        num_tokens = num_channels * num_patches
-        num_masked = int(num_tokens * mask_ratio)
-        indices = torch.randperm(num_tokens)
-        mask = torch.zeros(num_tokens, dtype=torch.bool)
-        mask[indices[:num_masked]] = True
-        return mask
-
-
-class BlockMaskingStrategy(BaseMaskingStrategy):
-    """
-    Masks entire channels (row) or entire time patches (col) to simulate
-    sensor loss or device disconnects, then fills the remainder randomly.
-    """
-    def __init__(self, row_prob: float = 0.5, col_prob: float = 0.5):
-        self.row_prob = row_prob
-        self.col_prob = col_prob
-
-    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
-        mask = torch.zeros((num_channels, num_patches), dtype=torch.bool)
-        target_total = int(num_channels * num_patches * mask_ratio)
-
-        num_rows = min(int(np.round(target_total * self.row_prob / num_patches)), num_channels)
-        if num_rows > 0:
-            mask[torch.randperm(num_channels)[:num_rows], :] = True
-
-        num_cols = min(int(np.round(target_total * self.col_prob / num_channels)), num_patches)
-        if num_cols > 0:
-            mask[:, torch.randperm(num_patches)[:num_cols]] = True
-
-        remaining = target_total - mask.sum().item()
-        if remaining > 0:
-            flat = mask.flatten()
-            unmasked = torch.where(~flat)[0]
-            flat[unmasked[torch.randperm(len(unmasked))[:remaining]]] = True
-            mask = flat.reshape(num_channels, num_patches)
-
-        return mask.flatten()
-
-
-class ComplementaryMaskingStrategy(BaseMaskingStrategy):
-    """
-    Fixed mask_ratio=0.5. Dataset doubles: first half uses the mask,
-    second half uses its bitwise inverse so every patch is seen as both
-    masked and visible across the pair.
-    """
-    MASK_RATIO = 0.5
-
-    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float = 0.5) -> torch.Tensor:
-        return RandomMaskingStrategy().generate_mask(num_channels, num_patches, self.MASK_RATIO)
-
 
 # --- Base Dataset ---
 
@@ -308,8 +245,7 @@ class MaskedPretrainDataset(Dataset):
     ):
         self.base_dataset     = base_dataset
         self.masking_strategy = masking_strategy or RandomMaskingStrategy()
-        self.complementary    = isinstance(self.masking_strategy, ComplementaryMaskingStrategy)
-        self.mask_ratio       = ComplementaryMaskingStrategy.MASK_RATIO if self.complementary else mask_ratio
+        self.mask_ratio       = self.masking_strategy.effective_mask_ratio(mask_ratio)
 
         if patch_len is None:
             model_type = base_dataset.config.get('training_params', {}).get('pretrain', {}).get('model_type', 'MeFSQ')
@@ -328,7 +264,7 @@ class MaskedPretrainDataset(Dataset):
         ]
 
         strategy_name = type(self.masking_strategy).__name__.replace('MaskingStrategy', '').lower()
-        n_effective   = len(base_dataset) * (2 if self.complementary else 1)
+        n_effective   = len(base_dataset) * self.masking_strategy.multiplier
         print(f"\n--- MaskedPretrainDataset ---")
         print(f"  {len(base_dataset)} trials | {num_patches} patches/trial | mask_ratio={self.mask_ratio} | strategy={strategy_name}")
         print(f"  effective dataset size: {n_effective}")
@@ -337,12 +273,11 @@ class MaskedPretrainDataset(Dataset):
         print(f"----------------------------\n")
 
     def __len__(self):
-        return len(self.base_dataset) * (2 if self.complementary else 1)
+        return len(self.base_dataset) * self.masking_strategy.multiplier
 
     def __getitem__(self, index):
         N = len(self.base_dataset)
-        flip       = self.complementary and (index >= N)
-        trial_idx  = index % N
+        trial_idx, mask = self.masking_strategy.resolve(self._masks, index, N)
 
         x, y = self.base_dataset[trial_idx]
         C, T = x.shape
@@ -350,9 +285,6 @@ class MaskedPretrainDataset(Dataset):
         L = self.patch_len
 
         x_patches    = x[:, :P * L].reshape(C, P, L)
-        mask         = self._masks[trial_idx]
-        if flip:
-            mask = ~mask
         time_indices = torch.arange(P, dtype=torch.long)
 
         if self.base_dataset.fft_params is not None:
@@ -518,12 +450,6 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         if strategy_name == 'complementary':
             strategy   = ComplementaryMaskingStrategy()
             mask_ratio = ComplementaryMaskingStrategy.MASK_RATIO
-        elif strategy_name == 'block':
-            strategy   = BlockMaskingStrategy(
-                row_prob=strategy_cfg.get('mask_row_prob', 0.5),
-                col_prob=strategy_cfg.get('mask_col_prob', 0.5),
-            )
-            mask_ratio = strategy_cfg.get('mask_ratio', 0.5)
         else:
             strategy   = RandomMaskingStrategy()
             mask_ratio = strategy_cfg.get('mask_ratio', 0.5)

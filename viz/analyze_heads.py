@@ -124,7 +124,8 @@ def build_val_loader(config, batch_size):
 
 @torch.no_grad()
 def accumulate(model, loader, device, n_batches):
-    """Returns vq_all [B,C,N,H,r], x_all [B,C,T], coords [C,3], head_sel_rate [H]"""
+    """Returns vq_all [B,N,H,r] (one shared code per patch, all channels), x_all [B,C,T],
+    coords [C,3], head_sel_rate [H]"""
     model.eval()
     vq_list, x_list, gate_list, coords_out = [], [], [], None
     for i, batch in enumerate(loader):
@@ -132,11 +133,11 @@ def accumulate(model, loader, device, n_batches):
             break
         x, coords, time_idx, _ = _unpack(batch, device)
         B, C, N, L = x.shape
-        _, _, v_q, gate_mask, _ = model(x, coords, time_idx, bool_masked_pos=None, use_routing=True)
-        vq_list.append(v_q.float().reshape(B, C, N, v_q.shape[1], v_q.shape[2]).cpu())
+        out = model(x, coords, time_idx, bool_masked_pos=None)
+        v_q, gate_mask = out.v_q_routed, out.gate_mask_routed  # routed pool only — shared pool doesn't route
+        vq_list.append(v_q.float().reshape(B, N, v_q.shape[1], v_q.shape[2]).cpu())
         x_list.append(x.float().reshape(B, C, N * L).cpu())
-        # gate_mask [B*C*N, H] — softmax weight (nonzero) for selected heads when routing
-        # active, all-1 otherwise; "selected" means nonzero, not "above 0.5"
+        # gate_mask [B*N, H] — softmax weight (nonzero) for selected experts
         gate_list.append((gate_mask.detach() > 0).float().mean(dim=0).cpu())  # [H]
         if coords_out is None:
             coords_out = coords[0].cpu().numpy()
@@ -149,21 +150,24 @@ def accumulate(model, loader, device, n_batches):
 def head_cluster_assignments(model, vq_all, n_clusters=8):
     """
     Compute rfft mean+var fingerprints per head, run sklearn KMeans for post-hoc grouping.
+    Each head's code decodes jointly to all C channels (fused per-patch VQ) — fingerprints
+    are computed per channel from that joint decode, same as before the fusion change.
     Returns (assignments [H], fp [H, 2*C*F]).
     """
-    B, C, N, H, r = vq_all.shape
-    vq_proj   = model.vq_proj.detach().cpu().float()
-    decoder   = copy.deepcopy(model.decoder).cpu().eval()   # per-head decoder, moved off-GPU for this analysis
+    B, N, H, r = vq_all.shape
+    C = model.num_channels
+    vq_proj   = model.vq_proj_routed.detach().cpu().float()
+    decoder   = copy.deepcopy(model.decoder_routed).cpu().eval()   # per-head decoder, moved off-GPU for this analysis
 
-    vq_flat   = vq_all.reshape(B * C, N, H, r)
     with torch.no_grad():
-        z_all     = torch.einsum('bnhr,hdr->bnhd', vq_flat, vq_proj)     # [B*C, N, H, embed_dim]
-        recon_all = decoder(z_all)                                       # [B*C, N, H, P] — decoder already per-head & vectorized
-    fft_all   = torch.fft.rfft(recon_all.float(), dim=-1).abs()            # [B*C, N, H, F]
-    fft_all   = fft_all.reshape(B, C, N, H, -1)                           # [B, C, N, H, F]
+        z_all     = torch.einsum('bnhr,hdr->bnhd', vq_all, vq_proj)      # [B, N, H, embed_dim]
+        recon_all = decoder(z_all)                                       # [B, N, H, C*patch_len] — decoder already per-head & vectorized
+    patch_len = recon_all.shape[-1] // C
+    recon_all = recon_all.reshape(B, N, H, C, patch_len)
+    fft_all   = torch.fft.rfft(recon_all.float(), dim=-1).abs()          # [B, N, H, C, F]
 
-    fp_mean = fft_all.mean(dim=[0, 2]).permute(1, 0, 2).reshape(H, -1)   # [H, C*F]
-    fp_var  = fft_all.var(dim=[0, 2]).permute(1, 0, 2).reshape(H, -1)    # [H, C*F]
+    fp_mean = fft_all.mean(dim=[0, 1]).reshape(H, -1)                    # [H, C*F]
+    fp_var  = fft_all.var(dim=[0, 1]).reshape(H, -1)                     # [H, C*F]
     fp = torch.cat([F.normalize(fp_mean, dim=-1),
                     F.normalize(fp_var,  dim=-1)], dim=-1).numpy()         # [H, 2*C*F]
 
@@ -175,23 +179,24 @@ def head_cluster_assignments(model, vq_all, n_clusters=8):
 def head_fingerprints(model, vq_all, fs):
     """
     For each head h:
-      1. Reconstruct head h's contribution: recon_h [B, C, T]
+      1. Reconstruct head h's joint all-channel contribution: recon_h [B, C, T]
       2. Reshape to [C, B*T] and compute band_spatial_fp -> [C, n_bands]
     Returns fps [H, C, n_bands]
     """
-    B, C, N, H, r = vq_all.shape
-    vq_proj = model.vq_proj.detach().cpu().float()          # [H, embed_dim, r]
-    decoder = copy.deepcopy(model.decoder).cpu().eval()     # per-head decoder, moved off-GPU for this analysis
-    vq_flat = vq_all.reshape(B * C, N, H, r)
+    B, N, H, r = vq_all.shape
+    C = model.num_channels
+    vq_proj = model.vq_proj_routed.detach().cpu().float()          # [H, embed_dim, r]
+    decoder = copy.deepcopy(model.decoder_routed).cpu().eval()     # per-head decoder, moved off-GPU for this analysis
 
     with torch.no_grad():
-        z_all     = torch.einsum('bnhr,hdr->bnhd', vq_flat, vq_proj)  # [B*C, N, H, embed_dim]
-        recon_all = decoder(z_all)                                    # [B*C, N, H, patch_len] — per-head, vectorized
-    patch_len = recon_all.shape[-1]
+        z_all     = torch.einsum('bnhr,hdr->bnhd', vq_all, vq_proj)   # [B, N, H, embed_dim]
+        recon_all = decoder(z_all)                                    # [B, N, H, C*patch_len] — per-head, vectorized
+    patch_len = recon_all.shape[-1] // C
+    recon_all = recon_all.reshape(B, N, H, C, patch_len)
 
     fps = np.zeros((H, C, len(BANDS)), dtype=np.float32)
     for h in range(H):
-        sig    = recon_all[:, :, h, :].reshape(B, C, N * patch_len).numpy()   # [B, C, T]
+        sig    = recon_all[:, :, h, :, :].permute(0, 2, 1, 3).reshape(B, C, N * patch_len).numpy()  # [B, C, T]
         sig_ct = sig.transpose(1, 0, 2).reshape(C, B * N * patch_len)         # [C, B*T]
         fps[h] = band_spatial_fp(sig_ct, fs)
     return fps                                                                     # [H, C, n_bands]
@@ -373,7 +378,7 @@ def main():
     print(f"Accumulating {args.n_batches} val batches...")
     loader = build_val_loader(config, config['training_params']['pretrain']['batch_size'])
     vq_all, x_all, coords, head_sel_rate = accumulate(model, loader, device, args.n_batches)
-    B, C, N, H, r = vq_all.shape
+    B, N, H, r = vq_all.shape
     print(f"  vq_all {list(vq_all.shape)}   x_all {list(x_all.shape)}")
     print(f"  head sel_rate min={head_sel_rate.min():.2f} max={head_sel_rate.max():.2f} mean={head_sel_rate.mean():.2f}")
 

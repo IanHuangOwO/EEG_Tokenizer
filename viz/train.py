@@ -40,7 +40,7 @@ class Plotter:
     def plot_all(self, filename='training_dashboard.png', mode='pretrain', freeze_backbone=False):
         """mode='finetune' drops the MSE plots (never used post-pretrain).
         freeze_backbone=True zeroes codebook metrics that can't move with a frozen backbone,
-        but still shows head/fingerprint diversity (those reflect classifier-head behavior)."""
+        but still shows head diversity (reflects classifier-head behavior)."""
         if 'loss' not in self.history['train'] or not self.history['train']['loss']:
             return
 
@@ -75,13 +75,23 @@ class Plotter:
             _plot_tr_val(ax_masked,   'masked',   'crimson',   'Masked MSE',   'Loss')
             _plot_tr_val(ax_unmasked, 'unmasked', 'steelblue', 'Unmasked MSE', 'Loss')
 
-        # ── Row 1: Codebook metrics ───────────────────────────────────────────
+        # ── Row 1: Codebook metrics (routed + shared MoE pools) ──────────────
         # frozen backbone: perplexity/STE can't move post-freeze, so show a flat
-        # zero line instead of a stale/misleading real value
+        # zero line instead of a stale/misleading real value. Falls back to the old
+        # unsuffixed single-pool keys if present (pre-MoE runs).
+        def _pool_pairs(prefix):
+            routed = _v(f'{prefix}_routed')
+            shared = _v(f'{prefix}_shared')
+            if routed or shared:
+                return [('routed', routed, 'green'), ('shared', shared, 'steelblue')]
+            legacy = _v(prefix)
+            return [('', legacy, 'green')] if legacy else []
+
         # [1,0] Codebook perplexity
-        ppl = [0.0] * n_epochs if freeze_backbone else _v('codebook_perplexity')
-        if ppl:
-            ax_ppl.plot(_ep(ppl), ppl, color='green', label='Perplexity')
+        for label, ppl, color in _pool_pairs('codebook_perplexity'):
+            ppl = [0.0] * n_epochs if freeze_backbone else ppl
+            ax_ppl.plot(_ep(ppl), ppl, color=color, label=f'Perplexity {label}'.strip())
+        if ax_ppl.lines:
             ax_ppl.set_ylabel('Perplexity')
             ax_ppl.legend(fontsize='x-small')
         else:
@@ -89,9 +99,10 @@ class Plotter:
         ax_ppl.set_title('Codebook Perplexity' + (' [frozen]' if freeze_backbone else '')); ax_ppl.grid(True)
 
         # [1,1] STE gap
-        ste = [0.0] * n_epochs if freeze_backbone else _v('codebook_ste_gap')
-        if ste:
-            ax_ste.plot(_ep(ste), ste, color='red', label='STE gap')
+        for label, ste, color in _pool_pairs('codebook_ste_gap'):
+            ste = [0.0] * n_epochs if freeze_backbone else ste
+            ax_ste.plot(_ep(ste), ste, color=color, label=f'STE gap {label}'.strip())
+        if ax_ste.lines:
             ax_ste.set_ylabel('STE gap')
             ax_ste.legend(fontsize='x-small')
         else:
@@ -99,9 +110,15 @@ class Plotter:
         ax_ste.set_title('Codebook STE Gap' + (' [frozen]' if freeze_backbone else '')); ax_ste.grid(True)
 
         # [1,2] Head projection cosine similarity (lower = more diverse heads)
-        hcos = _t('head_cosine_sim')
-        if hcos:
-            ax_hcos.plot(_ep(hcos), hcos, color='darkorchid', label='Mean |cosine sim|')
+        hcos_routed = _t('head_cosine_sim_routed')
+        hcos_shared = _t('head_cosine_sim_shared')
+        hcos_legacy = _t('head_cosine_sim')
+        if hcos_routed or hcos_shared:
+            if hcos_routed: ax_hcos.plot(_ep(hcos_routed), hcos_routed, color='darkorchid', label='Mean |cosine sim| routed')
+            if hcos_shared: ax_hcos.plot(_ep(hcos_shared), hcos_shared, color='teal',       label='Mean |cosine sim| shared')
+        elif hcos_legacy:
+            ax_hcos.plot(_ep(hcos_legacy), hcos_legacy, color='darkorchid', label='Mean |cosine sim|')
+        if ax_hcos.lines:
             ax_hcos.set_ylabel('Mean |cosine sim|')
             ax_hcos.legend(fontsize='x-small')
         else:
@@ -261,8 +278,8 @@ def visualize_masked_reconstruction(batch, model, epoch,
     B, C, P, T_patch = x_patches.shape
 
     with torch.no_grad():
-        recon, _, _, _, _ = model(x_patches, coords, time_idx=time_indices, bool_masked_pos=None)
-        student_recon = recon.permute(0, 2, 1, 3)  # [B, P, C, T_patch]
+        out = model(x_patches, coords, time_idx=time_indices, bool_masked_pos=None)
+        student_recon = out.recon.permute(0, 2, 1, 3)  # [B, P, C, T_patch]
 
     fs = 200.0
     bands = {

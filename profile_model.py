@@ -135,11 +135,11 @@ def profile_model():
 
     with torch.no_grad():
         for _ in range(n_iters):
-            recon, _, v_q, _, _ = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos)
+            out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos)
             if device.type == 'cuda': torch.cuda.synchronize()
 
             t1 = time.perf_counter()
-            model.get_loss(x, recon, bool_masked_pos)
+            model.get_loss(x, out.recon, bool_masked_pos)
             if device.type == 'cuda': torch.cuda.synchronize()
             t2 = time.perf_counter()
             loss_times.append((t2 - t1) * 1000)

@@ -202,7 +202,7 @@ def run(config, output_dir, args, model=None, dataset=None, trial_idx=None, subj
     os.makedirs(csv_dir, exist_ok=True)
 
     print(f"  [codebook] Analysing MeFSQ VQ stage...")
-    all_data = [collect_stage_data(model.mefsq, 0, 0.0, 0.0, csv_dir, model.mefsq.num_discrete)]
+    all_data = [collect_stage_data(model.mefsq_routed, 0, 0.0, 0.0, csv_dir, model.mefsq_routed.num_discrete)]
 
     plot_all_stages(all_data, viz_dir)
     print(f"  [codebook] -> {viz_dir}")

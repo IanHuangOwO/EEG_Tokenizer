@@ -73,8 +73,10 @@ def run(config, output_dir, args, model=None, dataset=None,
         stage_psd, head_norms, head_affinity, routing_score = extract_head_psd(model, x_in, c_in, t_in)
         psd_ch_h   = stage_psd[0]   # [C, H]
         H          = psd_ch_h.shape[1]
+        n_shared   = model.n_shared_experts  # heads [0, n_shared) are the shared-expert pool
         sorted_ord = np.argsort(routing_score)[::-1]
         score_ranked = routing_score[sorted_ord]
+        shared_ranked = sorted_ord < n_shared
 
         n_tc = min(16, H)
         n_tr = math.ceil(H / n_tc)
@@ -95,12 +97,13 @@ def run(config, output_dir, args, model=None, dataset=None,
 
         ax_imp = fig.add_subplot(outer[0])
         rank_x = np.arange(H)
-        ax_imp.plot(rank_x, score_ranked, color='steelblue', lw=1.5)
-        ax_imp.scatter(rank_x, score_ranked, color='steelblue', s=10)
+        ax_imp.plot(rank_x, score_ranked, color='steelblue', lw=1.5, zorder=1)
+        point_colors = np.where(shared_ranked, 'crimson', 'steelblue')
+        ax_imp.scatter(rank_x, score_ranked, color=point_colors, s=14, zorder=2)
         ax_imp.set_xlim(-0.5, H - 0.5)
         ax_imp.set_xlabel('Head rank (0 = highest router score)', fontsize=9)
         ax_imp.set_ylabel('Mean gate logit (raw)', fontsize=9)
-        ax_imp.set_title(f'Head Routing Importance — {H} heads', fontsize=9, fontweight='bold')
+        ax_imp.set_title(f'Head Routing Importance — {H} heads ({n_shared} shared in crimson)', fontsize=9, fontweight='bold')
         ax_imp.grid(alpha=0.3)
 
         gs_topo = gridspec.GridSpecFromSubplotSpec(
@@ -111,7 +114,10 @@ def run(config, output_dir, args, model=None, dataset=None,
             ax_h = fig.add_subplot(gs_topo[r, c])
             p_h  = psd_ch_h[:, h_orig]
             draw_topomap(ax_h, pos2d, p_h, cmap=cmap, vmin=p_h.min(), vmax=p_h.max())
-            ax_h.set_title(f'H{h_orig}\n{routing_score[h_orig]:.3f}', fontsize=5.5)
+            is_shared = h_orig < n_shared
+            ax_h.set_title(f'H{h_orig}\n{routing_score[h_orig]:.3f}', fontsize=5.5,
+                           color='crimson' if is_shared else 'black',
+                           fontweight='bold' if is_shared else 'normal')
 
         for pos in range(H, n_tr * n_tc):
             r, c = divmod(pos, n_tc)
@@ -144,8 +150,10 @@ def run(config, output_dir, args, model=None, dataset=None,
             psd_h = psd_h[:, :, band]
 
         H = psd_h.shape[0]
+        n_shared   = model.n_shared_experts  # heads [0, n_shared) are the shared-expert pool
         sorted_ord = np.argsort(routing_score)[::-1]
         score_ranked = routing_score[sorted_ord]
+        shared_ranked = sorted_ord < n_shared
 
         n_tc = min(4, H)
         n_tr = math.ceil(H / n_tc)
@@ -166,12 +174,13 @@ def run(config, output_dir, args, model=None, dataset=None,
 
         ax_imp = fig.add_subplot(outer[0])
         rank_x = np.arange(H)
-        ax_imp.plot(rank_x, score_ranked, color='steelblue', lw=1.5)
-        ax_imp.scatter(rank_x, score_ranked, color='steelblue', s=10)
+        ax_imp.plot(rank_x, score_ranked, color='steelblue', lw=1.5, zorder=1)
+        point_colors = np.where(shared_ranked, 'crimson', 'steelblue')
+        ax_imp.scatter(rank_x, score_ranked, color=point_colors, s=14, zorder=2)
         ax_imp.set_xlim(-0.5, H - 0.5)
         ax_imp.set_xlabel('Head rank (0 = highest router score)', fontsize=9)
         ax_imp.set_ylabel('Mean gate logit (raw)', fontsize=9)
-        ax_imp.set_title(f'Head Routing Importance — {H} heads', fontsize=9, fontweight='bold')
+        ax_imp.set_title(f'Head Routing Importance — {H} heads ({n_shared} shared in crimson)', fontsize=9, fontweight='bold')
         ax_imp.grid(alpha=0.3)
 
         gs_psd = gridspec.GridSpecFromSubplotSpec(
@@ -185,7 +194,10 @@ def run(config, output_dir, args, model=None, dataset=None,
             p_h  = psd_h[h_orig]  # [C, F]
             ax_h.imshow(p_h, aspect='auto', cmap=cmap, origin='lower',
                         extent=[freqs[0], freqs[-1], 0, p_h.shape[0]])
-            ax_h.set_title(f'H{h_orig}\n{routing_score[h_orig]:.3f}', fontsize=5.5)
+            is_shared = h_orig < n_shared
+            ax_h.set_title(f'H{h_orig}\n{routing_score[h_orig]:.3f}', fontsize=5.5,
+                           color='crimson' if is_shared else 'black',
+                           fontweight='bold' if is_shared else 'normal')
             ax_h.set_xticks(freq_ticks)
             ax_h.set_xticklabels([f'{f:.0f}' for f in freq_ticks], fontsize=5)
             ax_h.set_xlabel(freq_label, fontsize=6)

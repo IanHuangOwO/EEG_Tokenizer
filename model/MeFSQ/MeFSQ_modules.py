@@ -2,14 +2,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.nn.utils.parametrize as parametrize
-
-
-class _PerHeadOrthogonal(nn.Module):
-    """QR-orthogonalizes each head's [D, r] slice independently (batched over the H dim)."""
-    def forward(self, A):
-        Q, _ = torch.linalg.qr(A)  # A: [H, D, r] -> Q: [H, D, r], orthonormal columns per head
-        return Q
 
 
 # ==========================================
@@ -135,20 +127,51 @@ class TSABlock(nn.Module):
 
 
 class TSAEncoder(nn.Module):
-    def __init__(self, dim, depth=12, num_heads=8, mlp_ratio=4., dropout=0.0):
+    def __init__(self, dim, depth=12, num_heads=8, mlp_ratio=4., dropout=0.0,
+                 pool_after_blocks=(), upsample_residual_add=True):
         super().__init__()
         self.blocks = nn.ModuleList([
             TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout)
             for _ in range(depth)
         ])
+        # UNet-style temporal down/up: avg-pool N in half after each listed block, then
+        # (once, after the last block) nearest-repeat upsample + skip-add back through the
+        # same points in reverse, restoring the original N. Parameter-free (mean + repeat),
+        # so downstream (VQ/decoder/loss) never sees a shape change.
+        self.pool_after_blocks = set(pool_after_blocks)
+        self.upsample_residual_add = upsample_residual_add
+        # per-skip learned gate on the residual add, sigmoid init ~0.95 (near plain add);
+        # ordered ascending by block index to match `skips` build order in forward()
+        self.skip_gates = nn.ParameterList([
+            nn.Parameter(torch.tensor(3.0)) for _ in sorted(self.pool_after_blocks)
+        ]) if upsample_residual_add else None
 
     def enable_spatial(self):
         for block in self.blocks:
             block.enable_spatial()
 
+    @staticmethod
+    def _pool(x):
+        B, C, N, D = x.shape
+        if N % 2 == 1:
+            x = torch.cat([x, x[:, :, -1:, :]], dim=2)  # repeat last token to make N even
+        return x.reshape(B, C, x.shape[2] // 2, 2, D).mean(dim=3)
+
     def forward(self, x):
-        for block in self.blocks:
+        skips = []  # unpadded pre-pool tensors, one per pool point, in block order
+        for i, block in enumerate(self.blocks):
             x = block(x)
+            if i in self.pool_after_blocks:
+                skips.append(x)
+                x = self._pool(x)
+
+        gates = reversed(self.skip_gates) if self.upsample_residual_add else [None] * len(skips)
+        for skip, gate in zip(reversed(skips), gates):
+            N_pre = skip.shape[2]
+            x = x.repeat_interleave(2, dim=2)  # upsample
+            x = x[:, :, :N_pre, :]              # trim off any pool-time padding
+            if self.upsample_residual_add:
+                x = x + torch.sigmoid(gate) * skip
         return x
 
 
@@ -192,6 +215,43 @@ class MultiHeadDecoder(nn.Module):
         return torch.einsum('...hk,hkp->...hp', h, self.w2) + self.b2         # [..., H, patch_len]
 
 
+class Router(nn.Module):
+    """
+    Top-k softmax router over the routed expert pool. Each expert gets a per-expert dot
+    product score against the shared patch input z (all experts read the same z — there's
+    no per-expert input fusion here, so this reduces to a plain linear layer); the top-k
+    scores are softmax-normalized (weights sum to 1, regardless of k) and scattered into a
+    dense [M, n_experts] gate mask (nonzero only at the selected experts).
+
+    Also returns the Switch-Transformer-style load-balance loss: dense softmax prob `p`
+    (has grad, computed over ALL experts so non-selected experts still get pushed on) times
+    hard selection frequency `f` (detached) — 1.0 at perfectly uniform routing, scales
+    with `n_experts` so the value is comparable across different pool sizes.
+    """
+    def __init__(self, dim, n_experts, top_k):
+        super().__init__()
+        self.n_experts = n_experts
+        self.top_k = min(top_k, n_experts)
+        self.scale = dim ** -0.5
+        self.weight = nn.Parameter(torch.empty(n_experts, dim))
+        nn.init.normal_(self.weight, std=0.01)
+
+    def forward(self, z):
+        """z: [M, D] -> gate_mask [M, n_experts], lb_loss scalar"""
+        # scaled dot-product: dot-product variance grows linearly with `dim`, so without this
+        # a wide `dim` (e.g. the fused per-patch token, num_channels*embed_dim) saturates the
+        # softmax almost immediately -> one expert wins early and entrenches (router collapse).
+        gate_logits = (z @ self.weight.T) * self.scale  # [M, H]
+        topk_val, topk_idx = gate_logits.topk(self.top_k, dim=-1)
+        topk_weight = torch.softmax(topk_val, dim=-1).to(gate_logits.dtype)
+        gate_mask = torch.zeros_like(gate_logits).scatter_(-1, topk_idx, topk_weight)
+
+        f = (gate_mask.detach() > 0).float().mean(dim=0)     # [H] hard selection frequency
+        p = torch.softmax(gate_logits, dim=-1).mean(dim=0)   # [H] dense prob, has grad
+        lb_loss = self.n_experts * ((f / (f.sum() + 1e-8)) * (p / (p.sum() + 1e-8))).sum()
+        return gate_mask, lb_loss
+
+
 class MeFSQ(nn.Module):
     def __init__(self, num_heads, vq_head_vocab_size, e_dim, num_discrete=5, sigmoid_gain=1.0):
         super().__init__()
@@ -205,12 +265,15 @@ class MeFSQ(nn.Module):
         # [H, D, r] — same shared D-dim input z broadcasts against every head's own [D, r]
         # slice (via einsum, no need to materialize a per-head copy of z) — smaller than the
         # old flat [D, H*r] matrix would suggest per-head specialization requires, at the
-        # same total param count.
+        # same total param count. Plain linear projection, no orthogonality constraint.
         self.A = nn.Parameter(torch.empty(num_heads, e_dim, vq_head_vocab_size))
-        with torch.no_grad():
-            for h in range(num_heads):
-                nn.init.orthogonal_(self.A[h], gain=1.0)
-        parametrize.register_parametrization(self, 'A', _PerHeadOrthogonal())
+        # kaiming_uniform_ on the whole 3D tensor at once folds vq_head_vocab_size (r) into
+        # the fan-in calc (torch treats dim>2 tensors as [out, in, *receptive_field]), so
+        # fan_in = e_dim*r instead of the real e_dim -> bigger r shrinks each per-head slice's
+        # init scale for no good reason. Init each head's [e_dim, r] slice separately instead
+        # (matches MultiHeadDecoder's existing per-head loop) so fan_in is just e_dim.
+        for h in range(num_heads):
+            nn.init.kaiming_uniform_(self.A[h], a=math.sqrt(5))
 
         self.register_buffer('avg_probs',        torch.zeros(num_heads, vq_head_vocab_size, num_discrete))
         self.register_buffer('max_prob_ema',     torch.tensor(0.0))
@@ -281,6 +344,12 @@ class PerChannelHeadAttn(nn.Module):
     """
     def __init__(self, head_dim, num_channels, num_classes, hidden=32, dropout=0.1):
         super().__init__()
+        # encode_pre_vq fed this pooler through pre_vq_norm_routed/shared (LayerNorm);
+        # encode_post_vq's raw decoder output (real EEG amplitude scale) has no such norm.
+        # Un-normalized-scale input starves key/query dot products and cls of usable
+        # gradient — normalize here so the pooler works regardless of which encode_* the
+        # caller feeds it.
+        self.input_norm = nn.LayerNorm(head_dim)
         self.key_n   = nn.Linear(head_dim, hidden)
         self.query_n = nn.Parameter(torch.zeros(hidden))
         self.key_h   = nn.Linear(head_dim, hidden)
@@ -298,25 +367,35 @@ class PerChannelHeadAttn(nn.Module):
         """
         z_per_head: [B, C, N, H, d]
         pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels/patches)
-        Returns (logits [B, num_classes], attn_h [B, C, H], attn_n [B, C, H, N])
+        Returns (logits [B, num_classes], attn_h [B, C, H], attn_n [B, C, H, N], attn_c [B, C])
         """
+        # input_norm feeds ONLY the key/query logit computation below, not the z_h /
+        # pooled_per_channel that flows to cls — LayerNorm-ing z_per_head itself would
+        # renormalize near-zero (dead/unselected head) vectors up to unit variance too,
+        # amplifying noise to the same magnitude as heads carrying real signal and wiping
+        # out the amplitude cue the classifier needs. Keys get a stable scale to compute
+        # attention weights from; the actual pooled values stay at their real amplitude.
+        z_key = self.input_norm(z_per_head)
+
         # ---- stage 1: attention pool over N (patches), per channel & head ----
-        logits_n = torch.einsum('bcnhk,k->bcnh', self.key_n(z_per_head), self.query_n) * self.scale  # [B, C, N, H]
+        logits_n = torch.einsum('bcnhk,k->bcnh', self.key_n(z_key), self.query_n) * self.scale  # [B, C, N, H]
         if pad_mask is not None:
             logits_n = logits_n.masked_fill(~pad_mask.unsqueeze(-1), float('-inf'))
         attn_n = torch.softmax(logits_n, dim=2)                                 # softmax over N, per channel & head
         attn_n = torch.nan_to_num(attn_n)                                       # all-invalid channel -> all -inf -> nan; zero it
         z_h = torch.einsum('bcnhd,bcnh->bchd', z_per_head, attn_n)              # [B, C, H, d]
+        z_h_key = torch.einsum('bcnhd,bcnh->bchd', z_key, attn_n)               # [B, C, H, d] — for stage 2 logits only
 
         valid_channel = pad_mask.any(dim=-1) if pad_mask is not None else None  # [B, C]
 
         # ---- stage 2: attention pool over H (heads), per channel ----
-        logits_h = torch.einsum('bchk,k->bch', self.key_h(z_h), self.query_h) * self.scale  # [B, C, H]
+        logits_h = torch.einsum('bchk,k->bch', self.key_h(z_h_key), self.query_h) * self.scale  # [B, C, H]
         attn_h = torch.softmax(logits_h, dim=2)                                 # softmax over H, independently per channel
         pooled_per_channel = (z_h * attn_h.unsqueeze(-1)).sum(dim=2)            # [B, C, d]
+        pooled_per_channel_key = (z_h_key * attn_h.unsqueeze(-1)).sum(dim=2)    # [B, C, d] — for stage 3 logits only
 
         # ---- stage 3: attention pool over C (channels) ----
-        logits_c = torch.einsum('bck,k->bc', self.key_c(pooled_per_channel), self.query_c) * self.scale  # [B, C]
+        logits_c = torch.einsum('bck,k->bc', self.key_c(pooled_per_channel_key), self.query_c) * self.scale  # [B, C]
         if valid_channel is not None:
             logits_c = logits_c.masked_fill(~valid_channel, float('-inf'))
         attn_c = torch.softmax(logits_c, dim=1)                                 # [B, C]
@@ -324,4 +403,4 @@ class PerChannelHeadAttn(nn.Module):
         pooled = (pooled_per_channel * attn_c.unsqueeze(-1)).sum(dim=1)         # [B, d]
 
         attn_n = attn_n.permute(0, 1, 3, 2)                                     # [B, C, H, N] for interpretability
-        return self.cls(self.drop(pooled)), attn_h, attn_n
+        return self.cls(self.drop(pooled)), attn_h, attn_n, attn_c

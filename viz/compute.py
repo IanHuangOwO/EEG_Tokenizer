@@ -9,8 +9,8 @@ import numpy as np
 @torch.no_grad()
 def get_detailed_outputs(model, x, coords, time_idx=None):
     B, C, N, L = x.shape
-    recon, _, _, _, _ = model(x, coords=coords, time_idx=time_idx, bool_masked_pos=None)
-    return recon.reshape(B, C, N * L)
+    out = model(x, coords=coords, time_idx=time_idx, bool_masked_pos=None)
+    return out.recon.reshape(B, C, N * L)
 
 
 @torch.no_grad()

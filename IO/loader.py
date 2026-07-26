@@ -41,6 +41,14 @@ class BaseSubjectLoader(ABC):
             raw.resample(self.sample_freq)
 
     @staticmethod
+    def _existing(paths: List[str]) -> List[str]:
+        """Filters to paths that exist, printing a warning for each one that doesn't."""
+        for p in paths:
+            if not os.path.exists(p):
+                print(f"  [Warning] Missing file: {p}")
+        return [p for p in paths if os.path.exists(p)]
+
+    @staticmethod
     def _segment_by_annotations(
         raw, trial_len_pts: int, code_to_label: Dict[str, int], channel_indices: List[int]
     ) -> Tuple[List[np.ndarray], List[int]]:
@@ -111,9 +119,9 @@ class BaseSubjectLoader(ABC):
 
         return np.array(coords_list, dtype=np.float32)
 
-    @abstractmethod
     def _load_coords(self) -> np.ndarray:
-        pass
+        """Default coord source. Override only when the loader has real digitized coords."""
+        return self._load_coords_from_metadata()
 
     @abstractmethod
     def _load_data(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -136,11 +144,8 @@ class BETALoader(BaseSubjectLoader):
         super().__init__(config, subject_id, desired_channel_indices)
         self.file_path = self._resolve(self._require_subject(subject_id)['file'])
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self):
-        if not os.path.exists(self.file_path):
+        if not self._existing([self.file_path]):
             return None, None
 
         mat_data = scipy.io.loadmat(self.file_path)
@@ -166,11 +171,8 @@ class DialLoader(BaseSubjectLoader):
         self.signal_path = self._resolve(entry['signals'])
         self.label_path = self._resolve(entry['labels'])
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self):
-        if not os.path.exists(self.signal_path) or not os.path.exists(self.label_path):
+        if len(self._existing([self.signal_path, self.label_path])) < 2:
             return None, None
 
         samples = scipy.io.loadmat(self.signal_path)['Data']
@@ -194,11 +196,8 @@ class BCICIVLoader(BaseSubjectLoader):
         super().__init__(config, subject_id, desired_channel_indices)
         self.file_path = self._resolve(self._require_subject(subject_id)['file'])
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self):
-        if not os.path.exists(self.file_path):
+        if not self._existing([self.file_path]):
             return None, None
         mat = scipy.io.loadmat(self.file_path)
         cnt = mat['cnt'].astype(np.float32)  # (Time, Channels)
@@ -252,9 +251,6 @@ class InriaLoader(BaseSubjectLoader):
         self.signal_paths = [self._resolve(p) for p in signals] if isinstance(signals, list) else [self._resolve(signals)]
         self.label_path = self._resolve(entry['labels'])
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self):
         import pandas as pd
         labels_df = pd.read_csv(self.label_path)
@@ -262,9 +258,7 @@ class InriaLoader(BaseSubjectLoader):
         alt_df = pd.read_csv(alt_path) if os.path.exists(alt_path) else None
 
         all_trials, all_labels = [], []
-        for signal_path in self.signal_paths:
-            if not os.path.exists(signal_path):
-                continue
+        for signal_path in self._existing(self.signal_paths):
             df = pd.read_csv(signal_path)
             data = df.iloc[:, 1:-1].values    # (Time, Channels)
             markers = df.iloc[:, -1].values   # (Time,)
@@ -307,9 +301,6 @@ class EEGMMIdbLoader(BaseSubjectLoader):
         entry = self._require_subject(subject_id)
         self.run_paths = [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self):
         if self.standard_window is None:
             print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
@@ -319,9 +310,7 @@ class EEGMMIdbLoader(BaseSubjectLoader):
         trial_len_pts = int(self.standard_window * self.sample_freq)
         all_trials, all_labels = [], []
 
-        for run_path in self.run_paths:
-            if not os.path.exists(run_path):
-                continue
+        for run_path in self._existing(self.run_paths):
             try:
                 raw = mne.io.read_raw_edf(run_path, preload=True, verbose=False)
                 self._resample_if_needed(raw)
@@ -356,11 +345,8 @@ class BCICIV2aLoader(BaseSubjectLoader):
         super().__init__(config, subject_id, desired_channel_indices)
         self.file_path = self._resolve(self._require_subject(subject_id)['file'])
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self):
-        if not os.path.exists(self.file_path):
+        if not self._existing([self.file_path]):
             return None, None
         if self.standard_window is None:
             print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
@@ -395,9 +381,6 @@ class BCICIV2bLoader(BaseSubjectLoader):
         entry = self._require_subject(subject_id)
         self.run_paths = [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self):
         if self.standard_window is None:
             print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
@@ -407,9 +390,7 @@ class BCICIV2bLoader(BaseSubjectLoader):
         trial_len_pts = int(self.standard_window * self.sample_freq)
         all_trials, all_labels = [], []
 
-        for run_path in self.run_paths:
-            if not os.path.exists(run_path):
-                continue
+        for run_path in self._existing(self.run_paths):
             try:
                 raw = mne.io.read_raw_gdf(run_path, preload=True, verbose=False)
                 self._resample_if_needed(raw)
@@ -447,9 +428,6 @@ class GraspAndLiftLoader(BaseSubjectLoader):
         entry = self._require_subject(subject_id)
         self.file_pairs = [(self._resolve(f['data']), self._resolve(f['events'])) for f in entry['files']]
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self):
         if self.standard_window is None:
             print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
@@ -459,8 +437,9 @@ class GraspAndLiftLoader(BaseSubjectLoader):
         trial_len = int(self.standard_window * self.sample_freq)
         all_trials = []
 
+        existing_data_paths = set(self._existing([d for d, _ in self.file_pairs]))
         for data_path, events_path in self.file_pairs:
-            if not os.path.exists(data_path):
+            if data_path not in existing_data_paths:
                 continue
             df = pd.read_csv(data_path)
             data = df.iloc[:, 1:].values.astype(np.float32)  # (Time, Channels), drop 'id' column
@@ -491,11 +470,8 @@ class TemplateLoader(BaseSubjectLoader):
         # Multi-run style (EEGMMIdb):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
         self.file_path = self._resolve(entry['file'])
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()
-
     def _load_data(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-        if not os.path.exists(self.file_path):
+        if not self._existing([self.file_path]):
             return None, None
 
         # TODO: read the raw file, subset channels via self.channel_indices,
