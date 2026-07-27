@@ -228,13 +228,14 @@ class EEGDataset(Dataset):
 class MaskedPretrainDataset(Dataset):
     """
     Wraps EEGDataset for masked pretraining.
-    Yields: (x_patches, coords, mask, time_indices, label, fft_patches)
-      x_patches:    [C, P, L]
-      coords:       [C, 3]
-      mask:         [C * P] bool
-      time_indices: [P]
-      label:        scalar
-      fft_patches:  [C, P, F] or empty tensor
+    Yields: (x_patches, coords, mask, time_indices, label, fft_patches, valid_channels)
+      x_patches:      [C, P, L]
+      coords:         [C, 3]
+      mask:           [C * P] bool
+      time_indices:   [P]
+      label:          scalar
+      fft_patches:    [C, P, F] or empty tensor
+      valid_channels: [C] bool, True = real (not zero-padded) channel
     """
     def __init__(
         self,
@@ -296,8 +297,9 @@ class MaskedPretrainDataset(Dataset):
 
         coords_idx = self.base_dataset.trial_to_coords_idx[trial_idx]
         coords     = self.base_dataset.all_coords[coords_idx]
+        valid_channels = self.base_dataset.all_valid_channels[coords_idx]
 
-        return x_patches, coords, mask, time_indices, y, fft_patches
+        return x_patches, coords, mask, time_indices, y, fft_patches, valid_channels
 
 
 class FinetuneDataset(Dataset):
@@ -444,8 +446,9 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     if mode == 'base':
         return base_dataset
     elif mode == 'pretrain':
-        strategy_name = pp.get('masking_strategy', 'random')
-        strategy_cfg  = pp.get(strategy_name, {})
+        mask_pp       = pp.get('mask', {})
+        strategy_name = mask_pp.get('masking_strategy', 'random')
+        strategy_cfg  = mask_pp.get(strategy_name, {})
 
         if strategy_name == 'complementary':
             strategy   = ComplementaryMaskingStrategy()

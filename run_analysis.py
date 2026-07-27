@@ -23,8 +23,8 @@ from viz import (
     pick_trial,
 )
 
-import viz.check_codebook as _codebook
-import viz.check_epoch    as _reconstruction
+import viz.check_codebook       as _codebook
+import viz.check_epoch_pretrain as _reconstruction
 
 ALL_ANALYSES = {
     'codebook':       _codebook,

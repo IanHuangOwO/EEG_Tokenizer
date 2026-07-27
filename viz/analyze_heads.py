@@ -94,7 +94,7 @@ def cluster_order(sim):
 # ── Data ──────────────────────────────────────────────────────────────────────
 
 def _unpack(batch, device):
-    x_patches, coords, mask, time_indices, _, _ = batch
+    x_patches, coords, mask, time_indices, _, _, _ = batch
     x        = x_patches.to(device)
     coords   = coords.to(device)
     time_idx = time_indices.to(device)

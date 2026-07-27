@@ -19,8 +19,7 @@ from tqdm import tqdm
 from sklearn.metrics import f1_score, balanced_accuracy_score, cohen_kappa_score
 
 from IO.dataset import build_dataset_from_config
-from model.factory import build_model_from_config
-from model.MeFSQ.MeFSQ import MeFSQFinetune
+from model.factory import build_finetune_from_config
 from viz.train import Plotter
 from viz import pick_trial
 from viz.check_epoch_finetune import run as run_recon_analysis_finetune
@@ -277,22 +276,9 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     logger.info(f"[{fold_tag}] num_classes={num_classes}")
 
     logger.info(f"[{fold_tag}] Loading pretrained backbone...")
-    backbone = build_model_from_config(config, src_output_dir=artifact_dir, mode='finetune')
-    ckpt_path = train_params['pretrained_checkpoint']
-    state = torch.load(ckpt_path, map_location='cpu')
-    backbone.load_state_dict(state['model_state_dict'])
-    backbone.enable_spatial()
-    logger.info(f"[{fold_tag}] Loaded backbone weights from {ckpt_path}")
-
-    ft_params = config['model_params']['MeFSQ'].get('finetune', {})
-    freeze_backbone = ft_params.get('freeze_backbone', False)
-    num_channels = train_base.Nc
-    model = MeFSQFinetune(
-        backbone, num_channels, num_classes,
-        hidden=ft_params.get('hidden', 128),
-        freeze_backbone=freeze_backbone,
-        dropout=ft_params.get('dropout', 0.1),
-    )
+    model = build_finetune_from_config(config, num_classes, src_output_dir=artifact_dir, mode='finetune')
+    logger.info(f"[{fold_tag}] Loaded backbone weights from {train_params['pretrained_checkpoint']}")
+    freeze_backbone = config['model_params']['MeFSQ'].get('finetune', {}).get('freeze_backbone', False)
     model.to(device)
 
     scaler = torch.amp.GradScaler('cuda')

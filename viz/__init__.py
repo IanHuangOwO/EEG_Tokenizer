@@ -82,9 +82,9 @@ def filter_config_to_subject(config: dict, dataset_name: str, subject, mode: str
 
 def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 'pretrain'):
     """Build model from config, load checkpoint with strict=False, return eval."""
-    from model.factory import build_model_from_config
+    from model.factory import build_pretrain_from_config
 
-    model = build_model_from_config(config, mode=mode).to(device)
+    model = build_pretrain_from_config(config, mode=mode).to(device)
 
     if checkpoint and os.path.exists(checkpoint):
         ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
@@ -94,8 +94,10 @@ def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 
             print(f"  [ckpt] {len(missing)} missing keys (fresh init), e.g. {missing[0]}")
         if unexpected:
             print(f"  [ckpt] {len(unexpected)} unexpected keys, e.g. {unexpected[0]}")
-        # spatial_active is a plain attribute, not restored by load_state_dict
+        # spatial_active/temporal_active are plain attributes, not restored by load_state_dict
         model.enable_spatial()
+        if hasattr(model, 'enable_temporal'):
+            model.enable_temporal()
     else:
         print(f"  WARNING: checkpoint not found at {checkpoint!r}, using random weights.")
 
@@ -103,17 +105,28 @@ def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 
     return model
 
 
-def pick_trial(dataset, subject_id, trial: int = None):
-    """Return (trial_idx, subject_id). Picks randomly if trial is None."""
+def pick_trial(dataset, subject_id, trial: int = None, dataset_name: str = None):
+    """
+    Return (trial_idx, subject_id). Picks randomly if trial is None.
+    dataset_name: disambiguates subject_id across multi-dataset training runs (see
+    build_dataset_from_config / dataset_params.pretrain having multiple entries) —
+    subject IDs are per-source-dataset, not globally unique (e.g. subject "1" can exist
+    in both BETA_3s and BCICIV1_Train), so without this a collision silently picks
+    whichever dataset's matching subject happened first in the concatenated tensor.
+    """
     sub_data = dataset.base_dataset.subject_data
     try:
         sid = type(sub_data[0].item())(subject_id)
         indices = (sub_data == sid).nonzero(as_tuple=True)[0]
+        if dataset_name is not None and indices.numel() > 0:
+            names = dataset.base_dataset.dataset_names
+            keep = torch.tensor([names[i] == dataset_name for i in indices.tolist()], dtype=torch.bool)
+            indices = indices[keep]
     except Exception:
         indices = torch.arange(len(dataset))
 
     if len(indices) == 0:
-        raise ValueError(f"No trials found for subject {subject_id!r}")
+        raise ValueError(f"No trials found for subject {subject_id!r}" + (f", dataset {dataset_name!r}" if dataset_name else ""))
 
     idx = indices[trial % len(indices)].item() if trial is not None else random.choice(indices).item()
     actual_subject = dataset.base_dataset.subject_data[idx].item()

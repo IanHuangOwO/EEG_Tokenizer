@@ -100,9 +100,22 @@ class TSABlock(nn.Module):
         self.norm_ffn = nn.LayerNorm(dim)
         self.ffn = FFN(dim, hidden_dim=int(dim * mlp_ratio), dropout=dropout)
 
+        # Both cross-patch (temporal, global context pooled over all N) and cross-channel
+        # (spatial) mixing default off — MeSAE's tokenizer stage trains the SAE on
+        # patch-local features only, so the frozen dictionary can't leak already-seen
+        # context into masked-stage reconstruction targets (see
+        # docs/adr/0003-mesae-two-stage-masked-training.md). Both out_proj-equivalents are
+        # zero-inited so enabling later starts as a no-op and grows in under gradient,
+        # instead of shocking a checkpoint that never saw either term active.
+        self.temporal_active = False
         self.spatial_active = False
+        nn.init.zeros_(self.temporal_attn.proj.weight)
+        nn.init.zeros_(self.temporal_attn.proj.bias)
         nn.init.zeros_(self.spatial_attn.out_proj.weight)
         nn.init.zeros_(self.spatial_attn.out_proj.bias)
+
+    def enable_temporal(self):
+        self.temporal_active = True
 
     def enable_spatial(self):
         self.spatial_active = True
@@ -111,9 +124,10 @@ class TSABlock(nn.Module):
         B, C, N, D = x.shape
         x_flat = x.view(B * C, N, D)
 
-        x_norm_t = self.norm_time(x_flat)
-        attn_out_t = self.temporal_attn(x_norm_t)
-        x_flat = x_flat + self.drop_t(attn_out_t)
+        if self.temporal_active:
+            x_norm_t = self.norm_time(x_flat)
+            attn_out_t = self.temporal_attn(x_norm_t)
+            x_flat = x_flat + self.drop_t(attn_out_t)
 
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
         if self.spatial_active:
@@ -149,6 +163,10 @@ class TSAEncoder(nn.Module):
     def enable_spatial(self):
         for block in self.blocks:
             block.enable_spatial()
+
+    def enable_temporal(self):
+        for block in self.blocks:
+            block.enable_temporal()
 
     @staticmethod
     def _pool(x):
@@ -188,7 +206,7 @@ class TSAEncoder(nn.Module):
 
 
 # ==========================================
-# VQ & Decoder
+# Decoder & channel pooling
 # ==========================================
 
 class MultiHeadDecoder(nn.Module):
@@ -275,142 +293,27 @@ class ExpertChannelPool(nn.Module):
         return pooled, attn
 
 
-class Router(nn.Module):
-    """
-    Top-k softmax router over the routed expert pool. Each expert is scored against its
-    own Expert View (per-Expert channel-pooled vector, see ExpertChannelPool) rather than
-    a shared input — the gating decision and the quantized input are always the same
-    vector, so routing stays interpretable ("why did this route to expert e" is answerable
-    from what e actually encoded). The top-k scores are softmax-normalized (weights sum to
-    1, regardless of k) and scattered into a dense [M, n_experts] gate mask (nonzero only
-    at the selected experts).
-
-    Also returns the Switch-Transformer-style load-balance loss: dense softmax prob `p`
-    (has grad, computed over ALL experts so non-selected experts still get pushed on) times
-    hard selection frequency `f` (detached) — 1.0 at perfectly uniform routing, scales
-    with `n_experts` so the value is comparable across different pool sizes.
-    """
-    def __init__(self, dim, n_experts, top_k):
-        super().__init__()
-        self.n_experts = n_experts
-        self.top_k = min(top_k, n_experts)
-        self.scale = dim ** -0.5
-        self.weight = nn.Parameter(torch.empty(n_experts, dim))
-        nn.init.normal_(self.weight, std=0.01)
-
-    def forward(self, expert_views):
-        """expert_views: [M, n_experts, D] (each expert's own pooled view) -> gate_mask [M, n_experts], lb_loss scalar"""
-        # scaled dot-product: dot-product variance grows linearly with `dim`, so without this
-        # a wide `dim` saturates the softmax almost immediately -> one expert wins early and
-        # entrenches (router collapse).
-        gate_logits = (expert_views * self.weight).sum(dim=-1) * self.scale  # [M, H]
-        topk_val, topk_idx = gate_logits.topk(self.top_k, dim=-1)
-        topk_weight = torch.softmax(topk_val, dim=-1).to(gate_logits.dtype)
-        gate_mask = torch.zeros_like(gate_logits).scatter_(-1, topk_idx, topk_weight)
-
-        f = (gate_mask.detach() > 0).float().mean(dim=0)     # [H] hard selection frequency
-        p = torch.softmax(gate_logits, dim=-1).mean(dim=0)   # [H] dense prob, has grad
-        lb_loss = self.n_experts * ((f / (f.sum() + 1e-8)) * (p / (p.sum() + 1e-8))).sum()
-        return gate_mask, lb_loss
-
-
-class MeFSQ(nn.Module):
-    def __init__(self, num_heads, vq_head_vocab_size, e_dim, num_discrete=5, sigmoid_gain=1.0):
-        super().__init__()
-        self.num_heads = num_heads
-        self.r = vq_head_vocab_size
-        self.e_dim = e_dim
-        self.num_discrete = num_discrete
-        self.sigmoid_gain = sigmoid_gain
-
-        self.norm = nn.LayerNorm(e_dim)
-        # [H, D, r] — same shared D-dim input z broadcasts against every head's own [D, r]
-        # slice (via einsum, no need to materialize a per-head copy of z) — smaller than the
-        # old flat [D, H*r] matrix would suggest per-head specialization requires, at the
-        # same total param count. Plain linear projection, no orthogonality constraint.
-        self.A = nn.Parameter(torch.empty(num_heads, e_dim, vq_head_vocab_size))
-        # kaiming_uniform_ on the whole 3D tensor at once folds vq_head_vocab_size (r) into
-        # the fan-in calc (torch treats dim>2 tensors as [out, in, *receptive_field]), so
-        # fan_in = e_dim*r instead of the real e_dim -> bigger r shrinks each per-head slice's
-        # init scale for no good reason. Init each head's [e_dim, r] slice separately instead
-        # (matches MultiHeadDecoder's existing per-head loop) so fan_in is just e_dim.
-        for h in range(num_heads):
-            nn.init.kaiming_uniform_(self.A[h], a=math.sqrt(5))
-
-        self.register_buffer('avg_probs',        torch.zeros(num_heads, vq_head_vocab_size, num_discrete))
-        self.register_buffer('max_prob_ema',     torch.tensor(0.0))
-        self.register_buffer('ema_ste_gap',      torch.tensor(0.0))
-        self.register_buffer('ema_head_ppl_std', torch.tensor(0.0))
-        self.ema_decay = 0.99
-
-    def forward(self, z):
-        """z: [M, H, D] — a separate D-dim input per head (per-head stage-weighted fusion upstream)."""
-        M, H, D = z.shape
-        z = self.norm(z)
-
-        r, N_d = self.r, self.num_discrete
-        half_range = (N_d - 1) / 2.0
-
-        q = torch.einsum('mhd,hdr->mhr', z, self.A)
-        q_soft = (N_d - 1) * torch.sigmoid(self.sigmoid_gain * q) - half_range
-        q_quant = torch.round(q_soft)
-        v_q = q_soft + (q_quant - q_soft).detach()
-        indices = (q_quant + half_range).long()
-
-        if not self.training:
-            with torch.no_grad():
-                B_total = M
-                flat_idx = indices.reshape(B_total, H * r).t().clamp(0, N_d - 1)
-                batch_probs = torch.zeros(H * r, N_d, device=indices.device)
-                batch_probs.scatter_add_(1, flat_idx, torch.ones_like(flat_idx, dtype=torch.float32))
-                batch_probs = (batch_probs / B_total).view(H, r, N_d)
-                self.avg_probs.mul_(self.ema_decay).add_(batch_probs, alpha=1 - self.ema_decay)
-                max_p = batch_probs.max(dim=-1)[0].mean()
-                self.max_prob_ema.mul_(self.ema_decay).add_(max_p, alpha=1 - self.ema_decay)
-
-                ste_gap = (q_quant - q_soft).detach().abs().mean()
-                self.ema_ste_gap.mul_(self.ema_decay).add_(ste_gap, alpha=1 - self.ema_decay)
-
-                h_entropy = -(batch_probs * torch.log(batch_probs + 1e-10)).sum(dim=-1)
-                h_ppl = torch.exp(h_entropy).mean(dim=-1)
-                self.ema_head_ppl_std.mul_(self.ema_decay).add_(h_ppl.std(), alpha=1 - self.ema_decay)
-
-        return v_q, indices, q_soft
-
-
-# ==========================================
-# Finetune head
-# ==========================================
-
 class PerChannelHeadAttn(nn.Module):
     """
-    Three-stage learnable-query attention pooling:
+    Three-stage learnable-query attention pooling — identical to
+    model/MeFSQ/MeFSQ_modules.py's PerChannelHeadAttn (duplicated here rather than
+    cross-imported, same convention as ExpertChannelPool/MultiHeadDecoder above: each
+    model package stays self-contained). Fully backbone-agnostic — only needs
+    z_per_head [B, C, N, H, d] at forward time, so it works unchanged whether H indexes
+    MeFSQ Experts or MeSAE Filters.
 
-    Stage 1 (temporal): per (channel, head), a learnable query attends over the N patches
-    — replaces plain mean-over-N so patch/time relevance becomes an interpretable weight
-    (attn_n) instead of being averaged away.
-
-    Stage 2 (head): per channel, a learnable query attends over the H heads — weights sum
-    to 1 PER CHANNEL, not jointly across all channel*head pairs, so channels never compete
-    for weight (a joint C*H softmax saturates near one-hot once C*H gets into the
-    thousands). Same query-attention mechanism as stage 1, just reduced over a different
-    axis.
-
+    Stage 1 (temporal): per (channel, unit), a learnable query attends over the N patches.
+    Stage 2 (unit): per channel, a learnable query attends over the H units — weights sum
+    to 1 PER CHANNEL, not jointly, so channels never compete for weight.
     Stage 3 (channel): a learnable query attends over the C channels, pooling to a single
-    [B, d] vector fed into cls. Replaces the earlier per-channel concat (cls input was
-    C*head_dim, e.g. 6400 for 64ch/embed_dim=100 — with only ~1-2k finetune trials that
-    massively overparameterized linear layer memorized train labels outright while val
-    stayed at chance; see finetune log where train acc hits 1.0 by epoch ~17 and val never
-    moves off 1/num_classes). Pooling over C trades away per-channel dedicated slices for a
-    classifier small enough to actually generalize from frozen-backbone features.
+    [B, d] vector fed into cls — avoids the per-channel-concat overparameterization that
+    caused val-chance memorization (see docs/agents/ / CONTEXT.md finetune val-chance bug).
     """
     def __init__(self, head_dim, num_channels, num_classes, hidden=32, dropout=0.1):
         super().__init__()
-        # encode_pre_vq fed this pooler through pre_vq_norm_routed/shared (LayerNorm);
-        # encode_post_vq's raw decoder output (real EEG amplitude scale) has no such norm.
-        # Un-normalized-scale input starves key/query dot products and cls of usable
-        # gradient — normalize here so the pooler works regardless of which encode_* the
-        # caller feeds it.
+        # Un-normalized-scale input (raw decoder-output EEG amplitude) starves key/query
+        # dot products and cls of usable gradient — normalize here so the pooler works
+        # regardless of which encode_* the caller feeds it.
         self.input_norm = nn.LayerNorm(head_dim)
         self.key_n   = nn.Linear(head_dim, hidden)
         self.query_n = nn.Parameter(torch.zeros(hidden))
@@ -431,26 +334,20 @@ class PerChannelHeadAttn(nn.Module):
         pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels/patches)
         Returns (logits [B, num_classes], attn_h [B, C, H], attn_n [B, C, H, N], attn_c [B, C])
         """
-        # input_norm feeds ONLY the key/query logit computation below, not the z_h /
-        # pooled_per_channel that flows to cls — LayerNorm-ing z_per_head itself would
-        # renormalize near-zero (dead/unselected head) vectors up to unit variance too,
-        # amplifying noise to the same magnitude as heads carrying real signal and wiping
-        # out the amplitude cue the classifier needs. Keys get a stable scale to compute
-        # attention weights from; the actual pooled values stay at their real amplitude.
         z_key = self.input_norm(z_per_head)
 
-        # ---- stage 1: attention pool over N (patches), per channel & head ----
+        # ---- stage 1: attention pool over N (patches), per channel & unit ----
         logits_n = torch.einsum('bcnhk,k->bcnh', self.key_n(z_key), self.query_n) * self.scale  # [B, C, N, H]
         if pad_mask is not None:
             logits_n = logits_n.masked_fill(~pad_mask.unsqueeze(-1), float('-inf'))
-        attn_n = torch.softmax(logits_n, dim=2)                                 # softmax over N, per channel & head
+        attn_n = torch.softmax(logits_n, dim=2)                                 # softmax over N, per channel & unit
         attn_n = torch.nan_to_num(attn_n)                                       # all-invalid channel -> all -inf -> nan; zero it
         z_h = torch.einsum('bcnhd,bcnh->bchd', z_per_head, attn_n)              # [B, C, H, d]
         z_h_key = torch.einsum('bcnhd,bcnh->bchd', z_key, attn_n)               # [B, C, H, d] — for stage 2 logits only
 
         valid_channel = pad_mask.any(dim=-1) if pad_mask is not None else None  # [B, C]
 
-        # ---- stage 2: attention pool over H (heads), per channel ----
+        # ---- stage 2: attention pool over H (units), per channel ----
         logits_h = torch.einsum('bchk,k->bch', self.key_h(z_h_key), self.query_h) * self.scale  # [B, C, H]
         attn_h = torch.softmax(logits_h, dim=2)                                 # softmax over H, independently per channel
         pooled_per_channel = (z_h * attn_h.unsqueeze(-1)).sum(dim=2)            # [B, C, d]

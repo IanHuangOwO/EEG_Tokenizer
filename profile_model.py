@@ -5,7 +5,7 @@ import json
 import logging
 import warnings
 from collections import defaultdict
-from model.factory import build_model_from_config
+from model.factory import build_pretrain_from_config
 
 # Suppress warnings
 logging.getLogger("fvcore").setLevel(logging.ERROR)
@@ -88,7 +88,7 @@ def profile_model():
     C = 64
     L = preprocess.get('patch_length', 25) 
     N = 800 // L  # 4 seconds @ 200Hz = 800 samples
-    model = build_model_from_config(config).to(device)
+    model = build_pretrain_from_config(config).to(device)
     model.train() if args.train else model.eval()
     
     x = torch.randn(B, C, N, L).to(device)

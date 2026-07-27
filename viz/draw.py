@@ -206,6 +206,183 @@ def extract_head_spectra(model, x: torch.Tensor, coords: torch.Tensor,
     return psd, freqs, routing_score
 
 
+@torch.no_grad()
+def extract_filter_psd(model, x: torch.Tensor, coords: torch.Tensor,
+                       time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None):
+    """
+    MeSAEPretrain analog of extract_head_psd: per-filter per-channel decoded activation
+    norm. No Router/MoE here, so there's no gate score to rank by — filter_importance is
+    the mean magnitude of each filter's own decoded contribution to the reconstruction
+    instead (how much of the final signal that filter is actually responsible for).
+
+    Returns ([psd_ch_q], filter_norms, filter_affinity, filter_importance):
+      psd_ch_q         — [C, Q] numpy array, mean per-channel decoded activation norm per filter
+      filter_norms      — [Q] numpy array, norm of the SAE-decoded vector the decoder reads
+      filter_affinity   — [Q, Q] cosine similarity between filters' mean SAE-decoded vectors
+      filter_importance — [Q] numpy array, mean decoded-contribution magnitude per filter
+    """
+    B, C, N, L = x.shape
+    z = model.stage_features(x, coords, time_idx=time_idx)
+    z_bnc, valid_mask = model._pool_channels(z, valid_channels)
+    pooled, _ = model.filter_pool(z_bnc, valid_mask)
+    sae_out, _, _ = model.sae(pooled)  # [M, Q, D] — the space the decoder actually reads
+    Q = sae_out.shape[1]
+
+    filter_norms = sae_out.norm(dim=-1).mean(dim=0).cpu().numpy()  # [Q]
+    v_mean_n     = F.normalize(sae_out.mean(dim=0), dim=-1)
+    filter_affinity = (v_mean_n @ v_mean_n.T).cpu().numpy()
+
+    recon_per_filter = model.decoder(sae_out)  # [M, Q, C*patch_len]
+    patch_len = recon_per_filter.shape[-1] // C
+    recon_per_filter = recon_per_filter.reshape(B, N, Q, C, patch_len)
+    psd_ch_q = recon_per_filter.norm(dim=-1).mean(dim=1)[0].permute(1, 0).cpu().numpy()  # [C, Q]
+
+    filter_importance = recon_per_filter.norm(dim=-1).mean(dim=(0, 1, 3)).cpu().numpy()  # [Q]
+
+    return [psd_ch_q], filter_norms, filter_affinity, filter_importance
+
+
+@torch.no_grad()
+def extract_filter_spectra(model, x: torch.Tensor, coords: torch.Tensor,
+                           time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
+                           fs: float = None, freq_resolution: float = None):
+    """
+    MeSAEPretrain analog of extract_head_spectra: per-filter, per-channel power spectrum
+    of that filter's own decoded contribution. No gating to worry about — every filter is
+    always active — so this is just each filter's own contribution, un-gated by construction.
+    Returns (psd [Q, C, F] numpy, freqs [F] numpy, filter_importance [Q] numpy).
+    """
+    B, C, N, L = x.shape
+    z = model.stage_features(x, coords, time_idx=time_idx)
+    z_bnc, valid_mask = model._pool_channels(z, valid_channels)
+    pooled, _ = model.filter_pool(z_bnc, valid_mask)
+    sae_out, _, _ = model.sae(pooled)  # [M, Q, D]
+    Q = sae_out.shape[1]
+
+    recon_per_filter = model.decoder(sae_out)  # [M, Q, C*L]
+    recon_per_filter = recon_per_filter.reshape(B, N, Q, C, L)[0].permute(2, 0, 1, 3)  # [C, N, Q, L]
+
+    n_fft = L
+    if fs and freq_resolution:
+        n_fft = max(L, int(round(fs / freq_resolution)))
+
+    fft_c = torch.fft.rfft(recon_per_filter.float(), n=n_fft, dim=-1)
+    psd   = fft_c.real.pow(2) + fft_c.imag.pow(2)          # [C, N, Q, F]
+    psd   = psd.mean(dim=1)                                 # [C, Q, F] — average over patches
+    psd   = psd.permute(1, 0, 2).cpu().numpy()              # [Q, C, F]
+
+    freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
+
+    filter_importance = recon_per_filter.norm(dim=-1).mean(dim=(0, 1)).cpu().numpy()  # [Q]
+
+    return psd, freqs, filter_importance
+
+
+# ── Shared epoch-snapshot panels (topo_psd_filter, attn_topo) ──────────────────
+#
+# One canonical pair of figures reused by check_epoch_pretrain.py (MeFSQ Experts or
+# MeSAE Filters — extract_head_psd/spectra and extract_filter_psd/spectra already return
+# matching shapes: ([psd_ch_x], norms, affinity, importance) and (psd, freqs, importance))
+# and check_epoch_finetune.py (same backbone, plus the finetune head's own attn_h). Keeps
+# the two training-phase scripts producing the exact same panel format instead of drifting.
+
+def plot_topo_psd_filter(out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
+                          psd_ch_x, psd_x, freqs, importance, cmap='YlOrRd',
+                          subject_id=None, trial_idx=None, epoch_tag='', unit_label='Filter',
+                          l_freq=None, h_freq=None):
+    """
+    Raw / Full-recon / per-unit (Expert or Filter) topo + PSD, side by side, one row each,
+    sorted by `importance` below the first two fixed rows (Raw, Full Recon). Raw/recon PSD
+    must already be computed with the same n_fft/freq axis as psd_x so every row is directly
+    comparable, not just visually similar (see check_epoch_pretrain.py for the FFT call).
+
+    psd_ch_x: [C, Q] per-unit per-channel decoded activation. psd_x: [Q, C, F] per-unit PSD.
+    freqs/psd_x/psd_raw/psd_recon are expected already band-cropped by the caller if desired
+    (l_freq/h_freq here are only used for the x-axis label/ticks, not re-cropping).
+    """
+    Q = psd_ch_x.shape[1]
+    sorted_ord = np.argsort(importance)[::-1]
+    freq_label = 'Hz' if freqs is not None and len(freqs) else 'cyc/patch'
+    freq_ticks = np.linspace(freqs[0], freqs[-1], 5)
+
+    entries = [('Raw', raw_power, psd_raw), ('Full Recon', recon_power, psd_recon)]
+    entries += [(f'{unit_label[0]}{q} ({importance[q]:.3f})', psd_ch_x[:, q], psd_x[q]) for q in sorted_ord]
+    n_items = len(entries)
+    n_rows = math.ceil(n_items / 2)
+
+    fig, axes = plt.subplots(n_rows, 4, figsize=(20, 3.0 * n_rows), squeeze=False, constrained_layout=True)
+    fig.suptitle(f"Raw / Recon / {unit_label} Topo + PSD ({unit_label}s sorted by contribution) — "
+                 f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=13, fontweight='bold')
+
+    def _psd_row(ax_topo, ax_psd, power, psd_cf, label):
+        im_t = draw_topomap(ax_topo, pos2d, power, cmap=cmap, vmin=power.min(), vmax=power.max())
+        ax_topo.set_title(f'{label} Topo (power)', fontsize=9, fontweight='bold')
+        fig.colorbar(im_t, ax=ax_topo, fraction=0.05, pad=0.02)
+
+        ax_psd.imshow(psd_cf, aspect='auto', cmap=cmap, origin='lower',
+                      extent=[freqs[0], freqs[-1], 0, psd_cf.shape[0]])
+        ax_psd.set_title(f'{label} PSD (channel x freq)', fontsize=9, fontweight='bold')
+        ax_psd.set_xticks(freq_ticks)
+        ax_psd.set_xticklabels([f'{f:.0f}' for f in freq_ticks], fontsize=6)
+        ax_psd.set_xlabel(freq_label, fontsize=7)
+        ax_psd.set_yticks([])
+
+    for i, (label, power, psd_cf) in enumerate(entries):
+        row, col_pair = divmod(i, 2)
+        _psd_row(axes[row, col_pair * 2], axes[row, col_pair * 2 + 1], power, psd_cf, label)
+    for i in range(n_items, n_rows * 2):
+        row, col_pair = divmod(i, 2)
+        axes[row, col_pair * 2].axis('off')
+        axes[row, col_pair * 2 + 1].axis('off')
+
+    fig.text(0.5, 0.005, 'PSD y-axis: Channel (Fp1 -> Iz)', ha='center', fontsize=8)
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+
+
+def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_channels=None,
+                    subject_id=None, trial_idx=None, epoch_tag='', unit_label='Filter'):
+    """
+    Per-unit (Expert/Filter/Head) channel-attention topography, one topomap per unit
+    (sorted by `importance`), plus one large Channel x Unit heatmap spanning all rows.
+    attn: [Q, C] — each unit's own attention weight over channels (rows sum to 1).
+    valid_channels: [C] bool or None — padded/invalid channels hidden from the topomaps only.
+    """
+    Q, C = attn.shape
+    sorted_ord = np.argsort(importance)[::-1]
+    attn_masked = attn if valid_channels is None else np.where(valid_channels[None, :], attn, np.nan)
+
+    n_topo_rows = math.ceil(Q / 2)
+    fig = plt.figure(figsize=(40.0, 3.0 * n_topo_rows), constrained_layout=True)
+    gs = fig.add_gridspec(n_topo_rows, 3, width_ratios=[1.0, 1.0, 3.5], wspace=0.3)
+
+    for i, q_orig in enumerate(sorted_ord):
+        row, col = divmod(i, 2)
+        ax = fig.add_subplot(gs[row, col])
+        valid = ~np.isnan(attn_masked[q_orig])
+        im = draw_topomap(ax, pos2d[valid], attn_masked[q_orig][valid], cmap='viridis')
+        ax.set_title(f'{unit_label} {q_orig}  ({importance[q_orig]:.3f})', fontsize=9, fontweight='bold')
+        fig.colorbar(im, ax=ax, fraction=0.05, pad=0.02)
+    if Q % 2:
+        fig.add_subplot(gs[n_topo_rows - 1, 1]).axis('off')
+
+    ax_big = fig.add_subplot(gs[:, 2])
+    attn_ordered = attn[sorted_ord].T  # [C, Q], columns ordered to match the topomap panels
+    im_big = ax_big.imshow(attn_ordered, aspect='auto', cmap='viridis')
+    ax_big.set_yticks(range(C))
+    ax_big.set_yticklabels(channel_names, fontsize=5)
+    ax_big.set_xticks(range(Q))
+    ax_big.set_xticklabels([f'{unit_label[0]}{q}\n{importance[q]:.3f}' for q in sorted_ord], fontsize=6, rotation=90)
+    ax_big.set_xlabel(f'{unit_label} (sorted by contribution)', fontsize=9)
+    ax_big.set_title(f'Channel x {unit_label} Attention', fontsize=10, fontweight='bold')
+    fig.colorbar(im_big, ax=ax_big, fraction=0.03, pad=0.02).set_label('Attention weight', fontsize=8)
+
+    fig.suptitle(f"Per-{unit_label} Channel Attention ({unit_label}s sorted by contribution) — "
+                 f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=12, fontweight='bold')
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+
+
 # ── Heatmap ───────────────────────────────────────────────────────────────────
 
 def _imshow_row(ax, data2d, cmap, vmin, vmax, ylabel, ch_labels=None, show_x=False, freqs=None):

@@ -126,25 +126,32 @@ class Plotter:
         ax_hcos.set_title('Head Projection Diversity\n(lower = more diverse)'); ax_hcos.grid(True)
 
         # ── Row 2: Head specialization metrics ───────────────────────────────
+        # Decoder-output fingerprint: data-dependent diversity of each Expert's actual
+        # decoded output (see MeFSQPretrain._update_fingerprint_stats), complements the
+        # static weight-space head_cosine_sim_* above (which never looks at real data).
         # [2,0] Fingerprint mean cosine sim — monitoring only (not a loss term)
-        fp_sim_mean = _t('fp_sim_mean')
-        if fp_sim_mean and any(v > 0 for v in fp_sim_mean):
-            ax_fpsim.plot(_ep(fp_sim_mean), fp_sim_mean, color='darkorange', label='Mean |fp cosine sim|')
+        fp_routed = _t('decoder_fingerprint_sim_routed')
+        fp_shared = _t('decoder_fingerprint_sim_shared')
+        if fp_routed: ax_fpsim.plot(_ep(fp_routed), fp_routed, color='darkorange', label='Mean cosine sim routed')
+        if fp_shared: ax_fpsim.plot(_ep(fp_shared), fp_shared, color='teal',       label='Mean cosine sim shared')
+        if ax_fpsim.lines:
             ax_fpsim.set_ylabel('Mean |cosine sim|')
             ax_fpsim.legend(fontsize='x-small')
         else:
             ax_fpsim.axis('off')
-        ax_fpsim.set_title('Head Fingerprint Similarity [monitor]\n(lower = more diverse)'); ax_fpsim.grid(True)
+        ax_fpsim.set_title('Decoder Fingerprint Similarity [monitor]\n(lower = more diverse)'); ax_fpsim.grid(True)
 
         # [2,1] Fingerprint sim std — monitoring only
-        fp_sim_std = _t('fp_sim_std')
-        if fp_sim_std and any(v > 0 for v in fp_sim_std):
-            ax_fpstd.plot(_ep(fp_sim_std), fp_sim_std, color='purple', label='Std fp cosine sim')
+        fp_std_routed = _t('decoder_fingerprint_sim_std_routed')
+        fp_std_shared = _t('decoder_fingerprint_sim_std_shared')
+        if fp_std_routed: ax_fpstd.plot(_ep(fp_std_routed), fp_std_routed, color='darkorange', label='Std cosine sim routed')
+        if fp_std_shared: ax_fpstd.plot(_ep(fp_std_shared), fp_std_shared, color='teal',       label='Std cosine sim shared')
+        if ax_fpstd.lines:
             ax_fpstd.set_ylabel('Std cosine sim')
             ax_fpstd.legend(fontsize='x-small')
         else:
             ax_fpstd.axis('off')
-        ax_fpstd.set_title('Fingerprint Sim Std [monitor]\n(higher = varied specialization)'); ax_fpstd.grid(True)
+        ax_fpstd.set_title('Decoder Fingerprint Sim Std [monitor]\n(higher = varied specialization)'); ax_fpstd.grid(True)
 
         # [2,2] Router health: entropy (higher = balanced) + load std + lb_loss (lower = balanced)
         # top-k softmax routing: gate_entropy is the entropy of the softmax weight distribution
@@ -168,6 +175,102 @@ class Plotter:
             ax2.plot(_ep(r_lb), r_lb, color='peru', ls=':', label='LB loss (1.0=uniform)')
         _merge_legends(ax_router, ax2)
         ax_router.set_title('Router Health'); ax_router.grid(True)
+
+        for ax in axes.flat:
+            ax.set_xlabel('Epoch')
+
+        fig.savefig(os.path.join(self.output_dir, filename), dpi=110, bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_tokenizer(self, filename='training_dashboard.png'):
+        """Dashboard for MeSAEPretrain (per-filter SAE tokenizer) — no masked/unmasked
+        split (no masking task), no router/codebook panels (no MoE/VQ in this model)."""
+        if 'loss' not in self.history['train'] or not self.history['train']['loss']:
+            return
+
+        src_tr, src_val = self.history['train'], self.history['val']
+        def _ep(d): return range(1, len(d) + 1)
+        def _t(k):  return src_tr.get(k)
+        def _v(k):  return src_val.get(k)
+
+        def _plot_tr_val(ax, key, color, title, ylabel):
+            if _t(key): ax.plot(_ep(_t(key)), _t(key), color=color, label='Train')
+            if _v(key): ax.plot(_ep(_v(key)), _v(key), color=color, ls='--', alpha=0.7, label='Val')
+            ax.set_title(title); ax.set_ylabel(ylabel)
+            ax.legend(fontsize='x-small'); ax.grid(True)
+
+        def _plot_tr_val_band(ax, key, color, title, ylabel):
+            """Same as _plot_tr_val, plus a shaded mean +/- 1 std (across filters) band
+            around each mean line (reads f'{key}_std' if present) — replaces a separate
+            std line, the band already shows the spread directly."""
+            t_mean, t_std = _t(key), _t(f'{key}_std')
+            v_mean, v_std = _v(key), _v(f'{key}_std')
+            if t_mean:
+                ax.plot(_ep(t_mean), t_mean, color=color, label='Train (mean)')
+                if t_std:
+                    lo = [m - s for m, s in zip(t_mean, t_std)]
+                    hi = [m + s for m, s in zip(t_mean, t_std)]
+                    ax.fill_between(_ep(t_mean), lo, hi, color=color, alpha=0.15, label='Train +/-1 std (across filters)')
+            if v_mean:
+                ax.plot(_ep(v_mean), v_mean, color=color, ls='--', alpha=0.7, label='Val (mean)')
+                if v_std:
+                    lo = [m - s for m, s in zip(v_mean, v_std)]
+                    hi = [m + s for m, s in zip(v_mean, v_std)]
+                    ax.fill_between(_ep(v_mean), lo, hi, color=color, alpha=0.08)
+            ax.set_title(title); ax.set_ylabel(ylabel)
+            ax.legend(fontsize='x-small'); ax.grid(True)
+
+        fig, axes = plt.subplots(2, 4, figsize=(30, 10), constrained_layout=True)
+        fig.suptitle('Tokenizer (SAE) Training Dashboard', fontsize=14, fontweight='bold')
+        ax_loss, ax_mse, ax_aux, ax_skip, ax_l0, ax_dead, ax_fp, ax_block = axes.flat
+
+        _plot_tr_val(ax_loss, 'loss', 'b',        'Total Loss (MSE + aux*weight)', 'Loss')
+        _plot_tr_val(ax_mse,  'mse',  'steelblue', 'Reconstruction MSE',            'MSE')
+        # aux loss is 0 in eval by design (dead-feature revival only runs in training) —
+        # train-only line, a val line would just be a flat zero.
+        if _t('aux'): ax_aux.plot(_ep(_t('aux')), _t('aux'), color='darkorange', label='Train')
+        ax_aux.set_title('SAE Aux-K Loss (dead-feature revival)\n[train only, 0 in eval by design]')
+        ax_aux.set_ylabel('Aux loss'); ax_aux.legend(fontsize='x-small'); ax_aux.grid(True)
+
+        _plot_tr_val_band(ax_l0, 'l0_sparsity', 'darkorchid',
+                          'L0 Sparsity (active features/patch)\nshaded = mean +/-1 std across filters', 'Count')
+        _plot_tr_val(ax_dead, 'dead_feature_rate', 'crimson',    'Dead Feature Rate',                    'Fraction')
+
+        _plot_tr_val_band(ax_fp, 'decoder_fingerprint_sim', 'teal',
+                          'Per-Filter Decoder Fingerprint\n(lower mean = more diverse; shaded = mean +/-1 std across pairs)', 'Cosine sim')
+
+        # U-Net skip gate(s) on the encoder's residual-add path: sigmoid(g) in [0,1],
+        # 0 = drop skip, 1 = plain add. One line per pool_after_blocks stage.
+        def _idx_sorted(prefix):
+            return sorted((k for k in src_tr if k.startswith(prefix)),
+                          key=lambda k: int(k.rsplit('_', 1)[1]))
+
+        skip_keys = _idx_sorted('skip_gate_')
+        for k in skip_keys:
+            ax_skip.plot(_ep(_t(k)), _t(k), label=k)
+        if skip_keys:
+            ax_skip.set_ylabel('sigmoid(gate)')
+            ax_skip.legend(fontsize='x-small')
+        else:
+            ax_skip.axis('off')
+        ax_skip.set_title('Residual-Add Skip Gates\n(0=drop skip, 1=plain add)'); ax_skip.grid(True)
+
+        # Per-block contribution norm — how much each encoder block actually changes its
+        # input, direct measure (not the skip-gate proxy above, which conflates "shallow
+        # skip re-injected" with "deep processing did nothing"). One line per block,
+        # colored shallow (dark) -> deep (bright) so a "deep layers barely contribute"
+        # collapse is visible as flat near-zero lines on the bright end.
+        block_keys = _idx_sorted('block_norm_')
+        if block_keys:
+            cmap_b = plt.get_cmap('viridis')
+            for i, k in enumerate(block_keys):
+                ax_block.plot(_ep(_t(k)), _t(k), color=cmap_b(i / max(len(block_keys) - 1, 1)),
+                               label=f'Block {k.rsplit("_", 1)[1]}')
+            ax_block.set_ylabel('Mean |delta| per block')
+            ax_block.legend(fontsize='x-small', ncol=2)
+        else:
+            ax_block.axis('off')
+        ax_block.set_title('Per-Block Contribution Norm\n(flat near-zero = block not used)'); ax_block.grid(True)
 
         for ax in axes.flat:
             ax.set_xlabel('Epoch')
@@ -221,7 +324,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     n_rows, n_cols = C, len(bands)
     fig, axes = plt.subplots(n_rows, n_cols,
                              figsize=(n_cols * 3.5, n_rows * 1.2),
-                             sharex=True)
+                             sharex=True, constrained_layout=True)
     if C == 1:
         axes = axes[np.newaxis, :]
     fig.suptitle(f"Reconstruction (Val) — Epoch {epoch}",
@@ -253,7 +356,6 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
             else:
                 ax.set_xlabel("Time (s)", fontsize=6)
 
-    plt.tight_layout()
     prefix   = f"sub{subject_id}_trial{trial_idx}_" if subject_id is not None else ""
     ep_tag   = f"ep{epoch:04d}_" if epoch is not None else ""
     path = os.path.join(output_dir, f"{prefix}{ep_tag}recon_signal.png")
@@ -274,7 +376,7 @@ def visualize_masked_reconstruction(batch, model, epoch,
     os.makedirs(output_dir, exist_ok=True)
     device = next(model.parameters()).device
 
-    x_patches, coords, mask, time_indices, _, _ = [t.to(device) for t in batch]
+    x_patches, coords, mask, time_indices, _, _, _ = [t.to(device) for t in batch]
     B, C, P, T_patch = x_patches.shape
 
     with torch.no_grad():
@@ -308,7 +410,7 @@ def visualize_masked_reconstruction(batch, model, epoch,
 
     n_rows, n_cols = len(bands), len(display)
     fig, axes = plt.subplots(n_rows, n_cols,
-                             figsize=(n_cols * 4, n_rows * 2.5), sharex=True)
+                             figsize=(n_cols * 4, n_rows * 2.5), sharex=True, constrained_layout=True)
     fig.suptitle(f"Masked Reconstruction Analysis (Epoch {epoch})",
                  fontsize=20, fontweight='bold')
     t_vec = np.arange(T_patch) / fs

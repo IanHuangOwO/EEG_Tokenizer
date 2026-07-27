@@ -58,7 +58,7 @@ EEG signals
   - Loss: MSE split masked/unmasked; `mask_weight` scales masked term; plus router load-balance loss
   - VQ warmup phase: first `vq_warmup_epochs` epochs run without masking; `freeze_vq_and_decoder()` locks both Expert pools + router + fusion params after warmup, leaving only the transformer trainable
 
-- **`model/factory.py`**: `build_model_from_config(config)` — only `MeFSQ` type supported; copies `MeFSQ.py` to `output/<model_name>/artifacts/` for reproducibility
+- **`model/factory.py`**: `build_model_from_config(config)` — dispatches on `training_params.pretrain.model_type` (`MeFSQ` or `MeSAE`); copies the matching source file to `output/<model_name>/artifacts/` for reproducibility
 
 ### Config (`config/config_pretrain.json`)
 

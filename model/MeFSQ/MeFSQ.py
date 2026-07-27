@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.MeFSQ.MeFSQ_modules import SpatialTemporalEmbeddings, TSAEncoder, MeFSQ, Router, PerChannelHeadAttn, MultiHeadDecoder
+from model.MeFSQ.MeFSQ_modules import SpatialTemporalEmbeddings, TSAEncoder, MeFSQ, Router, ExpertChannelPool, PerChannelHeadAttn, MultiHeadDecoder
 
 
 class MeFSQPretrain(nn.Module):
@@ -41,6 +41,7 @@ class MeFSQPretrain(nn.Module):
         shared_num_discrete=5,
         shared_decoder_hidden=None,
         num_channels=1,
+        pool_hidden=32,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -57,16 +58,17 @@ class MeFSQPretrain(nn.Module):
                                       upsample_residual_add=upsample_residual_add)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
 
-        # Every patch's C per-channel D-vectors are concatenated into one C*D token before
-        # routing/quantization — one shared code now has to explain all channels jointly
-        # (was: one code per channel, C independent codes per patch). Router/MeFSQ/stage_bn
-        # below all read this concatenated width; vq_proj_*/decoder_* up-project back down
-        # to plain embed_dim first, so their input side is unaffected by C.
-        cat_dim = num_channels * embed_dim
-        self.router = Router(cat_dim, n_routed_experts, top_k)
+        # Each Expert (routed + shared) pools the patch's C per-channel D-vectors through
+        # its own content-based channel-attention query into one D-wide Expert View,
+        # instead of every Expert reading an identical C*D concatenation (retired Token,
+        # see CONTEXT.md / docs/adr/0002-per-expert-channel-attention.md). The Router
+        # below scores each routed expert against that expert's own View.
+        self.pool_routed = ExpertChannelPool(embed_dim, n_routed_experts, hidden=pool_hidden)
+        self.pool_shared = ExpertChannelPool(embed_dim, n_shared_experts, hidden=pool_hidden)
+        self.router = Router(embed_dim, n_routed_experts, top_k)
 
-        self.stage_bn_routed = nn.BatchNorm1d(n_routed_experts * cat_dim)
-        self.mefsq_routed    = MeFSQ(n_routed_experts, routed_r, cat_dim, routed_num_discrete)
+        self.stage_bn_routed = nn.BatchNorm1d(n_routed_experts * embed_dim)
+        self.mefsq_routed    = MeFSQ(n_routed_experts, routed_r, embed_dim, routed_num_discrete)
         self.vq_proj_routed  = nn.Parameter(torch.empty(n_routed_experts, embed_dim, routed_r))
         # per-head init (not one kaiming_uniform_ call on the whole 3D tensor) — same fan-in
         # fix as MeFSQ.A: avoids r leaking into the fan-in calc and shrinking the init scale
@@ -75,8 +77,8 @@ class MeFSQPretrain(nn.Module):
             nn.init.kaiming_uniform_(self.vq_proj_routed[h], a=math.sqrt(5))
         self.decoder_routed  = MultiHeadDecoder(n_routed_experts, embed_dim, num_channels * patch_len, hidden=routed_decoder_hidden)
 
-        self.stage_bn_shared = nn.BatchNorm1d(n_shared_experts * cat_dim)
-        self.mefsq_shared    = MeFSQ(n_shared_experts, shared_r, cat_dim, shared_num_discrete)
+        self.stage_bn_shared = nn.BatchNorm1d(n_shared_experts * embed_dim)
+        self.mefsq_shared    = MeFSQ(n_shared_experts, shared_r, embed_dim, shared_num_discrete)
         self.vq_proj_shared  = nn.Parameter(torch.empty(n_shared_experts, embed_dim, shared_r))
         for h in range(n_shared_experts):
             nn.init.kaiming_uniform_(self.vq_proj_shared[h], a=math.sqrt(5))
@@ -84,7 +86,7 @@ class MeFSQPretrain(nn.Module):
 
         # encode_pre_vq (read by finetune) broadcasts each channel's own D-dim vector to
         # every expert independently — decoupled from mefsq_routed/shared.norm above, which
-        # now normalize the C*D concatenated quantity, not a lone per-channel vector.
+        # now normalize each expert's pooled Expert View, not a lone per-channel vector.
         self.pre_vq_norm_routed = nn.LayerNorm(embed_dim)
         self.pre_vq_norm_shared = nn.LayerNorm(embed_dim)
 
@@ -95,6 +97,14 @@ class MeFSQPretrain(nn.Module):
         self.register_buffer('ema_router_load_std', torch.tensor(0.0))
         self.register_buffer('ema_gate_entropy',    torch.tensor(0.0))
 
+        # EMA buffers for decoder-output fingerprint (data-dependent diversity of each
+        # Expert's actual decoded output, complements the static weight-space
+        # head_cosine_sim_* in get_metrics which only looks at vq_proj, never the data).
+        self.register_buffer('ema_fingerprint_sim_routed',     torch.tensor(0.0))
+        self.register_buffer('ema_fingerprint_sim_std_routed', torch.tensor(0.0))
+        self.register_buffer('ema_fingerprint_sim_shared',     torch.tensor(0.0))
+        self.register_buffer('ema_fingerprint_sim_std_shared', torch.tensor(0.0))
+
     def enable_spatial(self):
         self.embed.enable_spatial()
         self.encoder.enable_spatial()
@@ -102,7 +112,10 @@ class MeFSQPretrain(nn.Module):
     def freeze_vq_and_decoder(self):
         """
         After VQ warmup, lock the entire VQ apparatus — both expert pools (quantizers,
-        up-proj, decoders), the router, and the fusion params that feed them (stage_bn).
+        up-proj, decoders), the router, the per-expert channel-attention pooling
+        (pool_routed/pool_shared) that feeds it, the fusion params (stage_bn), and the
+        diagnostics-only pre_vq_norm_* (unused in the training forward path but frozen
+        for the same reason: nothing downstream of VQ warmup should keep moving).
         Everything left trainable is the main transformer: embed, encoder, mask_token.
         Mirrors LaBraM's split (frozen tokenizer, encoder does the remaining learning),
         except here the tokenizer/decoder were trained jointly with the encoder up to this
@@ -124,6 +137,14 @@ class MeFSQPretrain(nn.Module):
             p.requires_grad_(False)
         for p in self.router.parameters():
             p.requires_grad_(False)
+        for p in self.pool_routed.parameters():
+            p.requires_grad_(False)
+        for p in self.pool_shared.parameters():
+            p.requires_grad_(False)
+        for p in self.pre_vq_norm_routed.parameters():
+            p.requires_grad_(False)
+        for p in self.pre_vq_norm_shared.parameters():
+            p.requires_grad_(False)
 
     def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None):
         """
@@ -140,11 +161,12 @@ class MeFSQPretrain(nn.Module):
 
     def encode_pre_vq(self, x, coords, time_idx=None):
         """
-        The continuous, unquantized per-channel vector right before the pools' concat+`A`
-        projection — broadcasts each channel's own D-dim vector to every expert
-        independently (unlike forward(), which concatenates all channels into one C*D
-        token per patch). Uses dedicated pre_vq_norm_* rather than mefsq_*.norm, since
-        those now normalize the concatenated C*D quantity, not a lone per-channel vector.
+        The continuous, unquantized per-channel vector right before the pools' channel-
+        attention pooling + `A` projection — broadcasts each channel's own D-dim vector to
+        every expert independently (unlike forward(), where each expert forms its own
+        channel-attention-pooled Expert View from all C channels). Uses dedicated
+        pre_vq_norm_* rather than mefsq_*.norm, since those now normalize a pooled Expert
+        View, not a lone per-channel vector.
         For finetune to read features that haven't been through the discrete VQ
         bottleneck. Returns z_h [B, C, N, H_total, D] — shared experts first (indices
         [0, n_shared_experts)), then routed — last-layer vector broadcast to every expert.
@@ -166,7 +188,42 @@ class MeFSQPretrain(nn.Module):
         z_h = torch.cat([z_h_s, z_h_r], dim=1)  # [M, H_total, D] — shared first
         return z_h.reshape(B, C, N, self.n_total_experts, D)
 
-    def encode_post_vq(self, x, coords, time_idx=None):
+    @torch.no_grad()
+    def _update_fingerprint_stats(self, recon_per_head, ema_mean, ema_std, decay=0.99):
+        """
+        Pairwise cosine similarity between Experts' own decoded outputs (before the
+        cross-Expert sum) — data-dependent diversity, unlike head_cosine_sim_* in
+        get_metrics (static, vq_proj weight-space only, never sees actual data). Low
+        mean/std = Experts are decoding near-identical signals regardless of what patch
+        they're looking at (collapsed specialization); this is the ground truth for
+        "are these Experts actually doing different things", not just "do their weights
+        differ".
+        recon_per_head: [M, H, K] (K = C*patch_len)
+        """
+        M, H, K = recon_per_head.shape
+        if H < 2:
+            return
+        normed = F.normalize(recon_per_head.float(), dim=-1)
+        sim = torch.einsum('mhk,mgk->mhg', normed, normed)  # [M, H, H]
+        off_diag = ~torch.eye(H, dtype=torch.bool, device=sim.device)
+        off = sim[:, off_diag].reshape(M, H * (H - 1))
+        ema_mean.mul_(decay).add_(off.mean(), alpha=1 - decay)
+        ema_std.mul_(decay).add_(off.std(), alpha=1 - decay)
+
+    def _pool_channels(self, z, valid_channels=None):
+        """
+        z: [B, C, N, D] -> z_bnc [M, C, D] (M=B*N), valid_mask [M, C] or None.
+        Reshapes to patch-major so pooling/router/mefsq below run as a flat batch of
+        M=B*N patches, each still holding all C channels for the pool to attend over.
+        """
+        B, C, N, D = z.shape
+        z_bnc = z.permute(0, 2, 1, 3).reshape(B * N, C, D)  # [M, C, D]
+        valid_mask = None
+        if valid_channels is not None:
+            valid_mask = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C)  # [M, C]
+        return z_bnc, valid_mask
+
+    def encode_post_vq(self, x, coords, time_idx=None, valid_channels=None):
         """
         Real per-head, per-channel signal AFTER quantization: each head's decoder output
         (C*patch_len, jointly reconstructing all channels from that head's own quantized
@@ -175,31 +232,29 @@ class MeFSQPretrain(nn.Module):
         that point), this is genuinely head-differentiated: each head reads a different
         quantized code and has its own decoder weights, so channel c's slice of head h's
         decode is a real, distinct function of that head's contribution.
+        valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional).
         Returns z_h [B, C, N, H_total, patch_len] — shared experts first, then routed
         (same head ordering as encode_pre_vq).
         """
         B, C, N, L = x.shape
-        D = self.head_dim
         P = self.patch_len
 
         z = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, D]
-        CD = self.num_channels * D
-        z_cat = z.permute(0, 2, 1, 3).reshape(B, N, CD)  # [B, N, C*D]
+        z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
         M = B * N
-        z_flat = z_cat.reshape(M, CD)
 
         Hr = self.n_routed_experts
-        z_h_r = z_flat.reshape(M, 1, CD).expand(-1, Hr, -1)
-        z_h_r = self.stage_bn_routed(z_h_r.reshape(M, Hr * CD)).reshape(M, Hr, CD)
-        gate_mask_routed, _ = self.router(z_flat)  # [M, Hr]
+        pooled_r, _ = self.pool_routed(z_bnc, valid_mask)  # [M, Hr, D] — each expert's own View
+        z_h_r = self.stage_bn_routed(pooled_r.reshape(M, Hr * self.head_dim)).reshape(M, Hr, self.head_dim)
+        gate_mask_routed, _ = self.router(pooled_r)  # [M, Hr]
         v_q_routed, _, _ = self.mefsq_routed(z_h_r)
         v_q_routed_gated = v_q_routed * gate_mask_routed.unsqueeze(-1)
         z_per_head_r = torch.einsum('mhr,hdr->mhd', v_q_routed_gated, self.vq_proj_routed)
         recon_per_head_r = self.decoder_routed(z_per_head_r)  # [M, Hr, C*P]
 
         Hs = self.n_shared_experts
-        z_h_s = z_flat.reshape(M, 1, CD).expand(-1, Hs, -1)
-        z_h_s = self.stage_bn_shared(z_h_s.reshape(M, Hs * CD)).reshape(M, Hs, CD)
+        pooled_s, _ = self.pool_shared(z_bnc, valid_mask)  # [M, Hs, D]
+        z_h_s = self.stage_bn_shared(pooled_s.reshape(M, Hs * self.head_dim)).reshape(M, Hs, self.head_dim)
         v_q_shared, _, _ = self.mefsq_shared(z_h_s)
         z_per_head_s = torch.einsum('mhr,hdr->mhd', v_q_shared, self.vq_proj_shared)
         recon_per_head_s = self.decoder_shared(z_per_head_s)  # [M, Hs, C*P]
@@ -208,35 +263,33 @@ class MeFSQPretrain(nn.Module):
         recon_per_head = recon_per_head.reshape(B, N, self.n_total_experts, C, P)
         return recon_per_head.permute(0, 3, 1, 2, 4)  # [B, C, N, H_total, P]
 
-    def forward(self, x, coords, time_idx=None, bool_masked_pos=None):
+    def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """
         x: [B, C, N, L]
         coords: [B, C, 3]
         bool_masked_pos: [B, C, N] bool
+        valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional) —
+        masked out of every Expert's channel-attention pool so zero-padded channels (from
+        cross-dataset channel unification) get zero attention weight.
         returns SimpleNamespace(recon [B,C,N,L], indices_routed [B,N,Hr,r_r],
         indices_shared [B,N,Hs,r_s], v_q_routed [M,Hr,r_r] (gated), v_q_shared [M,Hs,r_s],
-        gate_mask_routed [M,Hr], lb_loss scalar) — M=B*N: one shared code per (batch,
-        patch), concatenated across all C channels, not one code per channel.
+        gate_mask_routed [M,Hr], lb_loss scalar) — M=B*N: each Expert forms its own
+        per-channel-attention-pooled View of the patch (see CONTEXT.md: Expert View),
+        not one code per channel and not one shared concatenated Token.
         """
         B, C, N, L = x.shape
+        D = self.head_dim
 
         z = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos)  # [B, C, N, D]
-
-        # Concatenate all C channels' D-dim vectors into one token per (batch, patch) —
-        # router/mefsq/decoder below run as a single flat batch of M=B*N tokens, each
-        # CD-wide, instead of M=B*C*N tokens each D-wide.
-        D = self.head_dim
-        CD = self.num_channels * D
-        z_cat = z.permute(0, 2, 1, 3).reshape(B, N, CD)  # [B, N, C*D]
+        z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
         M = B * N
-        z_flat = z_cat.reshape(M, CD)
 
         # ── Routed pool ──
         Hr = self.n_routed_experts
-        z_h_r = z_flat.reshape(M, 1, CD).expand(-1, Hr, -1)
-        z_h_r = self.stage_bn_routed(z_h_r.reshape(M, Hr * CD)).reshape(M, Hr, CD)
+        pooled_r, attn_r = self.pool_routed(z_bnc, valid_mask)  # [M, Hr, D] — each expert's own View
+        z_h_r = self.stage_bn_routed(pooled_r.reshape(M, Hr * D)).reshape(M, Hr, D)
 
-        gate_mask_routed, lb_loss = self.router(z_flat)  # [M, Hr], scalar
+        gate_mask_routed, lb_loss = self.router(pooled_r)  # [M, Hr], scalar — scored on each expert's own View
 
         v_q_routed, indices_routed, _ = self.mefsq_routed(z_h_r)          # [M, Hr, r_r]
         v_q_routed_gated = v_q_routed * gate_mask_routed.unsqueeze(-1)    # zero non-selected experts
@@ -247,8 +300,8 @@ class MeFSQPretrain(nn.Module):
 
         # ── Shared pool: no gating, every expert always active (sum, uncapped) ──
         Hs = self.n_shared_experts
-        z_h_s = z_flat.reshape(M, 1, CD).expand(-1, Hs, -1)
-        z_h_s = self.stage_bn_shared(z_h_s.reshape(M, Hs * CD)).reshape(M, Hs, CD)
+        pooled_s, attn_s = self.pool_shared(z_bnc, valid_mask)  # [M, Hs, D]
+        z_h_s = self.stage_bn_shared(pooled_s.reshape(M, Hs * D)).reshape(M, Hs, D)
 
         v_q_shared, indices_shared, _ = self.mefsq_shared(z_h_s)          # [M, Hs, r_s]
 
@@ -256,10 +309,21 @@ class MeFSQPretrain(nn.Module):
         recon_per_head_s = self.decoder_shared(z_per_head_s)                               # [M, Hs, C*patch_len]
         recon_shared = recon_per_head_s.sum(dim=1)  # [M, C*patch_len]
 
+        if not self.training:
+            self._update_fingerprint_stats(recon_per_head_r, self.ema_fingerprint_sim_routed, self.ema_fingerprint_sim_std_routed)
+            self._update_fingerprint_stats(recon_per_head_s, self.ema_fingerprint_sim_shared, self.ema_fingerprint_sim_std_shared)
+
         recon = (recon_routed + self.shared_weight * recon_shared).reshape(B, N, C, L).permute(0, 2, 1, 3)  # [B, C, N, L]
+
+        # attn: shared pool first (indices [0, n_shared)), then routed — same convention as
+        # encode_pre_vq / extract_head_psd's head axis. [M, H_total, C] -> [B, N, H_total, C],
+        # same shape/meaning as MeSAEPretrain.forward's attn (per-unit channel attention),
+        # so viz/check_epoch_pretrain.py can plot both models' attn_topo identically.
+        attn = torch.cat([attn_s, attn_r], dim=1).reshape(B, N, Hs + Hr, C)
 
         return SimpleNamespace(
             recon=recon,
+            attn=attn,
             indices_routed=indices_routed.reshape(B, N, Hr, v_q_routed.shape[-1]),
             indices_shared=indices_shared.reshape(B, N, Hs, v_q_shared.shape[-1]),
             v_q_routed=v_q_routed_gated,
@@ -327,6 +391,14 @@ class MeFSQPretrain(nn.Module):
 
         _head_cosine_sim(self.vq_proj_routed, 'routed')
         _head_cosine_sim(self.vq_proj_shared, 'shared')
+
+        # Data-dependent decoder-output fingerprint (vs. the static weight-space
+        # head_cosine_sim_* above) — only populated once a full eval-mode forward pass
+        # has run (validate_one_epoch), same convention as codebook_perplexity_* above.
+        metrics['decoder_fingerprint_sim_routed']     = self.ema_fingerprint_sim_routed.item()
+        metrics['decoder_fingerprint_sim_std_routed'] = self.ema_fingerprint_sim_std_routed.item()
+        metrics['decoder_fingerprint_sim_shared']     = self.ema_fingerprint_sim_shared.item()
+        metrics['decoder_fingerprint_sim_std_shared'] = self.ema_fingerprint_sim_std_shared.item()
 
         # Routing health (routed pool only — shared pool doesn't route)
         metrics['router_entropy']  = self.ema_router_entropy.item()
