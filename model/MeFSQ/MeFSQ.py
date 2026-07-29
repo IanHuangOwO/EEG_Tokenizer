@@ -318,7 +318,8 @@ class MeFSQPretrain(nn.Module):
         # attn: shared pool first (indices [0, n_shared)), then routed — same convention as
         # encode_pre_vq / extract_head_psd's head axis. [M, H_total, C] -> [B, N, H_total, C],
         # same shape/meaning as MeSAEPretrain.forward's attn (per-unit channel attention),
-        # so viz/check_epoch_pretrain.py can plot both models' attn_topo identically.
+        # so BaseEpochChecker.check_pretrain (model/plugin_base.py) can plot both models'
+        # attn_topo identically.
         attn = torch.cat([attn_s, attn_r], dim=1).reshape(B, N, Hs + Hr, C)
 
         return SimpleNamespace(
@@ -333,7 +334,7 @@ class MeFSQPretrain(nn.Module):
             lb_loss=lb_loss,
         )
 
-    def get_loss(self, x, recon, bool_masked_pos, mask_weight=1.0):
+    def get_loss(self, x, recon, bool_masked_pos, masked_mse_weight=1.0, unmasked_mse_weight=1.0):
         """
         MSE split into masked/unmasked patches.
         Returns (total, l_masked, l_unmasked).
@@ -347,7 +348,7 @@ class MeFSQPretrain(nn.Module):
             l_masked   = 1.0
             l_unmasked = F.mse_loss(recon.float(), x.float())
 
-        return l_masked * mask_weight + l_unmasked, l_masked, l_unmasked
+        return l_masked * masked_mse_weight + l_unmasked * unmasked_mse_weight, l_masked, l_unmasked
 
     @torch.no_grad()
     def update_head_metrics(self, gate_mask_routed):

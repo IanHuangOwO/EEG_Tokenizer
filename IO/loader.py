@@ -459,7 +459,7 @@ class TemplateLoader(BaseSubjectLoader):
     """
     Copy-paste starting point for a new dataset. Not registered in
     IO/dataset.py's _resolve_loader() — rename the class, fill in
-    _load_data(), then register it. See DATASET_FORMAT.md for the full
+    _load_data(), then register it. See docs/agents/adding-a-dataset.md for the full
     walkthrough (metadata.json schema, array shape contract, wiring steps).
     """
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):

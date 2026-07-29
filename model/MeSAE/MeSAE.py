@@ -249,32 +249,71 @@ class MeSAEPretrain(nn.Module):
             aux_loss=aux_loss,
         )
 
-    def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, mask_weight=1.0, aux_weight=0.03):
+    @staticmethod
+    def _patch_pyramid_levels(recon, x):
+        """Pool the patch axis N by successive halving, keeping the within-patch axis L
+        intact: level 0 = 1 group of N patches averaged together (-> [B,C,1,L], the
+        trial's average patch shape), ..., last level = win=1 (every patch its own group,
+        L untouched) which is numerically identical to the raw (recon, x) pair. Returns
+        list of (recon_level, x_level) coarsest-first, finest ([recon, x] themselves) last.
+        """
+        B, C, N, L = x.shape
+        r = recon.reshape(B * C, L, N).float()
+        t = x.reshape(B * C, L, N).float()
+        levels = []
+        win = N
+        while True:
+            rp = F.avg_pool1d(r, kernel_size=win, stride=win)
+            tp = F.avg_pool1d(t, kernel_size=win, stride=win)
+            levels.append((rp.reshape(B, C, -1, L), tp.reshape(B, C, -1, L)))
+            if win == 1:
+                break
+            win = max(1, win // 2)
+        return levels
+
+    def _hierarchical_recon_loss(self, recon, x, bool_masked_pos):
+        """Multi-scale MSE pyramid over the patch axis (see _patch_pyramid_levels): every
+        level — coarsest trial-average-shape down to the finest per-patch/per-element
+        level — is plain unweighted MSE, then summed across levels. masked/unmasked are
+        NOT weighted into the loss (no masked_mse_weight/unmasked_mse_weight anymore); the
+        finest level's masked-vs-unmasked split is still computed and returned, purely as
+        a diagnostic (see MeSAETrainer/logging) — it plays no part in `total`.
+        """
+        levels = self._patch_pyramid_levels(recon, x)
+        losses = [F.mse_loss(r, t) for r, t in levels]
+
+        l_masked, l_unmasked = 1.0, losses[-1]
+        if bool_masked_pos is not None:
+            r, t = levels[-1]
+            mask4    = bool_masked_pos.unsqueeze(-1).expand_as(t)
+            unmasked = ~mask4
+            l_masked   = F.mse_loss(r[mask4].float(),    t[mask4].float())    if mask4.any()    else r.new_zeros(1).squeeze()
+            l_unmasked = F.mse_loss(r[unmasked].float(), t[unmasked].float()) if unmasked.any() else r.new_zeros(1).squeeze()
+
+        # coarsest -> finest, for the plotter (see MeSAETrainer.epoch_metrics)
+        self._last_pyramid_levels = [lv.detach().item() for lv in losses]
+        return torch.stack(losses).sum(), l_masked, l_unmasked
+
+    def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0):
         """
         Returns (total, l_masked, l_unmasked).
+
+        Reconstruction term is the hierarchical patch-pyramid MSE (see
+        _hierarchical_recon_loss), scaled by hierarchical_mse_weight.
 
         Tokenizer stage (bool_masked_pos=None): plain full reconstruction, l_masked=1.0
         placeholder (nothing masked yet), aux_loss included so the SAE's dead-feature
         rescue can still train.
 
-        Masked stage (bool_masked_pos given, self.sae_frozen True by then): MSE split
-        masked/unmasked like MeFSQ. aux_loss is dropped from the total regardless of the
-        aux_weight argument once the SAE is frozen — rescuing a frozen SAE's dead features
-        can't do anything, see freeze_sae().
+        Masked stage (bool_masked_pos given, self.sae_frozen True by then): aux_loss is
+        dropped from the total regardless of the aux_weight argument once the SAE is
+        frozen — rescuing a frozen SAE's dead features can't do anything, see freeze_sae().
         """
-        if bool_masked_pos is not None:
-            mask4    = bool_masked_pos.unsqueeze(-1).expand_as(x)
-            unmasked = ~mask4
-            l_masked   = F.mse_loss(recon[mask4].float(),    x[mask4].float())    if mask4.any()    else recon.new_zeros(1).squeeze()
-            l_unmasked = F.mse_loss(recon[unmasked].float(), x[unmasked].float()) if unmasked.any() else recon.new_zeros(1).squeeze()
-            total = l_masked * mask_weight + l_unmasked
-            if not self.sae_frozen:
-                total = total + aux_weight * aux_loss
-            return total, l_masked, l_unmasked
+        recon_loss, l_masked, l_unmasked = self._hierarchical_recon_loss(recon, x, bool_masked_pos)
+        total = hierarchical_mse_weight * recon_loss
 
-        l_masked   = 1.0
-        l_unmasked = F.mse_loss(recon.float(), x.float())
-        total = l_unmasked + aux_weight * aux_loss
+        if bool_masked_pos is None or not self.sae_frozen:
+            total = total + aux_weight * aux_loss
         return total, l_masked, l_unmasked
 
     def get_metrics(self, sae_hidden=None):

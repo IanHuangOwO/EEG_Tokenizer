@@ -19,10 +19,8 @@ from tqdm import tqdm
 from sklearn.metrics import f1_score, balanced_accuracy_score, cohen_kappa_score
 
 from IO.dataset import build_dataset_from_config
-from model.factory import build_finetune_from_config
-from viz.train import Plotter
+from model.factory import build_finetune_from_config, MODEL_REGISTRY
 from viz import pick_trial
-from viz.check_epoch_finetune import run as run_recon_analysis_finetune
 
 torch.set_float32_matmul_precision('high')
 
@@ -275,10 +273,14 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
         logger.info(f"  WARNING [{fold_tag}]: classes {sorted(val_labels - train_labels)} only appear in val, never trained on")
     logger.info(f"[{fold_tag}] num_classes={num_classes}")
 
+    model_type = train_params.get('model_type', 'MeFSQ')
+    entry      = MODEL_REGISTRY[model_type]
+    checker    = entry.checker_cls()
+
     logger.info(f"[{fold_tag}] Loading pretrained backbone...")
-    model = build_finetune_from_config(config, num_classes, src_output_dir=artifact_dir, mode='finetune')
+    model = build_finetune_from_config(config, num_classes, mode='finetune')
     logger.info(f"[{fold_tag}] Loaded backbone weights from {train_params['pretrained_checkpoint']}")
-    freeze_backbone = config['model_params']['MeFSQ'].get('finetune', {}).get('freeze_backbone', False)
+    freeze_backbone = config['model_params'][model_type].get('finetune', {}).get('freeze_backbone', False)
     model.to(device)
 
     scaler = torch.amp.GradScaler('cuda')
@@ -299,7 +301,7 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=train_params['warmup_epochs'])
     scheduler        = optim.lr_scheduler.SequentialLR(optimizer, schedulers=[warmup_scheduler, main_scheduler], milestones=[train_params['warmup_epochs']])
 
-    plotter = Plotter(output_dir=vis_dir)
+    plotter = entry.plotter_cls(output_dir=vis_dir)
 
     topo_trial_idx = topo_subject_id = None
     try:
@@ -331,17 +333,13 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
             logger.info(f"  > [{fold_tag}] Saved Best Checkpoint")
 
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
-        plotter.plot(mode='finetune', freeze_backbone=freeze_backbone)
+        plotter.plot_finetune(freeze_backbone=freeze_backbone)
 
         if epoch % 5 == 0 and topo_trial_idx is not None:
             try:
-                run_recon_analysis_finetune(
-                    config, output_dir=vis_dir,
-                    model=model,
-                    dataset=train_dataset,
-                    trial_idx=topo_trial_idx,
-                    subject_id=topo_subject_id,
-                    epoch=epoch,
+                checker.check_finetune(
+                    config, vis_dir, model, train_dataset,
+                    topo_trial_idx, subject_id=topo_subject_id, epoch=epoch,
                 )
             except Exception as e:
                 logger.warning(f"  Topomap viz failed (epoch {epoch}): {e}")

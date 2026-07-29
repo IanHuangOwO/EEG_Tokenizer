@@ -1,3 +1,9 @@
+> **Note:** the "one script, two phases" structure this ADR chose (`train_pretrain.py`'s
+> `vq_warmup_epochs` → `on_stage2_start()`) was reversed in
+> `docs/adr/0005-split-tokenizer-pretrain-scripts.md` — back to two scripts/checkpoints.
+> The Tokenizer-vs-Masked stage *concept* and MeSAE's target-leakage reasoning below still
+> hold; only where the stage boundary lives changed.
+
 # MeSAE two-stage training: local tokenizer stage, frozen-SAE masked stage
 
 MeSAE currently trains single-phase, unmasked, with a 12-block `TSAEncoder` (same depth as MeFSQ's) in front of the per-filter `TopKSAE` — masking was deliberately deferred at design time (`MeSAEPretrain` docstring). We want MeSAE to gain a masked-patch pretext task. Two structures were on the table: (a) mirror MeFSQ's `freeze_vq_and_decoder()` pattern — train tokenizer and backbone *jointly* through a warmup phase, then freeze and switch on masking; (b) train the tokenizer to convergence standalone first (LaBraM-style "neural tokenizer"), freeze it, then train only the backbone against masked input with the frozen SAE's output as reconstruction target.

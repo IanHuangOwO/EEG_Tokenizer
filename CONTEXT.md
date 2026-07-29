@@ -58,3 +58,9 @@ MeSAE's first training phase: the encoder (kept shallow/local, see `docs/adr/000
 
 **Masked stage**:
 MeSAE's second training phase: the Tokenizer-stage SAE is frozen (weights fixed; its `aux_loss`/sparsity term is dropped entirely, not just zero-weighted, since rescuing a frozen SAE's dead features is meaningless) and only the backbone trains, on masked input, to reconstruct via the frozen SAE's targets. Mirrors MeFSQ's `freeze_vq_and_decoder()` split but two-stage/sequential rather than joint-warmup-then-freeze — deliberate, to keep the frozen target local rather than already-contextualized (see ADR 0003).
+
+## Model plugin architecture
+
+**Unit**: Umbrella term for whatever a model quantizes per patch position — an Expert (MeFSQ) or a Filter (MeSAE). Used in shared code (`model/base_checker.py`, `model/base_plotter.py`) that doesn't know which model it's plotting.
+
+Each model (MeFSQ, MeSAE, or a future one) plugs into shared training/viz infrastructure via a `model/<Name>/plugin.py` bundling a `Trainer`/`Checker`/`Plotter` into one `BasePlugin`, registered in `model/factory.py`'s `MODEL_REGISTRY`. See `docs/adr/0004-model-plugin-base-classes.md` and `docs/agents/adding-a-model.md` for the full contract.

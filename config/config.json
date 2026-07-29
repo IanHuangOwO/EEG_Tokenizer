@@ -18,7 +18,8 @@
         "pool_after_blocks": [2, 5, 8, 11],
         "upsample_residual_add": true,
         "loss": {
-          "mask_weight": 1.0,
+          "masked_mse_weight": 1.0,
+          "unmasked_mse_weight": 1.0,
           "load_balance_weight": 0.01
         }
       },
@@ -31,7 +32,7 @@
     "MeSAE": {
       "pretrain": {
         "patch_len": 20,
-        "embed_dim": 50,
+        "embed_dim": 100,
         "enc_depth": 12,
         "spatial_heads": 10,
         "mlp_ratio": 4.0,
@@ -41,14 +42,14 @@
         "sae": {
           "n_filters": 16,
           "pool_hidden": 32,
-          "pool_temperature": 4.0,
+          "pool_temperature": 1.0,
           "sae_expansion": 4,
           "sae_k": 32,
           "decoder_hidden": 100
         },
         "loss": {
           "aux_weight": 0.03,
-          "mask_weight": 1.0
+          "hierarchical_mse_weight": 1.0
         }
       },
       "finetune": {
@@ -117,14 +118,26 @@
     }
   },
   "training_params": {
-    "pretrain": {
+    "tokenizer": {
       "model_type": "MeSAE",
-      "model_name": "mesae_pretrain_v1",
+      "model_name": "mesae_tokenizer_v0",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
       "warmup_epochs": 5,
-      "vq_warmup_epochs": 10,
+      "batch_size": 16,
+      "weight_decay": 0.05,
+      "device": "cuda",
+      "train_val_split": 0.9
+    },
+    "pretrain": {
+      "model_type": "MeSAE",
+      "model_name": "mesae_pretrain_v0",
+      "tokenizer_checkpoint": "output/mesae_tokenizer_v0/tokenizer/best_tokenizer.pth",
+      "learning_rate": 0.001,
+      "min_learning_rate": 0.0001,
+      "epochs": 50,
+      "warmup_epochs": 5,
       "batch_size": 16,
       "weight_decay": 0.05,
       "device": "cuda",
@@ -132,7 +145,7 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_v4",
+      "model_name": "mesae_finetune_v0",
       "pretrained_checkpoint": "output/mesae_pretrain_v0/pretrain/best_pretrain.pth",
       "learning_rate": 0.0005,
       "min_learning_rate": 0.00001,
@@ -147,10 +160,8 @@
     },
     "visualize": {
       "targets": [
-        { "dataset": "BETA_3s", "subject": "3", "trial": 0 },
-        { "dataset": "EEGMMIdb", "subject": "3", "trial": 4 },
-        { "dataset": "BCICIV1_Train", "subject": "3", "trial": 0 },
-        { "dataset": "Inria_Train", "subject": "3", "trial": 0 }
+        { "dataset": "BETA_3s", "subject": null, "trial": 0 },
+        { "dataset": "EEGMMIdb", "subject": null, "trial": 0 }
       ],
       "every_n_epochs": 5
     }

@@ -47,10 +47,13 @@ def _unpack_batch(batch, device):
     return x, coords, time_idx, bool_masked_pos, valid_channels
 
 
-
 def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoch,
-                     masked_mse_weight=1.0, unmasked_mse_weight=1.0,
-                     **loss_hparams):
+                     masked_mse_weight=1.0, unmasked_mse_weight=1.0, **loss_hparams):
+    """Tokenizer stage: always unmasked (bool_masked_pos=None) — encoder + VQ/SAE
+    train jointly on patch-local features, no masking, no masked/unmasked split.
+    (masked_mse_weight only ever multiplies get_loss's l_masked=1.0 placeholder here —
+    a constant offset on the logged total, no gradient effect — kept for parity with
+    train_pretrain.py's logged loss scale.)"""
     model.train()
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
@@ -58,13 +61,13 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
     totals = {"loss": 0.0, "masked": 0.0, "unmasked": 0.0}
 
     for batch_idx, batch in enumerate(pbar):
-        x, coords, time_idx, bool_masked_pos, valid_channels = _unpack_batch(batch, device)
+        x, coords, time_idx, _, valid_channels = _unpack_batch(batch, device)
         optimizer.zero_grad()
 
         with torch.amp.autocast(device_type='cuda'):
-            out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
-            l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, masked_mse_weight,
-                                                                  unmasked_mse_weight, False, **loss_hparams)
+            out = model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
+            l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, None, masked_mse_weight,
+                                                                  unmasked_mse_weight, True, **loss_hparams)
 
         scaler.scale(l_total).backward()
         scaler.unscale_(optimizer)
@@ -106,12 +109,12 @@ def validate_one_epoch(model, trainer, data_loader, device,
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(pbar):
-            x, coords, time_idx, bool_masked_pos, valid_channels = _unpack_batch(batch, device)
+            x, coords, time_idx, _, valid_channels = _unpack_batch(batch, device)
 
             with torch.amp.autocast(device_type='cuda'):
-                out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
-                l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, masked_mse_weight,
-                                                                      unmasked_mse_weight, False, **loss_hparams)
+                out = model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
+                l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, None, masked_mse_weight,
+                                                                      unmasked_mse_weight, True, **loss_hparams)
 
             totals["loss"]     += l_total.item()
             totals["masked"]   += float(l_masked) if not hasattr(l_masked, 'item') else l_masked.item()
@@ -138,21 +141,21 @@ def validate_one_epoch(model, trainer, data_loader, device,
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Masked Pretraining (MeFSQ or MeSAE, by training_params.pretrain.model_type) — '
-                                                   'loads a Tokenizer-stage checkpoint (train_tokenizer.py), freezes its VQ/SAE, '
-                                                   'and trains the encoder against masked reconstruction')
+    parser = argparse.ArgumentParser(description='Tokenizer Stage (MeFSQ or MeSAE) — unmasked joint '
+                                                   'encoder+VQ/SAE training, spatial/temporal mixing enabled '
+                                                   'from the start, by training_params.tokenizer.model_type')
     parser.add_argument('--config', type=str, default='config/config.json')
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
         config = json.load(f)
 
-    train_params = config['training_params']['pretrain']
+    train_params = config['training_params']['tokenizer']
     device     = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    model_name = train_params.get('model_name', 'default_run')
+    model_name = train_params.get('model_name', 'default_tokenizer_run')
 
     base_output_dir = f"output/{model_name}"
-    checkpoint_dir  = os.path.join(base_output_dir, "pretrain")
+    checkpoint_dir  = os.path.join(base_output_dir, "tokenizer")
     artifact_dir    = os.path.join(base_output_dir, "artifacts")
     vis_dir         = os.path.join(base_output_dir, "visualization")
 
@@ -175,10 +178,6 @@ def main():
         with open(os.path.join(data_root, 'metadata.json'), 'r') as f:
             meta = json.load(f)
 
-        # metadata.json subject keys are always strings (JSON object keys); keep them as
-        # strings throughout instead of int-converting — a requested subject_to_use given
-        # as either "1" or 1 in config then normalizes to the same "1" for comparison,
-        # so either representation works instead of silently matching nothing.
         all_available_subjects = sorted(meta.get('data_structure', {}).keys())
 
         requested_subjects = ds_args['subject_to_use']
@@ -206,8 +205,6 @@ def main():
     logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
 
     def _first_subject(dataset_name=None):
-        """subject: null in a target config -> first val subject (of that dataset, if
-        dataset_name is given — subject ids aren't unique across datasets)."""
         sub_data = val_dataset.base_dataset.subject_data
         if dataset_name is not None:
             names = val_dataset.base_dataset.dataset_names
@@ -236,26 +233,21 @@ def main():
 
     Nc = train_dataset.base_dataset.Nc
     logger.info(f"Initializing model for {Nc} channels (Run: {model_name})...")
-    model = build_pretrain_from_config(config, mode='pretrain')
-
-    tokenizer_ckpt = train_params['tokenizer_checkpoint']
-    state = torch.load(tokenizer_ckpt, map_location='cpu')
-    model.load_state_dict(state['model_state_dict'])
-    logger.info(f"Loaded Tokenizer-stage checkpoint from {tokenizer_ckpt}")
+    model = build_pretrain_from_config(config, mode='tokenizer')
     model.to(device)
 
-    # enable_spatial/enable_temporal are plain flags, not persisted in the state dict —
-    # re-enable them (same pattern as model/factory.py's build_finetune_from_config), then
-    # freeze the VQ/SAE apparatus the Tokenizer stage already trained.
+    # Tokenizer stage: spatial (+temporal, if the model has it) mixing enabled from the
+    # start — the whole point of splitting this out of train_pretrain.py is to let the
+    # encoder's spatial/temporal attention train jointly with the VQ/SAE, unmasked,
+    # instead of only turning on once masked pretraining begins.
     trainer.on_tokenizer_start(model, logger=logger)
-    trainer.on_pretrain_start(model, logger=logger)
 
     logger.info("Warming up with dummy pass...")
     dummy_batch = next(iter(train_loader))
-    x, coords, time_idx, bool_masked_pos, valid_channels = _unpack_batch(dummy_batch, device)
+    x, coords, time_idx, _, valid_channels = _unpack_batch(dummy_batch, device)
     model.eval()
     with torch.no_grad():
-        model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
+        model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
 
     scaler    = torch.amp.GradScaler('cuda')
     optimizer = optim.AdamW(model.parameters(), lr=train_params['learning_rate'], weight_decay=train_params['weight_decay'])
@@ -273,12 +265,11 @@ def main():
     masked_mse_weight   = loss_params.get('masked_mse_weight', (1.0 - mask_ratio) / mask_ratio)
     unmasked_mse_weight = loss_params.get('unmasked_mse_weight', 1.0)
     loss_hparams = {k: v for k, v in loss_params.items() if k not in ('masked_mse_weight', 'unmasked_mse_weight')}
-    logger.info(f"model_type={model_type}  mask_ratio={mask_ratio}  masked_mse_weight={masked_mse_weight:.4f}  "
-                f"unmasked_mse_weight={unmasked_mse_weight:.4f}  loss_hparams={loss_hparams}")
+    logger.info(f"model_type={model_type}  loss_hparams={loss_hparams}")
 
     best_val_loss  = float('inf')
     total_epochs   = train_params['epochs']
-    logger.info(f"Starting {model_type} Pretraining ({total_epochs} epochs, masked)")
+    logger.info(f"Starting {model_type} Tokenizer training ({total_epochs} epochs, unmasked)")
 
     for epoch in range(1, total_epochs + 1):
         train_metrics = train_one_epoch(model, trainer, train_loader, optimizer, scaler, device, epoch,
@@ -304,7 +295,7 @@ def main():
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
-            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_pretrain.pth'))
+            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_tokenizer.pth'))
             logger.info("  > Saved Best Checkpoint")
 
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
@@ -320,7 +311,7 @@ def main():
                 except Exception as e:
                     logger.warning(f"  Topomap viz failed (epoch {epoch}, subject={topo_subject_id}, trial_idx={topo_trial_idx}): {e}")
 
-    logger.info("Pretraining Complete.")
+    logger.info("Tokenizer Training Complete.")
 
 
 if __name__ == '__main__':
