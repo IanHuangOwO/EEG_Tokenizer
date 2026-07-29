@@ -21,10 +21,11 @@ python profile_model.py
 # Run Finetune stage (loads a Pretrain-stage checkpoint, trains a classification head)
 python train_finetune.py --config config/config.json
 
-# Visualization / analysis (viz/reconstruction.py is the standalone entry point;
-# viz/extract.py, panels.py, timeseries.py, topomap.py are shared primitives it
-# and model/base_checker.py both call — not run directly)
-python viz/reconstruction.py --config config/analysis.json --checkpoint <path>   # per-epoch topo/PSD/attn snapshot, MeFSQ or MeSAE
+# Post-training checker (checkpoint -> topo/PSD/attn snapshot per subject, MeFSQ or MeSAE;
+# base config auto-derived from the checkpoint's output/<model>/artifacts/config.json,
+# config/analysis.json is a small overlay; viz/extract.py, panels.py, timeseries.py,
+# topomap.py are shared primitives it and model/base_checker.py both call — not run directly)
+python check_model.py --config config/analysis.json --checkpoint <path>
 ```
 
 No test suite exists. Validation runs during training.

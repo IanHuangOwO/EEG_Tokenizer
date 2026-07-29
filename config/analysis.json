@@ -1,36 +1,22 @@
 {
-  "base_config": "config/config.json",
-  "checkpoint": "output/mefsq_pretrain_v0/pretrain/best_pretrain.pth",
+  "checkpoint": "output/mesae_tokenizer_v0/tokenizer/best_tokenizer.pth",
+  "mode": "tokenizer",
 
   "dataset_params": {
     "pretrain": {
       "BETA_4s": {
-        "dataset_path": "datas/BETA_3s",
-        "subject_to_use": [2],
+        "dataset_path": "datas/BETA_4s",
+        "subject_to_use": [16],
         "channels_to_use": ["all"],
-        "trial_to_use": 10
+        "trial_to_use": 0
       }
     }
   },
 
   "check": {
-    "data": {
-      "num_channels":      64,
-      "plot_band_temporal": true,
-      "plot_ampphase":     false,
-      "plot_realimag":     false,
-      "plot_psd":          false,
-      "plot_topo":         true,
-      "plot_masking":      false,
-      "plot_overview":     true
-    },
-    "codebook":       {},
-    "reconstruction": { "channel": null },
-    "spatial":        {},
-    "topomap": {
-      "max_heads": 128,
-      "n_std":     1.0,
-      "cmap":      "YlOrRd"
-    }
+    "plot_recon":     true,
+    "plot_topo_psd":  true,
+    "plot_attn_topo": true,
+    "cmap": "YlOrRd"
   }
 }

@@ -36,9 +36,9 @@ def load_config(path: str) -> dict:
 
 
 def resolve_output_dir(config: dict, *sub_dirs: str, mode: str = 'pretrain') -> str:
-    """Return output/{model_name}/visualization/{sub_dirs...} and create it."""
+    """Return output/{model_name}/{sub_dirs...} and create it."""
     model_name = config['training_params'][mode]['model_name']
-    path = os.path.join('output', model_name, 'visualization', *sub_dirs)
+    path = os.path.join('output', model_name, *sub_dirs)
     os.makedirs(path, exist_ok=True)
     return path
 

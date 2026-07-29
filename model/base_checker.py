@@ -20,7 +20,7 @@ import torch.nn as nn
 
 from viz.extract import PsdResult, SpectraResult
 from viz.topomap import project_coords_2d
-from viz.panels import plot_topo_psd_filter, plot_attn_topo
+from viz.panels import plot_topo_psd_filter, plot_attn_topo as render_attn_topo
 from viz.timeseries import visualize_reconstruction
 
 
@@ -68,7 +68,8 @@ class BaseEpochChecker:
 
     @torch.no_grad()
     def _render_snapshot(self, bundle, config, output_dir, subject_id=None, epoch=None,
-                          trial_idx=None, cmap='YlOrRd'):
+                          trial_idx=None, cmap='YlOrRd',
+                          plot_recon=True, plot_topo_psd=True, plot_attn_topo=True):
         viz_dir = os.path.join(output_dir, 'recon')
         os.makedirs(viz_dir, exist_ok=True)
         epoch_tag = f'_ep{epoch:04d}' if epoch is not None else ''
@@ -77,13 +78,17 @@ class BaseEpochChecker:
         pos2d = project_coords_2d(bundle.coords)
         C, N, patch_len = bundle.raw_cnl.shape
 
-        visualize_reconstruction(
-            None, (bundle.raw_t, bundle.recon_t), epoch,
-            output_dir=viz_dir,
-            channel_names=bundle.channel_names,
-            subject_id=subject_id, trial_idx=trial_idx,
-            mask=bundle.mask_np, patch_len=bundle.patch_len,
-        )
+        if plot_recon:
+            visualize_reconstruction(
+                None, (bundle.raw_t, bundle.recon_t), epoch,
+                output_dir=viz_dir,
+                channel_names=bundle.channel_names,
+                subject_id=subject_id, trial_idx=trial_idx,
+                mask=bundle.mask_np, patch_len=bundle.patch_len,
+            )
+
+        if not (plot_topo_psd or plot_attn_topo):
+            return
 
         try:
             psd_result = self.extract_psd(
@@ -93,55 +98,58 @@ class BaseEpochChecker:
             print(f"  [epoch] extract_psd failed, skipping topo_psd_filter + attn_topo: {e}")
             return
 
-        try:
-            pp = config.get('preprocess_params', {})
-            fs = pp.get('target_freq')
-            l_freq, h_freq = pp.get('l_freq'), pp.get('h_freq')
-            spectra_result = self.extract_spectra(
-                bundle.psd_model, bundle.x_in, bundle.c_in, bundle.t_in, bundle.vc_in, fs, 0.2)
-            psd_x, freqs = spectra_result.psd, spectra_result.freqs
+        if plot_topo_psd:
+            try:
+                pp = config.get('preprocess_params', {})
+                fs = pp.get('target_freq')
+                l_freq, h_freq = pp.get('l_freq'), pp.get('h_freq')
+                spectra_result = self.extract_spectra(
+                    bundle.psd_model, bundle.x_in, bundle.c_in, bundle.t_in, bundle.vc_in, fs, 0.2)
+                psd_x, freqs = spectra_result.psd, spectra_result.freqs
 
-            n_fft = max(patch_len, int(round(fs / 0.2))) if fs else patch_len
-            fft_raw   = np.fft.rfft(bundle.raw_cnl,   n=n_fft, axis=-1)
-            fft_recon = np.fft.rfft(bundle.recon_cnl, n=n_fft, axis=-1)
-            psd_raw   = (fft_raw.real**2   + fft_raw.imag**2  ).mean(axis=1)
-            psd_recon = (fft_recon.real**2 + fft_recon.imag**2).mean(axis=1)
+                n_fft = max(patch_len, int(round(fs / 0.2))) if fs else patch_len
+                fft_raw   = np.fft.rfft(bundle.raw_cnl,   n=n_fft, axis=-1)
+                fft_recon = np.fft.rfft(bundle.recon_cnl, n=n_fft, axis=-1)
+                psd_raw   = (fft_raw.real**2   + fft_raw.imag**2  ).mean(axis=1)
+                psd_recon = (fft_recon.real**2 + fft_recon.imag**2).mean(axis=1)
 
-            if l_freq is not None and h_freq is not None:
-                band = (freqs >= l_freq) & (freqs <= h_freq)
-                freqs, psd_x   = freqs[band], psd_x[:, :, band]
-                psd_raw, psd_recon = psd_raw[:, band], psd_recon[:, band]
+                if l_freq is not None and h_freq is not None:
+                    band = (freqs >= l_freq) & (freqs <= h_freq)
+                    freqs, psd_x   = freqs[band], psd_x[:, :, band]
+                    psd_raw, psd_recon = psd_raw[:, band], psd_recon[:, band]
 
-            raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
-            recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
+                raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
+                recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
 
-            out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_psd_filter.png")
-            plot_topo_psd_filter(
-                out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
-                psd_ch_x, psd_x, freqs, importance, cmap=cmap,
-                subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
-                unit_label=self.unit_label, l_freq=l_freq, h_freq=h_freq,
-            )
-            print(f"  [epoch] -> {out_path}")
-        except Exception as e:
-            print(f"  [epoch] topo_psd_filter failed: {e}")
+                out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_psd_filter.png")
+                plot_topo_psd_filter(
+                    out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
+                    psd_ch_x, psd_x, freqs, importance, cmap=cmap,
+                    subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
+                    unit_label=self.unit_label, l_freq=l_freq, h_freq=h_freq,
+                )
+                print(f"  [epoch] -> {out_path}")
+            except Exception as e:
+                print(f"  [epoch] topo_psd_filter failed: {e}")
 
-        try:
-            out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_attn_topo.png")
-            plot_attn_topo(
-                out_path, pos2d, bundle.attn, importance, bundle.channel_names,
-                valid_channels=bundle.valid_channels,
-                subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag, unit_label=self.unit_label,
-            )
-            print(f"  [epoch] -> {out_path}")
-        except Exception as e:
-            print(f"  [epoch] attn_topo failed: {e}")
+        if plot_attn_topo:
+            try:
+                out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_attn_topo.png")
+                render_attn_topo(
+                    out_path, pos2d, bundle.attn, importance, bundle.channel_names,
+                    valid_channels=bundle.valid_channels,
+                    subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag, unit_label=self.unit_label,
+                )
+                print(f"  [epoch] -> {out_path}")
+            except Exception as e:
+                print(f"  [epoch] attn_topo failed: {e}")
 
     # -- pretrain-stage snapshot: recon_signal / topo_psd_filter / attn_topo -------
 
     @torch.no_grad()
     def check_pretrain(self, config, output_dir, model, dataset, trial_idx,
-                        subject_id=None, epoch=None, cmap='YlOrRd'):
+                        subject_id=None, epoch=None, cmap='YlOrRd',
+                        plot_recon=True, plot_topo_psd=True, plot_attn_topo=True, trainer=None):
         device = next(model.parameters()).device
         model.eval()
 
@@ -160,6 +168,10 @@ class BaseEpochChecker:
         out = model(x_in, c_in, time_idx=t_in, bool_masked_pos=None, valid_channels=vc_in)
         attn = out.attn[0].mean(dim=0).cpu().numpy()
 
+        metrics = {'recon_mse': float(np.mean((data['raw'] - data['recon']) ** 2))}
+        if trainer is not None:
+            metrics.update(trainer.epoch_metrics(model, out))
+
         bundle = SnapshotBundle(
             x_in=x_in, c_in=c_in, t_in=t_in, vc_in=vc_in, psd_model=model,
             raw_t=torch.from_numpy(data['raw']).unsqueeze(0),
@@ -169,7 +181,10 @@ class BaseEpochChecker:
             valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=mask_np,
         )
         self._render_snapshot(bundle, config, output_dir, subject_id=subject_id,
-                               epoch=epoch, trial_idx=trial_idx, cmap=cmap)
+                               epoch=epoch, trial_idx=trial_idx, cmap=cmap,
+                               plot_recon=plot_recon, plot_topo_psd=plot_topo_psd,
+                               plot_attn_topo=plot_attn_topo)
+        return metrics
 
     # -- finetune-stage snapshot: same 3 panels, model.backbone + finetune head's attn -
 
@@ -190,7 +205,8 @@ class BaseEpochChecker:
 
     @torch.no_grad()
     def check_finetune(self, config, output_dir, model, dataset, trial_idx,
-                        subject_id=None, epoch=None, patch_len=None, cmap='YlOrRd'):
+                        subject_id=None, epoch=None, patch_len=None, cmap='YlOrRd',
+                        plot_recon=True, plot_topo_psd=True, plot_attn_topo=True, trainer=None):
         backbone = model.backbone
         device = next(model.parameters()).device
         pp = config.get('preprocess_params', {})
@@ -218,6 +234,10 @@ class BaseEpochChecker:
         raw_cnl   = x_patches[0].numpy()
         recon_cnl = out.recon[0].reshape(C, N, L).detach().cpu().numpy()
 
+        metrics = {'recon_mse': float(np.mean((raw_cnl - recon_cnl) ** 2))}
+        if trainer is not None:
+            metrics.update(trainer.epoch_metrics(backbone, out))
+
         bundle = SnapshotBundle(
             x_in=x_in, c_in=c_in, t_in=t_in, vc_in=vc_in, psd_model=backbone,
             raw_t=torch.from_numpy(raw_cnl.reshape(1, C, N * L)),
@@ -228,6 +248,9 @@ class BaseEpochChecker:
             title_suffix=' [finetune]',
         )
         self._render_snapshot(bundle, config, output_dir, subject_id=subject_id,
-                               epoch=epoch, trial_idx=trial_idx, cmap=cmap)
+                               epoch=epoch, trial_idx=trial_idx, cmap=cmap,
+                               plot_recon=plot_recon, plot_topo_psd=plot_topo_psd,
+                               plot_attn_topo=plot_attn_topo)
 
         model.train(was_training)
+        return metrics
