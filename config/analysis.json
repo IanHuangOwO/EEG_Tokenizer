@@ -1,22 +1,40 @@
 {
-  "checkpoint": "output/mesae_tokenizer_v0/tokenizer/best_tokenizer.pth",
+  "checkpoint": "output/mesae_tokenizer_v2/tokenizer/best_tokenizer.pth",
   "mode": "tokenizer",
 
   "dataset_params": {
     "pretrain": {
-      "BETA_4s": {
-        "dataset_path": "datas/BETA_4s",
-        "subject_to_use": [16],
-        "channels_to_use": ["all"],
-        "trial_to_use": 0
+      "BETA_3s": {
+        "dataset_path": "datas/BETA_3s",
+        "subject_to_use": ["1"],
+        "channels_to_use": ["all"]
+      },
+      "BCICIV1_Train": {
+        "dataset_path": "datas/BCICIV1_Train",
+        "subject_to_use": ["1"],
+        "channels_to_use": ["all"]
+      },
+      "Inria_Train": {
+        "dataset_path": "datas/Inria_Train",
+        "subject_to_use": ["2"],
+        "channels_to_use": ["all"]
+      },
+      "EEGMMIdb": {
+        "dataset_path": "datas/EEGMMIdb",
+        "subject_to_use": ["1"],
+        "channels_to_use": ["all"]
       }
     }
   },
 
   "check": {
+    "analysis": "codebook",
     "plot_recon":     true,
     "plot_topo_psd":  true,
     "plot_attn_topo": true,
-    "cmap": "YlOrRd"
+    "cmap": "YlOrRd",
+    "codebook": {
+      "max_trials_per_dataset": 200
+    }
   }
 }

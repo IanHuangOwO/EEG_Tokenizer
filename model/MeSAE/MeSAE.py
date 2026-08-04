@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.MeSAE.MeSAE_modules import SpatialTemporalEmbeddings, TSAEncoder, ExpertChannelPool, MultiHeadDecoder, PerChannelHeadAttn
+from model.MeSAE.MeSAE_modules import SpatialTemporalEmbeddings, TSAEncoder, ExpertChannelPool, MultiHeadDecoder, PerChannelHeadAttn, FilterRouter
 
 
 class TopKSAE(nn.Module):
@@ -23,16 +23,16 @@ class TopKSAE(nn.Module):
     explaining the residual reconstruction error, so they get gradient instead of
     staying permanently dead.
     """
-    def __init__(self, dim, n_features, k, aux_k=None, dead_threshold=1e-3, ema_decay=0.99):
+    def __init__(self, dim, n_features, k, dead_threshold=1e-3, ema_decay=0.99):
         super().__init__()
         self.dim = dim
         self.n_features = n_features
         self.k = k
-        self.aux_k = aux_k or min(n_features, k * 4)
         self.dead_threshold = dead_threshold
         self.ema_decay = ema_decay
 
         self.b_dec = nn.Parameter(torch.zeros(dim))
+        self.input_norm = nn.LayerNorm(dim)
         self.enc = nn.Linear(dim, n_features)
         self.dec = nn.Parameter(torch.empty(n_features, dim))
         nn.init.kaiming_uniform_(self.dec, a=math.sqrt(5))
@@ -43,31 +43,69 @@ class TopKSAE(nn.Module):
         dec_n = F.normalize(self.dec, dim=-1)
         return h @ dec_n + self.b_dec
 
-    def forward(self, x):
-        """x: [..., dim] -> x_hat [..., dim], h [..., n_features], aux_loss scalar"""
+    def forward(self, x, k=None, weight=None):
+        """x: [..., dim] -> x_hat [..., dim], h [..., n_features], aux_loss scalar.
+        k: single top-k applied to every row (default self.k). Per-group k_groups
+        (routed Filters vs shared Filters picking a different k through this same
+        dictionary) was tried and reverted: fire_ema below is one flat mean over all
+        rows, and the routed group's row count (M*n_routed_filters) dwarfed the shared
+        group's (M*n_shared_filters), so shared-specialized dictionary atoms were
+        structurally outvoted into looking dead — caused repeated dead_feature_rate
+        mass-collapse events. See docs/adr/0007-routed-filter-gating-for-mesae.md and
+        MeSAEPretrain._sae_forward.
+        weight: optional, same leading shape as x (flattened identically) — each row's
+        contribution to `fired` (see below) is scaled by this before the dead-feature
+        detector's mean, instead of every row counting equally. Lets a caller downstream
+        of a gate (MeSAEPretrain's router) tell the dead-feature tracker "this row's
+        selection barely mattered, don't count it as evidence this atom is alive" — see
+        MeSAEPretrain.forward, which passes the router's gate here so an atom that only
+        ever wins top-k on Filters the router currently zeroes out doesn't get counted
+        alive by selection alone while receiving no real reconstruction gradient."""
         shape = x.shape[:-1]
         x_flat = x.reshape(-1, self.dim)
-        pre = self.enc(x_flat - self.b_dec)  # [B, F]
+        pre = self.enc(self.input_norm(x_flat - self.b_dec))  # [B, F]
 
-        topk_val, topk_idx = pre.topk(self.k, dim=-1)
+        kk = k or self.k
+        topk_val, topk_idx = pre.topk(kk, dim=-1)
         h = torch.zeros_like(pre).scatter_(-1, topk_idx, F.relu(topk_val))
+        selected = torch.zeros_like(pre).scatter_(-1, topk_idx, 1.0)
+
         x_hat = self._decode(h)
 
         aux_loss = x_hat.new_zeros(())
         if self.training:
             with torch.no_grad():
-                fired = torch.zeros_like(pre).scatter_(-1, topk_idx, 1.0).mean(dim=0)
+                if weight is not None:
+                    w = weight.reshape(-1).detach().float()  # [B]
+                    fired = (selected.detach() * w.unsqueeze(-1)).sum(dim=0) / (w.sum() + 1e-8)
+                else:
+                    fired = selected.detach().mean(dim=0)
                 self.fire_ema.mul_(self.ema_decay).add_(fired, alpha=1 - self.ema_decay)
                 dead_mask = self.fire_ema < self.dead_threshold  # [F]
 
             if dead_mask.any():
                 residual = (x_flat - x_hat).detach()
                 dead_pre = pre.masked_fill(~dead_mask.unsqueeze(0), float('-inf'))
-                aux_k = min(self.aux_k, int(dead_mask.sum().item()))
+                # Capped at k*4: letting aux_k track dead_mask.sum() uncapped was tried
+                # and reverted — during a mass-death event that let aux_k approach
+                # n_features, so every row decoded through nearly the entire dictionary
+                # via this "rescue" path each step, a dense reconstruction fighting the
+                # sparse one at full scale and likely the actual trigger for total
+                # collapse (loss flatlining at the data's own variance), not a fix for it.
+                aux_k = min(self.k * 4, int(dead_mask.sum().item()))
                 aux_val, aux_idx = dead_pre.topk(aux_k, dim=-1)
                 h_aux = torch.zeros_like(pre).scatter_(-1, aux_idx, F.relu(aux_val))
                 residual_hat = self._decode(h_aux)
-                aux_loss = F.mse_loss(residual_hat, residual)
+                # residual lives in raw x_flat units (unlike pre/h, which read a
+                # LayerNorm'd input via input_norm) — it inherits whatever scale the
+                # upstream encoder blocks currently drift to (block_norm), so an
+                # unnormalized MSE here grows with that drift regardless of whether the
+                # dead-atom rescue is doing a good job. Normalize by the residual's own
+                # current squared magnitude (detached — a rescale of the loss value, not
+                # a change to residual_hat/x_hat's own semantics anywhere else they're
+                # used) so this loss term stays comparable epoch to epoch instead of
+                # tracking encoder-scale drift.
+                aux_loss = F.mse_loss(residual_hat, residual) / (residual.pow(2).mean() + 1e-8)
 
         return x_hat.reshape(*shape, self.dim), h.reshape(*shape, self.n_features), aux_loss
 
@@ -108,9 +146,11 @@ class MeSAEPretrain(nn.Module):
         pool_after_blocks=(),
         upsample_residual_add=True,
         num_channels=1,
-        n_filters=8,
-        pool_hidden=32,
-        pool_temperature=1.0,
+        n_routed_filters=32,
+        n_shared_filters=4,
+        n_top_k=4,
+        channel_pool_hidden=32,
+        channel_pool_temperature=1.0,
         sae_expansion=8,
         sae_k=32,
         decoder_hidden=None,
@@ -119,7 +159,21 @@ class MeSAEPretrain(nn.Module):
         self.patch_len = patch_len
         self.head_dim = embed_dim
         self.num_channels = num_channels
-        self.n_filters = n_filters
+        # Filters [0:n_routed_filters] are routed (top-k gated per patch),
+        # [n_routed_filters:] are shared (always-on, fixed 0.2x baseline, matching MeFSQ's
+        # shared_weight) — see docs/adr/0007-routed-filter-gating-for-mesae.md. n_filters is
+        # derived, not independently configurable: it's meaningless without a routed/shared
+        # split to define what it's counting.
+        self.n_routed_filters = n_routed_filters
+        self.n_shared_filters = n_shared_filters
+        self.n_filters = n_routed_filters + n_shared_filters
+        self.shared_weight = 0.2
+        n_filters = self.n_filters
+        # sae_k: same self.sae dictionary (one shared vocabulary), same top-k, for every
+        # Filter regardless of routed/shared — see TopKSAE.forward's docstring for why a
+        # per-group k split was tried and reverted (fire_ema mass-collapse from the
+        # routed/shared row-count imbalance).
+        self.sae_k = sae_k
 
         self.embed   = SpatialTemporalEmbeddings(patch_len, embed_dim)
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
@@ -128,10 +182,18 @@ class MeSAEPretrain(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
 
-        self.filter_pool = ExpertChannelPool(embed_dim, n_filters, hidden=pool_hidden, temperature=pool_temperature)
+        self.filter_pool = ExpertChannelPool(embed_dim, n_filters, hidden=channel_pool_hidden, temperature=channel_pool_temperature)
         self.sae         = TopKSAE(embed_dim, sae_expansion * embed_dim, sae_k)
         self.decoder     = MultiHeadDecoder(n_filters, embed_dim, num_channels * patch_len, hidden=decoder_hidden)
         self.sae_frozen  = False
+
+        self.router = FilterRouter(embed_dim, n_routed_filters, n_top_k)
+        # EMA router-health buffers — same 3 metrics as MeFSQ's Router
+        # (ema_router_entropy/ema_router_load_std/ema_gate_entropy), see
+        # update_head_metrics below for what each number means.
+        self.register_buffer('ema_router_entropy',  torch.tensor(0.0))
+        self.register_buffer('ema_router_load_std', torch.tensor(0.0))
+        self.register_buffer('ema_gate_entropy',    torch.tensor(0.0))
 
         # EMA buffers for the decoder-output fingerprint (data-dependent diversity of
         # each filter's actual decoded contribution) — same diagnostic value as
@@ -161,7 +223,49 @@ class MeSAEPretrain(nn.Module):
             p.requires_grad_(False)
         for p in self.decoder.parameters():
             p.requires_grad_(False)
+        for p in self.router.parameters():
+            p.requires_grad_(False)
         self.sae_frozen = True
+
+    @torch.no_grad()
+    def update_head_metrics(self, gate_routed):
+        """
+        EMA router-health monitoring, called once per training step (see
+        MeSAETrainer.compute_loss) — logic ported unchanged from MeFSQ's
+        MeFSQ.update_head_metrics. gate_routed: [M, n_routed_filters], the router's own
+        gate output (routed subset only, NOT the shared subset appended in forward()'s
+        `gate`).
+
+        router_entropy: entropy of the routed pool's LOAD distribution (how evenly, across
+        this batch's patches, selection is spread over the n_routed_filters routed Filters)
+        — 0 = every patch always picks the same Filter (total collapse), log(n_routed_filters)
+        = perfectly uniform load across all routed Filters. Rising over training = healthy
+        (Filters differentiating and each still getting used); falling toward 0 = router
+        collapse (a couple of Filters absorbing everything, see docs/adr/0007).
+
+        gate_entropy: entropy of the softmax weight WITHIN each patch's own top-k selection
+        (not across patches) — 0 = one selected Filter dominates that patch's gate weight
+        (confident/peaked routing), log(top_k) = the k selected Filters split weight
+        near-uniformly for that patch. Lower isn't necessarily bad here (it means the router
+        is confident about which Filter should own a patch); watch it alongside
+        router_entropy, not instead of it.
+
+        router_load_std: std of the load distribution across routed Filters — companion to
+        router_entropy in raw (non-normalized) units; rising = load spreading out unevenly
+        (some Filters starved), useful for spotting collapse early since std reacts faster
+        than the log-scaled entropy number.
+        """
+        selected = (gate_routed.detach() > 0).float()
+        load = selected.mean(dim=0)
+        load_p = load / (load.sum() + 1e-8)
+        router_entropy = -(load_p * torch.log(load_p + 1e-10)).sum()
+
+        gm = gate_routed.detach().float().clamp(min=0)
+        gate_entropy = -(gm * torch.log(gm + 1e-10)).sum(dim=-1).mean()
+
+        self.ema_router_load_std.mul_(0.99).add_(load.std(),    alpha=0.01)
+        self.ema_router_entropy.mul_(0.99).add_(router_entropy, alpha=0.01)
+        self.ema_gate_entropy.mul_(0.99).add_(gate_entropy,     alpha=0.01)
 
     def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None):
         z = self.embed(x, coords=coords, time_idx=time_idx)  # [B, C, N, D]
@@ -178,6 +282,26 @@ class MeSAEPretrain(nn.Module):
         if valid_channels is not None:
             valid_mask = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
         return z_bnc, valid_mask
+
+    def _sae_forward(self, pooled, gate=None):
+        """pooled: [M, Q, D], gate: [M, Q] or None -> sae_out [M, Q, D], sae_hidden [M, Q, F],
+        aux_loss scalar. Single top-k (self.sae.k, set from sae_k at construction) applied
+        uniformly across every Filter — routed and shared alike — through the shared
+        self.sae dictionary. Reverted from a routed/shared per-group k split (TopKSAE
+        previously had a k_groups path for this): that split's fire_ema averaged unweighted
+        across the routed group's M*n_routed_filters rows and the shared group's much
+        smaller M*n_shared_filters rows, so shared-specialized dictionary atoms were
+        structurally outvoted into looking dead — caused repeated dead_feature_rate
+        mass-collapse events. See docs/adr/0007-routed-filter-gating-for-mesae.md.
+
+        gate, when given, is passed through to TopKSAE as `weight`: an atom that only ever
+        wins the SAE's top-k on a Filter the router currently zeroes out would otherwise
+        count as "alive" by selection alone while getting ~0 real reconstruction gradient
+        (gate multiplies that Filter's decoded contribution to ~0 downstream) — see
+        MeSAEPretrain.forward, which computes gate before this call specifically so it can
+        be threaded through here, and TopKSAE.forward's docstring for the weighted
+        fire_ema math."""
+        return self.sae(pooled, weight=gate)
 
     def encode_post_sae(self, x, coords, time_idx=None, valid_channels=None):
         """
@@ -197,7 +321,7 @@ class MeSAEPretrain(nn.Module):
         z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
 
         pooled, _ = self.filter_pool(z_bnc, valid_mask)  # [M, Q, D]
-        sae_out, _, _ = self.sae(pooled)                 # [M, Q, D]
+        sae_out, _, _ = self._sae_forward(pooled)  # [M, Q, D]
 
         recon_per_filter = self.decoder(sae_out)  # [M, Q, C*P]
         recon_per_filter = recon_per_filter.reshape(B, N, self.n_filters, C, P)
@@ -234,9 +358,24 @@ class MeSAEPretrain(nn.Module):
         z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
 
         pooled, attn = self.filter_pool(z_bnc, valid_mask)   # [M, Q, D], [M, Q, C]
-        sae_out, sae_hidden, aux_loss = self.sae(pooled)     # [M, Q, D], [M, Q, F]
+
+        # Router runs before the SAE now (it only needs `pooled`, not the SAE's output) so
+        # `gate` can be threaded into _sae_forward: an atom that only ever wins the SAE's
+        # top-k on a Filter the router currently zeroes out would otherwise count as
+        # "alive" in fire_ema from selection alone, while getting ~0 real reconstruction
+        # gradient (gate zeroes that Filter's decoded contribution below, downstream) — see
+        # TopKSAE.forward's `weight` docstring.
+        pooled_routed = pooled[:, :self.n_routed_filters]               # [M, R, D]
+        gate_routed, lb_loss = self.router(pooled_routed)               # [M, R], scalar
+        gate_shared = pooled.new_full((pooled.shape[0], self.n_shared_filters), self.shared_weight)
+        gate = torch.cat([gate_routed, gate_shared], dim=1)             # [M, Q] -- diagnostic only, e.g. which
+        # routed Filters actually fired for a given trial (see base_checker.py compute_unit_colors)
+
+        sae_out, sae_hidden, aux_loss = self._sae_forward(pooled, gate=gate)  # [M, Q, D], [M, Q, F]
 
         recon_per_filter = self.decoder(sae_out)             # [M, Q, C*patch_len]
+        recon_per_filter = recon_per_filter * gate.unsqueeze(-1)
+
         recon = recon_per_filter.sum(dim=1).reshape(B, N, C, L).permute(0, 2, 1, 3)
 
         if not self.training:
@@ -247,6 +386,8 @@ class MeSAEPretrain(nn.Module):
             attn=attn.reshape(B, N, self.n_filters, C),
             sae_hidden=sae_hidden,
             aux_loss=aux_loss,
+            lb_loss=lb_loss,
+            gate=gate,
         )
 
     @staticmethod
@@ -294,7 +435,8 @@ class MeSAEPretrain(nn.Module):
         self._last_pyramid_levels = [lv.detach().item() for lv in losses]
         return torch.stack(losses).sum(), l_masked, l_unmasked
 
-    def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0):
+    def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
+                 lb_loss=None, lb_weight=0.01):
         """
         Returns (total, l_masked, l_unmasked).
 
@@ -308,12 +450,18 @@ class MeSAEPretrain(nn.Module):
         Masked stage (bool_masked_pos given, self.sae_frozen True by then): aux_loss is
         dropped from the total regardless of the aux_weight argument once the SAE is
         frozen — rescuing a frozen SAE's dead features can't do anything, see freeze_sae().
+
+        lb_loss (router load-balance loss): dropped the same way and for the same reason
+        once frozen — a frozen router can't act on the gradient either (see
+        docs/adr/0007-routed-filter-gating-for-mesae.md).
         """
         recon_loss, l_masked, l_unmasked = self._hierarchical_recon_loss(recon, x, bool_masked_pos)
         total = hierarchical_mse_weight * recon_loss
 
         if bool_masked_pos is None or not self.sae_frozen:
             total = total + aux_weight * aux_loss
+            if lb_loss is not None:
+                total = total + lb_weight * lb_loss
         return total, l_masked, l_unmasked
 
     def get_metrics(self, sae_hidden=None):
@@ -321,10 +469,17 @@ class MeSAEPretrain(nn.Module):
         if sae_hidden is not None:
             # sae_hidden: [M, Q, F] — keep the filter axis (dim=1) before the final mean
             # so std-across-filters is available alongside the overall mean, not just a
-            # single number that's already averaged every filter's spread away.
+            # single number that's already averaged every filter's spread away. Split
+            # routed/shared rather than one pooled mean so a diagnostic difference between
+            # the two Filter types (e.g. one pool drifting off its shared sae_k target)
+            # stays visible instead of being averaged away.
             l0_per_filter = (sae_hidden.detach() > 0).float().sum(dim=-1).mean(dim=0)  # [Q]
-            metrics['l0_sparsity']     = l0_per_filter.mean().item()
-            metrics['l0_sparsity_std'] = l0_per_filter.std().item()
+            l0_routed = l0_per_filter[:self.n_routed_filters]
+            l0_shared = l0_per_filter[self.n_routed_filters:]
+            metrics['l0_sparsity_routed']     = l0_routed.mean().item()
+            metrics['l0_sparsity_routed_std'] = l0_routed.std().item()
+            metrics['l0_sparsity_shared']     = l0_shared.mean().item()
+            metrics['l0_sparsity_shared_std'] = l0_shared.std().item()
         metrics['dead_feature_rate']          = (self.sae.fire_ema < self.sae.dead_threshold).float().mean().item()
         metrics['decoder_fingerprint_sim']     = self.ema_fingerprint_sim.item()
         metrics['decoder_fingerprint_sim_std'] = self.ema_fingerprint_sim_std.item()
@@ -344,6 +499,11 @@ class MeSAEPretrain(nn.Module):
         if block_norms:
             for i, v in enumerate(block_norms):
                 metrics[f'block_norm_{i}'] = v
+
+        # Router health — see update_head_metrics above for what each number means.
+        metrics['router_entropy']  = self.ema_router_entropy.item()
+        metrics['router_load_std'] = self.ema_router_load_std.item()
+        metrics['gate_entropy']    = self.ema_gate_entropy.item()
 
         return metrics
 

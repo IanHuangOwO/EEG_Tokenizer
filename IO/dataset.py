@@ -391,7 +391,8 @@ def _resolve_target_channels(dataset_params: Dict, pp: Dict = None) -> List[str]
     return target_channels
 
 
-def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None, mode: str = 'pretrain') -> Dataset:
+def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] = None, mode: str = 'pretrain',
+                               assemble_trials: Optional[bool] = None) -> Dataset:
     ds_mode        = mode if mode in ('pretrain', 'finetune') else 'pretrain'
     dataset_params = config_dict.get('dataset_params', {}).get(ds_mode, {})
     pp             = config_dict.get('preprocess_params', {})
@@ -431,7 +432,10 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
 
     fft_params = None
 
-    assemble_trials = mode in ('pretrain',)
+    if assemble_trials is None:
+        assemble_trials = mode in ('pretrain',)  # explicit override: e.g. real per-trial
+        # labels for codebook diagnostics (mode='pretrain' normally assembles trials into
+        # continuous-signal windows, which discards real labels -- see _window_subject_signal)
     assembly_params = pp
 
     base_dataset = EEGDataset(

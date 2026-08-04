@@ -45,11 +45,18 @@ class SnapshotBundle:
     patch_len: int
     mask_np: Optional[np.ndarray] = None   # [C, N] masked-patch overlay, or None
     title_suffix: str = ''                 # e.g. ' [finetune]'
+    unit_colors: Optional[List[str]] = None  # [Q] per-unit title/label color override, or None
 
 
 class BaseEpochChecker:
     """unit_label: 'Expert' | 'Filter' | ... — used in panel titles/axis labels."""
     unit_label = 'Unit'
+
+    def compute_unit_colors(self, model, out):
+        """Optional per-unit title/label color override for topo_psd_filter/attn_topo
+        (e.g. MeSAE's routed-gating: red = shared Filter, orange = routed Filter that
+        actually fired for this trial, see MeSAEChecker). Default: no coloring."""
+        return None
 
     def extract_psd(self, model, x_in, c_in, t_in, vc_in) -> PsdResult:
         """See viz/extract.py extract_head_psd / extract_filter_psd."""
@@ -127,6 +134,7 @@ class BaseEpochChecker:
                     psd_ch_x, psd_x, freqs, importance, cmap=cmap,
                     subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
                     unit_label=self.unit_label, l_freq=l_freq, h_freq=h_freq,
+                    unit_colors=bundle.unit_colors,
                 )
                 print(f"  [epoch] -> {out_path}")
             except Exception as e:
@@ -139,6 +147,7 @@ class BaseEpochChecker:
                     out_path, pos2d, bundle.attn, importance, bundle.channel_names,
                     valid_channels=bundle.valid_channels,
                     subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag, unit_label=self.unit_label,
+                    unit_colors=bundle.unit_colors,
                 )
                 print(f"  [epoch] -> {out_path}")
             except Exception as e:
@@ -179,6 +188,7 @@ class BaseEpochChecker:
             raw_cnl=x_patches.numpy(), recon_cnl=recon_cnl, attn=attn,
             coords=coords.numpy(), channel_names=dataset.base_dataset.channel_names,
             valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=mask_np,
+            unit_colors=self.compute_unit_colors(model, out),
         )
         self._render_snapshot(bundle, config, output_dir, subject_id=subject_id,
                                epoch=epoch, trial_idx=trial_idx, cmap=cmap,
@@ -246,6 +256,7 @@ class BaseEpochChecker:
             coords=coords.numpy(), channel_names=channel_names,
             valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=None,
             title_suffix=' [finetune]',
+            unit_colors=self.compute_unit_colors(backbone, out),
         )
         self._render_snapshot(bundle, config, output_dir, subject_id=subject_id,
                                epoch=epoch, trial_idx=trial_idx, cmap=cmap,

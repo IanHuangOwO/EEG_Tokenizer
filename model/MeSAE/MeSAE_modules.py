@@ -100,6 +100,28 @@ class TSABlock(nn.Module):
         self.norm_ffn = nn.LayerNorm(dim)
         self.ffn = FFN(dim, hidden_dim=int(dim * mlp_ratio), dropout=dropout)
 
+        # norm_time/norm_space/norm_ffn are pre-norm (normalize the input to each
+        # sub-layer) — nothing caps the residual stream x itself after three unbounded
+        # adds, so later blocks operating on an already-inflated x can blow up further
+        # (observed: block_norm_10/11 growing ~13x over 17 Pretrain epochs while a frozen
+        # SAE dictionary downstream can't adapt to the drifting scale, see dead_feature_rate
+        # climb). This final norm caps x's own magnitude every block.
+        self.norm_out = nn.LayerNorm(dim)
+
+        # LayerScale (Touvron et al., CaiT) on all three residual branches: a learnable
+        # per-channel multiplier, init small, applied to each branch's output before the
+        # residual add. Unlike the zero-init below (a one-time starting condition on two of
+        # the three branches only, nothing stopping unbounded growth afterward), this stays
+        # active for the whole run and throttles each branch's net contribution to x
+        # throughout training — the actual mechanism behind the compounding-depth blowup
+        # (block_norm growing block-to-block, epoch-to-epoch, eventually NaN) is unbounded
+        # per-branch growth stacked across 12 blocks x many epochs, and this is what caps
+        # that growth at its source instead of only re-normalizing x after the fact.
+        layerscale_init = 1e-4
+        self.scale_t   = nn.Parameter(torch.full((dim,), layerscale_init))
+        self.scale_s   = nn.Parameter(torch.full((dim,), layerscale_init))
+        self.scale_ffn = nn.Parameter(torch.full((dim,), layerscale_init))
+
         # Both cross-patch (temporal, global context pooled over all N) and cross-channel
         # (spatial) mixing default off — MeSAE's tokenizer stage trains the SAE on
         # patch-local features only, so the frozen dictionary can't leak already-seen
@@ -127,16 +149,17 @@ class TSABlock(nn.Module):
         if self.temporal_active:
             x_norm_t = self.norm_time(x_flat)
             attn_out_t = self.temporal_attn(x_norm_t)
-            x_flat = x_flat + self.drop_t(attn_out_t)
+            x_flat = x_flat + self.drop_t(self.scale_t * attn_out_t)
 
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
         if self.spatial_active:
             x_norm = self.norm_space(x_space)
             attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm)
-            x_space = x_space + self.drop_s(attn_out)
+            x_space = x_space + self.drop_s(self.scale_s * attn_out)
         x_flat = x_space.view(B, N, C, D).permute(0, 2, 1, 3).reshape(B * C, N, D)
 
-        x_flat = x_flat + self.ffn(self.norm_ffn(x_flat))
+        x_flat = x_flat + self.scale_ffn * self.ffn(self.norm_ffn(x_flat))
+        x_flat = self.norm_out(x_flat)
         return x_flat.view(B, C, N, D)
 
 
@@ -291,6 +314,46 @@ class ExpertChannelPool(nn.Module):
         attn = torch.softmax(scores, dim=-1)  # [M, H, C]
         pooled = torch.einsum('mhc,mcd->mhd', attn, z)  # [M, H, D]
         return pooled, attn
+
+
+class FilterRouter(nn.Module):
+    """
+    Top-k softmax router over the routed Filter subset — logic ported unchanged from
+    model/MeFSQ/MeFSQ_modules.py's Router (duplicated, not cross-imported, same convention
+    PerChannelHeadAttn already uses in this file). See
+    docs/adr/0007-routed-filter-gating-for-mesae.md: MeSAE's dense
+    `recon_per_filter.sum(dim=1)` gives Filters no competitive pressure to specialize, and
+    a single shared TopKSAE dictionary reused across all Filters means two Filters whose
+    pooled views land in similar regions draw on the same dictionary atoms. This router
+    gates *which routed Filters' decoded output survives into the sum*, so specialization
+    has to earn its way into a fixed per-patch budget instead of being always-on for free.
+
+    Each routed Filter is scored against its own pooled view (see ExpertChannelPool)
+    rather than a shared input, so routing stays interpretable. Top-k scores are
+    softmax-normalized (weights sum to 1, regardless of k) and scattered into a dense
+    [M, n_routed_filters] gate mask (nonzero only at the selected Filters). Also returns
+    the Switch-Transformer-style load-balance loss (dense softmax prob, has grad, times
+    hard selection frequency, detached — 1.0 at perfectly uniform routing).
+    """
+    def __init__(self, dim, n_routed_filters, n_top_k):
+        super().__init__()
+        self.n_routed_filters = n_routed_filters
+        self.n_top_k = min(n_top_k, n_routed_filters)
+        self.scale = dim ** -0.5
+        self.weight = nn.Parameter(torch.empty(n_routed_filters, dim))
+        nn.init.normal_(self.weight, std=0.01)
+
+    def forward(self, filter_views):
+        """filter_views: [M, n_routed_filters, D] -> gate_mask [M, n_routed_filters], lb_loss scalar"""
+        gate_logits = (filter_views * self.weight).sum(dim=-1) * self.scale  # [M, R]
+        topk_val, topk_idx = gate_logits.topk(self.n_top_k, dim=-1)
+        topk_weight = torch.softmax(topk_val, dim=-1).to(gate_logits.dtype)
+        gate_mask = torch.zeros_like(gate_logits).scatter_(-1, topk_idx, topk_weight)
+
+        f = (gate_mask.detach() > 0).float().mean(dim=0)     # [R] hard selection frequency
+        p = torch.softmax(gate_logits, dim=-1).mean(dim=0)   # [R] dense prob, has grad
+        lb_loss = self.n_routed_filters * ((f / (f.sum() + 1e-8)) * (p / (p.sum() + 1e-8))).sum()
+        return gate_mask, lb_loss
 
 
 class PerChannelHeadAttn(nn.Module):

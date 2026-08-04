@@ -4,10 +4,11 @@ registers in model/factory.py's MODEL_REGISTRY. See docs/adr/0004-model-plugin-b
 """
 
 from dataclasses import dataclass
-from typing import Callable, Type
+from typing import Callable, Optional, Type
 
 from model.base_trainer import BaseTrainer
 from model.base_checker import BaseEpochChecker
+from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 
 
@@ -21,3 +22,6 @@ class BasePlugin:
     trainer_cls: Type[BaseTrainer]
     checker_cls: Type[BaseEpochChecker]
     plotter_cls: Type[BasePlotter]
+    # cross-dataset codebook/vocab diagnostics (check_model.py --mode codebook only, see
+    # model/base_codebook_checker.py) — optional, None until a model implements it.
+    codebook_checker_cls: Optional[Type[BaseCodebookChecker]] = None

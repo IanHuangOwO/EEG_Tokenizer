@@ -35,6 +35,7 @@ def run(config, output_dir, model, dataset, trial_idx, mode='pretrain', subject_
 
 if __name__ == '__main__':
     import argparse
+    import copy
     import json
     import torch
     from IO.dataset import build_dataset_from_config
@@ -48,6 +49,10 @@ if __name__ == '__main__':
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
     parser.add_argument('--mode',        default=None, choices=['tokenizer', 'pretrain', 'finetune'])
+    parser.add_argument('--analysis',    default=None, choices=['snapshot', 'codebook'],
+                         help='Overrides check.analysis in --config. snapshot: existing per-trial '
+                              'topo/PSD/attn checker. codebook: cross-dataset codebook/vocab '
+                              'diagnostics (model/base_codebook_checker.py).')
     parser.add_argument('--subject',     type=int, default=None)
     parser.add_argument('--trial',       type=int, default=None)
     parser.add_argument('--dataset',     type=str, default=None)
@@ -82,24 +87,56 @@ if __name__ == '__main__':
 
     check_cfg = cfg.get('check', {})
     cmap = args.recon_cmap or check_cfg.get('cmap', 'YlOrRd')
+    analysis = args.analysis or check_cfg.get('analysis', 'snapshot')
 
     ds_params    = cfg['dataset_params'][data_mode]
-    dataset_name = args.dataset or next(iter(ds_params))
-    ds_cfg       = ds_params[dataset_name]
-    subjects     = [args.subject] if args.subject is not None else ds_cfg.get('subject_to_use', [])
 
-    for subject in subjects:
-        ds_name, subject = select_subject_dataset(cfg, subject, dataset_name=dataset_name, mode=data_mode)
-        filtered  = filter_config_to_subject(cfg, ds_name, subject, mode=data_mode)
-        ds        = build_dataset_from_config(filtered, mode=data_mode)
-        trial_cfg = args.trial if args.trial is not None else ds_cfg.get('trial_to_use')
-        t_idx, subject_id = pick_trial(ds, subject, trial_cfg, dataset_name=ds_name)
-        out = resolve_output_dir(filtered, 'analysis', ds_name, mode=mode)
-        metrics = run(
-            filtered, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
-            plot_recon=check_cfg.get('plot_recon', True),
-            plot_topo_psd=check_cfg.get('plot_topo_psd', True),
-            plot_attn_topo=check_cfg.get('plot_attn_topo', True),
-        )
-        metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
-        print(f"[check] done: dataset={ds_name} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
+    if analysis == 'codebook':
+        from model.factory import MODEL_REGISTRY
+
+        model_type = 'MeFSQ' if hasattr(mdl, 'n_routed_experts') else 'MeSAE'
+        plugin = MODEL_REGISTRY[model_type]
+        if plugin.codebook_checker_cls is None:
+            raise NotImplementedError(f"{model_type} has no codebook_checker_cls yet (see model/base_plugin.py)")
+        checker = plugin.codebook_checker_cls()
+
+        codebook_cfg = check_cfg.get('codebook', {})
+        max_trials   = codebook_cfg.get('max_trials_per_dataset', 200)
+
+        # one dataset per entry (not the full multi-dataset concatenation) so usage stats
+        # stay attributable to a single source dataset, see viz/codebook.py.
+        # assemble_trials=False: codebook's by-target plots need each patch's real trial
+        # label; data_mode='pretrain' would otherwise window-assemble and every label comes
+        # back torch.zeros(...) (see IO/dataset.py _window_subject_signal), collapsing every
+        # target to a single dummy class.
+        datasets_by_name = {}
+        for ds_name, ds_args in ds_params.items():
+            single_cfg = copy.deepcopy(cfg)
+            single_cfg['dataset_params'][data_mode] = {ds_name: ds_args}
+            datasets_by_name[ds_name] = build_dataset_from_config(
+                single_cfg, mode=data_mode, assemble_trials=False)
+
+        out = resolve_output_dir(cfg, 'analysis', mode=mode)
+        checker.check_codebook(cfg, out, mdl, datasets_by_name, max_trials_per_dataset=max_trials)
+        print(f"[check] codebook analysis done: datasets={list(datasets_by_name)}  |  out={out}")
+
+    else:
+        dataset_name = args.dataset or next(iter(ds_params))
+        ds_cfg       = ds_params[dataset_name]
+        subjects     = [args.subject] if args.subject is not None else ds_cfg.get('subject_to_use', [])
+
+        for subject in subjects:
+            ds_name, subject = select_subject_dataset(cfg, subject, dataset_name=dataset_name, mode=data_mode)
+            filtered  = filter_config_to_subject(cfg, ds_name, subject, mode=data_mode)
+            ds        = build_dataset_from_config(filtered, mode=data_mode)
+            trial_cfg = args.trial if args.trial is not None else ds_cfg.get('trial_to_use')
+            t_idx, subject_id = pick_trial(ds, subject, trial_cfg, dataset_name=ds_name)
+            out = resolve_output_dir(filtered, 'analysis', ds_name, mode=mode)
+            metrics = run(
+                filtered, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
+                plot_recon=check_cfg.get('plot_recon', True),
+                plot_topo_psd=check_cfg.get('plot_topo_psd', True),
+                plot_attn_topo=check_cfg.get('plot_attn_topo', True),
+            )
+            metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
+            print(f"[check] done: dataset={ds_name} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")

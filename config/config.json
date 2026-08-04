@@ -40,15 +40,18 @@
         "pool_after_blocks": [2, 5, 8, 11],
         "upsample_residual_add": true,
         "sae": {
-          "n_filters": 16,
-          "pool_hidden": 32,
-          "pool_temperature": 1.0,
-          "sae_expansion": 4,
+          "n_routed_filters": 30,
+          "n_shared_filters": 2,
+          "n_top_k": 6,
+          "channel_pool_hidden": 32,
+          "channel_pool_temperature": 1.0,
+          "sae_expansion": 32,
           "sae_k": 32,
           "decoder_hidden": 100
         },
         "loss": {
-          "aux_weight": 0.03,
+          "aux_weight": 0.05,
+          "lb_weight": 0.01,
           "hierarchical_mse_weight": 1.0
         }
       },
@@ -120,7 +123,7 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAE",
-      "model_name": "mesae_tokenizer_v0",
+      "model_name": "mesae_tokenizer_v3",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -132,8 +135,8 @@
     },
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_pretrain_v0",
-      "tokenizer_checkpoint": "output/mesae_tokenizer_v0/tokenizer/best_tokenizer.pth",
+      "model_name": "mesae_pretrain_v1",
+      "tokenizer_checkpoint": "output/mesae_tokenizer_v1/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -145,10 +148,10 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_v0",
-      "pretrained_checkpoint": "output/mesae_pretrain_v0/pretrain/best_pretrain.pth",
-      "learning_rate": 0.0005,
-      "min_learning_rate": 0.00001,
+      "model_name": "mesae_finetune_v1",
+      "pretrained_checkpoint": "output/mesae_pretrain_v1/pretrain/best_pretrain.pth",
+      "learning_rate": 0.001,
+      "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.02,
       "epochs": 50,
       "warmup_epochs": 10,
