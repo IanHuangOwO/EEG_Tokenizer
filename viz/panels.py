@@ -10,7 +10,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
-from viz.topomap import draw_topomap
+from viz.topomap import draw_topomap, build_triangulation
 
 
 def plot_topo_psd_filter(out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
@@ -38,14 +38,22 @@ def plot_topo_psd_filter(out_path, pos2d, raw_power, recon_power, psd_raw, psd_r
     entries += [(f'{unit_label[0]}{q} ({importance[q]:.3f})', psd_ch_x[:, q], psd_x[q],
                  unit_colors[q] if unit_colors else 'black') for q in sorted_ord]
     n_items = len(entries)
-    n_rows = math.ceil(n_items / 2)
+    # (topo, psd) pairs per row — was fixed at 2 (4 total columns), bumped to 3 to cut
+    # canvas height (and therefore savefig render/encode time) by ~1/3 for large Q.
+    n_col_pairs = 3
+    n_rows = math.ceil(n_items / n_col_pairs)
 
-    fig, axes = plt.subplots(n_rows, 4, figsize=(20, 3.0 * n_rows), squeeze=False, constrained_layout=True)
+    fig, axes = plt.subplots(n_rows, n_col_pairs * 2, figsize=(10 * n_col_pairs, 3.0 * n_rows),
+                              squeeze=False, constrained_layout=True)
     fig.suptitle(f"Raw / Recon / {unit_label} Topo + PSD ({unit_label}s sorted by contribution) — "
                  f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=13, fontweight='bold')
 
+    # Every row's topomap shares the same electrode layout (pos2d) — triangulate once
+    # instead of once per row (n_items rows, e.g. 66 for 64 Filters + Raw/Recon).
+    triang = build_triangulation(pos2d)
+
     def _psd_row(ax_topo, ax_psd, power, psd_cf, label, color):
-        im_t = draw_topomap(ax_topo, pos2d, power, cmap=cmap, vmin=power.min(), vmax=power.max())
+        im_t = draw_topomap(ax_topo, pos2d, power, cmap=cmap, vmin=power.min(), vmax=power.max(), triang=triang)
         ax_topo.set_title(f'{label} Topo (power)', fontsize=9, fontweight='bold', color=color)
         fig.colorbar(im_t, ax=ax_topo, fraction=0.05, pad=0.02)
 
@@ -58,15 +66,15 @@ def plot_topo_psd_filter(out_path, pos2d, raw_power, recon_power, psd_raw, psd_r
         ax_psd.set_yticks([])
 
     for i, (label, power, psd_cf, color) in enumerate(entries):
-        row, col_pair = divmod(i, 2)
+        row, col_pair = divmod(i, n_col_pairs)
         _psd_row(axes[row, col_pair * 2], axes[row, col_pair * 2 + 1], power, psd_cf, label, color)
-    for i in range(n_items, n_rows * 2):
-        row, col_pair = divmod(i, 2)
+    for i in range(n_items, n_rows * n_col_pairs):
+        row, col_pair = divmod(i, n_col_pairs)
         axes[row, col_pair * 2].axis('off')
         axes[row, col_pair * 2 + 1].axis('off')
 
     fig.text(0.5, 0.005, 'PSD y-axis: Channel (Fp1 -> Iz)', ha='center', fontsize=8)
-    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    fig.savefig(out_path, dpi=100)
     plt.close(fig)
 
 
@@ -86,22 +94,38 @@ def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_chann
     sorted_ord = np.argsort(importance)[::-1]
     attn_masked = attn if valid_channels is None else np.where(valid_channels[None, :], attn, np.nan)
 
-    n_topo_rows = math.ceil(Q / 2)
-    fig = plt.figure(figsize=(40.0, 3.0 * n_topo_rows), constrained_layout=True)
-    gs = fig.add_gridspec(n_topo_rows, 3, width_ratios=[1.0, 1.0, 3.5], wspace=0.3)
+    # Topomap columns per row — was fixed at 2, bumped to 4 to roughly halve the number
+    # of rows (and therefore canvas height / savefig render+encode time) for large Q.
+    # Width scaled to keep each topomap's and the heatmap's on-canvas size unchanged.
+    n_topo_cols = 4
+    heatmap_ratio = 3.5
+    old_width, old_ratio_sum = 40.0, 2 * 1.0 + heatmap_ratio
+    per_ratio_width = old_width / old_ratio_sum
+    fig_width = per_ratio_width * (n_topo_cols * 1.0 + heatmap_ratio)
+
+    n_topo_rows = math.ceil(Q / n_topo_cols)
+    fig = plt.figure(figsize=(fig_width, 3.0 * n_topo_rows), constrained_layout=True)
+    gs = fig.add_gridspec(n_topo_rows, n_topo_cols + 1,
+                           width_ratios=[1.0] * n_topo_cols + [heatmap_ratio], wspace=0.3)
+
+    # valid_channels masking is the same for every unit (only depends on the channel, not
+    # q), so the NaN pattern — and therefore pos2d[valid] — is identical across all Q
+    # topomaps; triangulate once instead of once per unit.
+    valid = ~np.isnan(attn_masked[sorted_ord[0]]) if Q else None
+    triang = build_triangulation(pos2d[valid]) if valid is not None else None
 
     for i, q_orig in enumerate(sorted_ord):
-        row, col = divmod(i, 2)
+        row, col = divmod(i, n_topo_cols)
         ax = fig.add_subplot(gs[row, col])
-        valid = ~np.isnan(attn_masked[q_orig])
-        im = draw_topomap(ax, pos2d[valid], attn_masked[q_orig][valid], cmap='viridis')
+        im = draw_topomap(ax, pos2d[valid], attn_masked[q_orig][valid], cmap='viridis', triang=triang)
         color = unit_colors[q_orig] if unit_colors else 'black'
         ax.set_title(f'{unit_label} {q_orig}  ({importance[q_orig]:.3f})', fontsize=9, fontweight='bold', color=color)
         fig.colorbar(im, ax=ax, fraction=0.05, pad=0.02)
-    if Q % 2:
-        fig.add_subplot(gs[n_topo_rows - 1, 1]).axis('off')
+    for i in range(Q, n_topo_rows * n_topo_cols):
+        row, col = divmod(i, n_topo_cols)
+        fig.add_subplot(gs[row, col]).axis('off')
 
-    ax_big = fig.add_subplot(gs[:, 2])
+    ax_big = fig.add_subplot(gs[:, n_topo_cols])
     attn_ordered = attn[sorted_ord].T  # [C, Q], columns ordered to match the topomap panels
     im_big = ax_big.imshow(attn_ordered, aspect='auto', cmap='viridis')
     ax_big.set_yticks(range(C))
@@ -117,5 +141,5 @@ def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_chann
 
     fig.suptitle(f"Per-{unit_label} Channel Attention ({unit_label}s sorted by contribution) — "
                  f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=12, fontweight='bold')
-    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    fig.savefig(out_path, dpi=100)
     plt.close(fig)

@@ -16,12 +16,27 @@ def project_coords_2d(coords: np.ndarray) -> np.ndarray:
     return np.stack([rho * np.sin(phi), rho * np.cos(phi)], axis=1)
 
 
+def build_triangulation(pos2d: np.ndarray):
+    """Delaunay triangulation of electrode positions, reusable across every unit's
+    draw_topomap call within one panel — pos2d is the same for all of them, so building
+    this once instead of per-call avoids redoing an O(C log C) triangulation ~Q times
+    (Q = number of Experts/Filters, e.g. 64) for a single figure. Returns None if
+    triangulation fails, signaling draw_topomap to fall back to scipy griddata."""
+    try:
+        return mtri.Triangulation(pos2d[:, 0], pos2d[:, 1])
+    except Exception:
+        return None
+
+
 def draw_topomap(ax, pos2d: np.ndarray, values: np.ndarray,
                  n_grid: int = 100, cmap: str = 'YlOrRd',
-                 vmin=None, vmax=None):
+                 vmin=None, vmax=None, triang=None):
     """
     Interpolated topomap on a circular head outline.
     pos2d: [C, 2], values: [C]
+    triang: optional pre-built build_triangulation(pos2d) result, reused across calls that
+    share the same pos2d — pass None to build it fresh (also the fallback path when a
+    passed-in triang was None because triangulation failed for this pos2d).
     Returns the pcolormesh artist (for colorbar attachment).
     """
     px, py = pos2d[:, 0], pos2d[:, 1]
@@ -32,10 +47,10 @@ def draw_topomap(ax, pos2d: np.ndarray, values: np.ndarray,
     yi = np.linspace(-1.1, 1.1, n_grid)
     Xi, Yi = np.meshgrid(xi, yi)
 
-    try:
-        triang = mtri.Triangulation(px, py)
+    triang = triang if triang is not None else build_triangulation(pos2d)
+    if triang is not None:
         Zi = mtri.LinearTriInterpolator(triang, values)(Xi, Yi)
-    except Exception:
+    else:
         from scipy.interpolate import griddata
         Zi = griddata((px, py), values, (Xi, Yi), method='linear')
 
