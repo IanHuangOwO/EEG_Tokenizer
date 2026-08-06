@@ -71,14 +71,15 @@ class MeSAETrainer(BaseTrainer):
         # masked_mse_weight/unmasked_mse_weight are computed generically by train_pretrain.py
         # for every model type but MeSAE's loss no longer uses them — see get_loss.
         aux_weight = hparams.get('aux_weight', 0.03)
-        lb_weight = hparams.get('lb_weight', 0.01)
+        filter_lb_weight = hparams.get('filter_lb_weight', 0.01)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
         decorr_weight = hparams.get('decorr_weight', 0.01)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         model.update_head_metrics(out.gate[:, :model.n_routed_filters])
+        model.update_ffn_router_metrics(out.ffn_router_entropy, out.ffn_router_load_std, out.ffn_gate_entropy)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
-                               filter_lb_loss=out.filter_lb_loss, lb_weight=lb_weight,
+                               filter_lb_loss=out.filter_lb_loss, filter_lb_weight=filter_lb_weight,
                                decorr_loss=out.decorr_loss, decorr_weight=decorr_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight)
 
@@ -143,16 +144,21 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
 class MeSAEPlotter(BasePlotter):
     def plot_pretrain(self, filename='training_dashboard.png'):
-        panels = [
+        # Grouped: loss/reconstruction -> SAE health -> routing (Filter/FFN side by side,
+        # directly comparable) -> architecture diagnostics. Order is the only grouping lever
+        # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
+        # group may still straddle a row edge.
+        loss_panels = [
             dict(title='Total Loss (MSE + aux*weight)', ylabel='Loss', series=[dict(key='loss', color='b')]),
             dict(title='Masked vs Unmasked MSE\n(finest pyramid level, diagnostic only)', ylabel='Loss',
                  series=[dict(key='masked', color='crimson'), dict(key='unmasked', color='steelblue')]),
             dict(title='Hierarchical MSE Pyramid\n(coarse=whole-trial avg patch shape -> fine=per-patch)',
                  ylabel='MSE', series=self.indexed_series('mse_level_', cmap_name='plasma', train_only=False)),
+        ]
+
+        sae_health_panels = [
             dict(title='SAE Aux-K Loss (dead-feature revival)\n[train only, 0 in eval by design]',
                  ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
-            dict(title='Residual-Add Skip Gates\n(0=drop skip, 1=plain add)',
-                 ylabel='sigmoid(gate)', series=self.indexed_series('skip_gate_')),
             dict(title='L0 Sparsity (active features/patch)\nshaded = mean +/-1 std across filters in pool',
                  ylabel='Count', series=[dict(key='l0_sparsity_routed', color='darkorchid', label='Routed', band=True),
                                           dict(key='l0_sparsity_shared', color='red', label='Shared', band=True)]),
@@ -160,32 +166,60 @@ class MeSAEPlotter(BasePlotter):
                  series=[dict(key='dead_feature_rate', color='crimson')]),
             dict(title='Per-Filter Decoder Fingerprint\n(lower mean = more diverse; shaded = mean +/-1 std across pairs)',
                  ylabel='Cosine sim', series=[dict(key='decoder_fingerprint_sim', color='teal', band=True)]),
+        ]
+
+        # Filter (SAE) Router Health — see MeSAE.update_head_metrics for what each number
+        # means. Same panel shape as MeFSQ's; `if k in self.history['train']` guard kept even
+        # though the router is now mandatory, since a freshly started run's history is empty
+        # either way.
+        filter_router_series = [
+            dict(key=k, color=c, label=l, train_only=True)
+            for k, c, l in (('filter_router_entropy', 'teal', 'Router entropy (load balance)'),
+                            ('filter_gate_entropy', 'darkgoldenrod', 'Gate entropy (softmax weight)'))
+            if k in self.history['train']
+        ]
+        filter_twin_series = [
+            dict(key=k, color=c, style_train=ls, label=l, train_only=True)
+            for k, c, ls, l in (('filter_router_load_std', 'salmon', '--', 'Load std'),
+                                ('filter_lb_loss', 'peru', ':', 'LB loss (1.0=uniform)'))
+            if k in self.history['train']
+        ]
+
+        # FFN Router Health — same 3 metrics as the Filter router above, but for the MoEFFN
+        # routers inside every TSABlock (averaged across blocks), see
+        # MeSAE.update_ffn_router_metrics / docs/adr/0008-moe-ffn-for-mesae.md. A distinct
+        # MoE from the Filter router — kept as its own panel rather than merged, so either
+        # one collapsing is visible without the other's curves crowding it out.
+        ffn_router_series = [
+            dict(key=k, color=c, label=l, train_only=True)
+            for k, c, l in (('ffn_router_entropy', 'teal', 'Router entropy (load balance)'),
+                            ('ffn_gate_entropy', 'darkgoldenrod', 'Gate entropy (softmax weight)'))
+            if k in self.history['train']
+        ]
+        ffn_twin_series = [
+            dict(key=k, color=c, style_train=ls, label=l, train_only=True)
+            for k, c, ls, l in (('ffn_router_load_std', 'salmon', '--', 'Load std'),
+                                ('ffn_lb_loss', 'peru', ':', 'LB loss (1.0=uniform)'))
+            if k in self.history['train']
+        ]
+
+        routing_panels = [
+            dict(title='Filter Router Health\n(entropy rising = healthy spread; falling = collapse)',
+                 ylabel='Entropy (higher=balanced)', series=filter_router_series,
+                 twin=dict(ylabel='Load std / LB loss', series=filter_twin_series) if filter_twin_series else None),
+            dict(title='FFN Router Health\n(entropy rising = healthy spread; falling = collapse)',
+                 ylabel='Entropy (higher=balanced)', series=ffn_router_series,
+                 twin=dict(ylabel='Load std / LB loss', series=ffn_twin_series) if ffn_twin_series else None),
+        ]
+
+        architecture_panels = [
+            dict(title='Residual-Add Skip Gates\n(0=drop skip, 1=plain add)',
+                 ylabel='sigmoid(gate)', series=self.indexed_series('skip_gate_')),
             dict(title='Per-Block Contribution Norm\n(flat near-zero = block not used)',
                  ylabel='Mean |delta| per block', series=self.indexed_series('block_norm_', cmap_name='viridis')),
         ]
 
-        # Router Health — see MeSAE.update_head_metrics for what each number means. Same
-        # panel shape as MeFSQ's; `if k in self.history['train']` guard kept even though the
-        # router is now mandatory, since a freshly started run's history is empty either way.
-        router_series = [
-            dict(key=k, color=c, label=l, train_only=True)
-            for k, c, l in (('router_entropy', 'teal', 'Router entropy (load balance)'),
-                            ('gate_entropy', 'darkgoldenrod', 'Gate entropy (softmax weight)'))
-            if k in self.history['train']
-        ]
-        twin_series = [
-            dict(key=k, color=c, style_train=ls, label=l, train_only=True)
-            for k, c, ls, l in (('router_load_std', 'salmon', '--', 'Load std'),
-                                ('filter_lb_loss', 'peru', ':', 'Filter LB loss (1.0=uniform)'),
-                                ('ffn_lb_loss', 'seagreen', '-.', 'FFN LB loss (1.0=uniform)'))
-            if k in self.history['train']
-        ]
-        panels.append(dict(
-            title='Router Health\n(entropy rising = healthy spread; falling = collapse)',
-            ylabel='Entropy (higher=balanced)', series=router_series,
-            twin=dict(ylabel='Load std / LB loss', series=twin_series) if twin_series else None,
-        ))
-
+        panels = loss_panels + sae_health_panels + routing_panels + architecture_panels
         self.render(panels, filename, suptitle='Tokenizer (SAE) Training Dashboard', ncols=4)
 
     def plot_finetune(self, filename='training_dashboard.png', freeze_backbone=False):

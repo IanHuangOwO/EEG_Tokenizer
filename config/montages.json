@@ -1,0 +1,864 @@
+{
+  "10-20": {
+    "description": "Classic 21-electrode Jasper 1958 system",
+    "source": "mne:standard_1020 (subset)",
+    "channels": [
+      {
+        "label": "Fp1",
+        "cartesian": {
+          "x": -0.02944,
+          "y": 0.08392,
+          "z": -0.00699
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Fp2",
+        "cartesian": {
+          "x": 0.02987,
+          "y": 0.0849,
+          "z": -0.00708
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "F7",
+        "cartesian": {
+          "x": -0.07026,
+          "y": 0.04247,
+          "z": -0.01142
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "F3",
+        "cartesian": {
+          "x": -0.05024,
+          "y": 0.05311,
+          "z": 0.04219
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Fz",
+        "cartesian": {
+          "x": 0.00031,
+          "y": 0.05851,
+          "z": 0.06646
+        },
+        "region": "frontal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "F4",
+        "cartesian": {
+          "x": 0.05184,
+          "y": 0.0543,
+          "z": 0.04081
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "F8",
+        "cartesian": {
+          "x": 0.07304,
+          "y": 0.04442,
+          "z": -0.012
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "T7",
+        "cartesian": {
+          "x": -0.08416,
+          "y": -0.01602,
+          "z": -0.00935
+        },
+        "region": "temporal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C3",
+        "cartesian": {
+          "x": -0.06536,
+          "y": -0.01163,
+          "z": 0.06436
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Cz",
+        "cartesian": {
+          "x": 0.0004,
+          "y": -0.00917,
+          "z": 0.10024
+        },
+        "region": "central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "C4",
+        "cartesian": {
+          "x": 0.06712,
+          "y": -0.0109,
+          "z": 0.06358
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "T8",
+        "cartesian": {
+          "x": 0.08508,
+          "y": -0.01502,
+          "z": -0.00949
+        },
+        "region": "temporal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "P7",
+        "cartesian": {
+          "x": -0.07243,
+          "y": -0.07345,
+          "z": -0.00249
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "P3",
+        "cartesian": {
+          "x": -0.05301,
+          "y": -0.07879,
+          "z": 0.05594
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Pz",
+        "cartesian": {
+          "x": 0.00032,
+          "y": -0.08111,
+          "z": 0.08261
+        },
+        "region": "parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "P4",
+        "cartesian": {
+          "x": 0.05567,
+          "y": -0.07856,
+          "z": 0.05656
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "P8",
+        "cartesian": {
+          "x": 0.07306,
+          "y": -0.07307,
+          "z": -0.00254
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "O1",
+        "cartesian": {
+          "x": -0.02941,
+          "y": -0.11245,
+          "z": 0.00884
+        },
+        "region": "occipital",
+        "hemisphere": "L"
+      },
+      {
+        "label": "O2",
+        "cartesian": {
+          "x": 0.02984,
+          "y": -0.11216,
+          "z": 0.0088
+        },
+        "region": "occipital",
+        "hemisphere": "R"
+      },
+      {
+        "label": "A1",
+        "cartesian": {
+          "x": -0.08608,
+          "y": -0.02499,
+          "z": -0.06799
+        },
+        "region": "mastoid",
+        "hemisphere": "L"
+      },
+      {
+        "label": "A2",
+        "cartesian": {
+          "x": 0.08579,
+          "y": -0.02501,
+          "z": -0.06803
+        },
+        "region": "mastoid",
+        "hemisphere": "R"
+      }
+    ]
+  },
+  "10-10": {
+    "description": "Extended 10-10 system, this project's original canonical_channels list",
+    "source": "mne:standard_1020",
+    "channels": [
+      {
+        "label": "Fp1",
+        "cartesian": {
+          "x": -0.02944,
+          "y": 0.08392,
+          "z": -0.00699
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Fpz",
+        "cartesian": {
+          "x": 0.00011,
+          "y": 0.08825,
+          "z": -0.00171
+        },
+        "region": "frontal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "Fp2",
+        "cartesian": {
+          "x": 0.02987,
+          "y": 0.0849,
+          "z": -0.00708
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "AF7",
+        "cartesian": {
+          "x": -0.05484,
+          "y": 0.06857,
+          "z": -0.01059
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "AF3",
+        "cartesian": {
+          "x": -0.0337,
+          "y": 0.07684,
+          "z": 0.02123
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "AFz",
+        "cartesian": {
+          "x": 0.00023,
+          "y": 0.08077,
+          "z": 0.03542
+        },
+        "region": "frontal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "AF4",
+        "cartesian": {
+          "x": 0.03571,
+          "y": 0.07773,
+          "z": 0.02196
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "AF8",
+        "cartesian": {
+          "x": 0.05574,
+          "y": 0.06966,
+          "z": -0.01076
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "F7",
+        "cartesian": {
+          "x": -0.07026,
+          "y": 0.04247,
+          "z": -0.01142
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "F5",
+        "cartesian": {
+          "x": -0.06447,
+          "y": 0.04804,
+          "z": 0.01692
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "F3",
+        "cartesian": {
+          "x": -0.05024,
+          "y": 0.05311,
+          "z": 0.04219
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "F1",
+        "cartesian": {
+          "x": -0.0275,
+          "y": 0.05693,
+          "z": 0.06034
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Fz",
+        "cartesian": {
+          "x": 0.00031,
+          "y": 0.05851,
+          "z": 0.06646
+        },
+        "region": "frontal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "F2",
+        "cartesian": {
+          "x": 0.02951,
+          "y": 0.0576,
+          "z": 0.05954
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "F4",
+        "cartesian": {
+          "x": 0.05184,
+          "y": 0.0543,
+          "z": 0.04081
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "F6",
+        "cartesian": {
+          "x": 0.06791,
+          "y": 0.04983,
+          "z": 0.01637
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "F8",
+        "cartesian": {
+          "x": 0.07304,
+          "y": 0.04442,
+          "z": -0.012
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "FT7",
+        "cartesian": {
+          "x": -0.08077,
+          "y": 0.01412,
+          "z": -0.01113
+        },
+        "region": "temporal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "FC5",
+        "cartesian": {
+          "x": -0.07721,
+          "y": 0.01864,
+          "z": 0.02446
+        },
+        "region": "frontal-central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "FC3",
+        "cartesian": {
+          "x": -0.06018,
+          "y": 0.02272,
+          "z": 0.05554
+        },
+        "region": "frontal-central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "FC1",
+        "cartesian": {
+          "x": -0.03406,
+          "y": 0.02601,
+          "z": 0.07999
+        },
+        "region": "frontal-central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "FCz",
+        "cartesian": {
+          "x": 0.00038,
+          "y": 0.02739,
+          "z": 0.08867
+        },
+        "region": "frontal-central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "FC2",
+        "cartesian": {
+          "x": 0.03478,
+          "y": 0.02644,
+          "z": 0.07881
+        },
+        "region": "frontal-central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "FC4",
+        "cartesian": {
+          "x": 0.06229,
+          "y": 0.02372,
+          "z": 0.05563
+        },
+        "region": "frontal-central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "FC6",
+        "cartesian": {
+          "x": 0.07953,
+          "y": 0.01994,
+          "z": 0.02444
+        },
+        "region": "frontal-central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "FT8",
+        "cartesian": {
+          "x": 0.08182,
+          "y": 0.01542,
+          "z": -0.01133
+        },
+        "region": "temporal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "T7",
+        "cartesian": {
+          "x": -0.08416,
+          "y": -0.01602,
+          "z": -0.00935
+        },
+        "region": "temporal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C5",
+        "cartesian": {
+          "x": -0.08028,
+          "y": -0.01376,
+          "z": 0.02916
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C3",
+        "cartesian": {
+          "x": -0.06536,
+          "y": -0.01163,
+          "z": 0.06436
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C1",
+        "cartesian": {
+          "x": -0.03616,
+          "y": -0.00998,
+          "z": 0.08975
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Cz",
+        "cartesian": {
+          "x": 0.0004,
+          "y": -0.00917,
+          "z": 0.10024
+        },
+        "region": "central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "C2",
+        "cartesian": {
+          "x": 0.03767,
+          "y": -0.00962,
+          "z": 0.08841
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "C4",
+        "cartesian": {
+          "x": 0.06712,
+          "y": -0.0109,
+          "z": 0.06358
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "C6",
+        "cartesian": {
+          "x": 0.08346,
+          "y": -0.01278,
+          "z": 0.02921
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "T8",
+        "cartesian": {
+          "x": 0.08508,
+          "y": -0.01502,
+          "z": -0.00949
+        },
+        "region": "temporal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "TP7",
+        "cartesian": {
+          "x": -0.08483,
+          "y": -0.04602,
+          "z": -0.00706
+        },
+        "region": "temporal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "CP5",
+        "cartesian": {
+          "x": -0.07959,
+          "y": -0.04655,
+          "z": 0.03095
+        },
+        "region": "central-parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "CP3",
+        "cartesian": {
+          "x": -0.06356,
+          "y": -0.04701,
+          "z": 0.06562
+        },
+        "region": "central-parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "CP1",
+        "cartesian": {
+          "x": -0.03551,
+          "y": -0.04729,
+          "z": 0.09131
+        },
+        "region": "central-parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "CPz",
+        "cartesian": {
+          "x": 0.00039,
+          "y": -0.04732,
+          "z": 0.09943
+        },
+        "region": "central-parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "CP2",
+        "cartesian": {
+          "x": 0.03838,
+          "y": -0.04707,
+          "z": 0.09069
+        },
+        "region": "central-parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "CP4",
+        "cartesian": {
+          "x": 0.06661,
+          "y": -0.04664,
+          "z": 0.06558
+        },
+        "region": "central-parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "CP6",
+        "cartesian": {
+          "x": 0.08332,
+          "y": -0.0461,
+          "z": 0.03121
+        },
+        "region": "central-parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "TP8",
+        "cartesian": {
+          "x": 0.08555,
+          "y": -0.04555,
+          "z": -0.00713
+        },
+        "region": "temporal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "P9",
+        "cartesian": {
+          "x": -0.07301,
+          "y": -0.07377,
+          "z": -0.041
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "P7",
+        "cartesian": {
+          "x": -0.07243,
+          "y": -0.07345,
+          "z": -0.00249
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "P5",
+        "cartesian": {
+          "x": -0.06727,
+          "y": -0.07629,
+          "z": 0.02838
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "P3",
+        "cartesian": {
+          "x": -0.05301,
+          "y": -0.07879,
+          "z": 0.05594
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "P1",
+        "cartesian": {
+          "x": -0.02862,
+          "y": -0.08052,
+          "z": 0.07544
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Pz",
+        "cartesian": {
+          "x": 0.00032,
+          "y": -0.08111,
+          "z": 0.08261
+        },
+        "region": "parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "P2",
+        "cartesian": {
+          "x": 0.03192,
+          "y": -0.08049,
+          "z": 0.07672
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "P4",
+        "cartesian": {
+          "x": 0.05567,
+          "y": -0.07856,
+          "z": 0.05656
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "P6",
+        "cartesian": {
+          "x": 0.06789,
+          "y": -0.0759,
+          "z": 0.02809
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "P8",
+        "cartesian": {
+          "x": 0.07306,
+          "y": -0.07307,
+          "z": -0.00254
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "P10",
+        "cartesian": {
+          "x": 0.07389,
+          "y": -0.07439,
+          "z": -0.04122
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "PO7",
+        "cartesian": {
+          "x": -0.05484,
+          "y": -0.09753,
+          "z": 0.00279
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "L"
+      },
+      {
+        "label": "PO3",
+        "cartesian": {
+          "x": -0.03651,
+          "y": -0.10085,
+          "z": 0.03717
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "L"
+      },
+      {
+        "label": "POz",
+        "cartesian": {
+          "x": 0.00022,
+          "y": -0.10218,
+          "z": 0.05061
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "PO4",
+        "cartesian": {
+          "x": 0.03678,
+          "y": -0.10085,
+          "z": 0.0364
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "R"
+      },
+      {
+        "label": "PO8",
+        "cartesian": {
+          "x": 0.05567,
+          "y": -0.09763,
+          "z": 0.00273
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "R"
+      },
+      {
+        "label": "O1",
+        "cartesian": {
+          "x": -0.02941,
+          "y": -0.11245,
+          "z": 0.00884
+        },
+        "region": "occipital",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Oz",
+        "cartesian": {
+          "x": 0.00011,
+          "y": -0.11489,
+          "z": 0.01466
+        },
+        "region": "occipital",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "O2",
+        "cartesian": {
+          "x": 0.02984,
+          "y": -0.11216,
+          "z": 0.0088
+        },
+        "region": "occipital",
+        "hemisphere": "R"
+      },
+      {
+        "label": "Iz",
+        "cartesian": {
+          "x": 0.0,
+          "y": -0.11857,
+          "z": -0.02308
+        },
+        "region": "occipital",
+        "hemisphere": "Z"
+      }
+    ]
+  }
+}

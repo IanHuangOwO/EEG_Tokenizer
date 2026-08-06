@@ -138,3 +138,20 @@ wiring a new tokenizer model into the shared plugin architecture (see
 
 Step-by-step protocol for converting a raw EEG dataset into the standard `datas/<name>/`
 layout and wiring it into `IO/dataset.py`. See `docs/agents/adding-a-dataset.md`.
+
+### Adding a montage
+
+`preprocess_params.canonical_channels` (cross-dataset channel unification) takes either a
+named montage (`config/montages.json`, e.g. `"10-10"`) or an inline custom channel list.
+Step-by-step protocol for adding a new standard (MNE-sourced) or custom montage. See
+`docs/agents/adding-a-montage.md`.
+
+### Reshape/view pitfalls
+
+`.reshape(`/`.view(` silently scrambles data (no error) if it merges or reorders
+axes that aren't already adjacent in the tensor's current dimension order — three
+real instances of this hit training data and the MeSAE reconstruction loss in the
+same session (see `IO/dataset.py` `_window_subject_signal`, `model/MeSAE/MeSAE.py`
+`_patch_pyramid_levels`). Check any new `.reshape(`/`.view(` against
+`docs/agents/reshape-pitfalls.md` before assuming it's correct just because
+shapes match.

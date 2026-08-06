@@ -100,8 +100,13 @@ def _finalize_epoch(totals, n, all_labels, all_preds):
     return metrics
 
 
-def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch):
+def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, freeze_backbone=False):
     model.train()
+    if freeze_backbone:
+        # backbone weights don't update when frozen, but nn.Module.train() still leaves its
+        # dropout stochastic — noisy features (and a shifting SAE top-k selection) then churn
+        # per step for the same trial, starving the head of a stable signal to learn from.
+        model.backbone.eval()
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
 
@@ -255,6 +260,7 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     train/val dataset pair. Returns the metrics dict (train+val) from the best-val-acc epoch."""
     train_params = config['training_params']['finetune']
     device = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
+    viz_every_n = config.get('training_params', {}).get('visualize', {}).get('finetune', {}).get('every_n_epochs', 5)
 
     collate_fn = FinetuneCollate(patch_len)
     train_loader = DataLoader(train_dataset, batch_size=train_params['batch_size'], shuffle=True,  num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True, collate_fn=collate_fn)
@@ -305,8 +311,8 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
 
     topo_trial_idx = topo_subject_id = None
     try:
-        _first_subject = train_base.subject_data[0].item()
-        topo_trial_idx, topo_subject_id = pick_trial(train_dataset, _first_subject, trial=1)
+        _first_val_subject = val_base.subject_data[0].item()
+        topo_trial_idx, topo_subject_id = pick_trial(val_dataset, _first_val_subject, trial=1)
         logger.info(f"[{fold_tag}] Topo viz: subject={topo_subject_id}, trial_idx={topo_trial_idx}")
     except Exception as e:
         logger.warning(f"[{fold_tag}] Topo trial pick failed: {e}")
@@ -317,7 +323,7 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     logger.info(f"[{fold_tag}] Starting Finetuning ({total_epochs} epochs, freeze_backbone={freeze_backbone})")
 
     for epoch in range(1, total_epochs + 1):
-        train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch)
+        train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch, freeze_backbone=freeze_backbone)
         val_metrics   = validate_one_epoch(model, val_loader, device)
         scheduler.step()
 
@@ -335,10 +341,10 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
         plotter.plot_finetune(freeze_backbone=freeze_backbone)
 
-        if epoch % 5 == 0 and topo_trial_idx is not None:
+        if epoch % viz_every_n == 0 and topo_trial_idx is not None:
             try:
                 checker.check_finetune(
-                    config, vis_dir, model, train_dataset,
+                    config, vis_dir, model, val_dataset,
                     topo_trial_idx, subject_id=topo_subject_id, epoch=epoch,
                 )
             except Exception as e:

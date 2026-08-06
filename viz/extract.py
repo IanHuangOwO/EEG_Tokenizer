@@ -147,7 +147,7 @@ def extract_filter_psd(model, x: torch.Tensor, coords: torch.Tensor,
     importance — [Q] mean decoded-contribution magnitude per filter.
     """
     B, C, N, L = x.shape
-    z = model.stage_features(x, coords, time_idx=time_idx)
+    z, _ = model.stage_features(x, coords, time_idx=time_idx)
     z_bnc, valid_mask = model._pool_channels(z, valid_channels)
     pooled, _ = model.filter_pool(z_bnc, valid_mask)
     sae_out, _, _ = model.sae(pooled)  # [M, Q, D] — the space the decoder actually reads
@@ -177,7 +177,7 @@ def extract_filter_spectra(model, x: torch.Tensor, coords: torch.Tensor,
     always active — so this is just each filter's own contribution, un-gated by construction.
     """
     B, C, N, L = x.shape
-    z = model.stage_features(x, coords, time_idx=time_idx)
+    z, _ = model.stage_features(x, coords, time_idx=time_idx)
     z_bnc, valid_mask = model._pool_channels(z, valid_channels)
     pooled, _ = model.filter_pool(z_bnc, valid_mask)
     sae_out, _, _ = model.sae(pooled)  # [M, Q, D]

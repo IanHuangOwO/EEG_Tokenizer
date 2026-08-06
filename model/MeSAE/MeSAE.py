@@ -192,11 +192,19 @@ class MeSAEPretrain(nn.Module):
 
         self.router = FilterRouter(embed_dim, n_routed_filters, n_top_k)
         # EMA router-health buffers — same 3 metrics as MeFSQ's Router
-        # (ema_router_entropy/ema_router_load_std/ema_gate_entropy), see
+        # (ema_filter_router_entropy/ema_filter_router_load_std/ema_filter_gate_entropy), see
         # update_head_metrics below for what each number means.
-        self.register_buffer('ema_router_entropy',  torch.tensor(0.0))
-        self.register_buffer('ema_router_load_std', torch.tensor(0.0))
-        self.register_buffer('ema_gate_entropy',    torch.tensor(0.0))
+        self.register_buffer('ema_filter_router_entropy',  torch.tensor(0.0))
+        self.register_buffer('ema_filter_router_load_std', torch.tensor(0.0))
+        self.register_buffer('ema_filter_gate_entropy',    torch.tensor(0.0))
+
+        # Same 3 EMA metrics, but for the FFN MoE routers (MoEFFN/FFNRouter, one per
+        # TSABlock, averaged across blocks by TSAEncoder.forward) — a distinct MoE from the
+        # SAE Filter router above, see docs/adr/0008-moe-ffn-for-mesae.md and
+        # update_ffn_router_metrics below.
+        self.register_buffer('ema_ffn_router_entropy',  torch.tensor(0.0))
+        self.register_buffer('ema_ffn_router_load_std', torch.tensor(0.0))
+        self.register_buffer('ema_ffn_gate_entropy',    torch.tensor(0.0))
 
         # EMA buffers for the decoder-output fingerprint (data-dependent diversity of
         # each filter's actual decoded contribution) — same diagnostic value as
@@ -239,36 +247,48 @@ class MeSAEPretrain(nn.Module):
         gate output (routed subset only, NOT the shared subset appended in forward()'s
         `gate`).
 
-        router_entropy: entropy of the routed pool's LOAD distribution (how evenly, across
-        this batch's patches, selection is spread over the n_routed_filters routed Filters)
-        — 0 = every patch always picks the same Filter (total collapse), log(n_routed_filters)
-        = perfectly uniform load across all routed Filters. Rising over training = healthy
-        (Filters differentiating and each still getting used); falling toward 0 = router
-        collapse (a couple of Filters absorbing everything, see docs/adr/0007).
+        filter_router_entropy: entropy of the routed pool's LOAD distribution (how evenly,
+        across this batch's patches, selection is spread over the n_routed_filters routed
+        Filters) — 0 = every patch always picks the same Filter (total collapse),
+        log(n_routed_filters) = perfectly uniform load across all routed Filters. Rising
+        over training = healthy (Filters differentiating and each still getting used);
+        falling toward 0 = router collapse (a couple of Filters absorbing everything, see
+        docs/adr/0007).
 
-        gate_entropy: entropy of the softmax weight WITHIN each patch's own top-k selection
-        (not across patches) — 0 = one selected Filter dominates that patch's gate weight
-        (confident/peaked routing), log(top_k) = the k selected Filters split weight
+        filter_gate_entropy: entropy of the softmax weight WITHIN each patch's own top-k
+        selection (not across patches) — 0 = one selected Filter dominates that patch's gate
+        weight (confident/peaked routing), log(top_k) = the k selected Filters split weight
         near-uniformly for that patch. Lower isn't necessarily bad here (it means the router
         is confident about which Filter should own a patch); watch it alongside
-        router_entropy, not instead of it.
+        filter_router_entropy, not instead of it.
 
-        router_load_std: std of the load distribution across routed Filters — companion to
-        router_entropy in raw (non-normalized) units; rising = load spreading out unevenly
-        (some Filters starved), useful for spotting collapse early since std reacts faster
-        than the log-scaled entropy number.
+        filter_router_load_std: std of the load distribution across routed Filters —
+        companion to filter_router_entropy in raw (non-normalized) units; rising = load
+        spreading out unevenly (some Filters starved), useful for spotting collapse early
+        since std reacts faster than the log-scaled entropy number.
         """
         selected = (gate_routed.detach() > 0).float()
         load = selected.mean(dim=0)
         load_p = load / (load.sum() + 1e-8)
-        router_entropy = -(load_p * torch.log(load_p + 1e-10)).sum()
+        filter_router_entropy = -(load_p * torch.log(load_p + 1e-10)).sum()
 
         gm = gate_routed.detach().float().clamp(min=0)
-        gate_entropy = -(gm * torch.log(gm + 1e-10)).sum(dim=-1).mean()
+        filter_gate_entropy = -(gm * torch.log(gm + 1e-10)).sum(dim=-1).mean()
 
-        self.ema_router_load_std.mul_(0.99).add_(load.std(),    alpha=0.01)
-        self.ema_router_entropy.mul_(0.99).add_(router_entropy, alpha=0.01)
-        self.ema_gate_entropy.mul_(0.99).add_(gate_entropy,     alpha=0.01)
+        self.ema_filter_router_load_std.mul_(0.99).add_(load.std(),           alpha=0.01)
+        self.ema_filter_router_entropy.mul_(0.99).add_(filter_router_entropy, alpha=0.01)
+        self.ema_filter_gate_entropy.mul_(0.99).add_(filter_gate_entropy,     alpha=0.01)
+
+    @torch.no_grad()
+    def update_ffn_router_metrics(self, ffn_router_entropy, ffn_router_load_std, ffn_gate_entropy):
+        """Same EMA smoothing as update_head_metrics, for the FFN MoE routers instead of the
+        SAE Filter router — see TSAEncoder.forward (MeSAE_modules.py) for where these three
+        already-averaged-across-blocks values come from. Called from MeSAETrainer.compute_loss
+        with out.ffn_router_entropy/out.ffn_router_load_std/out.ffn_gate_entropy, same call
+        site as update_head_metrics."""
+        self.ema_ffn_router_load_std.mul_(0.99).add_(ffn_router_load_std, alpha=0.01)
+        self.ema_ffn_router_entropy.mul_(0.99).add_(ffn_router_entropy,   alpha=0.01)
+        self.ema_ffn_gate_entropy.mul_(0.99).add_(ffn_gate_entropy,       alpha=0.01)
 
     def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None):
         """Returns (z [B, C, N, D], ffn_lb_loss scalar) — ffn_lb_loss is the summed
@@ -396,6 +416,9 @@ class MeSAEPretrain(nn.Module):
             aux_loss=aux_loss,
             filter_lb_loss=filter_lb_loss,
             ffn_lb_loss=ffn_lb_loss,
+            ffn_router_entropy=self.encoder.last_ffn_router_entropy,
+            ffn_router_load_std=self.encoder.last_ffn_router_load_std,
+            ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
             gate=gate,
             decorr_loss=self.filter_pool.decorrelation_loss(),
         )
@@ -455,7 +478,7 @@ class MeSAEPretrain(nn.Module):
         return torch.stack(losses).sum(), l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
-                 filter_lb_loss=None, lb_weight=0.01, decorr_loss=None, decorr_weight=0.01,
+                 filter_lb_loss=None, filter_lb_weight=0.01, decorr_loss=None, decorr_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01):
         """
         Returns (total, l_masked, l_unmasked).
@@ -488,7 +511,7 @@ class MeSAEPretrain(nn.Module):
         if bool_masked_pos is None or not self.sae_frozen:
             total = total + aux_weight * aux_loss
             if filter_lb_loss is not None:
-                total = total + lb_weight * filter_lb_loss
+                total = total + filter_lb_weight * filter_lb_loss
             if decorr_loss is not None:
                 total = total + decorr_weight * decorr_loss
         if ffn_lb_loss is not None:
@@ -531,10 +554,16 @@ class MeSAEPretrain(nn.Module):
             for i, v in enumerate(block_norms):
                 metrics[f'block_norm_{i}'] = v
 
-        # Router health — see update_head_metrics above for what each number means.
-        metrics['router_entropy']  = self.ema_router_entropy.item()
-        metrics['router_load_std'] = self.ema_router_load_std.item()
-        metrics['gate_entropy']    = self.ema_gate_entropy.item()
+        # Filter router health — see update_head_metrics above for what each number means.
+        metrics['filter_router_entropy']  = self.ema_filter_router_entropy.item()
+        metrics['filter_router_load_std'] = self.ema_filter_router_load_std.item()
+        metrics['filter_gate_entropy']    = self.ema_filter_gate_entropy.item()
+
+        # FFN router health — see update_ffn_router_metrics above; same 3 metrics, distinct
+        # MoE (per-TSABlock MoEFFN routers, averaged across blocks, not the SAE Filter router).
+        metrics['ffn_router_entropy']  = self.ema_ffn_router_entropy.item()
+        metrics['ffn_router_load_std'] = self.ema_ffn_router_load_std.item()
+        metrics['ffn_gate_entropy']    = self.ema_ffn_gate_entropy.item()
 
         return metrics
 

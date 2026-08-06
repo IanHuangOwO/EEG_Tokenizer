@@ -154,6 +154,7 @@ class MoEFFN(nn.Module):
         x_flat = x.reshape(BC * N, D)
 
         gate_mask, lb_loss = self.router(x_flat)  # [T, R]
+        self._record_health(gate_mask)
         routed_out = torch.stack([e(x_flat) for e in self.routed_experts], dim=1)  # [T, R, D]
         routed_sum = (routed_out * gate_mask.unsqueeze(-1)).sum(dim=1)  # [T, D]
 
@@ -163,6 +164,23 @@ class MoEFFN(nn.Module):
 
         out = (routed_sum + shared_sum).reshape(BC, N, D)
         return out, lb_loss
+
+    @torch.no_grad()
+    def _record_health(self, gate_mask):
+        """Same router-health formulas as MeSAEPretrain.update_head_metrics (entropy of the
+        LOAD distribution across routed Experts, entropy of the WITHIN-token gate weights,
+        load std) — computed every forward call (cheap, R is small) and stashed on self so
+        TSAEncoder.forward can average across all TSABlocks' MoEFFNs into one dashboard
+        number, mirroring the SAE Filter router's diagnostic but kept as a separate metric
+        (see docs/adr/0008-moe-ffn-for-mesae.md: two distinct MoEs, two distinct health
+        readouts)."""
+        selected = (gate_mask > 0).float()
+        load = selected.mean(dim=0)
+        load_p = load / (load.sum() + 1e-8)
+        self.last_router_entropy = -(load_p * torch.log(load_p + 1e-10)).sum()
+        self.last_router_load_std = load.std()
+        gm = gate_mask.clamp(min=0)
+        self.last_gate_entropy = -(gm * torch.log(gm + 1e-10)).sum(dim=-1).mean()
 
 
 class TSABlock(nn.Module):
@@ -331,6 +349,16 @@ class TSAEncoder(nn.Module):
             x = x.repeat_interleave(2, dim=2)  # upsample
             x = x[:, :, :N_pre, :]              # trim off any pool-time padding
             x = x + torch.sigmoid(gate) * skip
+
+        # Average each TSABlock's MoEFFN router-health readout (see MoEFFN._record_health)
+        # across all blocks into one number per encoder pass — every block runs every
+        # forward, so a simple mean is a fair per-batch summary of "how is the FFN router
+        # doing across the whole encoder", not just one layer's snapshot.
+        with torch.no_grad():
+            self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in self.blocks]).mean()
+            self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in self.blocks]).mean()
+            self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in self.blocks]).mean()
+
         return x, ffn_lb_loss
 
 

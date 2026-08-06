@@ -213,7 +213,7 @@ def main():
                 return sub_data[idx].item()
         return sub_data[0].item()
 
-    viz_params  = config.get('training_params', {}).get('visualize', {})
+    viz_params  = config.get('training_params', {}).get('visualize', {}).get('pretrain', {})
     viz_target_cfg = viz_params.get('targets') or [{'subject': None, 'trial': 0}]
     viz_every_n = viz_params.get('every_n_epochs', 2)
     viz_targets = [

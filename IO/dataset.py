@@ -117,12 +117,18 @@ class EEGDataset(Dataset):
         raw_data = torch.from_numpy(subject_data['data'])  # (N, C, T)
         N, _, T = raw_data.shape
 
-        padded = torch.zeros((N, self.Nc, T), dtype=torch.float32)
-        padded[:, target_pos, :] = raw_data
-
+        # Transform (bandpass/resample/normalize) on the REAL channels only, before padding —
+        # normalizing after zero-padding folds the zero-filled missing-channel rows into the
+        # trial's mean/std (see IO/preprocessing.py's per-trial zscore/robust normalize), which
+        # skews scale differently per dataset depending how many channels it's missing relative
+        # to canonical_channels (e.g. BCICIV2a is ~2/3 zero-padded channels — that's a much
+        # bigger normalization bias than a near-complete dataset like EEGMMIdb).
         if transform is not None:
-            padded = torch.stack([transform(padded[i]) for i in range(N)])
-        post_transform_T = padded.shape[-1]  # real (non-padded) length for finetune's per-trial mask
+            raw_data = torch.stack([transform(raw_data[i]) for i in range(N)])
+        post_transform_T = raw_data.shape[-1]  # real (non-padded) length for finetune's per-trial mask
+
+        padded = torch.zeros((N, self.Nc, post_transform_T), dtype=torch.float32)
+        padded[:, target_pos, :] = raw_data
 
         if self.assemble_trials:
             padded, labels = self._window_subject_signal(padded, ds_name, subject_id)
@@ -155,7 +161,11 @@ class EEGDataset(Dataset):
         threshold = self.assembly_params.get('trial_pad_threshold', 0.5)
 
         N, C, T = trials.shape
-        signal = trials.reshape(N * T, C).T  # (C, N*T)
+        # NOT trials.reshape(N*T, C).T — that reinterprets the (N,C,T) memory buffer
+        # directly without transposing, scrambling channel and time together. permute
+        # first so reshape only merges the N and T axes (already-adjacent after permute),
+        # keeping each channel's own timeseries intact and trial-concatenated in order.
+        signal = trials.permute(1, 0, 2).reshape(C, N * T)  # (C, N*T)
         total_T = signal.shape[-1]
 
         n_complete = total_T // target_L
@@ -353,15 +363,33 @@ def _resolve_loader(dataset_name: str, ds_name_key: str):
     return DialLoader  # safe fallback
 
 
+def _load_montage_channels(name: str) -> List[str]:
+    """Looks up a named montage's ordered channel-label list from config/montages.json —
+    see docs/agents/adding-a-montage.md. Coordinates in that file are reference/QA data
+    only (per-dataset coords are still resolved independently in IO/loader.py); only the
+    label order matters here."""
+    montage_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'montages.json')
+    with open(montage_path, 'r', encoding='utf-8') as f:
+        montages = json.load(f)
+    if name not in montages:
+        raise ValueError(f"Unknown montage '{name}' — not found in {montage_path}. "
+                          f"Available: {list(montages.keys())}")
+    return [ch['label'] for ch in montages[name]['channels']]
+
+
 def _resolve_target_channels(dataset_params: Dict, pp: Dict = None) -> List[str]:
     """
     Determines the unified channel list.
-    If preprocess_params contains 'canonical_channels', that fixed ordered list
-    is used directly — channel index = electrode identity across all datasets.
+    If preprocess_params contains 'canonical_channels', that fixed ordered list is used
+    directly — channel index = electrode identity across all datasets. It may be given as
+    a literal list (custom, used as-is) or a string naming a montage in
+    config/montages.json (see docs/agents/adding-a-montage.md).
     Otherwise falls back to reading from the first dataset's metadata.
     """
     if pp:
         canonical = pp.get('canonical_channels', [])
+        if isinstance(canonical, str) and canonical:
+            return _load_montage_channels(canonical)
         if canonical:
             return canonical
 
