@@ -40,26 +40,29 @@ def _run_reconstruction_sae(model, dataset, trial_idx, device):
 
 def build_model(bp, num_channels):
     """bp: config['model_params']['MeSAE']['pretrain']."""
-    sae = bp.get('sae', {})
+    sae = bp.get('moe_sae', {})
+    moe_ffn = bp.get('moe_ffn', {})
 
     return MeSAEPretrain(
         embed_dim=bp.get('embed_dim', 100),
         enc_depth=bp.get('enc_depth', 12),
-        mlp_ratio=bp.get('mlp_ratio', 4.0),
+        mlp_ratio=moe_ffn.get('mlp_ratio', 4.0),
         patch_len=bp.get('patch_len', 20),
         spatial_heads=bp.get('spatial_heads', 8),
         dropout=bp.get('dropout', 0.0),
         pool_after_blocks=bp.get('pool_after_blocks', []),
-        upsample_residual_add=bp.get('upsample_residual_add', True),
         num_channels=num_channels,
         n_routed_filters=sae.get('n_routed_filters', 32),
         n_shared_filters=sae.get('n_shared_filters', 4),
         n_top_k=sae.get('n_top_k', 4),
-        channel_pool_hidden=sae.get('channel_pool_hidden', 32),
         channel_pool_temperature=sae.get('channel_pool_temperature', 1.0),
         sae_expansion=sae.get('sae_expansion', 8),
         sae_k=sae.get('sae_k', 32),
         decoder_hidden=sae.get('decoder_hidden'),
+        n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
+        n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
+        ffn_top_k=moe_ffn.get('top_k', 2),
+        ffn_expert_hidden=moe_ffn.get('expert_hidden'),
     )
 
 
@@ -70,10 +73,14 @@ class MeSAETrainer(BaseTrainer):
         aux_weight = hparams.get('aux_weight', 0.03)
         lb_weight = hparams.get('lb_weight', 0.01)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
+        decorr_weight = hparams.get('decorr_weight', 0.01)
+        ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         model.update_head_metrics(out.gate[:, :model.n_routed_filters])
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
-                               lb_loss=out.lb_loss, lb_weight=lb_weight)
+                               filter_lb_loss=out.filter_lb_loss, lb_weight=lb_weight,
+                               decorr_loss=out.decorr_loss, decorr_weight=decorr_weight,
+                               ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight)
 
     def epoch_metrics(self, model, out):
         # mse_level_* are accumulated per-batch and epoch-averaged in train_pretrain.py
@@ -82,7 +89,8 @@ class MeSAETrainer(BaseTrainer):
         # instead of an epoch average like every other loss stat.
         metrics = model.get_metrics(out.sae_hidden.detach())
         metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
-        metrics['lb_loss'] = out.lb_loss.item() if hasattr(out.lb_loss, 'item') else float(out.lb_loss)
+        metrics['filter_lb_loss'] = out.filter_lb_loss.item() if hasattr(out.filter_lb_loss, 'item') else float(out.filter_lb_loss)
+        metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
 
     def on_pretrain_start(self, model, logger=None):
@@ -168,7 +176,8 @@ class MeSAEPlotter(BasePlotter):
         twin_series = [
             dict(key=k, color=c, style_train=ls, label=l, train_only=True)
             for k, c, ls, l in (('router_load_std', 'salmon', '--', 'Load std'),
-                                ('lb_loss', 'peru', ':', 'LB loss (1.0=uniform)'))
+                                ('filter_lb_loss', 'peru', ':', 'Filter LB loss (1.0=uniform)'),
+                                ('ffn_lb_loss', 'seagreen', '-.', 'FFN LB loss (1.0=uniform)'))
             if k in self.history['train']
         ]
         panels.append(dict(

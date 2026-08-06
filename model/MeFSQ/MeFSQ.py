@@ -260,6 +260,9 @@ class MeFSQPretrain(nn.Module):
         recon_per_head_s = self.decoder_shared(z_per_head_s)  # [M, Hs, C*P]
 
         recon_per_head = torch.cat([recon_per_head_s, recon_per_head_r], dim=1)  # [M, H_total, C*P] — shared first
+        # C*P split assumes decoder output is C-major (C outer, P inner) — must match
+        # forward()'s identical reshape(B,N,C,L) below. If MultiHeadDecoder's output layout
+        # ever changes, update both split sites in lockstep or this silently scrambles.
         recon_per_head = recon_per_head.reshape(B, N, self.n_total_experts, C, P)
         return recon_per_head.permute(0, 3, 1, 2, 4)  # [B, C, N, H_total, P]
 
@@ -313,6 +316,8 @@ class MeFSQPretrain(nn.Module):
             self._update_fingerprint_stats(recon_per_head_r, self.ema_fingerprint_sim_routed, self.ema_fingerprint_sim_std_routed)
             self._update_fingerprint_stats(recon_per_head_s, self.ema_fingerprint_sim_shared, self.ema_fingerprint_sim_std_shared)
 
+        # C*L split assumes decoder output is C-major — must match encode_post_vq's
+        # reshape(B,N,H_total,C,P) above; keep both in lockstep on any decoder layout change.
         recon = (recon_routed + self.shared_weight * recon_shared).reshape(B, N, C, L).permute(0, 2, 1, 3)  # [B, C, N, L]
 
         # attn: shared pool first (indices [0, n_shared)), then routed — same convention as

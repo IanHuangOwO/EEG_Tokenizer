@@ -144,16 +144,18 @@ class MeSAEPretrain(nn.Module):
         spatial_heads=10,
         dropout=0.0,
         pool_after_blocks=(),
-        upsample_residual_add=True,
         num_channels=1,
         n_routed_filters=32,
         n_shared_filters=4,
         n_top_k=4,
-        channel_pool_hidden=32,
         channel_pool_temperature=1.0,
         sae_expansion=8,
         sae_k=32,
         decoder_hidden=None,
+        n_routed_ffn_experts=4,
+        n_shared_ffn_experts=1,
+        ffn_top_k=2,
+        ffn_expert_hidden=None,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -178,11 +180,12 @@ class MeSAEPretrain(nn.Module):
         self.embed   = SpatialTemporalEmbeddings(patch_len, embed_dim)
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
                                    dropout=dropout, pool_after_blocks=pool_after_blocks,
-                                   upsample_residual_add=upsample_residual_add)
+                                   n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
+                                   ffn_top_k=ffn_top_k, ffn_expert_hidden=ffn_expert_hidden)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
 
-        self.filter_pool = ExpertChannelPool(embed_dim, n_filters, hidden=channel_pool_hidden, temperature=channel_pool_temperature)
+        self.filter_pool = ExpertChannelPool(n_filters, num_channels, temperature=channel_pool_temperature)
         self.sae         = TopKSAE(embed_dim, sae_expansion * embed_dim, sae_k)
         self.decoder     = MultiHeadDecoder(n_filters, embed_dim, num_channels * patch_len, hidden=decoder_hidden)
         self.sae_frozen  = False
@@ -268,11 +271,14 @@ class MeSAEPretrain(nn.Module):
         self.ema_gate_entropy.mul_(0.99).add_(gate_entropy,     alpha=0.01)
 
     def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None):
+        """Returns (z [B, C, N, D], ffn_lb_loss scalar) — ffn_lb_loss is the summed
+        load-balance loss of every TSABlock's MoEFFN (see MeSAE_modules.TSAEncoder),
+        distinct from the router (SAE Filter) load-balance loss produced in forward()."""
         z = self.embed(x, coords=coords, time_idx=time_idx)  # [B, C, N, D]
         if bool_masked_pos is not None:
             mask = bool_masked_pos.unsqueeze(-1).type_as(z)  # [B, C, N, 1]
             z = z * (1.0 - mask) + self.mask_token * mask
-        return self.encoder(z)  # [B, C, N, D]
+        return self.encoder(z)  # [B, C, N, D], ffn_lb_loss
 
     def _pool_channels(self, z, valid_channels=None):
         """z: [B, C, N, D] -> z_bnc [M, C, D] (M=B*N), valid_mask [M, C] or None."""
@@ -317,7 +323,7 @@ class MeSAEPretrain(nn.Module):
         B, C, N, L = x.shape
         P = self.patch_len
 
-        z = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, D]
+        z, _ = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, D]
         z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
 
         pooled, _ = self.filter_pool(z_bnc, valid_mask)  # [M, Q, D]
@@ -349,12 +355,14 @@ class MeSAEPretrain(nn.Module):
         and the SAE is frozen (see enable_temporal/enable_spatial/freeze_sae).
         valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional).
         returns SimpleNamespace(recon [B,C,N,L], attn [B,N,Q,C] (per-filter topography),
-        sae_hidden [M,Q,F], aux_loss scalar).
+        sae_hidden [M,Q,F], aux_loss scalar, filter_lb_loss scalar (SAE Filter router),
+        ffn_lb_loss scalar (TSABlock MoEFFN routers, summed across blocks) — two distinct
+        load-balance losses, see get_loss).
         """
         B, C, N, L = x.shape
         D = self.head_dim
 
-        z = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos)  # [B, C, N, D]
+        z, ffn_lb_loss = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos)  # [B, C, N, D]
         z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
 
         pooled, attn = self.filter_pool(z_bnc, valid_mask)   # [M, Q, D], [M, Q, C]
@@ -366,7 +374,7 @@ class MeSAEPretrain(nn.Module):
         # gradient (gate zeroes that Filter's decoded contribution below, downstream) — see
         # TopKSAE.forward's `weight` docstring.
         pooled_routed = pooled[:, :self.n_routed_filters]               # [M, R, D]
-        gate_routed, lb_loss = self.router(pooled_routed)               # [M, R], scalar
+        gate_routed, filter_lb_loss = self.router(pooled_routed)        # [M, R], scalar
         gate_shared = pooled.new_full((pooled.shape[0], self.n_shared_filters), self.shared_weight)
         gate = torch.cat([gate_routed, gate_shared], dim=1)             # [M, Q] -- diagnostic only, e.g. which
         # routed Filters actually fired for a given trial (see base_checker.py compute_unit_colors)
@@ -386,8 +394,10 @@ class MeSAEPretrain(nn.Module):
             attn=attn.reshape(B, N, self.n_filters, C),
             sae_hidden=sae_hidden,
             aux_loss=aux_loss,
-            lb_loss=lb_loss,
+            filter_lb_loss=filter_lb_loss,
+            ffn_lb_loss=ffn_lb_loss,
             gate=gate,
+            decorr_loss=self.filter_pool.decorrelation_loss(),
         )
 
     @staticmethod
@@ -399,14 +409,23 @@ class MeSAEPretrain(nn.Module):
         list of (recon_level, x_level) coarsest-first, finest ([recon, x] themselves) last.
         """
         B, C, N, L = x.shape
-        r = recon.reshape(B * C, L, N).float()
-        t = x.reshape(B * C, L, N).float()
+        # Merge B,C (adjacent, safe) — the one unavoidable copy, since recon arrives
+        # already permuted upstream (non-contiguous). Everything below then only ever
+        # SPLITS the N axis in place (never merges/transposes non-adjacent axes), so each
+        # pyramid level is a free reshape + a cheap mean — no per-level permute/avg_pool1d.
+        # Must stay .reshape, not .view — recon arrives non-contiguous (permuted upstream).
+        # Swapping to .view for a "perf win" hard-crashes here (good); pre-calling
+        # .contiguous() on the wrong intermediate shape would silently scramble instead.
+        r = recon.reshape(B * C, N, L).float()
+        t = x.reshape(B * C, N, L).float()
         levels = []
         win = N
         while True:
-            rp = F.avg_pool1d(r, kernel_size=win, stride=win)
-            tp = F.avg_pool1d(t, kernel_size=win, stride=win)
-            levels.append((rp.reshape(B, C, -1, L), tp.reshape(B, C, -1, L)))
+            n_groups = N // win
+            n_keep = n_groups * win  # avg_pool1d-equivalent: drop a non-dividing remainder
+            rp = r[:, :n_keep, :].reshape(B * C, n_groups, win, L).mean(dim=2)
+            tp = t[:, :n_keep, :].reshape(B * C, n_groups, win, L).mean(dim=2)
+            levels.append((rp.reshape(B, C, n_groups, L), tp.reshape(B, C, n_groups, L)))
             if win == 1:
                 break
             win = max(1, win // 2)
@@ -436,7 +455,8 @@ class MeSAEPretrain(nn.Module):
         return torch.stack(losses).sum(), l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
-                 lb_loss=None, lb_weight=0.01):
+                 filter_lb_loss=None, lb_weight=0.01, decorr_loss=None, decorr_weight=0.01,
+                 ffn_lb_loss=None, ffn_lb_weight=0.01):
         """
         Returns (total, l_masked, l_unmasked).
 
@@ -451,17 +471,28 @@ class MeSAEPretrain(nn.Module):
         dropped from the total regardless of the aux_weight argument once the SAE is
         frozen — rescuing a frozen SAE's dead features can't do anything, see freeze_sae().
 
-        lb_loss (router load-balance loss): dropped the same way and for the same reason
-        once frozen — a frozen router can't act on the gradient either (see
+        filter_lb_loss (SAE Filter router load-balance loss) and decorr_loss (filter_pool's
+        spatial-pattern decorrelation, see ExpertChannelPool.decorrelation_loss) are dropped
+        the same way and for the same reason once frozen — freeze_sae() also locks
+        filter_pool, so a frozen spatial pattern can't act on the gradient either (see
         docs/adr/0007-routed-filter-gating-for-mesae.md).
+
+        ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks — a
+        *different* MoE than the SAE Filter router above, see docs/adr/0008-moe-ffn-for-
+        mesae.md) is added unconditionally, both stages: it comes from the encoder, which
+        keeps training through the Masked stage (freeze_sae() never locks the encoder).
         """
         recon_loss, l_masked, l_unmasked = self._hierarchical_recon_loss(recon, x, bool_masked_pos)
         total = hierarchical_mse_weight * recon_loss
 
         if bool_masked_pos is None or not self.sae_frozen:
             total = total + aux_weight * aux_loss
-            if lb_loss is not None:
-                total = total + lb_weight * lb_loss
+            if filter_lb_loss is not None:
+                total = total + lb_weight * filter_lb_loss
+            if decorr_loss is not None:
+                total = total + decorr_weight * decorr_loss
+        if ffn_lb_loss is not None:
+            total = total + ffn_lb_weight * ffn_lb_loss
         return total, l_masked, l_unmasked
 
     def get_metrics(self, sae_hidden=None):

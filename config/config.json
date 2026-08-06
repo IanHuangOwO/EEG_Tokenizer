@@ -35,24 +35,30 @@
         "embed_dim": 100,
         "enc_depth": 12,
         "spatial_heads": 10,
-        "mlp_ratio": 4.0,
         "dropout": 0.3,
         "pool_after_blocks": [2, 5, 8, 11],
-        "upsample_residual_add": true,
-        "sae": {
-          "n_routed_filters": 30,
-          "n_shared_filters": 2,
-          "n_top_k": 6,
-          "channel_pool_hidden": 32,
-          "channel_pool_temperature": 1.0,
-          "sae_expansion": 32,
-          "sae_k": 32,
-          "decoder_hidden": 100
+        "moe_ffn": {
+          "mlp_ratio": 4.0,
+          "n_routed_experts": 4,
+          "n_shared_experts": 1,
+          "top_k": 2,
+          "expert_hidden": null
         },
+        "moe_sae": {
+          "n_routed_filters": 60,
+          "n_shared_filters": 4,
+          "n_top_k": 12,
+          "channel_pool_temperature": 1.0,
+          "sae_expansion": 16,
+          "sae_k": 16,
+          "decoder_hidden": null
+        }, 
         "loss": {
           "aux_weight": 0.05,
           "lb_weight": 0.01,
-          "hierarchical_mse_weight": 1.0
+          "hierarchical_mse_weight": 1.0,
+          "decorr_weight": 0.00,
+          "ffn_lb_weight": 0.01
         }
       },
       "finetune": {
@@ -96,6 +102,11 @@
         "subject_to_use": ["all"],
         "channels_to_use": ["all"]
       },
+      "BETA_4s": {
+        "dataset_path": "datas/BETA_4s",
+        "subject_to_use": ["16","17","18","19","20","21","22","23","24","25","26","27","28","29","30"],
+        "channels_to_use": ["all"]
+      },
       "BCICIV1_Train": {
         "dataset_path": "datas/BCICIV1_Train",
         "subject_to_use": ["all"],
@@ -108,7 +119,7 @@
       },
       "EEGMMIdb": {
         "dataset_path": "datas/EEGMMIdb",
-        "subject_to_use": ["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18"],
+        "subject_to_use": ["1","2","3","4","5","6","7","8","9","10"],
         "channels_to_use": ["all"]
       }
     },
@@ -135,8 +146,8 @@
     },
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_pretrain_v1",
-      "tokenizer_checkpoint": "output/mesae_tokenizer_v1/tokenizer/best_tokenizer.pth",
+      "model_name": "mesae_pretrain_v2",
+      "tokenizer_checkpoint": "output/mesae_tokenizer_v2/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -148,8 +159,8 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_v1",
-      "pretrained_checkpoint": "output/mesae_pretrain_v1/pretrain/best_pretrain.pth",
+      "model_name": "mesae_finetune_v2",
+      "pretrained_checkpoint": "output/mesae_pretrain_v2/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.02,
@@ -163,7 +174,8 @@
     },
     "visualize": {
       "targets": [
-        { "dataset": "BETA_3s", "subject": null, "trial": 0 },
+        { "dataset": "BETA_4s", "subject": null, "trial": 0 },
+        { "dataset": "Inria_Train", "subject": null, "trial": 0 },
         { "dataset": "EEGMMIdb", "subject": null, "trial": 0 }
       ],
       "every_n_epochs": 5

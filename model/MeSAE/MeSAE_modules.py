@@ -86,19 +86,104 @@ class FFN(nn.Module):
         return self.fc2(self.drop(self.act(self.fc1(x))))
 
 
+class FFNRouter(nn.Module):
+    """
+    Lightweight per-token router for MoEFFN's routed Experts — distinct from FilterRouter
+    (dim, dot-product weight against a pooled per-Filter View): this one scores every raw
+    token directly via a plain nn.Linear gate, since MoEFFN routes at (B, C, N) token
+    granularity rather than over a small fixed pool of pre-pooled Views.
+
+    Same top-k softmax gating + Switch-Transformer-style load-balance loss formula as
+    FilterRouter (see docs/adr/0008-moe-ffn-for-mesae.md), applied to a much larger token
+    count instead of a handful of Filters.
+    """
+    def __init__(self, dim, n_routed, top_k):
+        super().__init__()
+        self.n_routed = n_routed
+        self.top_k = min(top_k, n_routed)
+        self.gate = nn.Linear(dim, n_routed, bias=False)
+
+    def forward(self, x):
+        """x: [T, D] -> gate_mask [T, n_routed], lb_loss scalar"""
+        gate_logits = self.gate(x)  # [T, R]
+        topk_val, topk_idx = gate_logits.topk(self.top_k, dim=-1)
+        topk_weight = torch.softmax(topk_val, dim=-1).to(gate_logits.dtype)
+        gate_mask = torch.zeros_like(gate_logits).scatter_(-1, topk_idx, topk_weight)
+
+        f = (gate_mask.detach() > 0).float().mean(dim=0)     # [R] hard selection frequency
+        p = torch.softmax(gate_logits, dim=-1).mean(dim=0)   # [R] dense prob, has grad
+        lb_loss = self.n_routed * ((f / (f.sum() + 1e-8)) * (p / (p.sum() + 1e-8))).sum()
+        return gate_mask, lb_loss
+
+
+class MoEFFN(nn.Module):
+    """
+    DeepSeekMoE-style FFN: n_routed Experts (top-k gated per token, competing for a fixed
+    per-token budget) + n_shared Experts (always active on every token, summed at full
+    weight — unlike ExpertChannelPool's 0.2x-weighted shared Filters, true DeepSeekMoE
+    shared Experts aren't down-weighted). Replaces the single dense FFN sub-layer in
+    TSABlock. See docs/adr/0008-moe-ffn-for-mesae.md.
+
+    expert_hidden defaults to a fraction of the original dense FFN's hidden_dim so total
+    *active* per-token compute (n_shared + top_k experts firing) stays roughly at parity
+    with the old single dense FFN — standard DeepSeekMoE fine-grained-expert sizing.
+
+    # ponytail: dense routed-expert compute (every routed Expert runs on every token, then
+    # masked by the gate — same "compute all, mask by gate" convention FilterRouter/
+    # ExpertChannelPool already use in this file), not real sparse dispatch. Fine at this
+    # expert count; switch to grouped/sparse dispatch if expert count or throughput ever
+    # makes this the bottleneck.
+    """
+    def __init__(self, dim, hidden_dim, n_routed, n_shared, top_k, expert_hidden=None, dropout=0.0):
+        super().__init__()
+        self.n_routed = n_routed
+        self.n_shared = n_shared
+        expert_hidden = expert_hidden or max(8, hidden_dim // (n_shared + top_k))
+
+        self.routed_experts = nn.ModuleList([
+            FFN(dim, expert_hidden, dropout=dropout) for _ in range(n_routed)
+        ])
+        self.shared_experts = nn.ModuleList([
+            FFN(dim, expert_hidden, dropout=dropout) for _ in range(n_shared)
+        ])
+        self.router = FFNRouter(dim, n_routed, top_k)
+
+    def forward(self, x):
+        """x: [B*C, N, D] -> out [B*C, N, D], lb_loss scalar"""
+        BC, N, D = x.shape
+        x_flat = x.reshape(BC * N, D)
+
+        gate_mask, lb_loss = self.router(x_flat)  # [T, R]
+        routed_out = torch.stack([e(x_flat) for e in self.routed_experts], dim=1)  # [T, R, D]
+        routed_sum = (routed_out * gate_mask.unsqueeze(-1)).sum(dim=1)  # [T, D]
+
+        shared_sum = x_flat.new_zeros(x_flat.shape)
+        for e in self.shared_experts:
+            shared_sum = shared_sum + e(x_flat)
+
+        out = (routed_sum + shared_sum).reshape(BC, N, D)
+        return out, lb_loss
+
+
 class TSABlock(nn.Module):
-    def __init__(self, dim, num_heads=8, mlp_ratio=4., dropout=0.0):
+    def __init__(self, dim, num_heads=8, mlp_ratio=4., dropout=0.0,
+                 n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2, ffn_expert_hidden=None):
         super().__init__()
         self.norm_time = nn.LayerNorm(dim)
         self.temporal_attn = ConvolutionalAdditiveAttention(dim, kernel_size=3)
         self.drop_t = nn.Dropout(dropout)
 
         self.norm_space = nn.LayerNorm(dim)
-        self.spatial_attn = nn.MultiheadAttention(dim, num_heads, batch_first=True)
+        # dropout here is on the attention WEIGHTS themselves (nn.MultiheadAttention's own
+        # `dropout` arg), on top of drop_s below which drops the branch's output — two
+        # different regularization points, same shared `dropout` value.
+        self.spatial_attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
         self.drop_s = nn.Dropout(dropout)
 
         self.norm_ffn = nn.LayerNorm(dim)
-        self.ffn = FFN(dim, hidden_dim=int(dim * mlp_ratio), dropout=dropout)
+        self.ffn = MoEFFN(dim, hidden_dim=int(dim * mlp_ratio), n_routed=n_routed_ffn_experts,
+                           n_shared=n_shared_ffn_experts, top_k=ffn_top_k,
+                           expert_hidden=ffn_expert_hidden, dropout=dropout)
 
         # norm_time/norm_space/norm_ffn are pre-norm (normalize the input to each
         # sub-layer) — nothing caps the residual stream x itself after three unbounded
@@ -158,30 +243,36 @@ class TSABlock(nn.Module):
             x_space = x_space + self.drop_s(self.scale_s * attn_out)
         x_flat = x_space.view(B, N, C, D).permute(0, 2, 1, 3).reshape(B * C, N, D)
 
-        x_flat = x_flat + self.scale_ffn * self.ffn(self.norm_ffn(x_flat))
+        ffn_out, ffn_lb_loss = self.ffn(self.norm_ffn(x_flat))
+        x_flat = x_flat + self.scale_ffn * ffn_out
         x_flat = self.norm_out(x_flat)
-        return x_flat.view(B, C, N, D)
+        return x_flat.view(B, C, N, D), ffn_lb_loss
 
 
 class TSAEncoder(nn.Module):
     def __init__(self, dim, depth=12, num_heads=8, mlp_ratio=4., dropout=0.0,
-                 pool_after_blocks=(), upsample_residual_add=True):
+                 pool_after_blocks=(),
+                 n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2, ffn_expert_hidden=None):
         super().__init__()
         self.blocks = nn.ModuleList([
-            TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout)
+            TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout,
+                     n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
+                     ffn_top_k=ffn_top_k, ffn_expert_hidden=ffn_expert_hidden)
             for _ in range(depth)
         ])
-        # UNet-style temporal down/up: avg-pool N in half after each listed block, then
-        # (once, after the last block) nearest-repeat upsample + skip-add back through the
-        # same points in reverse, restoring the original N. Parameter-free (mean + repeat),
-        # so downstream (VQ/decoder/loss) never sees a shape change.
+        # UNet-style temporal down/up: triangular-kernel-filtered pool N in half after each
+        # listed block, then (once, after the last block) nearest-repeat upsample + gated
+        # skip-add back through the same points in reverse, restoring the original N.
+        # Parameter-free pooling (fixed [1,2,1]/4 kernel + repeat), so downstream
+        # (SAE/decoder/loss) never sees a shape change. The gated residual add on the way
+        # back up is always on now (was an optional `upsample_residual_add` flag; validated
+        # on, simplified to permanent).
         self.pool_after_blocks = set(pool_after_blocks)
-        self.upsample_residual_add = upsample_residual_add
         # per-skip learned gate on the residual add, sigmoid init ~0.95 (near plain add);
         # ordered ascending by block index to match `skips` build order in forward()
         self.skip_gates = nn.ParameterList([
             nn.Parameter(torch.tensor(3.0)) for _ in sorted(self.pool_after_blocks)
-        ]) if upsample_residual_add else None
+        ])
 
     def enable_spatial(self):
         for block in self.blocks:
@@ -193,10 +284,25 @@ class TSAEncoder(nn.Module):
 
     @staticmethod
     def _pool(x):
+        """Downsample N by 2 through a fixed triangular ([1,2,1]/4) lowpass before
+        decimating, not a bare pair-mean (box filter): a 2-tap box filter's frequency
+        response has stopband sidelobes near its cutoff, so patch-to-patch content above
+        the new Nyquist rate isn't fully attenuated before every-other-sample is dropped —
+        it folds back in as aliasing, indistinguishable from genuine low-frequency content
+        to every block deeper than this pool point. The 3-tap triangular kernel attenuates
+        harder near cutoff, same as the standard Burt-Adelson pyramid REDUCE filter. Output
+        sample i is centered on original sample 2i (taps 2i-1, 2i, 2i+1); the left edge
+        (i=0, needing sample -1) is handled by replicating x[0], no pad needed on the right
+        since the last output only ever reads up to index N-1."""
         B, C, N, D = x.shape
         if N % 2 == 1:
             x = torch.cat([x, x[:, :, -1:, :]], dim=2)  # repeat last token to make N even
-        return x.reshape(B, C, x.shape[2] // 2, 2, D).mean(dim=3)
+        N = x.shape[2]
+        xp = torch.cat([x[:, :, :1, :], x], dim=2)  # replicate-pad one sample on the left
+        left   = xp[:, :, 0:N:2, :]
+        center = xp[:, :, 1:N + 1:2, :]
+        right  = xp[:, :, 2:N + 2:2, :]
+        return (left + 2 * center + right) / 4.0
 
     def forward(self, x):
         skips = []  # unpadded pre-pool tensors, one per pool point, in block order
@@ -208,9 +314,11 @@ class TSAEncoder(nn.Module):
         record_norms = not self.training
         if record_norms:
             self.last_block_norms = []
+        ffn_lb_loss = x.new_zeros(())
         for i, block in enumerate(self.blocks):
             x_in = x
-            x = block(x)
+            x, blk_ffn_lb = block(x)
+            ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
                 with torch.no_grad():
                     self.last_block_norms.append((x - x_in).norm(dim=-1).mean().item())
@@ -218,14 +326,12 @@ class TSAEncoder(nn.Module):
                 skips.append(x)
                 x = self._pool(x)
 
-        gates = reversed(self.skip_gates) if self.upsample_residual_add else [None] * len(skips)
-        for skip, gate in zip(reversed(skips), gates):
+        for skip, gate in zip(reversed(skips), reversed(self.skip_gates)):
             N_pre = skip.shape[2]
             x = x.repeat_interleave(2, dim=2)  # upsample
             x = x[:, :, :N_pre, :]              # trim off any pool-time padding
-            if self.upsample_residual_add:
-                x = x + torch.sigmoid(gate) * skip
-        return x
+            x = x + torch.sigmoid(gate) * skip
+        return x, ffn_lb_loss
 
 
 # ==========================================
@@ -270,36 +376,32 @@ class MultiHeadDecoder(nn.Module):
 
 class ExpertChannelPool(nn.Module):
     """
-    Per-Expert content-based channel-attention pooling — replaces the concatenated Token
-    (see CONTEXT.md: Token, retired / Expert View). Each Expert gets its own learnable
-    query attending over the C per-channel embeddings (keys), so different Experts can
-    weight channels differently for the same patch, instead of every Expert reading an
-    identical C*D concatenation.
+    Per-Expert STATIC spatial pooling — each Expert learns one fixed unmixing vector over
+    the C canonical channels (channel index is a stable physical identity across datasets,
+    see `canonical_channels` in config/config.json — unified once, other datasets zero-pad
+    onto it), applied identically to every patch and trial.
 
-    Content-based (keys are the actual per-channel vectors, not a fixed per-channel-index
-    weight) so channel count/order can vary across datasets without corrupting the pooled
-    result — a static per-position weight would just reintroduce the same fixed-slot
-    problem concatenation had. Invalid/zero-padded channels (`valid_mask`) are masked to
-    -inf before softmax so they get exactly zero attention weight.
+    Replaces the earlier content-based attention pool (query/key over the actual
+    per-channel vectors), which let an Expert's channel weighting drift patch to patch —
+    fine for local reconstruction, but the opposite of an ICA/CSP-style source
+    decomposition, which wants one stable spatial pattern per component rather than a
+    moving one.
 
-    `temperature` (default 1.0, no-op) divides the scaled scores before softmax — raising
-    it flattens attention across channels, countering a filter collapsing onto a very
-    narrow local channel cluster when broader coverage is wanted. Separate from `scale`:
-    `scale` is fixed variance-stabilization (standard attention practice, scales with
-    `hidden`), `temperature` is a free knob purely for controlling peakiness/entropy,
-    tunable independent of `hidden`.
+    `spatial_logit` is a plain [n_experts, n_channels] parameter table, softmaxed per
+    sample over valid channels only, so per-dataset zero-padding still renormalizes
+    correctly.
+
+    `temperature` (default 1.0, no-op) divides the logits before softmax — raising it
+    flattens an Expert's spatial pattern across channels, countering collapse onto a
+    single dominant channel when broader spatial coverage is wanted.
     """
-    def __init__(self, dim, n_experts, hidden=32, temperature=1.0):
+    def __init__(self, n_experts, n_channels, temperature=1.0):
         super().__init__()
         self.n_experts = n_experts
-        self.scale = hidden ** -0.5
+        self.n_channels = n_channels
         self.temperature = temperature
-        self.key_w = nn.Parameter(torch.empty(n_experts, dim, hidden))
-        self.key_b = nn.Parameter(torch.zeros(n_experts, hidden))
-        self.query = nn.Parameter(torch.empty(n_experts, hidden))
-        for h in range(n_experts):
-            nn.init.kaiming_uniform_(self.key_w[h], a=math.sqrt(5))
-        nn.init.normal_(self.query, std=0.02)
+        self.spatial_logit = nn.Parameter(torch.zeros(n_experts, n_channels))
+        nn.init.normal_(self.spatial_logit, std=0.02)
 
     def forward(self, z, valid_mask=None):
         """
@@ -307,13 +409,25 @@ class ExpertChannelPool(nn.Module):
         valid_mask: [M, C] bool, True = real (not zero-padded) channel (optional)
         -> pooled [M, n_experts, D], attn [M, n_experts, C]
         """
-        key = torch.einsum('mcd,hdk->mhck', z, self.key_w) + self.key_b[:, None, :]  # [M, H, C, hidden]
-        scores = torch.einsum('mhck,hk->mhc', key, self.query) * self.scale / self.temperature  # [M, H, C]
+        M = z.shape[0]
+        scores = self.spatial_logit.unsqueeze(0).expand(M, -1, -1) / self.temperature  # [M, H, C]
         if valid_mask is not None:
             scores = scores.masked_fill(~valid_mask[:, None, :], float('-inf'))
         attn = torch.softmax(scores, dim=-1)  # [M, H, C]
         pooled = torch.einsum('mhc,mcd->mhd', attn, z)  # [M, H, D]
         return pooled, attn
+
+    def decorrelation_loss(self):
+        """Mean squared pairwise cosine similarity between Experts' softmaxed spatial
+        patterns (off-diagonal only) — cheap proxy for ICA's independence constraint,
+        pushes Experts toward distinct channel weightings instead of redundant copies."""
+        if self.n_experts < 2:
+            return self.spatial_logit.new_zeros(())
+        pattern = torch.softmax(self.spatial_logit, dim=-1)  # [H, C]
+        pattern = F.normalize(pattern, dim=-1)
+        sim = pattern @ pattern.t()  # [H, H]
+        off_diag = ~torch.eye(self.n_experts, dtype=torch.bool, device=sim.device)
+        return sim[off_diag].pow(2).mean()
 
 
 class FilterRouter(nn.Module):

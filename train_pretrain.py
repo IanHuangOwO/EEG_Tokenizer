@@ -43,6 +43,9 @@ def _unpack_batch(batch, device):
     time_idx       = time_indices.to(device)   # [B, N]
     valid_channels = valid_channels.to(device) # [B, C]
     B, C, N, L = x.shape
+    # (C, N) order is implicit — mask itself carries no axis labels. Must match x_patches'
+    # (C, N, L) layout in IO/dataset.py; any consumer reshaping (N, C) instead silently
+    # misaligns masked/unmasked patches with no shape error.
     bool_masked_pos = mask.view(B, C, N).to(device)  # [B, C*N] -> [B, C, N]
     return x, coords, time_idx, bool_masked_pos, valid_channels
 
