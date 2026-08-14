@@ -1,139 +1,47 @@
-import math
 from types import SimpleNamespace
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.MeSAE.MeSAE_modules import SpatialTemporalEmbeddings, TSAEncoder, ExpertChannelPool, MultiHeadDecoder, PerChannelHeadAttn, FilterRouter
+from model.MeSAE.MeSAE_modules import SpatialTemporalEmbeddings, TSAEncoder, StampBank, PerChannelHeadAttn
 
 
-class TopKSAE(nn.Module):
-    """
-    Sparse Autoencoder with hard top-K sparsity (OpenAI-style: keep the top-K encoder
-    pre-activations per example, zero the rest, no L1 penalty needed since sparsity is
-    structural). Weights are shared across whatever axis calls this (see
-    MeSAEPretrain, which applies one TopKSAE per spatial filter) — that's what gives
-    the sparse feature dictionary a single reusable vocabulary across filters instead of
-    a per-filter-unique one.
-
-    Dead-feature handling mirrors the codebook-collapse problem MeFSQ already fights,
-    different mechanism: an EMA firing-frequency buffer flags features that haven't
-    fired recently, and an aux-k loss lets those dead features have a second shot at
-    explaining the residual reconstruction error, so they get gradient instead of
-    staying permanently dead.
-    """
-    def __init__(self, dim, n_features, k, dead_threshold=1e-3, ema_decay=0.99):
-        super().__init__()
-        self.dim = dim
-        self.n_features = n_features
-        self.k = k
-        self.dead_threshold = dead_threshold
-        self.ema_decay = ema_decay
-
-        self.b_dec = nn.Parameter(torch.zeros(dim))
-        self.input_norm = nn.LayerNorm(dim)
-        self.enc = nn.Linear(dim, n_features)
-        self.dec = nn.Parameter(torch.empty(n_features, dim))
-        nn.init.kaiming_uniform_(self.dec, a=math.sqrt(5))
-
-        self.register_buffer('fire_ema', torch.zeros(n_features))
-
-    def _decode(self, h):
-        dec_n = F.normalize(self.dec, dim=-1)
-        return h @ dec_n + self.b_dec
-
-    def forward(self, x, k=None, weight=None):
-        """x: [..., dim] -> x_hat [..., dim], h [..., n_features], aux_loss scalar.
-        k: single top-k applied to every row (default self.k). Per-group k_groups
-        (routed Filters vs shared Filters picking a different k through this same
-        dictionary) was tried and reverted: fire_ema below is one flat mean over all
-        rows, and the routed group's row count (M*n_routed_filters) dwarfed the shared
-        group's (M*n_shared_filters), so shared-specialized dictionary atoms were
-        structurally outvoted into looking dead — caused repeated dead_feature_rate
-        mass-collapse events. See docs/adr/0007-routed-filter-gating-for-mesae.md and
-        MeSAEPretrain._sae_forward.
-        weight: optional, same leading shape as x (flattened identically) — each row's
-        contribution to `fired` (see below) is scaled by this before the dead-feature
-        detector's mean, instead of every row counting equally. Lets a caller downstream
-        of a gate (MeSAEPretrain's router) tell the dead-feature tracker "this row's
-        selection barely mattered, don't count it as evidence this atom is alive" — see
-        MeSAEPretrain.forward, which passes the router's gate here so an atom that only
-        ever wins top-k on Filters the router currently zeroes out doesn't get counted
-        alive by selection alone while receiving no real reconstruction gradient."""
-        shape = x.shape[:-1]
-        x_flat = x.reshape(-1, self.dim)
-        pre = self.enc(self.input_norm(x_flat - self.b_dec))  # [B, F]
-
-        kk = k or self.k
-        topk_val, topk_idx = pre.topk(kk, dim=-1)
-        h = torch.zeros_like(pre).scatter_(-1, topk_idx, F.relu(topk_val))
-        selected = torch.zeros_like(pre).scatter_(-1, topk_idx, 1.0)
-
-        x_hat = self._decode(h)
-
-        aux_loss = x_hat.new_zeros(())
-        if self.training:
-            with torch.no_grad():
-                if weight is not None:
-                    w = weight.reshape(-1).detach().float()  # [B]
-                    fired = (selected.detach() * w.unsqueeze(-1)).sum(dim=0) / (w.sum() + 1e-8)
-                else:
-                    fired = selected.detach().mean(dim=0)
-                self.fire_ema.mul_(self.ema_decay).add_(fired, alpha=1 - self.ema_decay)
-                dead_mask = self.fire_ema < self.dead_threshold  # [F]
-
-            if dead_mask.any():
-                residual = (x_flat - x_hat).detach()
-                dead_pre = pre.masked_fill(~dead_mask.unsqueeze(0), float('-inf'))
-                # Capped at k*4: letting aux_k track dead_mask.sum() uncapped was tried
-                # and reverted — during a mass-death event that let aux_k approach
-                # n_features, so every row decoded through nearly the entire dictionary
-                # via this "rescue" path each step, a dense reconstruction fighting the
-                # sparse one at full scale and likely the actual trigger for total
-                # collapse (loss flatlining at the data's own variance), not a fix for it.
-                aux_k = min(self.k * 4, int(dead_mask.sum().item()))
-                aux_val, aux_idx = dead_pre.topk(aux_k, dim=-1)
-                h_aux = torch.zeros_like(pre).scatter_(-1, aux_idx, F.relu(aux_val))
-                residual_hat = self._decode(h_aux)
-                # residual lives in raw x_flat units (unlike pre/h, which read a
-                # LayerNorm'd input via input_norm) — it inherits whatever scale the
-                # upstream encoder blocks currently drift to (block_norm), so an
-                # unnormalized MSE here grows with that drift regardless of whether the
-                # dead-atom rescue is doing a good job. Normalize by the residual's own
-                # current squared magnitude (detached — a rescale of the loss value, not
-                # a change to residual_hat/x_hat's own semantics anywhere else they're
-                # used) so this loss term stays comparable epoch to epoch instead of
-                # tracking encoder-scale drift.
-                aux_loss = F.mse_loss(residual_hat, residual) / (residual.pow(2).mean() + 1e-8)
-
-        return x_hat.reshape(*shape, self.dim), h.reshape(*shape, self.n_features), aux_loss
+def _ema_update(buf, val, decay=0.99):
+    """In-place EMA update, skipped if val is NaN/Inf. A plain `.mul_(decay).add_(val,
+    alpha=1-decay)` permanently poisons buf the moment val is ever NaN even once (a single
+    bad batch, e.g. a transient fp16-autocast overflow early in training): NaN propagates
+    through every future update (decay*NaN + (1-decay)*anything = NaN), so a diagnostic
+    stuck NaN for an entire run can trace back to one early outlier batch long since
+    recovered from. Skipping non-finite updates lets the EMA keep tracking real values."""
+    if torch.isfinite(val):
+        buf.mul_(decay).add_(val, alpha=1 - decay)
 
 
 class MeSAEPretrain(nn.Module):
     """
-    Per-filter Sparse Autoencoder EEG tokenizer — parallel to MeFSQPretrain, not a
+    Spatiotemporal stamp-dictionary EEG tokenizer — parallel to MeFSQPretrain, not a
     variant of it. Goal is explainable, per-patch embeddings (not a discrete vocabulary):
     channel-count invariant (cross-dataset unification still matters) but NOT
     length-invariant (each patch keeps its own embedding, for temporal localization of
-    events within a trial). No Router, no Expert pools, no discrete VQ.
+    events within a trial).
 
-    Pipeline: encoder -> ExpertChannelPool (reused as a small fixed bank of "spatial
-    filters", channel-count invariant) -> per-filter TopKSAE (shared weights across
-    filters) -> MultiHeadDecoder (reused, "sum after decode not before") -> reconstruction.
-    Every filter is isolable end-to-end (pool -> SAE -> decode -> contribution, summed),
-    matching an ICA-style linear-sum-of-independent-components model — not a discrete-token
-    vocabulary (still deliberately deferred).
+    Pipeline: encoder -> StampBank (dictionary of rank-1 spatiotemporal atoms — static
+    per-stamp channel topography x a small per-stamp generator MLP conditioned on that
+    stamp's own selection strength) -> reconstruction, summed directly in patch space (no
+    separate decoder stage). See docs/adr/0009-spatiotemporal-stamp-dictionary-for-mesae.md
+    for the full derivation and docs/adr/0007-routed-filter-gating-for-mesae.md for the
+    routed/shared split StampBank carries over from the retired per-Filter design.
 
     Trains in two sequential stages (see docs/adr/0003-mesae-two-stage-masked-training.md
     and CONTEXT.md: Tokenizer stage / Masked stage):
     - Tokenizer stage: temporal/spatial mixing OFF (enable_temporal/enable_spatial not yet
-      called), no masking (bool_masked_pos=None) — encoder + SAE train jointly on
-      patch-local features only, so the SAE's dictionary can't be built from
+      called), no masking (bool_masked_pos=None) — encoder + StampBank train jointly on
+      patch-local features only, so the stamp dictionary can't be built from
       already-context-leaked input.
-    - Masked stage: call enable_temporal(), enable_spatial(), freeze_sae() (in that order),
-      then train with bool_masked_pos set — only embed/encoder/mask_token keep learning,
-      predicting masked patches through the now-frozen SAE/decoder.
+    - Masked stage: call enable_temporal(), enable_spatial(), freeze_stamps() (in that
+      order), then train with bool_masked_pos set — only embed/encoder/mask_token keep
+      learning, predicting masked patches through the now-frozen StampBank.
     """
     def __init__(
         self,
@@ -145,13 +53,14 @@ class MeSAEPretrain(nn.Module):
         dropout=0.0,
         pool_after_blocks=(),
         num_channels=1,
-        n_routed_filters=32,
-        n_shared_filters=4,
-        n_top_k=4,
-        channel_pool_temperature=1.0,
-        sae_expansion=8,
-        sae_k=32,
-        decoder_hidden=None,
+        n_stamps=800,
+        n_shared_stamps=4,
+        stamp_top_k=32,
+        stamp_hidden_width=8,
+        stamp_shared_hidden_width=16,
+        dead_threshold_frac=0.1,
+        aux_k_cap_frac=0.04,
+        stamp_ema_decay=0.999,
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
@@ -161,21 +70,6 @@ class MeSAEPretrain(nn.Module):
         self.patch_len = patch_len
         self.head_dim = embed_dim
         self.num_channels = num_channels
-        # Filters [0:n_routed_filters] are routed (top-k gated per patch),
-        # [n_routed_filters:] are shared (always-on, fixed 0.2x baseline, matching MeFSQ's
-        # shared_weight) — see docs/adr/0007-routed-filter-gating-for-mesae.md. n_filters is
-        # derived, not independently configurable: it's meaningless without a routed/shared
-        # split to define what it's counting.
-        self.n_routed_filters = n_routed_filters
-        self.n_shared_filters = n_shared_filters
-        self.n_filters = n_routed_filters + n_shared_filters
-        self.shared_weight = 0.2
-        n_filters = self.n_filters
-        # sae_k: same self.sae dictionary (one shared vocabulary), same top-k, for every
-        # Filter regardless of routed/shared — see TopKSAE.forward's docstring for why a
-        # per-group k split was tried and reverted (fire_ema mass-collapse from the
-        # routed/shared row-count imbalance).
-        self.sae_k = sae_k
 
         self.embed   = SpatialTemporalEmbeddings(patch_len, embed_dim)
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
@@ -185,32 +79,36 @@ class MeSAEPretrain(nn.Module):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
 
-        self.filter_pool = ExpertChannelPool(n_filters, num_channels, temperature=channel_pool_temperature)
-        self.sae         = TopKSAE(embed_dim, sae_expansion * embed_dim, sae_k)
-        self.decoder     = MultiHeadDecoder(n_filters, embed_dim, num_channels * patch_len, hidden=decoder_hidden)
-        self.sae_frozen  = False
+        self.stamps = StampBank(
+            embed_dim, num_channels, patch_len,
+            n_stamps=n_stamps, n_shared_stamps=n_shared_stamps, top_k=stamp_top_k,
+            hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
+            dead_threshold_frac=dead_threshold_frac,
+            aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
+        )
+        # convenience aliases — viz/checker code reads these off the model directly
+        # (e.g. base_checker.py compute_unit_colors), same convention the retired
+        # n_filters/n_routed_filters/n_shared_filters attrs used.
+        self.n_stamps = self.stamps.n_stamps
+        self.n_routed_stamps = self.stamps.n_routed
+        self.n_shared_stamps = self.stamps.n_shared
+        self.shared_weight = self.stamps.shared_weight
+        self.stamps_frozen = False
 
-        self.router = FilterRouter(embed_dim, n_routed_filters, n_top_k)
         # EMA router-health buffers — same 3 metrics as MeFSQ's Router
-        # (ema_filter_router_entropy/ema_filter_router_load_std/ema_filter_gate_entropy), see
-        # update_head_metrics below for what each number means.
-        self.register_buffer('ema_filter_router_entropy',  torch.tensor(0.0))
-        self.register_buffer('ema_filter_router_load_std', torch.tensor(0.0))
-        self.register_buffer('ema_filter_gate_entropy',    torch.tensor(0.0))
+        # (ema_stamp_router_entropy/ema_stamp_router_load_std/ema_stamp_gate_entropy), see
+        # update_stamp_router_metrics below for what each number means.
+        self.register_buffer('ema_stamp_router_entropy',  torch.tensor(0.0))
+        self.register_buffer('ema_stamp_router_load_std', torch.tensor(0.0))
+        self.register_buffer('ema_stamp_gate_entropy',    torch.tensor(0.0))
 
         # Same 3 EMA metrics, but for the FFN MoE routers (MoEFFN/FFNRouter, one per
         # TSABlock, averaged across blocks by TSAEncoder.forward) — a distinct MoE from the
-        # SAE Filter router above, see docs/adr/0008-moe-ffn-for-mesae.md and
+        # stamp router above, see docs/adr/0008-moe-ffn-for-mesae.md and
         # update_ffn_router_metrics below.
         self.register_buffer('ema_ffn_router_entropy',  torch.tensor(0.0))
         self.register_buffer('ema_ffn_router_load_std', torch.tensor(0.0))
         self.register_buffer('ema_ffn_gate_entropy',    torch.tensor(0.0))
-
-        # EMA buffers for the decoder-output fingerprint (data-dependent diversity of
-        # each filter's actual decoded contribution) — same diagnostic value as
-        # MeFSQPretrain._update_fingerprint_stats, adapted to filters instead of Experts.
-        self.register_buffer('ema_fingerprint_sim',     torch.tensor(0.0))
-        self.register_buffer('ema_fingerprint_sim_std', torch.tensor(0.0))
 
     def enable_spatial(self):
         self.embed.enable_spatial()
@@ -219,76 +117,70 @@ class MeSAEPretrain(nn.Module):
     def enable_temporal(self):
         self.encoder.enable_temporal()
 
-    def freeze_sae(self):
+    def freeze_stamps(self):
         """
-        End of Tokenizer stage: lock filter_pool + SAE + decoder so the Masked stage's
-        frozen reconstruction target stops moving. aux_loss (dead-feature rescue) must be
-        dropped from the Masked-stage loss entirely once this is called — rescuing a frozen
-        SAE's dead features is meaningless, see get_loss. Mirrors MeFSQ's
-        freeze_vq_and_decoder(), but two-stage/sequential rather than joint-warmup-then-
-        freeze (see docs/adr/0003-mesae-two-stage-masked-training.md).
+        End of Tokenizer stage: lock StampBank so the Masked stage's frozen reconstruction
+        target stops moving. aux_loss (dead-atom rescue) must be dropped from the
+        Masked-stage loss entirely once this is called — rescuing a frozen dictionary's dead
+        atoms is meaningless, see get_loss. Mirrors MeFSQ's freeze_vq_and_decoder(), but
+        two-stage/sequential rather than joint-warmup-then-freeze (see
+        docs/adr/0003-mesae-two-stage-masked-training.md).
         """
-        for p in self.filter_pool.parameters():
+        for p in self.stamps.parameters():
             p.requires_grad_(False)
-        for p in self.sae.parameters():
-            p.requires_grad_(False)
-        for p in self.decoder.parameters():
-            p.requires_grad_(False)
-        for p in self.router.parameters():
-            p.requires_grad_(False)
-        self.sae_frozen = True
+        self.stamps_frozen = True
 
     @torch.no_grad()
-    def update_head_metrics(self, gate_routed):
+    def update_stamp_router_metrics(self, h_routed_dense):
         """
-        EMA router-health monitoring, called once per training step (see
-        MeSAETrainer.compute_loss) — logic ported unchanged from MeFSQ's
-        MeFSQ.update_head_metrics. gate_routed: [M, n_routed_filters], the router's own
-        gate output (routed subset only, NOT the shared subset appended in forward()'s
-        `gate`).
+        EMA router-health monitoring, called once per step (see
+        MeSAETrainer.update_diagnostics) — logic ported from MeFSQ's
+        MeFSQ.update_head_metrics, adapted for StampBank's raw (not softmax-normalized)
+        selection strengths. h_routed_dense: [M, n_routed_stamps] (StampBank's
+        `dense_routed`, zeros at unselected).
 
-        filter_router_entropy: entropy of the routed pool's LOAD distribution (how evenly,
-        across this batch's patches, selection is spread over the n_routed_filters routed
-        Filters) — 0 = every patch always picks the same Filter (total collapse),
-        log(n_routed_filters) = perfectly uniform load across all routed Filters. Rising
-        over training = healthy (Filters differentiating and each still getting used);
-        falling toward 0 = router collapse (a couple of Filters absorbing everything, see
-        docs/adr/0007).
+        stamp_router_entropy: entropy of the routed pool's LOAD distribution (how evenly,
+        across this batch's patches, selection is spread over the n_routed_stamps routed
+        stamps) — 0 = every patch always picks the same stamp (total collapse),
+        log(n_routed_stamps) = perfectly uniform load. Rising over training = healthy
+        (stamps differentiating and each still getting used); falling toward 0 = router
+        collapse (a couple of stamps absorbing everything, see docs/adr/0007).
 
-        filter_gate_entropy: entropy of the softmax weight WITHIN each patch's own top-k
-        selection (not across patches) — 0 = one selected Filter dominates that patch's gate
-        weight (confident/peaked routing), log(top_k) = the k selected Filters split weight
-        near-uniformly for that patch. Lower isn't necessarily bad here (it means the router
-        is confident about which Filter should own a patch); watch it alongside
-        filter_router_entropy, not instead of it.
+        stamp_gate_entropy: entropy of the WITHIN-patch selection strengths (not across
+        patches). Unlike the retired FilterRouter's softmax gate, `h_routed_dense` is raw
+        and unbounded — not a probability distribution — so it's renormalized per-row
+        (`/ sum`) here purely for this diagnostic, never touching the actual reconstruction
+        path. 0 = one selected stamp dominates that patch's strength (confident/peaked
+        selection), log(top_k) = the k selected stamps split strength near-uniformly.
 
-        filter_router_load_std: std of the load distribution across routed Filters —
-        companion to filter_router_entropy in raw (non-normalized) units; rising = load
-        spreading out unevenly (some Filters starved), useful for spotting collapse early
-        since std reacts faster than the log-scaled entropy number.
+        stamp_router_load_std: std of the load distribution across routed stamps —
+        companion to stamp_router_entropy in raw (non-normalized) units; rising = load
+        spreading out unevenly (some stamps starved), reacts faster than the log-scaled
+        entropy number.
         """
-        selected = (gate_routed.detach() > 0).float()
+        selected = (h_routed_dense.detach() > 0).float()
         load = selected.mean(dim=0)
         load_p = load / (load.sum() + 1e-8)
-        filter_router_entropy = -(load_p * torch.log(load_p + 1e-10)).sum()
+        stamp_router_entropy = -(load_p * torch.log(load_p + 1e-10)).sum()
 
-        gm = gate_routed.detach().float().clamp(min=0)
-        filter_gate_entropy = -(gm * torch.log(gm + 1e-10)).sum(dim=-1).mean()
+        gm = h_routed_dense.detach().float().clamp(min=0)
+        gm = gm / (gm.sum(dim=-1, keepdim=True) + 1e-8)  # diagnostic-only renormalization
+        stamp_gate_entropy = -(gm * torch.log(gm + 1e-10)).sum(dim=-1).mean()
 
-        self.ema_filter_router_load_std.mul_(0.99).add_(load.std(),           alpha=0.01)
-        self.ema_filter_router_entropy.mul_(0.99).add_(filter_router_entropy, alpha=0.01)
-        self.ema_filter_gate_entropy.mul_(0.99).add_(filter_gate_entropy,     alpha=0.01)
+        _ema_update(self.ema_stamp_router_load_std, load.std())
+        _ema_update(self.ema_stamp_router_entropy, stamp_router_entropy)
+        _ema_update(self.ema_stamp_gate_entropy, stamp_gate_entropy)
 
     @torch.no_grad()
     def update_ffn_router_metrics(self, ffn_router_entropy, ffn_router_load_std, ffn_gate_entropy):
         """Same EMA smoothing as update_head_metrics, for the FFN MoE routers instead of the
         SAE Filter router — see TSAEncoder.forward (MeSAE_modules.py) for where these three
-        already-averaged-across-blocks values come from. Called from MeSAETrainer.compute_loss
-        with out.ffn_router_entropy/out.ffn_router_load_std/out.ffn_gate_entropy, same call
-        site as update_head_metrics."""
-        self.ema_ffn_router_load_std.mul_(0.99).add_(ffn_router_load_std, alpha=0.01)
-        self.ema_ffn_router_entropy.mul_(0.99).add_(ffn_router_entropy,   alpha=0.01)
-        self.ema_ffn_gate_entropy.mul_(0.99).add_(ffn_gate_entropy,       alpha=0.01)
+        already-averaged-across-blocks values come from. Called from
+        MeSAETrainer.update_diagnostics with out.ffn_router_entropy/out.ffn_router_load_std/
+        out.ffn_gate_entropy, same call site as update_head_metrics."""
+        _ema_update(self.ema_ffn_router_load_std, ffn_router_load_std)
+        _ema_update(self.ema_ffn_router_entropy, ffn_router_entropy)
+        _ema_update(self.ema_ffn_gate_entropy, ffn_gate_entropy)
 
     def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None):
         """Returns (z [B, C, N, D], ffn_lb_loss scalar) — ffn_lb_loss is the summed
@@ -309,118 +201,124 @@ class MeSAEPretrain(nn.Module):
             valid_mask = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
         return z_bnc, valid_mask
 
-    def _sae_forward(self, pooled, gate=None):
-        """pooled: [M, Q, D], gate: [M, Q] or None -> sae_out [M, Q, D], sae_hidden [M, Q, F],
-        aux_loss scalar. Single top-k (self.sae.k, set from sae_k at construction) applied
-        uniformly across every Filter — routed and shared alike — through the shared
-        self.sae dictionary. Reverted from a routed/shared per-group k split (TopKSAE
-        previously had a k_groups path for this): that split's fire_ema averaged unweighted
-        across the routed group's M*n_routed_filters rows and the shared group's much
-        smaller M*n_shared_filters rows, so shared-specialized dictionary atoms were
-        structurally outvoted into looking dead — caused repeated dead_feature_rate
-        mass-collapse events. See docs/adr/0007-routed-filter-gating-for-mesae.md.
+    @staticmethod
+    def _flatten_patches(x):
+        """x: [B, C, N, L] -> x_mcl [M, C, L] (M=B*N) — same M ordering as _pool_channels,
+        needed as StampBank's aux-rescue reconstruction target (see StampBank.forward)."""
+        B, C, N, L = x.shape
+        return x.permute(0, 2, 1, 3).reshape(B * N, C, L)
 
-        gate, when given, is passed through to TopKSAE as `weight`: an atom that only ever
-        wins the SAE's top-k on a Filter the router currently zeroes out would otherwise
-        count as "alive" by selection alone while getting ~0 real reconstruction gradient
-        (gate multiplies that Filter's decoded contribution to ~0 downstream) — see
-        MeSAEPretrain.forward, which computes gate before this call specifically so it can
-        be threaded through here, and TopKSAE.forward's docstring for the weighted
-        fire_ema math."""
-        return self.sae(pooled, weight=gate)
-
-    def encode_post_sae(self, x, coords, time_idx=None, valid_channels=None):
+    def encode_post_stamp_expert(self, x, coords, time_idx=None, valid_channels=None, return_chan_attn=False):
         """
-        Real per-filter, per-channel signal AFTER the SAE's sparse-code round-trip: each
-        filter's decoder output (C*patch_len, jointly reconstructing all channels from that
-        filter's own sparse code) reshaped per channel, before the cross-filter sum.
-        Genuinely filter-differentiated (each filter reads a different pooled View through
-        the shared TopKSAE dictionary and has its own decoder weights) — mirrors
-        MeFSQPretrain.encode_post_vq; this is what MeSAEFinetune reads.
+        Per-stamp code BEFORE generation — channels are already collapsed into each
+        selected stamp's own channel-attention View by StampBank's spatial pool, so there
+        is no channel dim here. Use this when a downstream head only needs
+        stamp-differentiated signal and would otherwise have to re-pool the channel dim the
+        backbone already collapsed. Mirrors MeFSQPretrain.encode_post_vq_expert.
         valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional).
-        Returns z_h [B, C, N, Q, patch_len].
+        return_chan_attn: also return each selected stamp's own channel-attention weights
+        (the real per-channel importance, for diagnostics — e.g. attn-topo panels).
+        Returns z_h [B, N, Q, D] (Q = top_k+n_shared, 36 by default), or (z_h, chan_attn
+        [B, N, Q, C]) if return_chan_attn. Unselected routed stamps never appear here at
+        all (hard top-k, not a zeroed-out dense slot) — the finetune head only ever sees
+        the stamps actually selected for a given patch.
         """
         B, C, N, L = x.shape
-        P = self.patch_len
 
         z, _ = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, D]
         z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
 
-        pooled, _ = self.filter_pool(z_bnc, valid_mask)  # [M, Q, D]
-        sae_out, _, _ = self._sae_forward(pooled)  # [M, Q, D]
+        out = self.stamps(z_bnc, valid_mask=valid_mask)
+        z_h = out.z_h.reshape(B, N, -1, self.head_dim)  # [B, N, Q, D]
+        if not return_chan_attn:
+            return z_h
 
-        recon_per_filter = self.decoder(sae_out)  # [M, Q, C*P]
-        recon_per_filter = recon_per_filter.reshape(B, N, self.n_filters, C, P)
-        return recon_per_filter.permute(0, 3, 1, 2, 4)  # [B, C, N, Q, P]
+        # gather the selected stamps' channel-attention rows out of the dense [M,n_stamps,C]
+        # table StampBank.forward already computed, same idx it used to build z_h.
+        chan_attn = out.attn.gather(1, out.idx.unsqueeze(-1).expand(-1, -1, C))  # [M, Q, C]
+        return z_h, chan_attn.reshape(B, N, -1, C)
 
-    @torch.no_grad()
-    def _update_fingerprint_stats(self, recon_per_filter, decay=0.99):
-        """Pairwise cosine similarity between filters' own decoded contributions — low
-        mean/std means filters are decoding near-identical signals regardless of patch."""
-        M, Q, K = recon_per_filter.shape
-        if Q < 2:
-            return
-        normed = F.normalize(recon_per_filter.float(), dim=-1)
-        sim = torch.einsum('mqk,mpk->mqp', normed, normed)  # [M, Q, Q]
-        off_diag = ~torch.eye(Q, dtype=torch.bool, device=sim.device)
-        off = sim[:, off_diag].reshape(M, Q * (Q - 1))
-        self.ema_fingerprint_sim.mul_(decay).add_(off.mean(), alpha=1 - decay)
-        self.ema_fingerprint_sim_std.mul_(decay).add_(off.std(), alpha=1 - decay)
+    def used_stamp_ids(self, out, max_stamps=100):
+        """Global stamp ids actually selected SOMEWHERE across this batch (a batch built
+        from one trial's patches, in practice — see check_pretrain/check_finetune), capped
+        at max_stamps, ranked by accumulated selection strength. `out` needs `dense_routed`
+        (from this model's own `forward`/`stamps(...)` output — any SimpleNamespace with
+        that field works). Shared stamps always included first (constant weight, always
+        selected every patch, so cheap to guarantee) — remaining budget filled by the
+        highest-usage routed stamps, dropping ones that never fired at all this batch. This
+        exists because hard top-k selection means a per-patch Q axis (see
+        encode_post_stamp_expert) has NO stable cross-patch identity — a trial-wide view
+        needs a fixed, shared set of global ids instead.
+        """
+        device = out.dense_routed.device
+        shared_ids = torch.arange(self.n_routed_stamps, self.n_stamps, device=device)
+        routed_usage = out.dense_routed.detach().sum(dim=0)  # [n_routed_stamps]
+        routed_ids = torch.nonzero(routed_usage > 0, as_tuple=True)[0]
+        order = torch.argsort(routed_usage[routed_ids], descending=True)
+        routed_ids = routed_ids[order]
+        budget = max(0, max_stamps - shared_ids.numel())
+        return torch.cat([shared_ids, routed_ids[:budget]])
+
+    def encode_used_stamps(self, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
+        """Trial-wide, stable-identity counterpart to encode_post_stamp_expert — instead of
+        each patch's own (patch-locally-indexed) top-k picks, returns a single FIXED set of
+        <=max_stamps global stamp ids (see used_stamp_ids) and every patch's real strength
+        for exactly those ids (0 where that patch's own top-k didn't select a given id —
+        reconstructed from StampBank's dense per-patch usage, not re-selected). Used by
+        MeSAEChecker.render_finetune_attn for a trial-wide attn-topo panel; NOT used by
+        MeSAEFinetune.forward itself, which still needs the real per-patch top-k path
+        (encode_post_stamp_expert) since that's what the model was actually trained on.
+        Returns (z_h [B,N,Qu,D], chan_attn [B,N,Qu,C], used_ids [Qu]).
+        """
+        B, C, N, L = x.shape
+
+        z, _ = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, D]
+        z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
+
+        out = self.stamps(z_bnc, valid_mask=valid_mask)
+        used_ids = self.used_stamp_ids(out, max_stamps=max_stamps)  # [Qu]
+
+        shared = out.dense_routed.new_full((out.dense_routed.shape[0], self.n_shared_stamps), self.shared_weight)
+        full_dense = torch.cat([out.dense_routed, shared], dim=-1)  # [M, n_stamps]
+
+        z_h = out.pooled[:, used_ids, :] * full_dense[:, used_ids].unsqueeze(-1)  # [M, Qu, D]
+        chan_attn = out.attn[:, used_ids, :]                                       # [M, Qu, C]
+        return z_h.reshape(B, N, -1, self.head_dim), chan_attn.reshape(B, N, -1, C), used_ids
 
     def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """
         x: [B, C, N, L], coords: [B, C, 3]
         bool_masked_pos: [B, C, N] bool — None during the Tokenizer stage (no masking);
         pass real masks only in the Masked stage, once temporal/spatial mixing are enabled
-        and the SAE is frozen (see enable_temporal/enable_spatial/freeze_sae).
+        and the stamps are frozen (see enable_temporal/enable_spatial/freeze_stamps).
         valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional).
-        returns SimpleNamespace(recon [B,C,N,L], attn [B,N,Q,C] (per-filter topography),
-        sae_hidden [M,Q,F], aux_loss scalar, filter_lb_loss scalar (SAE Filter router),
-        ffn_lb_loss scalar (TSABlock MoEFFN routers, summed across blocks) — two distinct
-        load-balance losses, see get_loss).
+        returns SimpleNamespace(recon [B,C,N,L], attn [B,N,n_stamps,C] (per-stamp
+        topography), h [M,Q] selection strengths, dense_routed [M,n_routed_stamps]
+        (diagnostic selection-frequency source), aux_loss scalar, ffn_lb_loss scalar
+        (TSABlock MoEFFN routers, summed across blocks — StampBank has no load-balance
+        loss of its own, see StampBank.forward).
         """
         B, C, N, L = x.shape
-        D = self.head_dim
 
         z, ffn_lb_loss = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos)  # [B, C, N, D]
         z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
+        x_target = self._flatten_patches(x)  # [M, C, L] — aux-rescue target, see StampBank.forward
 
-        pooled, attn = self.filter_pool(z_bnc, valid_mask)   # [M, Q, D], [M, Q, C]
+        out = self.stamps(z_bnc, x_target=x_target, valid_mask=valid_mask)
 
-        # Router runs before the SAE now (it only needs `pooled`, not the SAE's output) so
-        # `gate` can be threaded into _sae_forward: an atom that only ever wins the SAE's
-        # top-k on a Filter the router currently zeroes out would otherwise count as
-        # "alive" in fire_ema from selection alone, while getting ~0 real reconstruction
-        # gradient (gate zeroes that Filter's decoded contribution below, downstream) — see
-        # TopKSAE.forward's `weight` docstring.
-        pooled_routed = pooled[:, :self.n_routed_filters]               # [M, R, D]
-        gate_routed, filter_lb_loss = self.router(pooled_routed)        # [M, R], scalar
-        gate_shared = pooled.new_full((pooled.shape[0], self.n_shared_filters), self.shared_weight)
-        gate = torch.cat([gate_routed, gate_shared], dim=1)             # [M, Q] -- diagnostic only, e.g. which
-        # routed Filters actually fired for a given trial (see base_checker.py compute_unit_colors)
-
-        sae_out, sae_hidden, aux_loss = self._sae_forward(pooled, gate=gate)  # [M, Q, D], [M, Q, F]
-
-        recon_per_filter = self.decoder(sae_out)             # [M, Q, C*patch_len]
-        recon_per_filter = recon_per_filter * gate.unsqueeze(-1)
-
-        recon = recon_per_filter.sum(dim=1).reshape(B, N, C, L).permute(0, 2, 1, 3)
-
-        if not self.training:
-            self._update_fingerprint_stats(recon_per_filter)
+        recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # [B, C, N, L]
 
         return SimpleNamespace(
             recon=recon,
-            attn=attn.reshape(B, N, self.n_filters, C),
-            sae_hidden=sae_hidden,
-            aux_loss=aux_loss,
-            filter_lb_loss=filter_lb_loss,
+            attn=out.attn.reshape(B, N, self.n_stamps, C),
+            h=out.h,
+            dense_routed=out.dense_routed,
+            aux_loss=out.aux_loss,
             ffn_lb_loss=ffn_lb_loss,
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
-            gate=gate,
-            decorr_loss=self.filter_pool.decorrelation_loss(),
+            decorr_loss=out.decorr_loss,
         )
 
     @staticmethod
@@ -478,7 +376,7 @@ class MeSAEPretrain(nn.Module):
         return torch.stack(losses).sum(), l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
-                 filter_lb_loss=None, filter_lb_weight=0.01, decorr_loss=None, decorr_weight=0.01,
+                 decorr_loss=None, decorr_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01):
         """
         Returns (total, l_masked, l_unmasked).
@@ -487,56 +385,54 @@ class MeSAEPretrain(nn.Module):
         _hierarchical_recon_loss), scaled by hierarchical_mse_weight.
 
         Tokenizer stage (bool_masked_pos=None): plain full reconstruction, l_masked=1.0
-        placeholder (nothing masked yet), aux_loss included so the SAE's dead-feature
+        placeholder (nothing masked yet), aux_loss included so StampBank's dead-atom
         rescue can still train.
 
-        Masked stage (bool_masked_pos given, self.sae_frozen True by then): aux_loss is
-        dropped from the total regardless of the aux_weight argument once the SAE is
-        frozen — rescuing a frozen SAE's dead features can't do anything, see freeze_sae().
+        Masked stage (bool_masked_pos given, self.stamps_frozen True by then): aux_loss is
+        dropped from the total regardless of the aux_weight argument once the stamps are
+        frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
+        freeze_stamps().
 
-        filter_lb_loss (SAE Filter router load-balance loss) and decorr_loss (filter_pool's
-        spatial-pattern decorrelation, see ExpertChannelPool.decorrelation_loss) are dropped
-        the same way and for the same reason once frozen — freeze_sae() also locks
-        filter_pool, so a frozen spatial pattern can't act on the gradient either (see
-        docs/adr/0007-routed-filter-gating-for-mesae.md).
+        decorr_loss (StampBank's spatial-pattern decorrelation) is dropped the same way and
+        for the same reason once frozen — freeze_stamps() locks the whole StampBank, so a
+        frozen spatial pattern can't act on the gradient either (see docs/adr/0007,
+        docs/adr/0009). StampBank has no load-balance loss of its own — dropped deliberately,
+        see StampBank.forward docstring.
 
-        ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks — a
-        *different* MoE than the SAE Filter router above, see docs/adr/0008-moe-ffn-for-
-        mesae.md) is added unconditionally, both stages: it comes from the encoder, which
-        keeps training through the Masked stage (freeze_sae() never locks the encoder).
+        ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
+        docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
+        from the encoder, which keeps training through the Masked stage (freeze_stamps()
+        never locks the encoder).
         """
         recon_loss, l_masked, l_unmasked = self._hierarchical_recon_loss(recon, x, bool_masked_pos)
         total = hierarchical_mse_weight * recon_loss
 
-        if bool_masked_pos is None or not self.sae_frozen:
+        if bool_masked_pos is None or not self.stamps_frozen:
             total = total + aux_weight * aux_loss
-            if filter_lb_loss is not None:
-                total = total + filter_lb_weight * filter_lb_loss
             if decorr_loss is not None:
                 total = total + decorr_weight * decorr_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
         return total, l_masked, l_unmasked
 
-    def get_metrics(self, sae_hidden=None):
+    def get_metrics(self, dense_routed=None):
         metrics = {}
-        if sae_hidden is not None:
-            # sae_hidden: [M, Q, F] — keep the filter axis (dim=1) before the final mean
-            # so std-across-filters is available alongside the overall mean, not just a
-            # single number that's already averaged every filter's spread away. Split
-            # routed/shared rather than one pooled mean so a diagnostic difference between
-            # the two Filter types (e.g. one pool drifting off its shared sae_k target)
-            # stays visible instead of being averaged away.
-            l0_per_filter = (sae_hidden.detach() > 0).float().sum(dim=-1).mean(dim=0)  # [Q]
-            l0_routed = l0_per_filter[:self.n_routed_filters]
-            l0_shared = l0_per_filter[self.n_routed_filters:]
-            metrics['l0_sparsity_routed']     = l0_routed.mean().item()
-            metrics['l0_sparsity_routed_std'] = l0_routed.std().item()
-            metrics['l0_sparsity_shared']     = l0_shared.mean().item()
-            metrics['l0_sparsity_shared_std'] = l0_shared.std().item()
-        metrics['dead_feature_rate']          = (self.sae.fire_ema < self.sae.dead_threshold).float().mean().item()
-        metrics['decoder_fingerprint_sim']     = self.ema_fingerprint_sim.item()
-        metrics['decoder_fingerprint_sim_std'] = self.ema_fingerprint_sim_std.item()
+        if dense_routed is not None:
+            # dense_routed: [M, n_routed_stamps], h_i=exp(score_i) at each selected slot,
+            # score_i=-mean_sq_error of atom i's own tied-bottleneck self-reconstruction
+            # (see StampBank class docstring). h_i is always >0 by construction now (exp),
+            # so a nonzero-count "l0 sparsity" metric (the old convention, meaningful when
+            # h could be relu'd to exactly 0) is structurally pinned at top_k with zero
+            # variance — no longer a diagnostic, just an invariant. Replaced with the
+            # actual new signal: mean/std of h among selected picks this batch, i.e. how
+            # well the selected atoms' own bottlenecks fit the content they were picked
+            # for (1.0=perfect self-reconstruction, ->0 as fit degrades).
+            selected = dense_routed.detach()
+            h_selected = selected[selected > 0]
+            if h_selected.numel() > 0:
+                metrics['stamp_fit_quality']     = h_selected.mean().item()
+                metrics['stamp_fit_quality_std'] = h_selected.std().item()
+        metrics['dead_feature_rate'] = (self.stamps.fire_ema < self.stamps.dead_threshold).float().mean().item()
 
         # U-Net skip gate(s) on the encoder's residual-add path: sigmoid(g) in [0,1],
         # 0 = drop skip, 1 = plain add (same convention as MeFSQ.get_metrics).
@@ -554,13 +450,14 @@ class MeSAEPretrain(nn.Module):
             for i, v in enumerate(block_norms):
                 metrics[f'block_norm_{i}'] = v
 
-        # Filter router health — see update_head_metrics above for what each number means.
-        metrics['filter_router_entropy']  = self.ema_filter_router_entropy.item()
-        metrics['filter_router_load_std'] = self.ema_filter_router_load_std.item()
-        metrics['filter_gate_entropy']    = self.ema_filter_gate_entropy.item()
+        # Stamp router health — see update_stamp_router_metrics above for what each number
+        # means.
+        metrics['stamp_router_entropy']  = self.ema_stamp_router_entropy.item()
+        metrics['stamp_router_load_std'] = self.ema_stamp_router_load_std.item()
+        metrics['stamp_gate_entropy']    = self.ema_stamp_gate_entropy.item()
 
         # FFN router health — see update_ffn_router_metrics above; same 3 metrics, distinct
-        # MoE (per-TSABlock MoEFFN routers, averaged across blocks, not the SAE Filter router).
+        # MoE (per-TSABlock MoEFFN routers, averaged across blocks, not the StampBank router).
         metrics['ffn_router_entropy']  = self.ema_ffn_router_entropy.item()
         metrics['ffn_router_load_std'] = self.ema_ffn_router_load_std.item()
         metrics['ffn_gate_entropy']    = self.ema_ffn_gate_entropy.item()
@@ -570,30 +467,33 @@ class MeSAEPretrain(nn.Module):
 
 class MeSAEFinetune(nn.Module):
     """
-    Wraps a pretrained MeSAEPretrain backbone (unmodified) with a per-channel head-attention
-    classification head (PerChannelHeadAttn) — same shape/rationale as MeFSQFinetune
-    (model/MeFSQ/MeFSQ.py), reading backbone.encode_post_sae instead of encode_post_vq:
-    filter_pool broadcasts nothing (unlike a pre-quantization vector), the SAE's sparse
-    code genuinely differentiates each filter, so encode_post_sae carries real per-filter
-    signal for the classifier's attention pooling to work with.
+    Wraps a pretrained MeSAEPretrain backbone (unmodified) with a temporal+stamp
+    attention classification head (PerChannelHeadAttn) — same shape/rationale as
+    MeFSQFinetune (model/MeFSQ/MeFSQ.py). Reads backbone.encode_post_stamp_expert: the
+    pre-generator D-dim view for each selected stamp (`h_i * pooled_i`, BEFORE that
+    stamp's own generator MLP ever runs — see docs/adr/0009). The channel dim is already
+    collapsed by the backbone's own per-stamp channel-attention pool, so the head only
+    pools over patches and stamps, not channels.
     """
     def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, hidden=128, freeze_backbone=False,
                  dropout=0.1):
         super().__init__()
         self.backbone = backbone
-        self.head = PerChannelHeadAttn(backbone.patch_len, num_channels, num_classes, hidden=hidden, dropout=dropout)
+        self.head = PerChannelHeadAttn(backbone.head_dim, num_classes, dropout=dropout)
 
         if freeze_backbone:
             for p in self.backbone.parameters():
                 p.requires_grad_(False)
 
-    def forward(self, x, coords, time_idx=None, pad_mask=None):
+    def forward(self, x, coords, time_idx=None, valid_channels=None, pad_mask=None):
         """
         x: [B, C, N, L]
         coords: [B, C, 3]
-        pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels)
-        returns: (logits [B, num_classes], attn_h [B, C, Q], attn_n [B, C, Q, N], attn_c [B, C])
+        valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional)
+        pad_mask: [B, N] bool, True = valid patch (optional, for padded trailing time)
+        returns: (logits [B, num_classes], attn_h [B, Q], attn_n [B, Q, N])
         """
-        z_per_head = self.backbone.encode_post_sae(x, coords, time_idx=time_idx)  # [B, C, N, Q, patch_len]
-        logits, attn_h, attn_n, attn_c = self.head(z_per_head, pad_mask=pad_mask)
-        return logits, attn_h, attn_n, attn_c
+        z_per_head = self.backbone.encode_post_stamp_expert(
+            x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [B, N, Q, D]
+        logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)
+        return logits, attn_h, attn_n

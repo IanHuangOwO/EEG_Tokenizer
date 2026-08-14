@@ -265,23 +265,39 @@ class MaskedPretrainDataset(Dataset):
 
         self.patch_len = patch_len
         total_T     = base_dataset.data.shape[-1]
-        num_patches = total_T // patch_len
+        self.num_patches = total_T // patch_len
         remainder   = total_T % patch_len
 
         # pre-generate one mask per trial so complementary pairs are exact inverses
         self._masks = [
-            self.masking_strategy.generate_mask(base_dataset.Nc, num_patches, self.mask_ratio)
+            self.masking_strategy.generate_mask(base_dataset.Nc, self.num_patches, self.mask_ratio)
             for _ in range(len(base_dataset))
         ]
 
         strategy_name = type(self.masking_strategy).__name__.replace('MaskingStrategy', '').lower()
         n_effective   = len(base_dataset) * self.masking_strategy.multiplier
         print(f"\n--- MaskedPretrainDataset ---")
-        print(f"  {len(base_dataset)} trials | {num_patches} patches/trial | mask_ratio={self.mask_ratio} | strategy={strategy_name}")
+        print(f"  {len(base_dataset)} trials | {self.num_patches} patches/trial | mask_ratio={self.mask_ratio} | strategy={strategy_name}")
         print(f"  effective dataset size: {n_effective}")
         if remainder > 0:
             print(f"  [Truncation] {remainder} samples dropped per trial ({remainder/total_T*100:.1f}%).")
         print(f"----------------------------\n")
+
+    def set_masking(self, masking_strategy: BaseMaskingStrategy, mask_ratio: float = 0.5):
+        """Swap masking strategy/ratio and regenerate self._masks in place — e.g. for a
+        mask-ratio curriculum (ramp a RandomMaskingStrategy up before switching to a fixed
+        ComplementaryMaskingStrategy, since the latter structurally ignores any ratio
+        argument, see IO/masking.py). Changes __len__ if the new strategy's `multiplier`
+        differs from the old one (e.g. random 1x -> complementary 2x) — any DataLoader
+        already built against this dataset must be rebuilt afterward, not just re-iterated:
+        with persistent_workers=True, worker subprocesses hold their own copy of the
+        dataset from when they were spawned and never see this mutation otherwise."""
+        self.masking_strategy = masking_strategy
+        self.mask_ratio = self.masking_strategy.effective_mask_ratio(mask_ratio)
+        self._masks = [
+            self.masking_strategy.generate_mask(self.base_dataset.Nc, self.num_patches, self.mask_ratio)
+            for _ in range(len(self.base_dataset))
+        ]
 
     def __len__(self):
         return len(self.base_dataset) * self.masking_strategy.multiplier
@@ -363,7 +379,7 @@ def _resolve_loader(dataset_name: str, ds_name_key: str):
     return DialLoader  # safe fallback
 
 
-def _load_montage_channels(name: str) -> List[str]:
+def load_montage_channels(name: str) -> List[str]:
     """Looks up a named montage's ordered channel-label list from config/montages.json —
     see docs/agents/adding-a-montage.md. Coordinates in that file are reference/QA data
     only (per-dataset coords are still resolved independently in IO/loader.py); only the
@@ -377,6 +393,17 @@ def _load_montage_channels(name: str) -> List[str]:
     return [ch['label'] for ch in montages[name]['channels']]
 
 
+def resolve_canonical_channels(canonical_channels) -> List[str]:
+    """canonical_channels: a montage name (str, looked up via load_montage_channels) or
+    an already-literal channel-label list -> list. Centralizes the isinstance check every
+    caller of preprocess_params.canonical_channels needs — taking len() of the raw string
+    instead silently returns the name's character count (e.g. len("10-10") == 5), not an
+    error."""
+    if isinstance(canonical_channels, str):
+        return load_montage_channels(canonical_channels)
+    return canonical_channels
+
+
 def _resolve_target_channels(dataset_params: Dict, pp: Dict = None) -> List[str]:
     """
     Determines the unified channel list.
@@ -388,10 +415,8 @@ def _resolve_target_channels(dataset_params: Dict, pp: Dict = None) -> List[str]
     """
     if pp:
         canonical = pp.get('canonical_channels', [])
-        if isinstance(canonical, str) and canonical:
-            return _load_montage_channels(canonical)
         if canonical:
-            return canonical
+            return resolve_canonical_channels(canonical)
 
     first_ds_key = next(iter(dataset_params))
     first_ds_args = dataset_params[first_ds_key]
@@ -447,7 +472,15 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
             'data_structure': data_structure
         }
 
-        for sub_id in ds_args['subject_to_use']:
+        requested_subjects = ds_args['subject_to_use']
+        if requested_subjects in (['all'], 'all'):
+            all_ids = list(data_structure.keys())
+            try:
+                requested_subjects = sorted(all_ids, key=int)
+            except ValueError:
+                requested_subjects = sorted(all_ids)
+
+        for sub_id in requested_subjects:
             loading_tasks.append({
                 'dataset_name': ds_name,
                 'subject_id': sub_id,

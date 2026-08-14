@@ -8,6 +8,15 @@ import torch.nn.functional as F
 from model.MeFSQ.MeFSQ_modules import SpatialTemporalEmbeddings, TSAEncoder, MeFSQ, Router, ExpertChannelPool, PerChannelHeadAttn, MultiHeadDecoder
 
 
+def _split_channel_major(flat, C, P):
+    """[..., C*P] channel-major (C outer, P inner) -> [..., C, P]. MultiHeadDecoder's
+    per-Expert output is always C-major; every un-flatten site in this file must agree
+    on that or it silently scrambles. See docs/agents/reshape-pitfalls.md."""
+    assert flat.shape[-1] == C * P, (
+        f"_split_channel_major: last dim {flat.shape[-1]} != C*P ({C}*{P}={C * P})")
+    return flat.reshape(*flat.shape[:-1], C, P)
+
+
 class MeFSQPretrain(nn.Module):
     """
     DeepSeekMoE-style shared+routed expert pools, each pool an independent group of
@@ -260,11 +269,50 @@ class MeFSQPretrain(nn.Module):
         recon_per_head_s = self.decoder_shared(z_per_head_s)  # [M, Hs, C*P]
 
         recon_per_head = torch.cat([recon_per_head_s, recon_per_head_r], dim=1)  # [M, H_total, C*P] — shared first
-        # C*P split assumes decoder output is C-major (C outer, P inner) — must match
-        # forward()'s identical reshape(B,N,C,L) below. If MultiHeadDecoder's output layout
-        # ever changes, update both split sites in lockstep or this silently scrambles.
-        recon_per_head = recon_per_head.reshape(B, N, self.n_total_experts, C, P)
+        recon_per_head = _split_channel_major(recon_per_head, C, P).reshape(B, N, self.n_total_experts, C, P)
         return recon_per_head.permute(0, 3, 1, 2, 4)  # [B, C, N, H_total, P]
+
+    def encode_post_vq_expert(self, x, coords, time_idx=None, valid_channels=None, return_chan_attn=False):
+        """
+        Per-Expert quantized+projected vector BEFORE decode — channels are already
+        collapsed into each Expert's own channel-attention View by pool_routed/pool_shared,
+        so there is no channel dim here (unlike encode_post_vq, which re-expands through
+        the decoder back to a per-channel reconstruction). Use this when a downstream head
+        only needs Expert-differentiated signal and would otherwise have to re-pool the
+        channel dim that the backbone already collapsed.
+        valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional).
+        return_chan_attn: also return each Expert's own ExpertChannelPool weights (the
+        real per-channel importance, for diagnostics — e.g. attn-topo panels — since no
+        downstream head re-pools the channel dim anymore).
+        Returns z_h [B, N, H_total, D] — shared experts first, then routed — or, if
+        return_chan_attn, (z_h, chan_attn [B, N, H_total, C]).
+        """
+        B, C, N, L = x.shape
+
+        z = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, D]
+        z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
+        M = B * N
+
+        Hr = self.n_routed_experts
+        pooled_r, attn_r = self.pool_routed(z_bnc, valid_mask)  # [M, Hr, D], [M, Hr, C]
+        z_h_r = self.stage_bn_routed(pooled_r.reshape(M, Hr * self.head_dim)).reshape(M, Hr, self.head_dim)
+        gate_mask_routed, _ = self.router(pooled_r)  # [M, Hr]
+        v_q_routed, _, _ = self.mefsq_routed(z_h_r)
+        v_q_routed_gated = v_q_routed * gate_mask_routed.unsqueeze(-1)
+        z_per_head_r = torch.einsum('mhr,hdr->mhd', v_q_routed_gated, self.vq_proj_routed)  # [M, Hr, D]
+
+        Hs = self.n_shared_experts
+        pooled_s, attn_s = self.pool_shared(z_bnc, valid_mask)  # [M, Hs, D], [M, Hs, C]
+        z_h_s = self.stage_bn_shared(pooled_s.reshape(M, Hs * self.head_dim)).reshape(M, Hs, self.head_dim)
+        v_q_shared, _, _ = self.mefsq_shared(z_h_s)
+        z_per_head_s = torch.einsum('mhr,hdr->mhd', v_q_shared, self.vq_proj_shared)  # [M, Hs, D]
+
+        z_per_head = torch.cat([z_per_head_s, z_per_head_r], dim=1)  # [M, H_total, D] — shared first
+        z_h = z_per_head.reshape(B, N, self.n_total_experts, self.head_dim)  # [B, N, H_total, D]
+        if not return_chan_attn:
+            return z_h
+        chan_attn = torch.cat([attn_s, attn_r], dim=1)  # [M, H_total, C] — shared first, matches z_h ordering
+        return z_h, chan_attn.reshape(B, N, self.n_total_experts, C)
 
     def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """
@@ -316,9 +364,8 @@ class MeFSQPretrain(nn.Module):
             self._update_fingerprint_stats(recon_per_head_r, self.ema_fingerprint_sim_routed, self.ema_fingerprint_sim_std_routed)
             self._update_fingerprint_stats(recon_per_head_s, self.ema_fingerprint_sim_shared, self.ema_fingerprint_sim_std_shared)
 
-        # C*L split assumes decoder output is C-major — must match encode_post_vq's
-        # reshape(B,N,H_total,C,P) above; keep both in lockstep on any decoder layout change.
-        recon = (recon_routed + self.shared_weight * recon_shared).reshape(B, N, C, L).permute(0, 2, 1, 3)  # [B, C, N, L]
+        recon_flat = recon_routed + self.shared_weight * recon_shared  # [M, C*L]
+        recon = _split_channel_major(recon_flat, C, L).reshape(B, N, C, L).permute(0, 2, 1, 3)  # [B, C, N, L]
 
         # attn: shared pool first (indices [0, n_shared)), then routed — same convention as
         # encode_pre_vq / extract_head_psd's head axis. [M, H_total, C] -> [B, N, H_total, C],
@@ -421,36 +468,43 @@ class MeFSQPretrain(nn.Module):
 
 class MeFSQFinetune(nn.Module):
     """
-    Wraps a pretrained MeFSQPretrain backbone (unmodified) with a per-channel head-attention
+    Wraps a pretrained MeFSQPretrain backbone (unmodified) with a temporal+head attention
     classification head (PerChannelHeadAttn).
 
-    Reads backbone.encode_post_vq — each head's own decoded reconstruction, split per
-    channel, from AFTER the discrete VQ round-trip (real quantized code, real per-head
-    decoder weights). encode_pre_vq (broadcast, pre-quantization) was tried first but
-    carries no per-head signal at all — every head sees the identical vector, so the
-    classifier's per-head attention pooling had nothing to differentiate and collapsed to
-    uniform (see finetune head-attention heatmap: flat color across heads). Post-VQ trades
-    that for real per-head signal; if this regresses val accuracy vs the old bypass,
-    that's the same "VQ destroys fine detail" tradeoff previously documented — worth
-    re-checking against actual numbers here rather than assuming.
+    Reads backbone.encode_post_vq_expert — each Expert's own quantized+projected vector,
+    from AFTER the discrete VQ round-trip (real quantized code, real per-Expert vq_proj),
+    BEFORE the decoder re-expands it back to a per-channel reconstruction. The channel dim
+    is already collapsed by the backbone's own per-Expert channel-attention pool
+    (pool_routed/pool_shared), so the head only needs to pool over patches and Experts, not
+    channels — pooling channels again here would just redo work the backbone already did.
+    encode_pre_vq (broadcast, pre-quantization) was tried first but carries no per-Expert
+    signal at all — every Expert sees the identical vector, so the classifier's per-Expert
+    attention pooling had nothing to differentiate and collapsed to uniform (see finetune
+    head-attention heatmap: flat color across heads). Post-VQ trades that for real
+    per-Expert signal; if this regresses val accuracy, that's the same "VQ destroys fine
+    detail" tradeoff previously documented — worth re-checking against actual numbers here
+    rather than assuming.
     """
     def __init__(self, backbone: MeFSQPretrain, num_channels, num_classes, hidden=128, freeze_backbone=False,
                  dropout=0.1):
         super().__init__()
         self.backbone = backbone
-        self.head = PerChannelHeadAttn(backbone.patch_len, num_channels, num_classes, hidden=hidden, dropout=dropout)
+        self.head = PerChannelHeadAttn(backbone.head_dim, num_classes, dropout=dropout)
 
         if freeze_backbone:
             for p in self.backbone.parameters():
                 p.requires_grad_(False)
 
-    def forward(self, x, coords, time_idx=None, pad_mask=None):
+    def forward(self, x, coords, time_idx=None, valid_channels=None, pad_mask=None):
         """
         x: [B, C, N, L]
         coords: [B, C, 3]
-        pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels)
-        returns: (logits [B, num_classes], attn_h [B, C, H], attn_n [B, C, H, N], attn_c [B, C])
+        valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional) —
+        masked out of the backbone's per-Expert channel-attention pool.
+        pad_mask: [B, N] bool, True = valid (optional, for padded patches)
+        returns: (logits [B, num_classes], attn_h [B, H], attn_n [B, H, N])
         """
-        z_per_head = self.backbone.encode_post_vq(x, coords, time_idx=time_idx)  # [B, C, N, H, patch_len]
-        logits, attn_h, attn_n, attn_c = self.head(z_per_head, pad_mask=pad_mask)
-        return logits, attn_h, attn_n, attn_c
+        z_per_head = self.backbone.encode_post_vq_expert(
+            x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [B, N, H, D]
+        logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)
+        return logits, attn_h, attn_n

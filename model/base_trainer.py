@@ -8,10 +8,17 @@ class BaseTrainer:
     """One instance per model_type, stateless except for whatever the model itself holds."""
 
     def compute_loss(self, model, x, out, mp, masked_mse_weight, unmasked_mse_weight, warmup, **hparams):
-        """Returns (l_total, l_masked, l_unmasked). May also mutate model-side EMA
-        buffers (e.g. MeFSQ's update_head_metrics) as a side effect — this is the same
-        per-step glue _step_loss used to be."""
+        """Returns (l_total, l_masked, l_unmasked). Pure loss math — does not mutate
+        model state. See update_diagnostics for the per-step EMA side effect this used
+        to carry."""
         raise NotImplementedError
+
+    def update_diagnostics(self, model, out):
+        """Called once per step (train and val alike), right after compute_loss, with
+        that same step's `out`. Mutates model-side EMA buffers (e.g. MeFSQ/MeSAE's
+        update_head_metrics) — the one place per-step diagnostic state gets touched.
+        Default: no-op, for models with nothing to track here."""
+        pass
 
     def epoch_metrics(self, model, out):
         """Returns a dict of extra metrics to merge into the epoch's averaged totals

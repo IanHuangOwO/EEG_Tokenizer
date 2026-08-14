@@ -68,6 +68,28 @@ class BasePlotter:
             series.append(entry)
         return series
 
+    def router_health_series(self, prefix='', entropy_label='Router entropy (higher=balanced)'):
+        """MoE router-health panel shape shared by every router in this codebase (Expert,
+        Filter, FFN, ...): router_entropy + gate_entropy on the main axis, router_load_std
+        + lb_loss on a twin axis. History keys are unprefixed for the bare 'router' (MeFSQ's
+        Expert router: 'router_entropy', 'lb_loss', ...) or f'{prefix}_<key>' otherwise
+        (MeSAE's 'filter'/'ffn' routers: 'filter_router_entropy', 'filter_lb_loss', ...).
+        Returns (main_series, twin_series) — pass twin_series into a panel's twin dict
+        only if non-empty, same guard every call site already used by hand."""
+        def k(key):
+            return f'{prefix}_{key}' if prefix else key
+
+        main = [(k('router_entropy'), 'teal', entropy_label),
+                (k('gate_entropy'), 'darkgoldenrod', 'Gate entropy (softmax weight)')]
+        twin = [(k('router_load_std'), 'salmon', '--', 'Load std'),
+                (k('lb_loss'), 'peru', ':', 'LB loss (1.0=uniform)')]
+
+        main_series = [dict(key=key, color=c, label=l, train_only=True)
+                       for key, c, l in main if key in self.history['train']]
+        twin_series = [dict(key=key, color=c, style_train=ls, label=l, train_only=True)
+                       for key, c, ls, l in twin if key in self.history['train']]
+        return main_series, twin_series
+
     def indexed_series(self, prefix, cmap_name=None, train_only=True):
         """Unbounded family of series sharing a key prefix, sorted by trailing index
         (e.g. skip_gate_0, skip_gate_1, ...). train_only=False also plots the val curve

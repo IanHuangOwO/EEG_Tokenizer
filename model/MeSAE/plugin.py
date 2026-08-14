@@ -1,6 +1,8 @@
 """MeSAE's implementation of the shared model-plugin contract (model/base_trainer.py,
 model/base_checker.py, model/base_plotter.py)."""
 
+import os
+
 import numpy as np
 import torch
 
@@ -11,6 +13,7 @@ from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
 from viz.extract import extract_filter_psd, extract_filter_spectra
+from viz.panels import plot_attn_topo as render_attn_topo
 
 
 @torch.no_grad()
@@ -39,8 +42,8 @@ def _run_reconstruction_sae(model, dataset, trial_idx, device):
 
 
 def build_model(bp, num_channels):
-    """bp: config['model_params']['MeSAE']['pretrain']."""
-    sae = bp.get('moe_sae', {})
+    """bp: config['model_params']['MeSAE']['pretrain'] (or ['tokenizer'])."""
+    sb = bp.get('stamp_bank', {})
     moe_ffn = bp.get('moe_ffn', {})
 
     return MeSAEPretrain(
@@ -52,13 +55,14 @@ def build_model(bp, num_channels):
         dropout=bp.get('dropout', 0.0),
         pool_after_blocks=bp.get('pool_after_blocks', []),
         num_channels=num_channels,
-        n_routed_filters=sae.get('n_routed_filters', 32),
-        n_shared_filters=sae.get('n_shared_filters', 4),
-        n_top_k=sae.get('n_top_k', 4),
-        channel_pool_temperature=sae.get('channel_pool_temperature', 1.0),
-        sae_expansion=sae.get('sae_expansion', 8),
-        sae_k=sae.get('sae_k', 32),
-        decoder_hidden=sae.get('decoder_hidden'),
+        n_stamps=sb.get('n_stamps', 800),
+        n_shared_stamps=sb.get('n_shared_stamps', 4),
+        stamp_top_k=sb.get('stamp_top_k', 32),
+        stamp_hidden_width=sb.get('stamp_hidden_width', 8),
+        stamp_shared_hidden_width=sb.get('stamp_shared_hidden_width', 16),
+        dead_threshold_frac=sb.get('dead_threshold_frac', 0.1),
+        aux_k_cap_frac=sb.get('aux_k_cap_frac', 0.04),
+        stamp_ema_decay=sb.get('sae_ema_decay', 0.999),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
@@ -71,51 +75,47 @@ class MeSAETrainer(BaseTrainer):
         # masked_mse_weight/unmasked_mse_weight are computed generically by train_pretrain.py
         # for every model type but MeSAE's loss no longer uses them — see get_loss.
         aux_weight = hparams.get('aux_weight', 0.03)
-        filter_lb_weight = hparams.get('filter_lb_weight', 0.01)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
         decorr_weight = hparams.get('decorr_weight', 0.01)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
-        model.update_head_metrics(out.gate[:, :model.n_routed_filters])
-        model.update_ffn_router_metrics(out.ffn_router_entropy, out.ffn_router_load_std, out.ffn_gate_entropy)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
-                               filter_lb_loss=out.filter_lb_loss, filter_lb_weight=filter_lb_weight,
                                decorr_loss=out.decorr_loss, decorr_weight=decorr_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight)
+
+    def update_diagnostics(self, model, out):
+        model.update_stamp_router_metrics(out.dense_routed)
+        model.update_ffn_router_metrics(out.ffn_router_entropy, out.ffn_router_load_std, out.ffn_gate_entropy)
 
     def epoch_metrics(self, model, out):
         # mse_level_* are accumulated per-batch and epoch-averaged in train_pretrain.py
         # (train_one_epoch/validate_one_epoch), not added here — this function only ever
         # sees the last batch's out, which would make mse_level_* a last-batch snapshot
         # instead of an epoch average like every other loss stat.
-        metrics = model.get_metrics(out.sae_hidden.detach())
+        metrics = model.get_metrics(out.dense_routed.detach())
         metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
-        metrics['filter_lb_loss'] = out.filter_lb_loss.item() if hasattr(out.filter_lb_loss, 'item') else float(out.filter_lb_loss)
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
 
     def on_pretrain_start(self, model, logger=None):
-        model.freeze_sae()
+        model.freeze_stamps()
         if logger:
-            logger.info("  [Pretrain] SAE+decoder frozen, only main transformer trains from here")
+            logger.info("  [Pretrain] StampBank frozen, only main transformer trains from here")
 
 
 class MeSAEChecker(BaseEpochChecker):
-    unit_label = 'Filter'
+    unit_label = 'Stamp'
 
     def compute_unit_colors(self, model, out):
-        """red = shared Filter (always-on, structural). orange = routed Filter that
-        actually got gated on (nonzero gate) for at least one patch in this trial. black =
-        routed Filter unselected this trial. See docs/adr/0007-routed-filter-gating-for-mesae.md."""
-        colors = ['black'] * model.n_filters
-        for q in range(model.n_routed_filters, model.n_filters):
-            colors[q] = 'red'
-        gate = out.gate.detach().cpu().numpy()  # [M, Q]
-        selected = (gate[:, :model.n_routed_filters] > 0).any(axis=0)  # [n_routed]
-        for q in range(model.n_routed_filters):
-            if selected[q]:
-                colors[q] = 'orange'
-        return colors
+        """red = shared stamp (always-on, structural). black = routed stamp. Restricted to
+        stamps actually used somewhere in this trial, capped at 100 (see
+        MeSAEPretrain.used_stamp_ids) — with n_stamps=800 and hard top-k selection, showing
+        every stamp regardless of whether this trial ever touched it is mostly noise, and
+        the per-patch top-k axis has no stable cross-patch identity to color consistently
+        in the first place (see docs/adr/0009 / render_finetune_attn's docstring)."""
+        used_ids = model.used_stamp_ids(out, max_stamps=100)
+        colors = ['red' if i >= model.n_routed_stamps else 'black' for i in used_ids.tolist()]
+        return colors, used_ids
 
     def extract_psd(self, model, x_in, c_in, t_in, vc_in):
         return extract_filter_psd(model, x_in, c_in, t_in, vc_in)
@@ -126,20 +126,84 @@ class MeSAEChecker(BaseEpochChecker):
     def run_reconstruction(self, model, dataset, trial_idx, device):
         return _run_reconstruction_sae(model, dataset, trial_idx, device)
 
+    def render_finetune_attn(self, model, x_in, c_in, t_in, vc_in, valid_channels, valid_length,
+                              P, patch_len, viz_dir, epoch_tag, subject_id, trial_idx,
+                              pos2d, channel_names, unit_colors):
+        """MeSAEFinetune's head has no channel dim (already collapsed into each stamp's
+        View by the backbone's own channel-attention pool) — so the topomaps read that real
+        channel attention straight from the backbone as-is; scaling it by each stamp's
+        stamp-attention score (attn_h) was tried to make stamps "visually comparable" but
+        with many low-importance stamps sharing one color scale, it just crushes most
+        topomaps toward the scale's dark end instead. Topo values are averaged uniformly
+        over patches — NOT weighted by the head's temporal attention (attn_n) — since a
+        topomap has no time axis to justify a time-weighted average. The big heatmap
+        instead shows attn_n (Patch x Stamp), replacing the base class's Channel x Unit
+        heatmap.
+
+        Uses encode_used_stamps, NOT encode_post_stamp_expert: hard top-k means a
+        per-patch Q axis has no stable identity across patches (patch A's slot 0 and patch
+        B's slot 0 can be different physical stamps), so it can't be fed into a trial-wide
+        panel directly. encode_used_stamps instead returns a single fixed set of <=100
+        global stamp ids actually used somewhere in this trial (see
+        MeSAEPretrain.used_stamp_ids) with each patch's real strength for exactly those
+        ids. The `unit_colors` param (from check_finetune's own, separate `backbone(...)`
+        forward pass) is ignored — colors are recomputed here from THIS call's own
+        used_ids so they're guaranteed to match, rather than trusting two independent
+        forward passes to agree on ranking/order."""
+        pad_mask = self._build_pad_mask_time(valid_length, P, patch_len).to(x_in.device)
+        backbone = model.backbone
+        z_h, chan_attn, used_ids = backbone.encode_used_stamps(
+            x_in, c_in, time_idx=t_in, valid_channels=vc_in, max_stamps=100)  # [1,N,Qu,D], [1,N,Qu,C], [Qu]
+        chan_attn = chan_attn[0].mean(dim=0).detach().cpu().numpy()  # [Qu, C] — uniform mean over N, no temporal weight
+        colors = ['red' if i >= backbone.n_routed_stamps else 'black' for i in used_ids.tolist()]
+
+        # feed the head directly instead of re-running model(...) — that would repeat the
+        # same backbone forward pass we just did to get chan_attn above
+        _, attn_h, attn_n = model.head(z_h, pad_mask=pad_mask)
+        importance = attn_h[0].detach().cpu().numpy()          # [Qu] — per-stamp stamp-attention score
+        patch_filter_attn = attn_n[0].detach().cpu().numpy()   # [Qu, N] — per-stamp temporal attention
+
+        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_attn_topo.png")
+        render_attn_topo(
+            out_path, pos2d, chan_attn, importance, channel_names,
+            valid_channels=valid_channels.numpy(),
+            subject_id=subject_id, trial_idx=trial_idx, epoch_tag=f'{epoch_tag} [finetune]',
+            unit_label=self.unit_label, unit_colors=colors,
+            heatmap_attn=patch_filter_attn, heatmap_ylabels=list(range(patch_filter_attn.shape[1])),
+            heatmap_ylabel='Patch (time)', heatmap_title=f'Patch x {self.unit_label} Attention',
+            heatmap_transpose=False,
+        )
+        print(f"  [epoch] -> {out_path}")
+
 
 class MeSAECodebookChecker(BaseCodebookChecker):
-    unit_label = 'Filter'
+    unit_label = 'Stamp'
 
     @torch.no_grad()
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
+        """[M, n_stamps] dense usage — routed axis real per-patch strength (zeros at
+        unselected), shared axis the fixed constant weight every shared stamp always
+        fires at (see docs/adr/0009's Monitoring impact section: no per-atom x
+        per-feature F axis exists anymore, so this replaces the retired out.sae_hidden)."""
         out = model(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
-        return out.sae_hidden.detach().cpu().numpy()  # [M, Q, F]
+        M = out.dense_routed.shape[0]
+        shared = out.dense_routed.new_full((M, model.n_shared_stamps), model.shared_weight)
+        return torch.cat([out.dense_routed, shared], dim=-1).detach().cpu().numpy()  # [M, n_stamps]
 
     def decoder_fingerprint_matrix(self, model):
-        w1 = model.decoder.w1.detach().cpu().numpy()  # [Q, embed_dim, hidden]
-        flat = w1.reshape(w1.shape[0], -1)
+        """Per-stamp [C, patch_len] fingerprint at the zero-probe default (see
+        StampBank.fingerprint docstring — no true content-free fingerprint exists anymore
+        now that generation is content-conditioned on pooled_i, so this reduces to each
+        atom's own bias terms), pairwise cosine sim — this is `filter_relation.png`'s direct
+        successor and doubles as the empirical test for whether StampBank.decorrelation_loss
+        needs a temporal term added (see that method's docstring)."""
+        fp = model.stamps.fingerprint().cpu().numpy()  # [n_stamps, C, patch_len]
+        flat = fp.reshape(fp.shape[0], -1)
         flat = flat / (np.linalg.norm(flat, axis=1, keepdims=True) + 1e-8)
         return flat @ flat.T
+
+    def rank_ceiling(self, model):
+        return min(model.stamps.top_k, model.head_dim)
 
 
 class MeSAEPlotter(BasePlotter):
@@ -156,57 +220,34 @@ class MeSAEPlotter(BasePlotter):
                  ylabel='MSE', series=self.indexed_series('mse_level_', cmap_name='plasma', train_only=False)),
         ]
 
-        sae_health_panels = [
-            dict(title='SAE Aux-K Loss (dead-feature revival)\n[train only, 0 in eval by design]',
+        stamp_health_panels = [
+            dict(title='Stamp Aux-K Loss (dead-atom revival)\n[train only, 0 in eval by design]',
                  ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
-            dict(title='L0 Sparsity (active features/patch)\nshaded = mean +/-1 std across filters in pool',
-                 ylabel='Count', series=[dict(key='l0_sparsity_routed', color='darkorchid', label='Routed', band=True),
-                                          dict(key='l0_sparsity_shared', color='red', label='Shared', band=True)]),
+            dict(title='Stamp Fit Quality (h=exp(-self-recon-error))\n1.0=perfect self-fit, ->0=poor fit',
+                 ylabel='h', series=[dict(key='stamp_fit_quality', color='darkorchid', label='Selected', band=True)]),
             dict(title='Dead Feature Rate', ylabel='Fraction',
                  series=[dict(key='dead_feature_rate', color='crimson')]),
-            dict(title='Per-Filter Decoder Fingerprint\n(lower mean = more diverse; shaded = mean +/-1 std across pairs)',
-                 ylabel='Cosine sim', series=[dict(key='decoder_fingerprint_sim', color='teal', band=True)]),
         ]
 
-        # Filter (SAE) Router Health — see MeSAE.update_head_metrics for what each number
-        # means. Same panel shape as MeFSQ's; `if k in self.history['train']` guard kept even
-        # though the router is now mandatory, since a freshly started run's history is empty
-        # either way.
-        filter_router_series = [
-            dict(key=k, color=c, label=l, train_only=True)
-            for k, c, l in (('filter_router_entropy', 'teal', 'Router entropy (load balance)'),
-                            ('filter_gate_entropy', 'darkgoldenrod', 'Gate entropy (softmax weight)'))
-            if k in self.history['train']
-        ]
-        filter_twin_series = [
-            dict(key=k, color=c, style_train=ls, label=l, train_only=True)
-            for k, c, ls, l in (('filter_router_load_std', 'salmon', '--', 'Load std'),
-                                ('filter_lb_loss', 'peru', ':', 'LB loss (1.0=uniform)'))
-            if k in self.history['train']
-        ]
+        # Stamp Router Health — see MeSAE.update_stamp_router_metrics for what each number
+        # means. Same panel shape as MeFSQ's, via router_health_series. No shared-stamp
+        # series here — shared stamps have no on/off dynamics (constant weight), so a
+        # separate line would just be flat (see docs/adr/0009's Monitoring impact section).
+        stamp_router_series, stamp_twin_series = self.router_health_series(
+            'stamp', entropy_label='Router entropy (load balance)')
 
-        # FFN Router Health — same 3 metrics as the Filter router above, but for the MoEFFN
+        # FFN Router Health — same 3 metrics as the Stamp router above, but for the MoEFFN
         # routers inside every TSABlock (averaged across blocks), see
         # MeSAE.update_ffn_router_metrics / docs/adr/0008-moe-ffn-for-mesae.md. A distinct
-        # MoE from the Filter router — kept as its own panel rather than merged, so either
+        # MoE from the Stamp router — kept as its own panel rather than merged, so either
         # one collapsing is visible without the other's curves crowding it out.
-        ffn_router_series = [
-            dict(key=k, color=c, label=l, train_only=True)
-            for k, c, l in (('ffn_router_entropy', 'teal', 'Router entropy (load balance)'),
-                            ('ffn_gate_entropy', 'darkgoldenrod', 'Gate entropy (softmax weight)'))
-            if k in self.history['train']
-        ]
-        ffn_twin_series = [
-            dict(key=k, color=c, style_train=ls, label=l, train_only=True)
-            for k, c, ls, l in (('ffn_router_load_std', 'salmon', '--', 'Load std'),
-                                ('ffn_lb_loss', 'peru', ':', 'LB loss (1.0=uniform)'))
-            if k in self.history['train']
-        ]
+        ffn_router_series, ffn_twin_series = self.router_health_series(
+            'ffn', entropy_label='Router entropy (load balance)')
 
         routing_panels = [
-            dict(title='Filter Router Health\n(entropy rising = healthy spread; falling = collapse)',
-                 ylabel='Entropy (higher=balanced)', series=filter_router_series,
-                 twin=dict(ylabel='Load std / LB loss', series=filter_twin_series) if filter_twin_series else None),
+            dict(title='Stamp Router Health\n(entropy rising = healthy spread; falling = collapse)',
+                 ylabel='Entropy (higher=balanced)', series=stamp_router_series,
+                 twin=dict(ylabel='Load std / LB loss', series=stamp_twin_series) if stamp_twin_series else None),
             dict(title='FFN Router Health\n(entropy rising = healthy spread; falling = collapse)',
                  ylabel='Entropy (higher=balanced)', series=ffn_router_series,
                  twin=dict(ylabel='Load std / LB loss', series=ffn_twin_series) if ffn_twin_series else None),
@@ -219,14 +260,18 @@ class MeSAEPlotter(BasePlotter):
                  ylabel='Mean |delta| per block', series=self.indexed_series('block_norm_', cmap_name='viridis')),
         ]
 
-        panels = loss_panels + sae_health_panels + routing_panels + architecture_panels
-        self.render(panels, filename, suptitle='Tokenizer (SAE) Training Dashboard', ncols=4)
+        panels = loss_panels + stamp_health_panels + routing_panels + architecture_panels
+        self.render(panels, filename, suptitle='Tokenizer (Stamp) Training Dashboard', ncols=4)
 
     def plot_finetune(self, filename='training_dashboard.png', freeze_backbone=False):
         panels = [
             dict(title='Total Loss', ylabel='Loss', series=[dict(key='loss', color='b')]),
             dict(title='Accuracy', ylabel='Acc', series=[dict(key='acc', color='crimson')]),
             dict(title='F1 (macro)', ylabel='F1', series=[dict(key='f1', color='steelblue')]),
+            dict(title='F1 (weighted)', ylabel='F1', series=[dict(key='f1_weighted', color='teal')]),
+            dict(title='Balanced Accuracy', ylabel='Bal. Acc', series=[dict(key='balanced_acc', color='darkorchid')]),
+            dict(title="Cohen's Kappa", ylabel='Kappa', series=[dict(key='kappa', color='seagreen')]),
+            dict(title='Backbone Recon MSE', ylabel='MSE', series=[dict(key='recon_mse', color='darkorange')]),
         ]
         self.render(panels, filename, suptitle='Training Dashboard')
 

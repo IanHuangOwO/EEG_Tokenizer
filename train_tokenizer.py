@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from IO.dataset import build_dataset_from_config
-from model.factory import build_pretrain_from_config, MODEL_REGISTRY
+from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
 from viz import pick_trial
 
 torch.set_float32_matmul_precision('high')
@@ -33,7 +33,7 @@ def setup_logger(output_dir):
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
-    return logger
+    return logger, timestamp
 
 
 def _unpack_batch(batch, device):
@@ -68,6 +68,7 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
             out = model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
             l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, None, masked_mse_weight,
                                                                   unmasked_mse_weight, True, **loss_hparams)
+        trainer.update_diagnostics(model, out)
 
         scaler.scale(l_total).backward()
         scaler.unscale_(optimizer)
@@ -115,6 +116,7 @@ def validate_one_epoch(model, trainer, data_loader, device,
                 out = model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
                 l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, None, masked_mse_weight,
                                                                       unmasked_mse_weight, True, **loss_hparams)
+            trainer.update_diagnostics(model, out)
 
             totals["loss"]     += l_total.item()
             totals["masked"]   += float(l_masked) if not hasattr(l_masked, 'item') else l_masked.item()
@@ -163,8 +165,9 @@ def main():
     os.makedirs(artifact_dir, exist_ok=True)
     os.makedirs(vis_dir, exist_ok=True)
 
-    logger = setup_logger(artifact_dir)
+    logger, timestamp = setup_logger(artifact_dir)
     shutil.copy(args.config, os.path.join(artifact_dir, 'config.json'))
+    shutil.copy(args.config, os.path.join(artifact_dir, f'config_{timestamp}.json'))
 
     dataset_params = config['dataset_params']['pretrain']
     split_ratio = train_params.get('train_val_split', 0.9)
@@ -250,7 +253,7 @@ def main():
         model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
 
     scaler    = torch.amp.GradScaler('cuda')
-    optimizer = optim.AdamW(model.parameters(), lr=train_params['learning_rate'], weight_decay=train_params['weight_decay'])
+    optimizer = optim.AdamW(optimizer_param_groups(model, train_params['weight_decay']), lr=train_params['learning_rate'])
     cosine_t_max     = max(1, train_params['epochs'] - train_params['warmup_epochs'])
     main_scheduler   = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cosine_t_max, eta_min=train_params['min_learning_rate'])
     warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=train_params['warmup_epochs'])
@@ -261,7 +264,8 @@ def main():
     pp          = config.get('preprocess_params', {}).get('mask', {})
     strat_name  = pp.get('masking_strategy', 'random')
     mask_ratio  = 0.5 if strat_name == 'complementary' else pp.get(strat_name, {}).get('mask_ratio', 0.5)
-    loss_params = config.get('model_params', {}).get(model_type, {}).get('pretrain', {}).get('loss', {})
+    model_params_mt = config.get('model_params', {}).get(model_type, {})
+    loss_params = model_params_mt.get('tokenizer', {}).get('loss') or model_params_mt.get('pretrain', {}).get('loss', {})
     masked_mse_weight   = loss_params.get('masked_mse_weight', (1.0 - mask_ratio) / mask_ratio)
     unmasked_mse_weight = loss_params.get('unmasked_mse_weight', 1.0)
     loss_hparams = {k: v for k, v in loss_params.items() if k not in ('masked_mse_weight', 'unmasked_mse_weight')}

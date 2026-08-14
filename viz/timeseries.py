@@ -9,7 +9,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
                              output_dir='output/visualization/reconstruction',
                              channel_names=None,
                              subject_id=None, trial_idx=None,
-                             mask=None, patch_len=100):
+                             mask=None, patch_len=100, tag=''):
     """
     Band-filtered orig vs recon for all channels of one val sample.
     Rows: channels. Cols: Raw / Delta / Theta / Alpha / Beta / Gamma.
@@ -76,7 +76,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
 
     prefix   = f"sub{subject_id}_trial{trial_idx}_" if subject_id is not None else ""
     ep_tag   = f"ep{epoch:04d}_" if epoch is not None else ""
-    path = os.path.join(output_dir, f"{prefix}{ep_tag}recon_signal.png")
+    path = os.path.join(output_dir, f"{prefix}{ep_tag}{tag}recon_signal.png")
     plt.savefig(path, dpi=80, bbox_inches='tight')
     plt.close()
     return path

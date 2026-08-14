@@ -80,33 +80,60 @@ def plot_topo_psd_filter(out_path, pos2d, raw_power, recon_power, psd_raw, psd_r
 
 def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_channels=None,
                     subject_id=None, trial_idx=None, epoch_tag='', unit_label='Filter',
-                    unit_colors=None):
+                    unit_colors=None, topo_attn=None, heatmap_attn=None, heatmap_ylabels=None,
+                    heatmap_ylabel='Channel', heatmap_title=None, heatmap_transpose=True,
+                    bar_vertical=None):
     """
-    Per-unit (Expert/Filter/Head) channel-attention topography, one topomap per unit
-    (sorted by `importance`), plus one large Channel x Unit heatmap spanning all rows.
-    attn: [Q, C] — each unit's own attention weight over channels (rows sum to 1).
+    Per-unit (Expert/Filter/Head) channel topography, one topomap per unit (sorted by
+    `importance`), plus one large heatmap spanning all rows.
+    attn: [Q, C] — each unit's own channel attention weight (rows sum to 1). Used for both
+    the topomaps and the big heatmap unless overridden below.
+    topo_attn: optional [Q, C] override for the topomap values only — e.g. channel
+    attention scaled by each unit's overall importance, so units are visually comparable
+    (raw per-unit attention rows each sum to 1 and aren't).
+    heatmap_attn: optional [Q, R] override for the big heatmap (R rows need not be C) —
+    e.g. a finetune head's own Patch x Filter temporal attention instead of channel
+    attention. heatmap_ylabels/heatmap_ylabel/heatmap_title describe that override; ignored
+    when heatmap_attn is None.
+    heatmap_transpose: True (default, channel-attn convention) puts the heatmap_attn's own
+    R axis on Y and units on X. False puts units on Y and R on X — e.g. the finetune Patch
+    x Filter panel wants patch on X, filter on Y.
+    bar_vertical: orientation of the importance bar chart. None (default) matches
+    heatmap_transpose (vertical when units are on the heatmap's X, horizontal when on Y).
+    Pass explicitly to decouple — e.g. the pretrain Channel x Filter panel puts filter on Y
+    (heatmap_transpose=False) but still wants a vertical bar chart (bar_vertical=True).
     valid_channels: [C] bool or None — padded/invalid channels hidden from the topomaps only.
     unit_colors: optional [Q] list of title/tick-label colors (e.g. MeSAE routed-gating:
-    red = shared Filter, orange = routed Filter selected for this trial) — None means no
-    color override (default black).
+    red = shared Filter, orange = routed Filter that actually fired for this trial) — None
+    means no color override (default black).
     """
     Q, C = attn.shape
     sorted_ord = np.argsort(importance)[::-1]
-    attn_masked = attn if valid_channels is None else np.where(valid_channels[None, :], attn, np.nan)
+    topo_src = attn if topo_attn is None else topo_attn
+    attn_masked = topo_src if valid_channels is None else np.where(valid_channels[None, :], topo_src, np.nan)
+
+    hm_src = attn if heatmap_attn is None else heatmap_attn  # [Q, R]
+    hm_ylabels = channel_names if heatmap_ylabels is None else heatmap_ylabels
+    hm_ylabel = 'Channel' if heatmap_attn is None else heatmap_ylabel
+    hm_title = (f'Channel x {unit_label} Attention' if heatmap_title is None and heatmap_attn is None
+                else heatmap_title if heatmap_title is not None else f'{unit_label} Attention')
+    unit_tick_labels = [f'{unit_label[0]}{q}\n{importance[q]:.3f}' for q in sorted_ord]
+    img = hm_src[sorted_ord].T if heatmap_transpose else hm_src[sorted_ord]
 
     # Topomap columns per row — was fixed at 2, bumped to 4 to roughly halve the number
     # of rows (and therefore canvas height / savefig render+encode time) for large Q.
     # Width scaled to keep each topomap's and the heatmap's on-canvas size unchanged.
     n_topo_cols = 4
     heatmap_ratio = 3.5
+    bar_ratio = 1.3
     old_width, old_ratio_sum = 40.0, 2 * 1.0 + heatmap_ratio
     per_ratio_width = old_width / old_ratio_sum
-    fig_width = per_ratio_width * (n_topo_cols * 1.0 + heatmap_ratio)
+    fig_width = per_ratio_width * (n_topo_cols * 1.0 + heatmap_ratio + bar_ratio)
 
     n_topo_rows = math.ceil(Q / n_topo_cols)
     fig = plt.figure(figsize=(fig_width, 3.0 * n_topo_rows), constrained_layout=True)
-    gs = fig.add_gridspec(n_topo_rows, n_topo_cols + 1,
-                           width_ratios=[1.0] * n_topo_cols + [heatmap_ratio], wspace=0.3)
+    gs = fig.add_gridspec(n_topo_rows, n_topo_cols + 2,
+                           width_ratios=[1.0] * n_topo_cols + [heatmap_ratio, bar_ratio], wspace=0.3)
 
     # valid_channels masking is the same for every unit (only depends on the channel, not
     # q), so the NaN pattern — and therefore pos2d[valid] — is identical across all Q
@@ -117,29 +144,71 @@ def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_chann
     for i, q_orig in enumerate(sorted_ord):
         row, col = divmod(i, n_topo_cols)
         ax = fig.add_subplot(gs[row, col])
-        im = draw_topomap(ax, pos2d[valid], attn_masked[q_orig][valid], cmap='viridis', triang=triang)
+        vals = attn_masked[q_orig][valid]
+        vmin_q, vmax_q = float(np.nanmin(vals)), float(np.nanmax(vals))
+        topo_im = draw_topomap(ax, pos2d[valid], vals, cmap='viridis', triang=triang,
+                                vmin=vmin_q, vmax=vmax_q)
         color = unit_colors[q_orig] if unit_colors else 'black'
         ax.set_title(f'{unit_label} {q_orig}  ({importance[q_orig]:.3f})', fontsize=9, fontweight='bold', color=color)
-        fig.colorbar(im, ax=ax, fraction=0.05, pad=0.02)
+        fig.colorbar(topo_im, ax=ax, fraction=0.046, pad=0.02)
     for i in range(Q, n_topo_rows * n_topo_cols):
         row, col = divmod(i, n_topo_cols)
         fig.add_subplot(gs[row, col]).axis('off')
 
     ax_big = fig.add_subplot(gs[:, n_topo_cols])
-    attn_ordered = attn[sorted_ord].T  # [C, Q], columns ordered to match the topomap panels
-    im_big = ax_big.imshow(attn_ordered, aspect='auto', cmap='viridis')
-    ax_big.set_yticks(range(C))
-    ax_big.set_yticklabels(channel_names, fontsize=5)
-    ax_big.set_xticks(range(Q))
-    ax_big.set_xticklabels([f'{unit_label[0]}{q}\n{importance[q]:.3f}' for q in sorted_ord], fontsize=6, rotation=90)
+    if heatmap_transpose:
+        y_labels, y_axis_label = hm_ylabels, hm_ylabel
+        x_labels, x_axis_label = unit_tick_labels, f'{unit_label} (sorted by contribution)'
+        unit_ticklabels_getter = ax_big.get_xticklabels
+    else:
+        y_labels, y_axis_label = unit_tick_labels, f'{unit_label} (sorted by contribution)'
+        x_labels, x_axis_label = hm_ylabels, hm_ylabel
+        unit_ticklabels_getter = ax_big.get_yticklabels
+
+    im_big = ax_big.imshow(img, aspect='auto', cmap='viridis')
+    ax_big.set_yticks(range(img.shape[0]))
+    ax_big.set_yticklabels(y_labels, fontsize=5)
+    ax_big.set_ylabel(y_axis_label, fontsize=9)
+    ax_big.set_xticks(range(img.shape[1]))
+    ax_big.set_xticklabels(x_labels, fontsize=6, rotation=90)
+    ax_big.set_xlabel(x_axis_label, fontsize=9)
     if unit_colors:
-        for tick, q in zip(ax_big.get_xticklabels(), sorted_ord):
+        for tick, q in zip(unit_ticklabels_getter(), sorted_ord):
             tick.set_color(unit_colors[q])
-    ax_big.set_xlabel(f'{unit_label} (sorted by contribution)', fontsize=9)
-    ax_big.set_title(f'Channel x {unit_label} Attention', fontsize=10, fontweight='bold')
+    ax_big.set_title(hm_title, fontsize=10, fontweight='bold')
     fig.colorbar(im_big, ax=ax_big, fraction=0.03, pad=0.02).set_label('Attention weight', fontsize=8)
 
-    fig.suptitle(f"Per-{unit_label} Channel Attention ({unit_label}s sorted by contribution) — "
+    # Importance bar chart, beside the heatmap. By default oriented to align row-for-row
+    # (or column-for-column) with wherever the heatmap put its unit axis, so a tall bar
+    # lines up visually with that unit's row/column in the heatmap above — pass
+    # bar_vertical explicitly to decouple the two (e.g. a vertical bar chart is more
+    # readable for many units even when the heatmap itself has units on Y).
+    ax_bar = fig.add_subplot(gs[:, n_topo_cols + 1])
+    bar_values = importance[sorted_ord]
+    if heatmap_transpose if bar_vertical is None else bar_vertical:
+        # vertical bars, one per unit, in the same sorted order as the heatmap/topomaps
+        bars = ax_bar.bar(range(Q), bar_values, color='steelblue')
+        ax_bar.set_xticks(range(Q))
+        ax_bar.set_xticklabels(unit_tick_labels, fontsize=6, rotation=90)
+        ax_bar.set_ylabel('Importance', fontsize=9)
+        ax_bar.set_xlabel(f'{unit_label} (sorted by contribution)', fontsize=9)
+        bar_ticklabels = ax_bar.get_xticklabels()
+    else:
+        # horizontal bars, one per unit, same top-to-bottom order as imshow's default origin
+        bars = ax_bar.barh(range(Q), bar_values, color='steelblue')
+        ax_bar.set_yticks(range(Q))
+        ax_bar.set_yticklabels(unit_tick_labels, fontsize=6)
+        ax_bar.invert_yaxis()
+        ax_bar.set_xlabel('Importance', fontsize=9)
+        bar_ticklabels = ax_bar.get_yticklabels()
+    if unit_colors:
+        for tick, bar, q in zip(bar_ticklabels, bars, sorted_ord):
+            tick.set_color(unit_colors[q])
+            bar.set_color(unit_colors[q])
+    ax_bar.set_title(f'{unit_label} Importance', fontsize=10, fontweight='bold')
+
+    topo_label = 'Channel Attention' if topo_attn is None else 'Channel Attention (scaled by contribution)'
+    fig.suptitle(f"Per-{unit_label} {topo_label} ({unit_label}s sorted by contribution) — "
                  f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=12, fontweight='bold')
     fig.savefig(out_path, dpi=100)
     plt.close(fig)

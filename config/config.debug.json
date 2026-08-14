@@ -48,8 +48,8 @@
           "n_stamps": 800,
           "n_shared_stamps": 4,
           "stamp_top_k": 16,
-          "stamp_hidden_width": 8,
-          "stamp_shared_hidden_width": 16,
+          "stamp_hidden_width": 16,
+          "stamp_shared_hidden_width": 32,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
           "sae_ema_decay": 0.99
@@ -79,8 +79,8 @@
           "n_stamps": 800,
           "n_shared_stamps": 4,
           "stamp_top_k": 16,
-          "stamp_hidden_width": 32,
-          "stamp_shared_hidden_width": 64,
+          "stamp_hidden_width": 16,
+          "stamp_shared_hidden_width": 32,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
           "sae_ema_decay": 0.99
@@ -124,26 +124,6 @@
   },
   "dataset_params": {
     "pretrain": {
-      "Dial": {
-        "dataset_path": "datas/Dial",
-        "subject_to_use": ["all"],
-        "channels_to_use": ["all"]
-      },
-      "BETA_4s": {
-        "dataset_path": "datas/BETA_4s",
-        "subject_to_use": ["16","17","18","19","20","21","22","23","24","25","26","27","28","29","30"],
-        "channels_to_use": ["all"]
-      },
-      "BCICIV1_Train": {
-        "dataset_path": "datas/BCICIV1_Train",
-        "subject_to_use": ["all"],
-        "channels_to_use": ["all"]
-      },
-      "Inria_Train": {
-        "dataset_path": "datas/Inria_Train",
-        "subject_to_use": ["all"],
-        "channels_to_use": ["all"]
-      },
       "EEGMMIdb": {
         "dataset_path": "datas/EEGMMIdb",
         "subject_to_use": ["1","2","3","4","5","6","7","8","9","10"],
@@ -161,33 +141,33 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAE",
-      "model_name": "mesae_tokenizer_v6_tied",
+      "model_name": "mesae_tokenizer_v6_tied_debug",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
       "warmup_epochs": 5,
       "batch_size": 16,
-      "weight_decay": 0.05,
+      "weight_decay": 0.01,
       "device": "cuda",
       "train_val_split": 0.9
     },
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_pretrain_v6_tied",
-      "tokenizer_checkpoint": "output/mesae_tokenizer_v6_tied/tokenizer/best_tokenizer.pth",
+      "model_name": "mesae_pretrain_v6_tied_debug",
+      "tokenizer_checkpoint": "output/mesae_tokenizer_v6_tied_debug/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
       "warmup_epochs": 5,
       "batch_size": 16,
-      "weight_decay": 0.05,
+      "weight_decay": 0.01,
       "device": "cuda",
       "train_val_split": 0.9
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_v6_tied",
-      "pretrained_checkpoint": "output/mesae_pretrain_v6_tied/pretrain/best_pretrain.pth",
+      "model_name": "mesae_finetune_v6_tied_debug",
+      "pretrained_checkpoint": "output/mesae_pretrain_v6_tied_debug/pretrain/best_pretrain.pth",
       "learning_rate": 0.0015,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.02,
@@ -202,9 +182,6 @@
     "visualize": {
       "pretrain": {
         "targets": [
-          { "dataset": "BETA_4s", "subject": null, "trial": 0 },
-          { "dataset": "BCICIV1_Train", "subject": null, "trial": 0 },
-          { "dataset": "Inria_Train", "subject": null, "trial": 0 },
           { "dataset": "EEGMMIdb", "subject": null, "trial": 0 }
         ],
         "every_n_epochs": 10

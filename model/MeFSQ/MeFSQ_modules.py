@@ -384,85 +384,88 @@ class MeFSQ(nn.Module):
 
 class PerChannelHeadAttn(nn.Module):
     """
-    Three-stage learnable-query attention pooling:
+    Two-stage learnable-query attention pooling over an already channel-pooled Expert
+    signal (see MeFSQPretrain.encode_post_vq_expert): the channel dim is collapsed by the
+    base model itself (each Expert's own channel-attention View), so this head does not
+    re-pool channels — pooling channels a second time here would just be redundant work
+    over a dim that no longer carries per-channel information worth weighting.
 
-    Stage 1 (temporal): per (channel, head), a learnable query attends over the N patches
-    — replaces plain mean-over-N so patch/time relevance becomes an interpretable weight
-    (attn_n) instead of being averaged away.
+    Stage 1 (temporal): a plain linear scorer over N patches, softmax-normalized — replaces
+    plain mean-over-N so patch/time relevance becomes an interpretable weight (attn_n)
+    instead of being averaged away.
 
-    Stage 2 (head): per channel, a learnable query attends over the H heads — weights sum
-    to 1 PER CHANNEL, not jointly across all channel*head pairs, so channels never compete
-    for weight (a joint C*H softmax saturates near one-hot once C*H gets into the
-    thousands). Same query-attention mechanism as stage 1, just reduced over a different
-    axis.
+    Stage 2 (head): a plain linear scorer over the H Experts, softmax-normalized, pooling
+    to a single [B, d] vector fed into cls.
 
-    Stage 3 (channel): a learnable query attends over the C channels, pooling to a single
-    [B, d] vector fed into cls. Replaces the earlier per-channel concat (cls input was
-    C*head_dim, e.g. 6400 for 64ch/embed_dim=100 — with only ~1-2k finetune trials that
-    massively overparameterized linear layer memorized train labels outright while val
-    stayed at chance; see finetune log where train acc hits 1.0 by epoch ~17 and val never
-    moves off 1/num_classes). Pooling over C trades away per-channel dedicated slices for a
-    classifier small enough to actually generalize from frozen-backbone features.
+    Both stages used to be a learnable-query dot-product ("key" Linear(d,hidden) dotted
+    with a fixed learned "query" vector). That's algebraically just a single linear scalar
+    function of z — composing two linear maps with no nonlinearity between them adds no
+    expressiveness over one Linear(d,1), since the query is a fixed parameter, not
+    content-derived (real cross-attention would need the query itself computed from
+    content for the extra layer to matter). Collapsed to Linear(d,1) here: same capacity,
+    fewer params, one matmul instead of two.
+
+    (Earlier version had a 3rd stage pooling over channels, fed a per-channel-decoded
+    signal from encode_post_vq. That's retired: the per-channel decode/re-pool was
+    redundant given the backbone already collapses channels into the Expert View before
+    VQ — see encode_post_vq_expert.)
     """
-    def __init__(self, head_dim, num_channels, num_classes, hidden=32, dropout=0.1):
+    def __init__(self, head_dim, num_classes, dropout=0.1):
         super().__init__()
         # encode_pre_vq fed this pooler through pre_vq_norm_routed/shared (LayerNorm);
-        # encode_post_vq's raw decoder output (real EEG amplitude scale) has no such norm.
-        # Un-normalized-scale input starves key/query dot products and cls of usable
-        # gradient — normalize here so the pooler works regardless of which encode_* the
-        # caller feeds it.
+        # encode_post_vq_expert's raw vq_proj output has no such norm. Un-normalized-scale
+        # input starves the scorer and cls of usable gradient — normalize here so the
+        # pooler works regardless of which encode_* the caller feeds it.
         self.input_norm = nn.LayerNorm(head_dim)
-        self.key_n   = nn.Linear(head_dim, hidden)
-        self.query_n = nn.Parameter(torch.zeros(hidden))
-        self.key_h   = nn.Linear(head_dim, hidden)
-        self.query_h = nn.Parameter(torch.zeros(hidden))
-        self.key_c   = nn.Linear(head_dim, hidden)
-        self.query_c = nn.Parameter(torch.zeros(hidden))
-        nn.init.normal_(self.query_n, std=0.02)
-        nn.init.normal_(self.query_h, std=0.02)
-        nn.init.normal_(self.query_c, std=0.02)
-        self.scale = hidden ** -0.5
+        self.score_n = nn.Linear(head_dim, 1)
+        self.score_h = nn.Linear(head_dim, 1)
         self.drop = nn.Dropout(dropout)
         self.cls = nn.Linear(head_dim, num_classes)
+        # cls reads z_h's raw, un-normalized amplitude (see input_norm's docstring above) —
+        # that scale is unbounded by design, so default init gives large initial logits and
+        # an elevated first-epoch loss average that has nothing to do with the LR/schedule.
+        # Small init instead: predictions start near-uniform, cls is still free to grow
+        # weights as large as it needs during training.
+        nn.init.normal_(self.cls.weight, std=0.01)
+        nn.init.zeros_(self.cls.bias)
 
     def forward(self, z_per_head, pad_mask=None):
         """
-        z_per_head: [B, C, N, H, d]
-        pad_mask: [B, C, N] bool, True = valid (optional, for zero-padded channels/patches)
-        Returns (logits [B, num_classes], attn_h [B, C, H], attn_n [B, C, H, N], attn_c [B, C])
+        z_per_head: [B, N, H, d]
+        pad_mask: [B, N] bool, True = valid (optional, for padded patches)
+        Returns (logits [B, num_classes], attn_h [B, H], attn_n [B, H, N])
         """
-        # input_norm feeds ONLY the key/query logit computation below, not the z_h /
-        # pooled_per_channel that flows to cls — LayerNorm-ing z_per_head itself would
-        # renormalize near-zero (dead/unselected head) vectors up to unit variance too,
-        # amplifying noise to the same magnitude as heads carrying real signal and wiping
-        # out the amplitude cue the classifier needs. Keys get a stable scale to compute
-        # attention weights from; the actual pooled values stay at their real amplitude.
+        # input_norm feeds ONLY the scorer below, not the z_h that flows to cls —
+        # LayerNorm-ing z_per_head itself would renormalize near-zero (dead/unselected
+        # head) vectors up to unit variance too, amplifying noise to the same magnitude as
+        # heads carrying real signal and wiping out the amplitude cue the classifier needs.
+        # The scorer gets a stable scale to compute attention weights from; the actual
+        # pooled values stay at their real amplitude.
+        # A gated-off routed Expert (encode_post_vq_expert already zeroes its contribution
+        # per patch, see that docstring) has z_per_head == 0 at every (n, d) for this batch
+        # item — LayerNorm can't tell "genuinely zero" from "small real signal", so
+        # score_h's bias alone would still hand it a non-trivial softmax share in stage 2
+        # (visible as spurious attention/importance for an Expert that contributed nothing).
+        # Mask those out here instead of relying on the pooled value being zero to save them.
+        alive_h = z_per_head.abs().sum(dim=(1, 3)) > 0                          # [B, H]
+
         z_key = self.input_norm(z_per_head)
 
-        # ---- stage 1: attention pool over N (patches), per channel & head ----
-        logits_n = torch.einsum('bcnhk,k->bcnh', self.key_n(z_key), self.query_n) * self.scale  # [B, C, N, H]
+        # ---- stage 1: attention pool over N (patches), per head ----
+        logits_n = self.score_n(z_key).squeeze(-1)                              # [B, N, H]
         if pad_mask is not None:
             logits_n = logits_n.masked_fill(~pad_mask.unsqueeze(-1), float('-inf'))
-        attn_n = torch.softmax(logits_n, dim=2)                                 # softmax over N, per channel & head
-        attn_n = torch.nan_to_num(attn_n)                                       # all-invalid channel -> all -inf -> nan; zero it
-        z_h = torch.einsum('bcnhd,bcnh->bchd', z_per_head, attn_n)              # [B, C, H, d]
-        z_h_key = torch.einsum('bcnhd,bcnh->bchd', z_key, attn_n)               # [B, C, H, d] — for stage 2 logits only
+        attn_n = torch.softmax(logits_n, dim=1)                                 # softmax over N, per head
+        attn_n = torch.nan_to_num(attn_n)                                       # all-invalid batch item -> nan; zero it
+        z_h = torch.einsum('bnhd,bnh->bhd', z_per_head, attn_n)                 # [B, H, d]
+        z_h_key = torch.einsum('bnhd,bnh->bhd', z_key, attn_n)                  # [B, H, d] — for stage 2 logits only
 
-        valid_channel = pad_mask.any(dim=-1) if pad_mask is not None else None  # [B, C]
+        # ---- stage 2: attention pool over H (Experts) ----
+        logits_h = self.score_h(z_h_key).squeeze(-1)                            # [B, H]
+        logits_h = logits_h.masked_fill(~alive_h, float('-inf'))
+        attn_h = torch.softmax(logits_h, dim=1)                                 # [B, H]
+        attn_h = torch.nan_to_num(attn_h)                                       # all-dead batch item -> nan; zero it
+        pooled = (z_h * attn_h.unsqueeze(-1)).sum(dim=1)                        # [B, d]
 
-        # ---- stage 2: attention pool over H (heads), per channel ----
-        logits_h = torch.einsum('bchk,k->bch', self.key_h(z_h_key), self.query_h) * self.scale  # [B, C, H]
-        attn_h = torch.softmax(logits_h, dim=2)                                 # softmax over H, independently per channel
-        pooled_per_channel = (z_h * attn_h.unsqueeze(-1)).sum(dim=2)            # [B, C, d]
-        pooled_per_channel_key = (z_h_key * attn_h.unsqueeze(-1)).sum(dim=2)    # [B, C, d] — for stage 3 logits only
-
-        # ---- stage 3: attention pool over C (channels) ----
-        logits_c = torch.einsum('bck,k->bc', self.key_c(pooled_per_channel_key), self.query_c) * self.scale  # [B, C]
-        if valid_channel is not None:
-            logits_c = logits_c.masked_fill(~valid_channel, float('-inf'))
-        attn_c = torch.softmax(logits_c, dim=1)                                 # [B, C]
-        attn_c = torch.nan_to_num(attn_c)                                       # all-invalid batch item -> nan; zero it
-        pooled = (pooled_per_channel * attn_c.unsqueeze(-1)).sum(dim=1)         # [B, d]
-
-        attn_n = attn_n.permute(0, 1, 3, 2)                                     # [B, C, H, N] for interpretability
-        return self.cls(self.drop(pooled)), attn_h, attn_n, attn_c
+        attn_n = attn_n.permute(0, 2, 1)                                        # [B, H, N] for interpretability
+        return self.cls(self.drop(pooled)), attn_h, attn_n

@@ -81,7 +81,39 @@ def filter_config_to_subject(config: dict, dataset_name: str, subject, mode: str
 
 
 def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 'pretrain'):
-    """Build model from config, load checkpoint with strict=False, return eval."""
+    """Build model from config, load checkpoint with strict=False, return eval.
+    mode='finetune' builds the full Finetune wrapper (backbone + head), not just the bare
+    backbone — check_finetune needs model.backbone/model.head, and a finetune checkpoint's
+    state dict keys are backbone.*/head.* prefixed, so loading it into a bare backbone
+    model would silently match nothing (every key "unexpected"/"missing" under strict=False)."""
+    if mode == 'finetune':
+        from model.factory import build_finetune_from_config
+
+        sd = {}
+        if checkpoint and os.path.exists(checkpoint):
+            ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
+            sd = ckpt.get('model_state_dict', ckpt)
+        # num_classes isn't in config (dataset-dependent) — infer from the checkpoint's own
+        # cls layer shape, same value train_finetune.py derived from the dataset at train time.
+        cls_key = next((k for k in sd if k.endswith('head.cls.weight')), None)
+        num_classes = sd[cls_key].shape[0] if cls_key else config['model_params'].get('_num_classes', 4)
+        if cls_key is None:
+            print(f"  WARNING: no 'head.cls.weight' in checkpoint, guessing num_classes={num_classes}.")
+
+        model = build_finetune_from_config(config, num_classes, mode='finetune').to(device)
+
+        if sd:
+            missing, unexpected = model.load_state_dict(sd, strict=False)
+            if missing:
+                print(f"  [ckpt] {len(missing)} missing keys (fresh init), e.g. {missing[0]}")
+            if unexpected:
+                print(f"  [ckpt] {len(unexpected)} unexpected keys, e.g. {unexpected[0]}")
+        else:
+            print(f"  WARNING: checkpoint not found at {checkpoint!r}, using random weights.")
+
+        model.eval()
+        return model
+
     from model.factory import build_pretrain_from_config
 
     model = build_pretrain_from_config(config, mode=mode).to(device)

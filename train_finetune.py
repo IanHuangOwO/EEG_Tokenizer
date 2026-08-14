@@ -37,15 +37,16 @@ def setup_logger(output_dir):
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
-    return logger
+    return logger, timestamp
 
 
 class FinetuneCollate:
     """FinetuneDataset yields raw (x [C,T], coords [C,3], label, valid_channels [C], valid_length).
     Patchify here the same way MaskedPretrainDataset does, since the backbone expects [B,C,N,L].
-    Also builds pad_mask [B,C,N] (True=valid) so zero-padded channels (multi-dataset channel
-    unification) and zero-padded trailing time (subjects shorter than the batch's max_T) don't
-    get pooled into the classification head as if they were real signal.
+    valid_channels is passed through separately (backbone's own channel-attention pool masks
+    zero-padded channels internally). pad_mask [B,N] (True=valid) covers only zero-padded
+    trailing time (subjects shorter than the batch's max_T) so it doesn't get pooled into the
+    classification head as if it were real signal.
     A class (not a closure) so it's picklable for num_workers > 0 on Windows."""
     def __init__(self, patch_len):
         self.patch_len = patch_len
@@ -66,16 +67,15 @@ class FinetuneCollate:
         # ponytail: a patch counts valid only if fully inside the real (non-padded) length —
         # conservative (drops at most one boundary patch per trial) rather than tracking partial overlap
         n_valid_patches = (valid_length // self.patch_len).clamp(max=P)             # [B]
-        patch_valid = torch.arange(P).unsqueeze(0) < n_valid_patches.unsqueeze(1)   # [B, P]
-        pad_mask = valid_channels.unsqueeze(-1) & patch_valid.unsqueeze(1)          # [B, C, P]
+        pad_mask = torch.arange(P).unsqueeze(0) < n_valid_patches.unsqueeze(1)      # [B, P]
 
-        return x_patches, coords, time_idx, labels, pad_mask
+        return x_patches, coords, time_idx, labels, valid_channels, pad_mask
 
 
 def _unpack_batch(batch, device):
-    x_patches, coords, time_idx, labels, pad_mask = batch
+    x_patches, coords, time_idx, labels, valid_channels, pad_mask = batch
     return (x_patches.to(device), coords.to(device), time_idx.to(device),
-            labels.to(device), pad_mask.to(device))
+            labels.to(device), valid_channels.to(device), pad_mask.to(device))
 
 
 def _classification_metrics(all_labels, all_preds):
@@ -100,6 +100,18 @@ def _finalize_epoch(totals, n, all_labels, all_preds):
     return metrics
 
 
+@torch.no_grad()
+def _recon_mse(model, x, coords, time_idx, valid_channels):
+    """Backbone's own unmasked reconstruction MSE against the raw patches — a frozen (or
+    slow-lr) backbone that reconstructs poorly on this dataset's real channels caps how much
+    class-relevant signal the finetune head can possibly extract, independent of the
+    classification loss/acc curve. Masked to real (non-zero-padded) channels only — recon
+    on zero-padded channels is meaningless and would just dilute the number toward 0."""
+    out = model.backbone(x, coords, time_idx=time_idx, bool_masked_pos=None, valid_channels=valid_channels)
+    mask = valid_channels[:, :, None, None].expand_as(x).float()
+    return ((out.recon - x) ** 2 * mask).sum() / mask.sum().clamp(min=1)
+
+
 def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, freeze_backbone=False):
     model.train()
     if freeze_backbone:
@@ -110,15 +122,15 @@ def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, freeze
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
 
-    totals = {"loss": 0.0, "acc": 0.0}
+    totals = {"loss": 0.0, "acc": 0.0, "recon_mse": 0.0}
     all_preds, all_labels = [], []
 
     for batch_idx, batch in enumerate(pbar):
-        x, coords, time_idx, labels, pad_mask = _unpack_batch(batch, device)
+        x, coords, time_idx, labels, valid_channels, pad_mask = _unpack_batch(batch, device)
         optimizer.zero_grad()
 
         with torch.amp.autocast(device_type='cuda'):
-            logits, _, _, _ = model(x, coords, time_idx=time_idx, pad_mask=pad_mask)
+            logits = model(x, coords, time_idx=time_idx, valid_channels=valid_channels, pad_mask=pad_mask)[0]
             loss = nn.functional.cross_entropy(logits, labels)
 
         scaler.scale(loss).backward()
@@ -127,16 +139,21 @@ def train_one_epoch(model, data_loader, optimizer, scaler, device, epoch, freeze
         scaler.step(optimizer)
         scaler.update()
 
+        with torch.amp.autocast(device_type='cuda'):
+            recon_mse = _recon_mse(model, x, coords, time_idx, valid_channels)
+
         preds = logits.argmax(dim=-1)
         acc = (preds == labels).float().mean()
         totals["loss"] += loss.item()
         totals["acc"]  += acc.item()
+        totals["recon_mse"] += recon_mse.item()
         all_preds.append(preds.detach().cpu())
         all_labels.append(labels.detach().cpu())
 
         if batch_idx % 5 == 0:
             n = batch_idx + 1
-            pbar.set_postfix({'L': f"{totals['loss'] / n:.4f}", 'acc': f"{totals['acc'] / n:.4f}"})
+            pbar.set_postfix({'L': f"{totals['loss'] / n:.4f}", 'acc': f"{totals['acc'] / n:.4f}",
+                               'rMSE': f"{totals['recon_mse'] / n:.4f}"})
 
     n = batch_idx + 1
     return _finalize_epoch(totals, n, all_labels, all_preds)
@@ -147,27 +164,30 @@ def validate_one_epoch(model, data_loader, device):
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
 
-    totals = {"loss": 0.0, "acc": 0.0}
+    totals = {"loss": 0.0, "acc": 0.0, "recon_mse": 0.0}
     all_preds, all_labels = [], []
 
     with torch.no_grad():
         for batch_idx, batch in enumerate(pbar):
-            x, coords, time_idx, labels, pad_mask = _unpack_batch(batch, device)
+            x, coords, time_idx, labels, valid_channels, pad_mask = _unpack_batch(batch, device)
 
             with torch.amp.autocast(device_type='cuda'):
-                logits, _, _, _ = model(x, coords, time_idx=time_idx, pad_mask=pad_mask)
+                logits = model(x, coords, time_idx=time_idx, valid_channels=valid_channels, pad_mask=pad_mask)[0]
                 loss = nn.functional.cross_entropy(logits, labels)
+                recon_mse = _recon_mse(model, x, coords, time_idx, valid_channels)
 
             preds = logits.argmax(dim=-1)
             acc = (preds == labels).float().mean()
             totals["loss"] += loss.item()
             totals["acc"]  += acc.item()
+            totals["recon_mse"] += recon_mse.item()
             all_preds.append(preds.detach().cpu())
             all_labels.append(labels.detach().cpu())
 
             if batch_idx % 5 == 0:
                 n = batch_idx + 1
-                pbar.set_postfix({'L': f"{totals['loss'] / n:.4f}", 'acc': f"{totals['acc'] / n:.4f}"})
+                pbar.set_postfix({'L': f"{totals['loss'] / n:.4f}", 'acc': f"{totals['acc'] / n:.4f}",
+                                   'rMSE': f"{totals['recon_mse'] / n:.4f}"})
 
     n = batch_idx + 1
     return _finalize_epoch(totals, n, all_labels, all_preds)
@@ -328,8 +348,8 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
         scheduler.step()
 
         logger.info(f"--- [{fold_tag}] Epoch {epoch}/{total_epochs} Summary ---")
-        logger.info(f"  [Train] loss: {train_metrics['loss']:.4f} | acc: {train_metrics['acc']:.4f} | f1: {train_metrics['f1']:.4f} | f1_w: {train_metrics['f1_weighted']:.4f} | bal_acc: {train_metrics['balanced_acc']:.4f} | kappa: {train_metrics['kappa']:.4f}")
-        logger.info(f"  [Val]   loss: {val_metrics['loss']:.4f} | acc: {val_metrics['acc']:.4f} | f1: {val_metrics['f1']:.4f} | f1_w: {val_metrics['f1_weighted']:.4f} | bal_acc: {val_metrics['balanced_acc']:.4f} | kappa: {val_metrics['kappa']:.4f}")
+        logger.info(f"  [Train] loss: {train_metrics['loss']:.4f} | acc: {train_metrics['acc']:.4f} | f1: {train_metrics['f1']:.4f} | f1_w: {train_metrics['f1_weighted']:.4f} | bal_acc: {train_metrics['balanced_acc']:.4f} | kappa: {train_metrics['kappa']:.4f} | recon_mse: {train_metrics['recon_mse']:.4f}")
+        logger.info(f"  [Val]   loss: {val_metrics['loss']:.4f} | acc: {val_metrics['acc']:.4f} | f1: {val_metrics['f1']:.4f} | f1_w: {val_metrics['f1_weighted']:.4f} | bal_acc: {val_metrics['balanced_acc']:.4f} | kappa: {val_metrics['kappa']:.4f} | recon_mse: {val_metrics['recon_mse']:.4f}")
         logger.info("-" * 40)
 
         if val_metrics['acc'] > best_val_acc:
@@ -428,8 +448,9 @@ def main():
     os.makedirs(artifact_dir, exist_ok=True)
     os.makedirs(vis_dir, exist_ok=True)
 
-    logger = setup_logger(artifact_dir)
+    logger, timestamp = setup_logger(artifact_dir)
     shutil.copy(args.config, os.path.join(artifact_dir, 'config.json'))
+    shutil.copy(args.config, os.path.join(artifact_dir, f'config_{timestamp}.json'))
 
     dataset_params = config['dataset_params']['finetune']
     split_ratio = train_params.get('train_val_split', 0.9)

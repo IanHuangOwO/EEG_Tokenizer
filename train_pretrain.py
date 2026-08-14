@@ -15,10 +15,46 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from IO.dataset import build_dataset_from_config
-from model.factory import build_pretrain_from_config, MODEL_REGISTRY
+from IO.masking import RandomMaskingStrategy, ComplementaryMaskingStrategy
+from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
 from viz import pick_trial
 
 torch.set_float32_matmul_precision('high')
+
+
+def _masking_for_epoch(epoch, strat_name, target_ratio, curriculum):
+    """Returns (masking_strategy, ratio) for this epoch. Only ramps when the configured
+    strategy is 'complementary' (which structurally ignores any ratio argument, always
+    pairing mask+~mask at a fixed 0.5 — see IO/masking.py) and
+    preprocess_params.mask.mask_curriculum.enabled is true; otherwise passes the
+    configured strategy/ratio through unchanged from epoch 1, same as before this existed.
+
+    Ramps a RandomMaskingStrategy from start_ratio up to target_ratio in coarse steps (one
+    new ratio every step_every epochs) over ramp_epochs total, then switches to the real
+    configured strategy once the ramp completes. Exists because masking is the one
+    un-softened distribution shock at the Tokenizer->Masked stage boundary: spatial/
+    temporal mixing already ramps in gradually via zero-init LayerScale
+    (TSABlock.enable_temporal/enable_spatial), but bool_masked_pos substitutes mask_token
+    wholesale with no ramp, and MeSAE's StampBank generator is now content-conditioned
+    (docs/adr/0009's later revision) rather than just amplitude-conditioned — a sudden,
+    never-seen-in-Tokenizer-stage input distribution is a sharper shock to a nonlinear
+    generator than it was to the old linear decode chain.
+    """
+    if strat_name != 'complementary' or not curriculum.get('enabled', False):
+        strategy = ComplementaryMaskingStrategy() if strat_name == 'complementary' else RandomMaskingStrategy()
+        return strategy, target_ratio
+
+    ramp_epochs = curriculum.get('ramp_epochs', 25)
+    step_every  = max(1, curriculum.get('step_every', 5))
+    start_ratio = curriculum.get('start_ratio', 0.1)
+
+    if epoch > ramp_epochs:
+        return ComplementaryMaskingStrategy(), ComplementaryMaskingStrategy.MASK_RATIO
+
+    n_steps = max(1, ramp_epochs // step_every)
+    step = min((epoch - 1) // step_every, n_steps - 1)
+    ratio = start_ratio if n_steps <= 1 else start_ratio + (target_ratio - start_ratio) * step / (n_steps - 1)
+    return RandomMaskingStrategy(), ratio
 
 
 def setup_logger(output_dir):
@@ -33,7 +69,7 @@ def setup_logger(output_dir):
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
-    return logger
+    return logger, timestamp
 
 
 def _unpack_batch(batch, device):
@@ -68,6 +104,7 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
             out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
             l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, masked_mse_weight,
                                                                   unmasked_mse_weight, False, **loss_hparams)
+        trainer.update_diagnostics(model, out)
 
         scaler.scale(l_total).backward()
         scaler.unscale_(optimizer)
@@ -115,6 +152,7 @@ def validate_one_epoch(model, trainer, data_loader, device,
                 out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
                 l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, masked_mse_weight,
                                                                       unmasked_mse_weight, False, **loss_hparams)
+            trainer.update_diagnostics(model, out)
 
             totals["loss"]     += l_total.item()
             totals["masked"]   += float(l_masked) if not hasattr(l_masked, 'item') else l_masked.item()
@@ -163,8 +201,9 @@ def main():
     os.makedirs(artifact_dir, exist_ok=True)
     os.makedirs(vis_dir, exist_ok=True)
 
-    logger = setup_logger(artifact_dir)
+    logger, timestamp = setup_logger(artifact_dir)
     shutil.copy(args.config, os.path.join(artifact_dir, 'config.json'))
+    shutil.copy(args.config, os.path.join(artifact_dir, f'config_{timestamp}.json'))
 
     dataset_params = config['dataset_params']['pretrain']
     split_ratio = train_params.get('train_val_split', 0.9)
@@ -229,8 +268,12 @@ def main():
     ]
     logger.info(f"Recon viz targets (subject, trial_idx): {viz_targets} every {viz_every_n} epochs")
 
-    train_loader = DataLoader(train_dataset, batch_size=train_params['batch_size'], shuffle=True,  num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True)
-    val_loader   = DataLoader(val_dataset,   batch_size=train_params['batch_size'], shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True)
+    def _make_loader(dataset, shuffle):
+        return DataLoader(dataset, batch_size=train_params['batch_size'], shuffle=shuffle,
+                           num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True)
+
+    train_loader = _make_loader(train_dataset, shuffle=True)
+    val_loader   = _make_loader(val_dataset,   shuffle=False)
 
     model_type = train_params.get('model_type', 'MeFSQ')
     entry      = MODEL_REGISTRY[model_type]
@@ -243,8 +286,30 @@ def main():
 
     tokenizer_ckpt = train_params['tokenizer_checkpoint']
     state = torch.load(tokenizer_ckpt, map_location='cpu')
-    model.load_state_dict(state['model_state_dict'])
-    logger.info(f"Loaded Tokenizer-stage checkpoint from {tokenizer_ckpt}")
+    # The Tokenizer stage can now run its own (e.g. shallower) encoder architecture --
+    # see model_params.<type>.tokenizer in config.json -- so its checkpoint's encoder/embed
+    # weights won't shape-match this Pretrain-stage model at all. Only the frozen VQ/SAE
+    # apparatus (filter_pool/sae/decoder/router for MeSAE, the Expert pools/router/fusion
+    # params for MeFSQ) is meant to carry over; everything else (embed/encoder/mask_token)
+    # trains fresh here anyway once on_pretrain_start freezes the former. Filtering to
+    # shape-matching keys only, rather than hardcoding submodule prefixes per model type,
+    # keeps this loader working for both without a model-type branch.
+    # encoder.*/mask_token are excluded outright, not just left to the shape filter: their
+    # per-tensor shapes (embed_dim, spatial_heads) are identical between the tokenizer and
+    # pretrain architecture blocks even when depth/pool_after_blocks differ, so shape
+    # matching alone would silently transplant e.g. Tokenizer's block-1 weights (trained
+    # already-pooled, since tokenizer pools after every block) into Pretrain's block-1
+    # (trained at full resolution, since pretrain only pools after block 2) -- same shape,
+    # wrong resolution context, worse than random init.
+    own_state = model.state_dict()
+    ckpt_state = state['model_state_dict']
+    to_load = {k: v for k, v in ckpt_state.items()
+               if k in own_state and own_state[k].shape == v.shape
+               and not k.startswith('encoder.') and k != 'mask_token'}
+    skipped = [k for k in ckpt_state if k not in to_load]
+    missing, unexpected = model.load_state_dict(to_load, strict=False)
+    logger.info(f"Loaded Tokenizer-stage checkpoint from {tokenizer_ckpt} "
+                f"({len(to_load)} tensors loaded, {len(skipped)} skipped on shape/name mismatch: {skipped})")
     model.to(device)
 
     # enable_spatial/enable_temporal are plain flags, not persisted in the state dict —
@@ -261,7 +326,7 @@ def main():
         model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
 
     scaler    = torch.amp.GradScaler('cuda')
-    optimizer = optim.AdamW(model.parameters(), lr=train_params['learning_rate'], weight_decay=train_params['weight_decay'])
+    optimizer = optim.AdamW(optimizer_param_groups(model, train_params['weight_decay']), lr=train_params['learning_rate'])
     cosine_t_max     = max(1, train_params['epochs'] - train_params['warmup_epochs'])
     main_scheduler   = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cosine_t_max, eta_min=train_params['min_learning_rate'])
     warmup_scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01, total_iters=train_params['warmup_epochs'])
@@ -272,18 +337,37 @@ def main():
     pp          = config.get('preprocess_params', {}).get('mask', {})
     strat_name  = pp.get('masking_strategy', 'random')
     mask_ratio  = 0.5 if strat_name == 'complementary' else pp.get(strat_name, {}).get('mask_ratio', 0.5)
+    mask_curriculum = pp.get('mask_curriculum', {})
     loss_params = config.get('model_params', {}).get(model_type, {}).get('pretrain', {}).get('loss', {})
     masked_mse_weight   = loss_params.get('masked_mse_weight', (1.0 - mask_ratio) / mask_ratio)
     unmasked_mse_weight = loss_params.get('unmasked_mse_weight', 1.0)
     loss_hparams = {k: v for k, v in loss_params.items() if k not in ('masked_mse_weight', 'unmasked_mse_weight')}
     logger.info(f"model_type={model_type}  mask_ratio={mask_ratio}  masked_mse_weight={masked_mse_weight:.4f}  "
                 f"unmasked_mse_weight={unmasked_mse_weight:.4f}  loss_hparams={loss_hparams}")
+    if mask_curriculum.get('enabled', False) and strat_name == 'complementary':
+        logger.info(f"  [mask curriculum] ramping random-mask ratio {mask_curriculum.get('start_ratio', 0.1)} -> "
+                    f"{mask_ratio} over {mask_curriculum.get('ramp_epochs', 25)} epochs "
+                    f"(step every {mask_curriculum.get('step_every', 5)}), then switching to complementary")
 
     best_val_loss  = float('inf')
     total_epochs   = train_params['epochs']
     logger.info(f"Starting {model_type} Pretraining ({total_epochs} epochs, masked)")
 
+    current_mask_state = None  # (strategy class name, ratio) — tracks the last (strategy, ratio) applied
     for epoch in range(1, total_epochs + 1):
+        mask_strategy, epoch_ratio = _masking_for_epoch(epoch, strat_name, mask_ratio, mask_curriculum)
+        new_mask_state = (type(mask_strategy).__name__, epoch_ratio)
+        if new_mask_state != current_mask_state:
+            train_dataset.set_masking(mask_strategy, epoch_ratio)
+            val_dataset.set_masking(mask_strategy, epoch_ratio)
+            # rebuild, don't just re-iterate: persistent_workers=True means worker
+            # subprocesses hold their own copy of the dataset from spawn time and never
+            # see the mutation above otherwise (see MaskedPretrainDataset.set_masking).
+            train_loader = _make_loader(train_dataset, shuffle=True)
+            val_loader   = _make_loader(val_dataset,   shuffle=False)
+            logger.info(f"  [mask curriculum] epoch {epoch}: strategy={new_mask_state[0]} ratio={epoch_ratio:.3f}")
+            current_mask_state = new_mask_state
+
         train_metrics = train_one_epoch(model, trainer, train_loader, optimizer, scaler, device, epoch,
                                         masked_mse_weight=masked_mse_weight, unmasked_mse_weight=unmasked_mse_weight,
                                         **loss_hparams)
