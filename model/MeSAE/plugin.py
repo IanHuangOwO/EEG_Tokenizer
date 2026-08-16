@@ -12,8 +12,8 @@ from model.base_checker import BaseEpochChecker
 from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
-from viz.extract import extract_filter_psd, extract_filter_spectra
-from viz.panels import plot_attn_topo as render_attn_topo
+from viz.extract import extract_filter_psd, extract_filter_spectra, extract_filter_psd_by_patch
+from viz.panels import plot_attn_topo as render_attn_topo, plot_topo_psd_by_patch
 
 
 @torch.no_grad()
@@ -126,6 +126,56 @@ class MeSAEChecker(BaseEpochChecker):
     def run_reconstruction(self, model, dataset, trial_idx, device):
         return _run_reconstruction_sae(model, dataset, trial_idx, device)
 
+    def _render_topo_psd(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
+                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance):
+        """Overrides BaseEpochChecker's default (per-unit dedup, trial-averaged) with a real
+        per-patch grid (every patch_stride-th patch's own actual top_k+n_shared selection
+        and decoded content — see viz.extract.extract_filter_psd_by_patch) — StampBank's
+        hard top-k dispatch means a trial-wide dedup can't tell "fired on 1 patch" from
+        "fired on all 40" apart, this can."""
+        model = bundle.psd_model
+        grid = extract_filter_psd_by_patch(
+            model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
+            fs=fs, freq_resolution=0.2)
+
+        # Same raw/recon full-trial FFT as the base default, see BaseEpochChecker._render_topo_psd.
+        raw_t   = bundle.raw_t[0].numpy()
+        recon_t = bundle.recon_t[0].numpy()
+        T = raw_t.shape[-1]
+        n_fft = max(T, int(round(fs / 0.2))) if fs else T
+
+        def _demean_hann_rfft_np(x):
+            x = x - x.mean(axis=-1, keepdims=True)
+            win = np.hanning(x.shape[-1])
+            return np.fft.rfft(x * win, n=n_fft, axis=-1)
+
+        fft_raw   = _demean_hann_rfft_np(raw_t)
+        fft_recon = _demean_hann_rfft_np(recon_t)
+        psd_raw   = fft_raw.real**2   + fft_raw.imag**2
+        psd_recon = fft_recon.real**2 + fft_recon.imag**2
+
+        # grid.freqs and raw/recon's freqs share the same n_fft target (freq_resolution=0.2
+        # drives both, see extract_filter_psd_by_patch), so one shared band-crop applies.
+        freqs = grid.freqs
+        if l_freq is not None and h_freq is not None:
+            band = (freqs >= l_freq) & (freqs <= h_freq)
+            grid.freqs = freqs[band]
+            grid.psd = grid.psd[:, :, :, band]
+            grid.recon_psd = grid.recon_psd[:, :, band]
+            grid.raw_psd = grid.raw_psd[:, :, band]
+            psd_raw, psd_recon = psd_raw[:, band], psd_recon[:, band]
+
+        raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
+        recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
+
+        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_psd_by_patch.png")
+        plot_topo_psd_by_patch(
+            out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon, grid, cmap=cmap,
+            subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
+            unit_label=self.unit_label, n_routed=model.n_routed_stamps,
+        )
+        print(f"  [epoch] -> {out_path}")
+
     def render_finetune_attn(self, model, x_in, c_in, t_in, vc_in, valid_channels, valid_length,
                               P, patch_len, viz_dir, epoch_tag, subject_id, trial_idx,
                               pos2d, channel_names, unit_colors):
@@ -223,8 +273,6 @@ class MeSAEPlotter(BasePlotter):
         stamp_health_panels = [
             dict(title='Stamp Aux-K Loss (dead-atom revival)\n[train only, 0 in eval by design]',
                  ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
-            dict(title='Stamp Fit Quality (h=exp(-self-recon-error))\n1.0=perfect self-fit, ->0=poor fit',
-                 ylabel='h', series=[dict(key='stamp_fit_quality', color='darkorchid', label='Selected', band=True)]),
             dict(title='Dead Feature Rate', ylabel='Fraction',
                  series=[dict(key='dead_feature_rate', color='crimson')]),
         ]
@@ -258,6 +306,9 @@ class MeSAEPlotter(BasePlotter):
                  ylabel='sigmoid(gate)', series=self.indexed_series('skip_gate_')),
             dict(title='Per-Block Contribution Norm\n(flat near-zero = block not used)',
                  ylabel='Mean |delta| per block', series=self.indexed_series('block_norm_', cmap_name='viridis')),
+            dict(title='Per-Block Contribution Norm, Relative\n(delta / incoming x norm — isolates real '
+                       'reshaping from norm_out gain artifacts)',
+                 ylabel='block_norm / x_in norm', series=self.indexed_series('block_relnorm_', cmap_name='viridis')),
         ]
 
         panels = loss_panels + stamp_health_panels + routing_panels + architecture_panels

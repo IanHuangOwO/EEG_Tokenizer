@@ -47,9 +47,9 @@
         "stamp_bank": {
           "n_stamps": 800,
           "n_shared_stamps": 4,
-          "stamp_top_k": 16,
-          "stamp_hidden_width": 8,
-          "stamp_shared_hidden_width": 16,
+          "stamp_top_k": 12,
+          "stamp_hidden_width": 16,
+          "stamp_shared_hidden_width": 32,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
           "sae_ema_decay": 0.99
@@ -78,9 +78,9 @@
         "stamp_bank": {
           "n_stamps": 800,
           "n_shared_stamps": 4,
-          "stamp_top_k": 16,
-          "stamp_hidden_width": 32,
-          "stamp_shared_hidden_width": 64,
+          "stamp_top_k": 12,
+          "stamp_hidden_width": 16,
+          "stamp_shared_hidden_width": 32,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
           "sae_ema_decay": 0.99

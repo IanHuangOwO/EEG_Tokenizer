@@ -57,7 +57,7 @@ def plot_topo_psd_filter(out_path, pos2d, raw_power, recon_power, psd_raw, psd_r
         ax_topo.set_title(f'{label} Topo (power)', fontsize=9, fontweight='bold', color=color)
         fig.colorbar(im_t, ax=ax_topo, fraction=0.05, pad=0.02)
 
-        ax_psd.imshow(psd_cf, aspect='auto', cmap=cmap, origin='lower',
+        ax_psd.imshow(psd_cf[::-1], aspect='auto', cmap=cmap, origin='lower',
                       extent=[freqs[0], freqs[-1], 0, psd_cf.shape[0]])
         ax_psd.set_title(f'{label} PSD (channel x freq)', fontsize=9, fontweight='bold', color=color)
         ax_psd.set_xticks(freq_ticks)
@@ -73,7 +73,94 @@ def plot_topo_psd_filter(out_path, pos2d, raw_power, recon_power, psd_raw, psd_r
         axes[row, col_pair * 2].axis('off')
         axes[row, col_pair * 2 + 1].axis('off')
 
-    fig.text(0.5, 0.005, 'PSD y-axis: Channel (Fp1 -> Iz)', ha='center', fontsize=8)
+    fig.text(0.5, 0.005, 'PSD y-axis: Channel (Iz -> Fp1)', ha='center', fontsize=8)
+    fig.savefig(out_path, dpi=100)
+    plt.close(fig)
+
+
+def plot_topo_psd_by_patch(out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
+                            grid, cmap='YlOrRd', subject_id=None, trial_idx=None, epoch_tag='',
+                            unit_label='Stamp', n_routed=None, shared_color='crimson'):
+    """
+    One column PER SAMPLED PATCH, topo+PSD side by side within a column (one column pair
+    of subplot-columns). Header row: Raw and Full-Recon (whole trial), one column pair
+    each. Row 1 below: each patch's own real raw input (grid.raw_topo/raw_psd). Row 2:
+    that same patch's own real full reconstruction (grid.recon_topo/recon_psd). Rows
+    3..3+K-1: that patch's own top_k+n_shared slots, one row per slot —
+    real per-patch selection and decoded content, not trial-averaged (see
+    viz/extract.extract_filter_psd_by_patch/PatchGridResult): a stamp firing on many
+    sampled patches shows up once per patch column it fired at, with that column's own
+    real content, instead of being blurred into one dedup'd trial-averaged row the way
+    plot_topo_psd_filter's per-unit rows are.
+    grid: PatchGridResult. n_routed: global stamp id threshold — ids >= n_routed are
+    shared stamps (same routed-then-shared layout StampBank.forward's idx uses, see
+    PatchGridResult docstring), titled in shared_color instead of black. None disables
+    the shared/routed title-color split.
+    """
+    patch_ids, stamp_ids, topo, psd, h, freqs = (
+        grid.patch_ids, grid.stamp_ids, grid.topo, grid.psd, grid.h, grid.freqs)
+    P, K = stamp_ids.shape
+    freq_label = 'Hz' if freqs is not None and len(freqs) else 'cyc/patch'
+    freq_ticks = np.linspace(freqs[0], freqs[-1], 5)
+
+    n_col_pairs = max(2, P)
+    n_rows = 3 + K  # header, per-patch raw, per-patch full recon, K stamp slots
+
+    fig, axes = plt.subplots(n_rows, n_col_pairs * 2, figsize=(6 * n_col_pairs, 3.0 * n_rows),
+                              squeeze=False, constrained_layout=True)
+    fig.suptitle(f"Raw / Recon / Per-Patch {unit_label} Topo + PSD (every {P and patch_ids[1]-patch_ids[0] or 1}th "
+                 f"patch's own top-k+shared, real content) — "
+                 f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=13, fontweight='bold')
+
+    triang = build_triangulation(pos2d)
+
+    def _cell(row, col_pair, power, psd_cf, label, color):
+        ax_topo, ax_psd = axes[row, col_pair * 2], axes[row, col_pair * 2 + 1]
+        im_t = draw_topomap(ax_topo, pos2d, power, cmap=cmap, vmin=power.min(), vmax=power.max(), triang=triang)
+        ax_topo.set_title(f'{label} Topo', fontsize=8, fontweight='bold', color=color)
+        fig.colorbar(im_t, ax=ax_topo, fraction=0.05, pad=0.02)
+
+        ax_psd.imshow(psd_cf[::-1], aspect='auto', cmap=cmap, origin='lower',
+                      extent=[freqs[0], freqs[-1], 0, psd_cf.shape[0]])
+        ax_psd.set_title(f'{label} PSD', fontsize=8, fontweight='bold', color=color)
+        ax_psd.set_xticks(freq_ticks)
+        ax_psd.set_xticklabels([f'{f:.0f}' for f in freq_ticks], fontsize=6)
+        ax_psd.set_xlabel(freq_label, fontsize=6)
+        ax_psd.set_yticks([])
+
+    def _blank_rest(row, start_col):
+        for c in range(start_col, n_col_pairs):
+            axes[row, c * 2].axis('off')
+            axes[row, c * 2 + 1].axis('off')
+
+    _cell(0, 0, raw_power, psd_raw, 'Raw', 'black')
+    _cell(0, 1, recon_power, psd_recon, 'Full Recon', 'black')
+    _blank_rest(0, 2)
+
+    for pi in range(P):
+        _cell(1, pi, grid.raw_topo[pi], grid.raw_psd[pi], f'P{patch_ids[pi]} Raw', 'black')
+    _blank_rest(1, P)
+
+    for pi in range(P):
+        _cell(2, pi, grid.recon_topo[pi], grid.recon_psd[pi], f'P{patch_ids[pi]} Full Recon', 'black')
+    _blank_rest(2, P)
+
+    # Each patch sorts its own K slots by h (descending) independently — row k is "that
+    # patch's k-th strongest slot", not a fixed stamp-selection-order slot index (slot 0
+    # is routed top-1 vs slot K-1 always shared, say, would misalign across patches once
+    # sorted by score anyway).
+    order = np.argsort(-h, axis=1)  # [P, K]
+    for k in range(K):
+        row = 3 + k
+        for pi in range(P):
+            ki = order[pi, k]
+            sid = int(stamp_ids[pi, ki])
+            color = shared_color if n_routed is not None and sid >= n_routed else 'black'
+            label = f'P{patch_ids[pi]} {unit_label[0]}{sid} (h={h[pi, ki]:.2f})'
+            _cell(row, pi, topo[pi, ki], psd[pi, ki], label, color)
+        _blank_rest(row, P)
+
+    fig.text(0.5, 0.005, 'PSD y-axis: Channel (Iz -> Fp1)', ha='center', fontsize=8)
     fig.savefig(out_path, dpi=100)
     plt.close(fig)
 

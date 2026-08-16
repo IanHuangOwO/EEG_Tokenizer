@@ -43,7 +43,7 @@
   },
 
   "check": {
-    "analysis": "codebook",
+    "analysis": "both",
     "plot_recon":     true,
     "plot_topo_psd":  true,
     "plot_attn_topo": true,

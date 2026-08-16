@@ -155,46 +155,18 @@ def plot_usage_histogram(out_path, usage_by_dataset, unit_label='Filter'):
 
 
 def plot_usage_and_activity(out_path, usage_by_dataset, strength, categories, category_order,
-                             unit_label='Filter', normalize=True):
-    """Side-by-side pairing of plot_filter_by_category (left: Q x D heatmap of total
-    per-unit activity magnitude by dataset — HOW HARD a unit fires on each dataset overall,
-    atom identity collapsed away) and plot_usage_histogram (right: per-unit atom-identity
-    usage curves, one line per dataset — WHICH atoms a unit reuses across datasets).
-    Complementary, not redundant: a unit can reuse identical atoms across datasets at
-    different magnitudes (right panel flat, left panel shows a specialization stripe), or
-    swap which atoms fire while keeping total magnitude constant (right panel diverges,
-    left panel flat) — viewing both together catches either failure mode in one image.
-
-    Reading the pair together:
-    - Both flat/overlapping (right curves stacked, left row near 1.0 everywhere): unit is
-      dataset-agnostic — same atoms, same firing rate, everywhere. Fine for paradigm-general
-      structure (e.g. generic filtering), suspicious if you expected specialization.
-    - Right diverges (dataset-specific bump) + left shows a matching stripe on that same
-      dataset column: consistent story — unit genuinely specializes to that dataset, both by
-      atom choice and by magnitude. Cross-check against plot_dataset_relation — if that
-      dataset's JS divergence to same-paradigm datasets is also high, likely overfit to
-      dataset-specific noise, not paradigm content.
-    - Right overlaps (same atoms everywhere) but left shows a stripe: unit uses its normal
-      vocabulary but fires harder/softer on one dataset — a gain effect, not a vocabulary
-      effect (e.g. dataset SNR/amplitude difference, not feature-content difference).
-    - Right diverges but left stays flat: unit swaps which atoms it reaches for per dataset
-      while keeping total output constant — vocabulary drift invisible to magnitude-only
-      views; only this paired plot catches it.
+                             unit_label='Filter', normalize=True, max_rows_per_subplot=100):
+    """Q x D heatmap of total per-unit activity magnitude by dataset — HOW HARD a unit
+    fires on each dataset overall, atom identity collapsed away. Q rows are chunked across
+    multiple side-by-side subplots (max_rows_per_subplot each) instead of one column, so
+    a large Q (e.g. MeSAE's n_stamps, in the hundreds) makes the image wide, not
+    absurdly tall. Was paired with plot_usage_histogram's per-unit atom-identity curves
+    (WHICH atoms a unit reuses across datasets) — dropped here since that panel is a
+    no-op placeholder for any unit whose usage has no per-atom F axis (flat [M, Q], e.g.
+    StampBank, see docs/adr/0009's Monitoring impact section); use plot_usage_histogram
+    directly for units that do have one.
     """
     Q = strength.shape[1]
-    heat_h = max(6, 0.16 * Q + 2)
-    # Target the histogram grid's row count off the heatmap's height (each hist row ~3.2in)
-    # so the two panels come out roughly the same height instead of the heatmap dwarfing a
-    # short, wide histogram grid or vice versa.
-    target_n_rows = max(1, round(heat_h / 3.2))
-    n_cols, n_rows = _usage_grid_shape(Q, n_rows=target_n_rows)
-    heat_w = max(6, 0.7 * len(category_order) + 2)
-    hist_w = 4.5 * n_cols
-    fig = plt.figure(figsize=(heat_w + hist_w, max(3.2 * n_rows, heat_h)))
-    gs = fig.add_gridspec(1, 2, width_ratios=[heat_w, hist_w], wspace=0.15)
-
-    _draw_usage_histogram(fig, gs[0, 1], usage_by_dataset, unit_label, n_cols, n_rows)
-
     categories = np.asarray(categories)
     raw = np.full((Q, len(category_order)), np.nan)
     for ci, cat in enumerate(category_order):
@@ -209,18 +181,28 @@ def plot_usage_and_activity(out_path, usage_by_dataset, strength, categories, ca
         mat = raw
         vmin, vmax, cmap = 0, np.nanmax(mat), 'YlOrRd'
 
-    ax = fig.add_subplot(gs[0, 0])
-    im = ax.imshow(mat, aspect='auto', cmap=cmap, vmin=vmin, vmax=vmax)
-    ax.set_xticks(range(len(category_order))); ax.set_xticklabels(category_order, fontsize=8, rotation=45, ha='right')
-    ax.set_yticks(range(Q)); ax.set_yticklabels([f'{unit_label[0]}{q}' for q in range(Q)], fontsize=6)
-    ax.set_xlabel('Dataset', fontsize=9)
-    ax.set_ylabel(unit_label, fontsize=9)
-    suffix = ' (ratio to own mean)' if normalize else ' (raw mean activity)'
-    ax.set_title(f'{unit_label} Total Activity by Dataset' + suffix, fontsize=10, fontweight='bold')
-    fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    n_chunks = max(1, math.ceil(Q / max_rows_per_subplot))
+    chunk_h = max(6, 0.16 * min(Q, max_rows_per_subplot) + 2)
+    chunk_w = max(4, 0.7 * len(category_order) + 1.5)
+    fig, axes = plt.subplots(1, n_chunks, figsize=(chunk_w * n_chunks, chunk_h), squeeze=False)
+    axes = axes[0]
 
-    fig.suptitle(f'{unit_label} Usage: atom identity (left) vs total activity magnitude (right), by dataset',
-                 fontsize=12, fontweight='bold')
+    im = None
+    for ci in range(n_chunks):
+        q0, q1 = ci * max_rows_per_subplot, min(Q, (ci + 1) * max_rows_per_subplot)
+        ax = axes[ci]
+        im = ax.imshow(mat[q0:q1], aspect='auto', cmap=cmap, vmin=vmin, vmax=vmax)
+        ax.set_xticks(range(len(category_order)))
+        ax.set_xticklabels(category_order, fontsize=8, rotation=45, ha='right')
+        ax.set_yticks(range(q1 - q0))
+        ax.set_yticklabels([f'{unit_label[0]}{q}' for q in range(q0, q1)], fontsize=6)
+        ax.set_xlabel('Dataset', fontsize=9)
+        if ci == 0:
+            ax.set_ylabel(unit_label, fontsize=9)
+
+    fig.colorbar(im, ax=list(axes), fraction=0.02, pad=0.02)
+    suffix = ' (ratio to own mean)' if normalize else ' (raw mean activity)'
+    fig.suptitle(f'{unit_label} Total Activity by Dataset' + suffix, fontsize=12, fontweight='bold')
     fig.savefig(out_path, dpi=120, bbox_inches='tight')
     plt.close(fig)
     print(f"  [codebook] -> {out_path}")
@@ -345,45 +327,6 @@ def plot_embedding_scatter_by_target(out_path_combined, out_path_per_dataset, us
     fig.savefig(out_path_per_dataset, dpi=120, bbox_inches='tight')
     plt.close(fig)
     print(f"  [codebook] -> {out_path_per_dataset}")
-
-
-def plot_filter_relation(out_path, usage_by_dataset, fingerprint_matrix, unit_label='Filter'):
-    """Q x Q relation between units, two views side by side: usage-frequency correlation
-    (data-dependent: do two units fire on the same features across the corpus) and decoder
-    weight cosine similarity (structural: do two units decode near-identical functions,
-    independent of any dataset). High in either = redundant units.
-
-    Usage can be [M, Q, F] (per-unit code has its own feature axis, e.g. MeFSQ's per-head
-    codes) or flat [M, Q] (a single scalar per unit per patch, e.g. StampBank's dense
-    selection strength -- no per-unit feature axis exists there anymore, see
-    docs/adr/0009's Monitoring impact section). [M,Q,F]: correlate each unit's per-feature
-    firing-frequency profile (freq[q] in R^F) against every other unit's. Flat [M,Q]:
-    no F to build that profile from, so correlate each unit's raw per-patch strength across
-    the corpus directly instead -- same "do these two units move together" question, just
-    computed over patches (M) rather than features (F)."""
-    combined = np.concatenate(list(usage_by_dataset.values()), axis=0)
-    if combined.ndim == 2:
-        coact = np.corrcoef(combined.T)  # [Q, Q], correlated over the M patch axis
-    else:
-        freq = _usage_freq(combined)  # [Q, F]
-        coact = np.corrcoef(freq)
-
-    Q = coact.shape[0]
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
-    for ax, mat, title in ((axes[0], coact, 'Usage-Frequency Correlation'),
-                            (axes[1], fingerprint_matrix, 'Decoder Weight Cosine Sim')):
-        im = ax.imshow(mat, vmin=-1, vmax=1, cmap='coolwarm')
-        ax.set_xticks(range(Q)); ax.set_yticks(range(Q))
-        ax.set_xticklabels([f'{unit_label[0]}{q}' for q in range(Q)], fontsize=7, rotation=90)
-        ax.set_yticklabels([f'{unit_label[0]}{q}' for q in range(Q)], fontsize=7)
-        ax.set_title(title, fontsize=10, fontweight='bold')
-        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-
-    fig.suptitle(f'{unit_label}-{unit_label} Relation (high = redundant)', fontsize=12, fontweight='bold')
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120, bbox_inches='tight')
-    plt.close(fig)
-    print(f"  [codebook] -> {out_path}")
 
 
 def _intra_patch_relation(usage_by_dataset):

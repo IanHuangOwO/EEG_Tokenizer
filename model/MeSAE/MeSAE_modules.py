@@ -340,9 +340,17 @@ class TSAEncoder(nn.Module):
         record_norms = not self.training
         if record_norms:
             self.last_block_norms = []
+            # Incoming residual-stream norm BEFORE each block's own norm_out — separates
+            # "this block genuinely rewrote a lot" from "norm_out yanked an already-drifted
+            # x back to unit scale, showing up as a large delta regardless of this block's
+            # own contribution" (see TSABlock.norm_out's docstring on compounding growth).
+            self.last_block_input_norms = []
         ffn_lb_loss = x.new_zeros(())
         for i, block in enumerate(self.blocks):
             x_in = x
+            if record_norms:
+                with torch.no_grad():
+                    self.last_block_input_norms.append(x_in.norm(dim=-1).mean().item())
             x, blk_ffn_lb = block(x)
             ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
@@ -379,60 +387,38 @@ class StampBank(nn.Module):
     Replaces ExpertChannelPool + FilterRouter + TopKSAE + MultiHeadDecoder with one
     dictionary of rank-1 spatiotemporal atoms ("stamps") — see
     docs/adr/0009-spatiotemporal-stamp-dictionary-for-mesae.md for the full derivation.
-    Each stamp_i = (u_i in R^C static spatial topography, phi_i: R -> R^patch_len small
-    generator MLP). Physically this is the standard linear-instantaneous-mixing model EEG
-    volume conduction actually obeys (ICA/CSP/beamformer's generative assumption): scalp
-    signal = sum_i topography_i * source_i's own time-course. u_i is the topography,
-    phi_i(h_i) is the realized time-course for this patch, conditioned on how strongly
-    atom i was selected.
+    Each stamp_i = (u_i in R^C static spatial topography, phi_i: R^D -> R^(C*patch_len)
+    small generator). u_i is the topography (encode-side only, see _pool); phi_i turns
+    that atom's own channel-pooled view of the patch into its contribution.
 
     n_stamps splits into n_routed (compete via score + top-k, `docs/adr/0007`'s
-    routed/shared split carried over from the Filter level to the stamp level) and
-    n_shared (always included, fixed constant `shared_weight` for selection purposes —
-    still counted, still occupies a slot every patch — though `phi_i` itself is no longer
-    scalar-conditioned, see below, so a shared stamp's waveform can vary slightly with
-    content now; it stays a "baseline" atom by always being present, not by being a fixed
-    constant).
+    routed/shared split carried over from the Filter level) and n_shared (always
+    included, fixed constant `shared_weight`).
 
-    phi_i's generator originally took ONLY the scalar selection strength h_i as input
-    (anti-shortcut restriction: a scalar carries no patch-specific information, so phi_i
-    structurally couldn't memorize per-patch content the way the old nonlinear
-    MultiHeadDecoder could when it read a full D-dim code). That constraint was hit in
-    practice — Tokenizer-stage training plateaued (unmasked MSE barely moving over 15
-    epochs) with dead_feature_rate ~0 and l0_sparsity_routed pinned exactly at top_k with
-    zero variance: the full dictionary was evenly, constantly engaged and still couldn't
-    push reconstruction down further, i.e. capacity-bound at the scalar bottleneck, not a
-    selection/collapse problem. Reworked to a tied-weight bottleneck autoencoder instead:
-    phi_i(pooled_i) = gelu(pooled_i @ W_down_i + b_down_i) @ W_down_i.T + b_dec_i (RICA-style
-    tied down/up, same mechanism the retired TopKSAE used, now per-atom) -> [D], then a
-    per-atom W_out_i: D -> patch_len. `pooled_i` (D-dim, real per-patch content) replaces
-    the scalar — this reopens the shortcut-memorization question deliberately: the
-    remaining guards are (a) a narrow tied bottleneck (hidden_width <= dim/4 by default)
-    limiting how much of pooled_i's content can pass through at all, and (b) hard top-k
-    sparsity (still only top_k+n_shared atoms fire per patch) forcing combination across
-    atoms regardless of any single atom's per-atom capacity. Watch dead_feature_rate /
-    MeSAECodebookChecker's fingerprint-affinity panel after this change for the failure mode
-    this trades into: a few atoms' bottleneck being wide/strong enough to start
-    reconstructing whole patches alone, starving the rest of the dictionary.
+    Selection is a plain per-atom linear scorer: score_i = pooled_i . w_score_i +
+    b_score_i, top-k over routed atoms, softmax over the selected top-k as h_routed
+    (a within-patch selection confidence, not a self-reconstruction fit — see
+    stamp_router_confidence in MeSAEPretrain.get_metrics). Deliberately NOT a shared
+    nn.Linear(dim, n_routed) gate (MoEFFN's FFNRouter convention) — that assumes every
+    expert reads the same input, but every atom here already has its OWN input
+    (pooled_i, from its own channel-attention view, see _pool), so the scorer needs its
+    own per-atom weight vector too. No load-balance loss: unlike MoEFFN (compute-all-
+    then-mask, needs traffic spread for compute balance), this module dispatches
+    sparsely (gather by idx) — no compute-balance problem, and forcing uniform routing
+    would fight the legitimate power-law usage a content-addressed dictionary should
+    have. Collapse is instead guarded by fire_ema/dead_threshold/aux_loss below.
 
-    Selection score is NOT a separately-learned recognizer vector — it's how well each
-    routed atom's own tied bottleneck already reconstructs pooled_i:
-    score_i = -mean((pooled_i - z_hat_i)^2), the same z_hat_i the generator itself computes
-    (down-project -> gelu -> tied up-project, no W_out needed for this — dense over all
-    n_routed atoms, same cost order a separate linear scorer would have been). This is the
-    literal matching-pursuit/sparse-coding selection criterion (pick the atom that best
-    explains the current input), and the same property TopKSAE's tied encoder/decoder gave
-    "for free" before this got split into a separate `FilterRouter`-style scorer. Deliberately
-    NOT a separately-learned weight: a decoupled scorer can rank two atoms with redundant
-    generators (same W_down/W_out, different scorer) as unrelated, so their redundancy never
-    shows up in fire_ema/router-entropy at all. Tying score to the generator's own fit
-    quality means redundant atoms genuinely compete for the same top-k slot on identical
-    content, so existing selection-frequency diagnostics catch the redundancy automatically
-    — no separate temporal-decorrelation loss term needed as a first line of defense (spatial
-    `decorrelation_loss` below still exists as a second one). h_i = exp(score_i) for selected
-    atoms (bounded (0,1], 1.0 = perfect self-reconstruction) — replaces the old
-    raw-relu(score) convention, which assumed a scorer that could be positive; this one is
-    never positive by construction (a squared error), so relu would always zero it out.
+    phi_i(pooled_i) is a small bottleneck MLP straight to the output, no tied
+    reconstruction step: hidden_i = gelu(pooled_i @ W_down_i + b_down_i) -> [hidden_width],
+    contribution_i = hidden_i @ W_out(group) + b_out(group) -> [C, patch_len]. W_down is
+    per-atom (all cross-atom diversity lives here); W_out/b_out are shared within each
+    group (routed vs shared, separate tables since hidden widths differ) rather than
+    per-atom, same cost argument as the retired tied-autoencoder version's shared W_out
+    (~D*C*patch_len params, independent of n_stamps, vs ~n_stamps x that for per-atom).
+    Consequence: two atoms converging to a similar hidden_i now produce IDENTICAL output
+    (deterministic shared function) — redundancy in hidden space maps 1:1 to redundancy
+    in output space, a direct read on real redundancy for
+    MeSAECodebookChecker's fingerprint-affinity panel.
     """
     def __init__(self, dim, num_channels, patch_len, n_stamps=800, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16, shared_weight=0.2,
@@ -443,20 +429,17 @@ class StampBank(nn.Module):
         self.n_routed = n_stamps - n_shared_stamps
         self.top_k = min(top_k, self.n_routed)
         self.shared_weight = shared_weight
-        # Normalizes pooled_i before it's used for anything (scoring, the tied bottleneck's
+        # Normalizes pooled_i before it's used for anything (scoring, the bottleneck's
         # generator input, z_h) — pooled_i inherits whatever scale the encoder currently
         # drifts to (documented block_norm growth across blocks/epochs elsewhere in this
-        # codebase), and the new content-conditioned generator (see class docstring) feeds
-        # it straight into gelu, unlike the old scalar-h_i generator which didn't care about
-        # pooled_i's scale at all. Same role TopKSAE.input_norm played for its own encoder.
+        # codebase). Same role TopKSAE.input_norm played for its own encoder.
         self.input_norm = nn.LayerNorm(dim)
         self.dim = dim
-        # Bottleneck width over the D-dim pooled_i input — capacity guard against the
-        # shortcut-memorization risk pooled_i reopens, see class docstring. Shared stamps
-        # get a wider bottleneck than routed (16 vs 8 by default): they're always-on across
-        # every patch/dataset (never gated out), so they need more room to represent
-        # structure common across all data types rather than specializing narrowly like a
-        # routed stamp can afford to.
+        # Bottleneck width over the D-dim pooled_i input. Shared stamps get a wider
+        # bottleneck than routed (16 vs 8 by default): they're always-on across every
+        # patch/dataset (never gated out), so they need more room to represent structure
+        # common across all data types rather than specializing narrowly like a routed
+        # stamp can afford to.
         self.hidden_width = hidden_width
         self.shared_hidden_width = shared_hidden_width
 
@@ -470,42 +453,28 @@ class StampBank(nn.Module):
             logit[h, bounds[h]:bounds[h + 1]] += cluster_bias
         self.u = nn.Parameter(logit)
 
-        # phi: generator, tied-weight bottleneck autoencoder (RICA-style, same mechanism the
-        # retired TopKSAE used for its D-dim dictionary, now per-atom) feeding a SHARED
-        # D->(C*patch_len) decode (standard autoencoder/VAE framing: one decoder, many
-        # different per-atom latent codes, not one decoder per possible code):
-        #   z_hat_i = gelu(pooled_i @ W_down_i + b_down_i) @ W_down_i.T + b_dec_i   # [D], per-atom
-        #   contribution_i = z_hat_i @ W_out + b_out                                # [C, patch_len], SHARED
-        # W_down is the only tied matrix (used both directions), per-atom. b_down/b_dec are
-        # also per-atom (all the diversity between atoms lives here — see below). Routed
-        # and shared stamps use SEPARATE W_down/b_down tables (different hidden widths,
-        # can't share one tensor's last dim) — b_dec stays one table over all n_stamps
-        # since it doesn't depend on hidden width.
-        #
-        # W_out/b_out are SHARED across every atom (not indexed by n_stamps at all) —
-        # decodes straight to [C, patch_len], no outer product with u_i, no rank-1
-        # spatiotemporal factorization (docs/adr/0009's original design; dropped, see the
-        # ADR follow-up discussion). A per-atom W_out was tried first and reverted for cost
-        # (~102M params at D=100,C=64,patch_len=20,n_stamps=800) — shared W_out is
-        # ~D*C*patch_len (~128K, independent of n_stamps) since z_hat_i already differs
-        # per atom (from W_down_i/b_down_i/b_dec_i), so atoms don't need their own decoder
-        # too to produce different outputs, only their own point in D-dim code space. Real
-        # consequence: two atoms converging to similar z_hat_i now produce IDENTICAL output
-        # (deterministic shared function), where a per-atom W_out could have still
-        # diverged — redundancy in z_hat space now maps 1:1 to redundancy in output space,
-        # which makes MeSAECodebookChecker's fingerprint-affinity panel a more direct
-        # (not less) read on real redundancy than before. u_i is now ONLY an encode-side
-        # pooling weight (how this atom reads the input, see _pool), no role in the output.
+        # Per-atom linear selection scorer, routed atoms only (shared atoms are never
+        # scored/gated, see class docstring) — score_i = pooled_i . w_score_i + b_score_i.
+        self.w_score = nn.Parameter(torch.empty(self.n_routed, dim))
+        self.b_score = nn.Parameter(torch.zeros(self.n_routed))
+        nn.init.kaiming_uniform_(self.w_score, a=math.sqrt(5))
+
+        # phi: bottleneck generator, per-atom W_down/b_down (down-project + gelu only, no
+        # tied up-project — see class docstring), decoding through a per-GROUP shared
+        # W_out/b_out straight to [C, patch_len]. Routed and shared use separate
+        # W_down/b_down/W_out/b_out tables (different hidden widths).
         self.W_down_routed = nn.Parameter(torch.empty(self.n_routed, dim, hidden_width))
         self.b_down_routed = nn.Parameter(torch.zeros(self.n_routed, hidden_width))
         self.W_down_shared = nn.Parameter(torch.empty(self.n_shared, dim, shared_hidden_width))
         self.b_down_shared = nn.Parameter(torch.zeros(self.n_shared, shared_hidden_width))
-        self.b_dec  = nn.Parameter(torch.zeros(n_stamps, dim))
-        self.W_out  = nn.Parameter(torch.empty(dim, num_channels, patch_len))
-        self.b_out  = nn.Parameter(torch.zeros(num_channels, patch_len))
+        self.W_out_routed = nn.Parameter(torch.empty(hidden_width, num_channels, patch_len))
+        self.b_out_routed = nn.Parameter(torch.zeros(num_channels, patch_len))
+        self.W_out_shared = nn.Parameter(torch.empty(shared_hidden_width, num_channels, patch_len))
+        self.b_out_shared = nn.Parameter(torch.zeros(num_channels, patch_len))
         nn.init.kaiming_uniform_(self.W_down_routed, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W_down_shared, a=math.sqrt(5))
-        nn.init.kaiming_uniform_(self.W_out, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.W_out_routed, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.W_out_shared, a=math.sqrt(5))
 
         self.dead_threshold = dead_threshold_frac * (self.top_k / self.n_routed)
         self.aux_k_cap = max(1, int(aux_k_cap_frac * self.n_routed))
@@ -522,74 +491,61 @@ class StampBank(nn.Module):
         pooled = torch.einsum('mhc,mcd->mhd', attn, z)
         return pooled, attn
 
-    @staticmethod
-    def _dense_reconstruct(pooled_slice, W_down_slice, b_down_slice, b_dec_slice):
-        """pooled_slice: [M, H, D], W_down_slice: [H, D, hidden], b_down_slice: [H, hidden],
-        b_dec_slice: [H, D] -> z_hat [M, H, D]. Dense over H — deliberately cheap: only uses
-        the tied W_down (no W_out), same cost order as a plain linear scorer would be. Used
-        by forward()'s selection score (see class docstring: score = how well each atom's
-        OWN tied bottleneck already explains this patch, not a separate learned scorer)."""
-        pre = torch.einsum('mhd,hdk->mhk', pooled_slice, W_down_slice) + b_down_slice
-        act = F.gelu(pre)
-        return torch.einsum('mhk,hdk->mhd', act, W_down_slice) + b_dec_slice
-
-    def _decode_atoms(self, idx, pooled, W_down_sel, b_down_sel):
-        """idx: [M, K] GLOBAL atom indices (into b_dec/W_out/b_out/pooled, 0..n_stamps-1
-        regardless of routed/shared), W_down_sel/b_down_sel: already gathered from whichever
-        (routed or shared) table matches these atoms — generic over hidden width, so this is
-        shared math for both groups. -> contribution [M, K, C, patch_len], pooled_sel [M, K, D].
-
-        W_out/b_out are SHARED (no gather — same matrix for every atom, see __init__'s
-        W_out comment): decodes straight to [C, patch_len], no outer product with u_i, no
-        rank-1 factorization. u_i plays no role in this step at all anymore; it's purely
-        an encode-side concern, see _pool.
-        """
+    def _decode_atoms(self, idx, pooled, W_down_sel, b_down_sel, W_out, b_out):
+        """idx: [M, K] GLOBAL atom indices (into pooled, 0..n_stamps-1 regardless of
+        routed/shared), W_down_sel/b_down_sel: already gathered from whichever (routed or
+        shared) table matches these atoms, W_out/b_out: that group's SHARED decode table
+        (no gather — same matrix for every atom in the group, see __init__).
+        -> contribution [M, K, C, patch_len], pooled_sel [M, K, D]."""
         D = pooled.shape[-1]
         pooled_sel = pooled.gather(1, idx.unsqueeze(-1).expand(-1, -1, D))  # [M, K, D]
 
-        b_dec_sel = self.b_dec[idx]    # [M, K, D]
-
-        # Tied-weight bottleneck (RICA-style): W_down_sel is the only matrix used both
-        # directions, transposed for the "up" half.
         pre = torch.einsum('mkd,mkdh->mkh', pooled_sel, W_down_sel) + b_down_sel  # [M, K, hidden]
-        act = F.gelu(pre)
-        z_hat = torch.einsum('mkh,mkdh->mkd', act, W_down_sel) + b_dec_sel        # [M, K, D]
-
-        contribution = torch.einsum('mkd,dcp->mkcp', z_hat, self.W_out) + self.b_out  # [M, K, C, patch_len]
+        hidden = F.gelu(pre)
+        contribution = torch.einsum('mkh,hcp->mkcp', hidden, W_out) + b_out  # [M, K, C, patch_len]
         return contribution, pooled_sel
 
     def _generate_routed(self, idx, pooled):
-        """idx: [M, K] routed-only indices (values in [0, n_routed) — used both as the
-        GLOBAL index (b_dec/pooled share the routed range 1:1 with global indices
-        0..n_routed-1) and to gather W_down_routed/b_down_routed directly. Used by both the
-        main forward path's routed half and the dead-atom aux rescue (rescue only ever
-        draws from the routed pool, never shared — see forward())."""
+        """idx: [M, K] routed-only indices (values in [0, n_routed), used both as the
+        GLOBAL index (pooled's routed range matches global indices 0..n_routed-1 1:1) and
+        to gather W_down_routed/b_down_routed directly. Used by both the main forward
+        path's routed half and the dead-atom aux rescue (rescue only ever draws from the
+        routed pool, never shared — see forward())."""
         W_down_sel = self.W_down_routed[idx]
         b_down_sel = self.b_down_routed[idx]
-        return self._decode_atoms(idx, pooled, W_down_sel, b_down_sel)
+        return self._decode_atoms(idx, pooled, W_down_sel, b_down_sel, self.W_out_routed, self.b_out_routed)
 
-    def _generate(self, idx, h, pooled):
+    def decode_selected(self, idx, h, pooled):
         """idx: [M, top_k+n_shared] GLOBAL indices, first top_k routed then n_shared shared
-        (same layout forward() builds), h: [M, top_k+n_shared] their scalar selection
-        strengths (used only for z_h/diagnostics now, not fed into generation — see class
-        docstring), pooled: [M, n_stamps, D] (dense, from _pool) -> recon [M, C, patch_len],
+        (same layout forward() builds), h: [M, top_k+n_shared] their selection strengths
+        (used only for z_h/diagnostics, not fed into generation), pooled: [M, n_stamps, D]
+        (dense, from _pool) -> contribution [M, top_k+n_shared, C, patch_len] (each slot's
+        OWN decoded output, unsummed — real per-patch-per-slot content, not yet collapsed
+        into one reconstruction; viz/extract.py's per-patch grid reads this directly, see
+        docs/agents/ or the "PSD averages away per-patch stamp identity" investigation),
         z_h [M, top_k+n_shared, D] (pre-generator finetune feature, gathered pooled view *
-        h). Splits into routed/shared halves since they use separate W_down tables (see
-        __init__) — sparse dispatch either way, only the K=top_k+n_shared selected atoms'
-        params ever get gathered, never all n_stamps (see ADR Consequences for why
-        compute-all-then-gate, MoEFFN's convention elsewhere in this codebase, doesn't scale
-        at n_stamps=800)."""
+        h). Splits into routed/shared halves since they use separate W_down/W_out tables
+        (see __init__) — sparse dispatch either way, only the K=top_k+n_shared selected
+        atoms' params ever get gathered, never all n_stamps."""
         idx_routed, idx_shared = idx[:, :self.top_k], idx[:, self.top_k:]
 
         contribution_r, pooled_sel_r = self._generate_routed(idx_routed, pooled)
 
         W_down_s_sel = self.W_down_shared[idx_shared - self.n_routed]  # local index into the shared table
         b_down_s_sel = self.b_down_shared[idx_shared - self.n_routed]
-        contribution_s, pooled_sel_s = self._decode_atoms(idx_shared, pooled, W_down_s_sel, b_down_s_sel)
+        contribution_s, pooled_sel_s = self._decode_atoms(
+            idx_shared, pooled, W_down_s_sel, b_down_s_sel, self.W_out_shared, self.b_out_shared)
 
-        recon = contribution_r.sum(dim=1) + contribution_s.sum(dim=1)         # [M, C, patch_len]
+        contribution = torch.cat([contribution_r, contribution_s], dim=1)     # [M, top_k+n_shared, C, patch_len]
         pooled_sel = torch.cat([pooled_sel_r, pooled_sel_s], dim=1)           # [M, top_k+n_shared, D]
         z_h = pooled_sel * h.unsqueeze(-1)
+        return contribution, z_h
+
+    def _generate(self, idx, h, pooled):
+        """recon [M, C, patch_len] (sum of decode_selected's per-slot contributions), z_h
+        [M, top_k+n_shared, D] — see decode_selected for the unsummed per-slot version."""
+        contribution, z_h = self.decode_selected(idx, h, pooled)
+        recon = contribution.sum(dim=1)
         return recon, z_h
 
     def decorrelation_loss(self):
@@ -608,15 +564,11 @@ class StampBank(nn.Module):
     @torch.no_grad()
     def fingerprint(self, probe=None):
         """Every stamp's full [C, patch_len] pattern at a fixed canonical D-dim probe
-        (default zero vector — generation is now content-conditioned on pooled_i, so
-        there's no true content-free fingerprint anymore; a zero probe reduces the tied
-        bottleneck to its bias terms, still a deterministic per-atom parameter fingerprint,
-        just no longer "what this atom always outputs regardless of input"). No outer
-        product with u_i anymore — W_out decodes straight to [C, patch_len] (see __init__'s
-        W_out comment for why the rank-1 factorization was dropped). Dense over all
-        n_stamps (diagnostic-only call, not the training/sparse-dispatch path — see the
-        ADR's Monitoring impact section, MeSAECodebookChecker.decoder_fingerprint_matrix).
-        Returns [n_stamps, C, patch_len].
+        (default zero vector — reduces the bottleneck to its bias terms, still a
+        deterministic per-atom parameter fingerprint, just no longer "what this atom
+        always outputs regardless of input"). Dense over all n_stamps (diagnostic-only
+        call, not the training/sparse-dispatch path — see
+        MeSAECodebookChecker.decoder_fingerprint_matrix). Returns [n_stamps, C, patch_len].
         """
         if probe is None:
             probe = self.u.new_zeros(self.n_stamps, self.dim)
@@ -624,41 +576,40 @@ class StampBank(nn.Module):
             probe = probe.expand(self.n_stamps, self.dim)
 
         pre_r = torch.einsum('kd,kdh->kh', probe[:self.n_routed], self.W_down_routed) + self.b_down_routed
-        z_hat_r = torch.einsum('kh,kdh->kd', F.gelu(pre_r), self.W_down_routed) + self.b_dec[:self.n_routed]
+        contrib_r = torch.einsum('kh,hcp->kcp', F.gelu(pre_r), self.W_out_routed) + self.b_out_routed
 
         pre_s = torch.einsum('kd,kdh->kh', probe[self.n_routed:], self.W_down_shared) + self.b_down_shared
-        z_hat_s = torch.einsum('kh,kdh->kd', F.gelu(pre_s), self.W_down_shared) + self.b_dec[self.n_routed:]
+        contrib_s = torch.einsum('kh,hcp->kcp', F.gelu(pre_s), self.W_out_shared) + self.b_out_shared
 
-        z_hat = torch.cat([z_hat_r, z_hat_s], dim=0)  # [n_stamps, D]
-        return torch.einsum('kd,dcp->kcp', z_hat, self.W_out) + self.b_out  # [n_stamps, C, patch_len]
+        return torch.cat([contrib_r, contrib_s], dim=0)  # [n_stamps, C, patch_len]
 
     @torch.no_grad()
     def dense_probe(self, z, valid_mask=None):
         """Like fingerprint(), but fed each atom's REAL pooled_i (its actual channel-
         weighted view of this real patch) instead of a fabricated zero vector — the
-        genuine "run this stamp's own autoencoder on its real input" view. fingerprint()'s
+        genuine "run this stamp's own generator on its real input" view. fingerprint()'s
         zero probe collapses pre = 0@W_down + b_down down to just b_down, so W_down's
-        actual response to content never gets exercised — with b_down/b_dec still
-        zero-init and slow to grow, that made every atom's fingerprint mostly reflect
-        shared near-zero bias behavior rather than the (possibly already quite different)
-        weight matrices underneath, systematically understating diversity early in
-        training. Dense over all n_stamps (diagnostic-only, not the sparse-dispatch
-        training path) but needs real (x, coords) data, unlike fingerprint(). No outer
-        product with u_i — W_out decodes straight to [C, patch_len], same as fingerprint()
-        and forward()'s main path (see __init__'s W_out comment).
+        actual response to content never gets exercised — with b_down still zero-init and
+        slow to grow, that made every atom's fingerprint mostly reflect shared near-zero
+        bias behavior rather than the (possibly already quite different) weight matrices
+        underneath, systematically understating diversity early in training. Dense over
+        all n_stamps (diagnostic-only, not the sparse-dispatch training path) but needs
+        real (x, coords) data, unlike fingerprint().
         z: [M, C, D] real pooled-channel patch embeddings (same input StampBank.forward
         takes) -> contribution [M, n_stamps, C, patch_len], attn [M, n_stamps, C]
-        (encode-side channel attention only — no longer feeds the output, see class
-        docstring — kept here purely as a diagnostic, caller decides how to use it).
+        (encode-side channel attention only — no longer feeds the output — kept here
+        purely as a diagnostic, caller decides how to use it).
         """
         pooled, attn = self._pool(z, valid_mask)
         pooled = self.input_norm(pooled)
-        z_hat_r = self._dense_reconstruct(pooled[:, :self.n_routed], self.W_down_routed,
-                                           self.b_down_routed, self.b_dec[:self.n_routed])
-        z_hat_s = self._dense_reconstruct(pooled[:, self.n_routed:], self.W_down_shared,
-                                           self.b_down_shared, self.b_dec[self.n_routed:])
-        z_hat = torch.cat([z_hat_r, z_hat_s], dim=1)  # [M, n_stamps, D]
-        contribution = torch.einsum('mkd,dcp->mkcp', z_hat, self.W_out) + self.b_out  # [M, n_stamps, C, patch_len]
+
+        pre_r = torch.einsum('mhd,hdk->mhk', pooled[:, :self.n_routed], self.W_down_routed) + self.b_down_routed
+        contrib_r = torch.einsum('mhk,kcp->mhcp', F.gelu(pre_r), self.W_out_routed) + self.b_out_routed
+
+        pre_s = torch.einsum('mhd,hdk->mhk', pooled[:, self.n_routed:], self.W_down_shared) + self.b_down_shared
+        contrib_s = torch.einsum('mhk,kcp->mhcp', F.gelu(pre_s), self.W_out_shared) + self.b_out_shared
+
+        contribution = torch.cat([contrib_r, contrib_s], dim=1)  # [M, n_stamps, C, patch_len]
         return contribution, attn
 
     def forward(self, z, x_target=None, valid_mask=None):
@@ -673,28 +624,19 @@ class StampBank(nn.Module):
         (zeros at unselected — the diagnostic object MeSAETrainer/MeSAECodebookChecker read
         for router-health/usage-histogram panels), decorr_loss, aux_loss.
 
-        No load-balance loss: unlike MoEFFN (docs/adr/0008), which dense-computes every
-        Expert then masks and so needs traffic spread for compute balance, this module
-        dispatches sparsely (gather by idx) — no compute-balance problem to solve. A
-        Switch-Transformer-style lb_loss was tried and dropped: it forces `p=softmax(score)`
-        toward uniform, fighting the score-is-reconstruction-quality selection criterion
-        above (rewards atoms for fitting well, then separately punishes them for winning
-        too often) and fights the legitimate power-law usage a content-addressed dictionary
-        should have. Dead-atom collapse (the actual failure mode) is handled instead by
-        fire_ema/dead_threshold/aux_loss below — narrower, only touches atoms that are
-        genuinely unused, doesn't homogenize the healthy majority.
+        No load-balance loss — see class docstring: sparse dispatch, no compute-balance
+        problem, and forcing uniform routing would fight legitimate power-law usage. Dead-
+        atom collapse is handled instead by fire_ema/dead_threshold/aux_loss below.
         """
         M = z.shape[0]
         pooled, attn = self._pool(z, valid_mask)  # [M, n_stamps, D], [M, n_stamps, C]
         pooled = self.input_norm(pooled)  # stabilize scale before scoring/generation, see __init__
 
         pooled_routed = pooled[:, :self.n_routed]
-        z_hat_routed = self._dense_reconstruct(pooled_routed, self.W_down_routed,
-                                                self.b_down_routed, self.b_dec[:self.n_routed])
-        score = -((pooled_routed - z_hat_routed) ** 2).mean(dim=-1)  # [M, n_routed], higher = better self-fit
+        score = torch.einsum('mhd,hd->mh', pooled_routed, self.w_score) + self.b_score  # [M, n_routed]
 
         topk_val, topk_idx = score.topk(self.top_k, dim=-1)
-        h_routed = torch.exp(topk_val)  # [M, top_k] — bounded (0,1], 1.0=perfect self-reconstruction
+        h_routed = torch.softmax(topk_val, dim=-1)  # [M, top_k] — within-patch selection confidence
         dense_routed = torch.zeros_like(score).scatter_(-1, topk_idx, h_routed)  # [M, n_routed]
 
         shared_idx = torch.arange(self.n_routed, self.n_stamps, device=z.device)

@@ -416,22 +416,14 @@ class MeSAEPretrain(nn.Module):
         return total, l_masked, l_unmasked
 
     def get_metrics(self, dense_routed=None):
+        # dense_routed's h_i=softmax(topk router logits) sums to exactly 1 within each
+        # patch's top_k picks, so a batch-wide mean-of-selected is mathematically pinned
+        # at 1/top_k regardless of training progress — not a real diagnostic (the old
+        # h=exp(-self-recon-mse) had no such normalization constraint, so its mean/std
+        # genuinely varied; this doesn't survive the switch to a plain linear scorer, see
+        # StampBank.forward). Selection-sharpness is still covered properly by
+        # stamp_gate_entropy below (entropy of the distribution shape, not its mean).
         metrics = {}
-        if dense_routed is not None:
-            # dense_routed: [M, n_routed_stamps], h_i=exp(score_i) at each selected slot,
-            # score_i=-mean_sq_error of atom i's own tied-bottleneck self-reconstruction
-            # (see StampBank class docstring). h_i is always >0 by construction now (exp),
-            # so a nonzero-count "l0 sparsity" metric (the old convention, meaningful when
-            # h could be relu'd to exactly 0) is structurally pinned at top_k with zero
-            # variance — no longer a diagnostic, just an invariant. Replaced with the
-            # actual new signal: mean/std of h among selected picks this batch, i.e. how
-            # well the selected atoms' own bottlenecks fit the content they were picked
-            # for (1.0=perfect self-reconstruction, ->0 as fit degrades).
-            selected = dense_routed.detach()
-            h_selected = selected[selected > 0]
-            if h_selected.numel() > 0:
-                metrics['stamp_fit_quality']     = h_selected.mean().item()
-                metrics['stamp_fit_quality_std'] = h_selected.std().item()
         metrics['dead_feature_rate'] = (self.stamps.fire_ema < self.stamps.dead_threshold).float().mean().item()
 
         # U-Net skip gate(s) on the encoder's residual-add path: sigmoid(g) in [0,1],
@@ -449,6 +441,21 @@ class MeSAEPretrain(nn.Module):
         if block_norms:
             for i, v in enumerate(block_norms):
                 metrics[f'block_norm_{i}'] = v
+
+        block_input_norms = getattr(self.encoder, 'last_block_input_norms', None)
+        if block_input_norms:
+            for i, v in enumerate(block_input_norms):
+                metrics[f'block_input_norm_{i}'] = v
+            # Relative change (block_norm / incoming x norm) — raw block_norm conflates a
+            # block's own contribution with norm_out's per-block learned gain difference
+            # from whatever scale x drifted to upstream (see TSABlock.norm_out's
+            # docstring), so a block can show a huge raw delta while its LayerScale params
+            # stay near-zero. The ratio isolates "how much this block reshaped its input
+            # relative to that input's own scale", not a renorm-gain artifact.
+            # NOT prefixed block_norm_* -- indexed_series('block_norm_', ...) would swallow
+            # these into the raw-delta panel above via startswith prefix matching.
+            for i, (bn, bin_) in enumerate(zip(block_norms, block_input_norms)):
+                metrics[f'block_relnorm_{i}'] = bn / (bin_ + 1e-8)
 
         # Stamp router health — see update_stamp_router_metrics above for what each number
         # means.

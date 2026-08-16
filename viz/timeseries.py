@@ -5,16 +5,48 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+def _canonical_bands(l_freq=None, h_freq=None):
+    """Delta/Theta/Alpha/Beta/Gamma edges, clipped to [l_freq, h_freq] when given (the
+    preprocessing bandpass, see preprocess_params) — a band entirely outside that range
+    is dropped rather than plotted as filtered-out-but-labeled-real content (e.g. Gamma's
+    default 30-80Hz upper edge exceeds a common h_freq=75 bandpass; unclipped, MNE would
+    filter for 75-80Hz content the preprocessing bandpass already removed upstream, and
+    the resulting near-flat trace could misread as a real "no gamma" finding instead of
+    "already filtered out before the model ever saw it")."""
+    raw = {
+        'Delta': (0.5,  4),
+        'Theta': (4,    8),
+        'Alpha': (8,   13),
+        'Beta':  (13,  30),
+        'Gamma': (30,  80),
+    }
+    bands = {'Raw': None}
+    for name, (lo, hi) in raw.items():
+        if l_freq is not None:
+            lo = max(lo, l_freq)
+        if h_freq is not None:
+            hi = min(hi, h_freq)
+        if lo >= hi:
+            continue
+        bands[f'{name} ({lo:g}-{hi:g})'] = (lo, hi)
+    return bands
+
+
 def visualize_reconstruction(train_batch, val_batch, epoch,
                              output_dir='output/visualization/reconstruction',
                              channel_names=None,
                              subject_id=None, trial_idx=None,
-                             mask=None, patch_len=100, tag=''):
+                             mask=None, patch_len=100, tag='',
+                             fs=200.0, l_freq=None, h_freq=None):
     """
     Band-filtered orig vs recon for all channels of one val sample.
     Rows: channels. Cols: Raw / Delta / Theta / Alpha / Beta / Gamma.
     Masked patches highlighted in red per channel.
     mask: [C, N] bool numpy array or None.
+    fs: sample rate in Hz (preprocess_params.target_freq) — used for both the time axis
+    and the band-filter cutoffs; defaults to 200.0 only for callers that don't pass one.
+    l_freq/h_freq: preprocess_params bandpass — clips the canonical band edges to what the
+    preprocessing bandpass actually preserved, see _canonical_bands.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -22,7 +54,6 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     if val_orig is None:
         return
 
-    fs    = 200.0
     orig  = val_orig[0].detach().cpu().numpy()
     recon = val_recon[0].detach().cpu().numpy()
     C = orig.shape[0]
@@ -30,14 +61,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     orig, recon = orig[:, :n], recon[:, :n]
     t = np.arange(n) / fs
 
-    bands = {
-        'Raw':            None,
-        'Delta (0.5-4)':  (0.5,  4),
-        'Theta (4-8)':    (4,    8),
-        'Alpha (8-13)':   (8,   13),
-        'Beta (13-30)':   (13,  30),
-        'Gamma (30-80)':  (30,  80),
-    }
+    bands = _canonical_bands(l_freq, h_freq)
 
     n_rows, n_cols = C, len(bands)
     fig, axes = plt.subplots(n_rows, n_cols,

@@ -107,10 +107,10 @@ if __name__ == '__main__':
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
     parser.add_argument('--mode',        default=None, choices=['tokenizer', 'pretrain', 'finetune'])
-    parser.add_argument('--analysis',    default=None, choices=['snapshot', 'codebook'],
+    parser.add_argument('--analysis',    default=None, choices=['snapshot', 'codebook', 'both'],
                          help='Overrides check.analysis in --config. snapshot: existing per-trial '
                               'topo/PSD/attn checker. codebook: cross-dataset codebook/vocab '
-                              'diagnostics (model/base_codebook_checker.py).')
+                              'diagnostics (model/base_codebook_checker.py). both: run both.')
     parser.add_argument('--subject',     type=int, default=None)
     parser.add_argument('--trial',       type=int, default=None)
     parser.add_argument('--dataset',     type=str, default=None)
@@ -149,7 +149,7 @@ if __name__ == '__main__':
 
     ds_params    = cfg['dataset_params'][data_mode]
 
-    if analysis == 'codebook':
+    if analysis in ('codebook', 'both'):
         from model.factory import MODEL_REGISTRY
 
         probe = mdl.backbone if hasattr(mdl, 'backbone') else mdl
@@ -179,108 +179,109 @@ if __name__ == '__main__':
         checker.check_codebook(cfg, out, mdl, datasets_by_name, max_trials_per_dataset=max_trials)
         print(f"[check] codebook analysis done: datasets={list(datasets_by_name)}  |  out={out}")
 
-    elif mode == 'finetune':
-        # Per-target correct/wrong snapshot pairs, not a single per-subject trial pick:
-        # for each of the num_classes targets, find one trial the model got right and one
-        # it got wrong, and render the full 3-panel snapshot (recon_signal, topo_psd_filter,
-        # attn_topo) for each — num_classes * 2 * 3 files total, searched across every
-        # subject in dataset_params.finetune[dataset_name].subject_to_use (not one subject
-        # at a time), since a single subject isn't guaranteed to contain both a correct and
-        # a wrong example of every class.
-        dataset_name = args.dataset or next(iter(ds_params))
-        ds_cfg       = ds_params[dataset_name]
+    if analysis in ('snapshot', 'both'):
+        if mode == 'finetune':
+            # Per-target correct/wrong snapshot pairs, not a single per-subject trial pick:
+            # for each of the num_classes targets, find one trial the model got right and one
+            # it got wrong, and render the full 3-panel snapshot (recon_signal, topo_psd_filter,
+            # attn_topo) for each — num_classes * 2 * 3 files total, searched across every
+            # subject in dataset_params.finetune[dataset_name].subject_to_use (not one subject
+            # at a time), since a single subject isn't guaranteed to contain both a correct and
+            # a wrong example of every class.
+            dataset_name = args.dataset or next(iter(ds_params))
+            ds_cfg       = ds_params[dataset_name]
 
-        filtered = copy.deepcopy(cfg)
-        filtered['dataset_params'][data_mode] = {dataset_name: ds_cfg}
-        # subject_to_use=["all"] needs the same resolution train_finetune.py's
-        # build_subject_split_datasets does — build_dataset_from_config takes it literally
-        # and fails ("Subject all not found") since EEGDataset expects real subject ids.
-        from train_finetune import _resolve_all_subjects, _resolve_requested_subjects
-        all_subjects = _resolve_all_subjects(ds_cfg['dataset_path'])
-        filtered['dataset_params'][data_mode][dataset_name]['subject_to_use'] = \
-            _resolve_requested_subjects(ds_cfg, all_subjects)
-        ds = build_dataset_from_config(filtered, mode=data_mode)
+            filtered = copy.deepcopy(cfg)
+            filtered['dataset_params'][data_mode] = {dataset_name: ds_cfg}
+            # subject_to_use=["all"] needs the same resolution train_finetune.py's
+            # build_subject_split_datasets does — build_dataset_from_config takes it literally
+            # and fails ("Subject all not found") since EEGDataset expects real subject ids.
+            from train_finetune import _resolve_all_subjects, _resolve_requested_subjects
+            all_subjects = _resolve_all_subjects(ds_cfg['dataset_path'])
+            filtered['dataset_params'][data_mode][dataset_name]['subject_to_use'] = \
+                _resolve_requested_subjects(ds_cfg, all_subjects)
+            ds = build_dataset_from_config(filtered, mode=data_mode)
 
-        patch_len = filtered.get('preprocess_params', {}).get('patch_length', 100)
-        preds, labels = _predict_all(mdl, ds, patch_len, device)
-        num_classes  = int(labels.max()) + 1
-        target_names = _load_target_names(ds_cfg['dataset_path'], num_classes)
+            patch_len = filtered.get('preprocess_params', {}).get('patch_length', 100)
+            preds, labels = _predict_all(mdl, ds, patch_len, device)
+            num_classes  = int(labels.max()) + 1
+            target_names = _load_target_names(ds_cfg['dataset_path'], num_classes)
 
-        out = resolve_output_dir(filtered, 'analysis', dataset_name, mode=mode)
-        for cls_idx in range(num_classes):
-            name = target_names[cls_idx]
-            safe = _safe_name(name)
-            cls_mask = labels == cls_idx
-            correct_idxs = (cls_mask & (preds == cls_idx)).nonzero()[0]
-            wrong_idxs   = (cls_mask & (preds != cls_idx)).nonzero()[0]
-            for status, idxs in (('correct', correct_idxs), ('wrong', wrong_idxs)):
-                if len(idxs) == 0:
-                    print(f"[check] target{cls_idx}_{safe}: no {status} example found in {dataset_name}, skipping")
-                    continue
-                t_idx = int(idxs[0])
-                subject_id = int(ds.base_dataset.subject_data[t_idx].item())
-                tag = f'_target{cls_idx}_{safe}_{status}'
+            out = resolve_output_dir(filtered, 'analysis', dataset_name, mode=mode)
+            for cls_idx in range(num_classes):
+                name = target_names[cls_idx]
+                safe = _safe_name(name)
+                cls_mask = labels == cls_idx
+                correct_idxs = (cls_mask & (preds == cls_idx)).nonzero()[0]
+                wrong_idxs   = (cls_mask & (preds != cls_idx)).nonzero()[0]
+                for status, idxs in (('correct', correct_idxs), ('wrong', wrong_idxs)):
+                    if len(idxs) == 0:
+                        print(f"[check] target{cls_idx}_{safe}: no {status} example found in {dataset_name}, skipping")
+                        continue
+                    t_idx = int(idxs[0])
+                    subject_id = int(ds.base_dataset.subject_data[t_idx].item())
+                    tag = f'_target{cls_idx}_{safe}_{status}'
+                    metrics = run(
+                        filtered, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
+                        plot_recon=check_cfg.get('plot_recon', True),
+                        plot_topo_psd=check_cfg.get('plot_topo_psd', True),
+                        plot_attn_topo=check_cfg.get('plot_attn_topo', True),
+                        tag=tag,
+                    )
+                    metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
+                    print(f"[check] done: target={cls_idx}({name}) status={status} subject={subject_id} "
+                          f"trial_idx={t_idx}  |  {metrics_str}")
+
+        elif cfg.get('training_params', {}).get('visualize', {}).get(data_mode, {}).get('targets'):
+            # Same visualize.<mode>.targets key/shape as config.json's own periodic-viz config
+            # (see train_pretrain.py's viz_targets) — a list of {dataset, subject, trial} triples
+            # picking exactly which snapshots to render, instead of dataset_params.<mode>'s
+            # one-subject-per-dataset-entry mechanism below. dataset_params.<mode> still governs
+            # what data gets loaded (all datasets/subjects it lists, combined into one dataset,
+            # same as training does); targets only selects which trials within that get plotted.
+            ds = build_dataset_from_config(cfg, mode=data_mode)
+
+            def _first_subject(dataset_name=None):
+                sub_data = ds.base_dataset.subject_data
+                if dataset_name is not None:
+                    names = ds.base_dataset.dataset_names
+                    idx = next((i for i, n in enumerate(names) if n == dataset_name), None)
+                    if idx is not None:
+                        return sub_data[idx].item()
+                return sub_data[0].item()
+
+            targets = cfg['training_params']['visualize'][data_mode]['targets']
+            for t in targets:
+                t_dataset = t.get('dataset')
+                subj = t.get('subject') if t.get('subject') is not None else _first_subject(t_dataset)
+                t_idx, subject_id = pick_trial(ds, subj, trial=t.get('trial'), dataset_name=t_dataset)
+                out = resolve_output_dir(cfg, 'analysis', t_dataset or 'multi', mode=mode)
+                metrics = run(
+                    cfg, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
+                    plot_recon=check_cfg.get('plot_recon', True),
+                    plot_topo_psd=check_cfg.get('plot_topo_psd', True),
+                    plot_attn_topo=check_cfg.get('plot_attn_topo', True),
+                )
+                metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
+                print(f"[check] done: dataset={t_dataset} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
+
+        else:
+            dataset_name = args.dataset or next(iter(ds_params))
+            ds_cfg       = ds_params[dataset_name]
+            subjects     = [args.subject] if args.subject is not None else ds_cfg.get('subject_to_use', [])
+
+            for subject in subjects:
+                ds_name, subject = select_subject_dataset(cfg, subject, dataset_name=dataset_name, mode=data_mode)
+                filtered  = filter_config_to_subject(cfg, ds_name, subject, mode=data_mode)
+                ds        = build_dataset_from_config(filtered, mode=data_mode)
+                trial_cfg = args.trial if args.trial is not None else ds_cfg.get('trial_to_use')
+                t_idx, subject_id = pick_trial(ds, subject, trial_cfg, dataset_name=ds_name)
+                out = resolve_output_dir(filtered, 'analysis', ds_name, mode=mode)
                 metrics = run(
                     filtered, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
                     plot_recon=check_cfg.get('plot_recon', True),
                     plot_topo_psd=check_cfg.get('plot_topo_psd', True),
                     plot_attn_topo=check_cfg.get('plot_attn_topo', True),
-                    tag=tag,
                 )
                 metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
-                print(f"[check] done: target={cls_idx}({name}) status={status} subject={subject_id} "
-                      f"trial_idx={t_idx}  |  {metrics_str}")
-
-    elif cfg.get('training_params', {}).get('visualize', {}).get(data_mode, {}).get('targets'):
-        # Same visualize.<mode>.targets key/shape as config.json's own periodic-viz config
-        # (see train_pretrain.py's viz_targets) — a list of {dataset, subject, trial} triples
-        # picking exactly which snapshots to render, instead of dataset_params.<mode>'s
-        # one-subject-per-dataset-entry mechanism below. dataset_params.<mode> still governs
-        # what data gets loaded (all datasets/subjects it lists, combined into one dataset,
-        # same as training does); targets only selects which trials within that get plotted.
-        ds = build_dataset_from_config(cfg, mode=data_mode)
-
-        def _first_subject(dataset_name=None):
-            sub_data = ds.base_dataset.subject_data
-            if dataset_name is not None:
-                names = ds.base_dataset.dataset_names
-                idx = next((i for i, n in enumerate(names) if n == dataset_name), None)
-                if idx is not None:
-                    return sub_data[idx].item()
-            return sub_data[0].item()
-
-        targets = cfg['training_params']['visualize'][data_mode]['targets']
-        for t in targets:
-            t_dataset = t.get('dataset')
-            subj = t.get('subject') if t.get('subject') is not None else _first_subject(t_dataset)
-            t_idx, subject_id = pick_trial(ds, subj, trial=t.get('trial'), dataset_name=t_dataset)
-            out = resolve_output_dir(cfg, 'analysis', t_dataset or 'multi', mode=mode)
-            metrics = run(
-                cfg, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
-                plot_recon=check_cfg.get('plot_recon', True),
-                plot_topo_psd=check_cfg.get('plot_topo_psd', True),
-                plot_attn_topo=check_cfg.get('plot_attn_topo', True),
-            )
-            metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
-            print(f"[check] done: dataset={t_dataset} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
-
-    else:
-        dataset_name = args.dataset or next(iter(ds_params))
-        ds_cfg       = ds_params[dataset_name]
-        subjects     = [args.subject] if args.subject is not None else ds_cfg.get('subject_to_use', [])
-
-        for subject in subjects:
-            ds_name, subject = select_subject_dataset(cfg, subject, dataset_name=dataset_name, mode=data_mode)
-            filtered  = filter_config_to_subject(cfg, ds_name, subject, mode=data_mode)
-            ds        = build_dataset_from_config(filtered, mode=data_mode)
-            trial_cfg = args.trial if args.trial is not None else ds_cfg.get('trial_to_use')
-            t_idx, subject_id = pick_trial(ds, subject, trial_cfg, dataset_name=ds_name)
-            out = resolve_output_dir(filtered, 'analysis', ds_name, mode=mode)
-            metrics = run(
-                filtered, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
-                plot_recon=check_cfg.get('plot_recon', True),
-                plot_topo_psd=check_cfg.get('plot_topo_psd', True),
-                plot_attn_topo=check_cfg.get('plot_attn_topo', True),
-            )
-            metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
-            print(f"[check] done: dataset={ds_name} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
+                print(f"[check] done: dataset={ds_name} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")

@@ -44,12 +44,64 @@ class PsdResult:
 
 
 @dataclass
+class PatchGridResult:
+    """Real per-patch stamp selection/content — no cross-patch averaging or trial-wide
+    dedup (unlike PsdResult/_used_stamps): a stamp firing on many sampled patches shows up
+    once per patch it fired at, with that patch's own real decoded content, instead of
+    being blurred into one trial-averaged row. See extract_filter_psd_by_patch.
+    patch_ids: [P] sampled patch indices (every patch_stride-th patch).
+    stamp_ids: [P, K] GLOBAL stamp id selected at each sampled patch's each of K=top_k+
+      n_shared slots (same layout StampBank.forward's `idx` uses, routed then shared).
+    topo: [P, K, C] per-channel real-response norm (topomap power) for that (patch, slot).
+    psd: [P, K, C, F] per-channel power spectrum of that (patch, slot)'s real decoded content.
+    h: [P, K] that slot's real selection strength at that patch.
+    recon_topo: [P, C] per-channel norm of that sampled patch's REAL full reconstruction
+      (sum of all K slots' contributions — the same sum StampBank.forward's `recon` is,
+      just for this one patch, not the whole trial) — topo of a sum is not the sum of
+      topos (norm isn't linear), so this is computed from the summed signal, not derived
+      from `topo` above.
+    recon_psd: [P, C, F] power spectrum of that same per-patch full reconstruction.
+    raw_topo: [P, C] per-channel norm of that sampled patch's REAL raw input (the model's
+      own `x` at that patch, before any encoding/decoding) — same FFT settings as
+      recon_topo/psd so it's directly comparable, not derived from recon.
+    raw_psd: [P, C, F] power spectrum of that same per-patch raw input.
+    freqs: [F].
+    """
+    patch_ids: np.ndarray
+    stamp_ids: np.ndarray
+    topo: np.ndarray
+    psd: np.ndarray
+    h: np.ndarray
+    recon_topo: np.ndarray
+    recon_psd: np.ndarray
+    raw_topo: np.ndarray
+    raw_psd: np.ndarray
+    freqs: np.ndarray
+
+
+@dataclass
 class SpectraResult:
     """psd: [Q, C, F] per-Unit per-channel power spectrum. freqs: [F].
     importance: [Q], same ranking score as PsdResult.importance."""
     psd: np.ndarray
     freqs: np.ndarray
     importance: np.ndarray
+
+
+def _demean_hann_rfft(x: torch.Tensor, n_fft: int) -> torch.Tensor:
+    """Demean + Hann-taper x along its last dim, THEN zero-pad to n_fft and rfft.
+    Every PSD in this file is built from a single short patch_len window (~100ms), far too
+    short to resolve real Delta/Theta content and, worse, a bare rfft on an un-tapered
+    snippet is an implicit rectangular window whose mainlobe (~2*fs/L Hz wide) smears any
+    DC offset or patch-boundary discontinuity across 0-20Hz — that leakage is what was
+    showing up as suspiciously uniform "high power" at 0-10Hz across every dataset/model,
+    not real signal. Demeaning kills the DC spike; the Hann taper suppresses the
+    sidelobes carrying the rest of the leakage. Zero-padding (n_fft > L) still only
+    interpolates this cleaned-up spectrum for display — it doesn't add real resolution
+    below ~1/(L/fs) Hz, that ceiling is unavoidable at patch_len scale."""
+    x = x - x.mean(dim=-1, keepdim=True)
+    win = torch.hann_window(x.shape[-1], periodic=False, device=x.device, dtype=x.dtype)
+    return torch.fft.rfft(x * win, n=n_fft, dim=-1)
 
 
 def _cosine_affinity(v_mean: torch.Tensor) -> np.ndarray:
@@ -78,7 +130,7 @@ def _spectra_per_channel(recon_flat: torch.Tensor, B: int, N: int, C: int, L: in
     if fs and freq_resolution:
         n_fft = max(L, int(round(fs / freq_resolution)))
 
-    fft_c = torch.fft.rfft(recon.float(), n=n_fft, dim=-1)
+    fft_c = _demean_hann_rfft(recon.float(), n_fft)
     psd = fft_c.real.pow(2) + fft_c.imag.pow(2)   # [C, N, Q, F]
     psd = psd.mean(dim=1)                          # [C, Q, F] — average over patches
     psd = psd.permute(1, 0, 2).cpu().numpy()       # [Q, C, F]
@@ -235,6 +287,65 @@ def extract_filter_psd(model, x: torch.Tensor, coords: torch.Tensor,
 
 
 @torch.no_grad()
+def extract_filter_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
+                                 time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
+                                 fs: float = None, freq_resolution: float = None,
+                                 patch_stride: int = 5) -> PatchGridResult:
+    """
+    Per-patch counterpart to extract_filter_psd/_used_stamps: instead of deduplicating a
+    stamp across the whole trial and averaging its content over every patch it fired at
+    (hiding whether it fired once or on every patch), this keeps every sampled patch's own
+    real top_k+n_shared selection and decodes each slot's content AT that specific patch
+    only (StampBank.decode_selected, the same per-slot contribution forward() sums into
+    `recon` — nothing new computed, just not summed away here). patch_stride subsamples
+    patches (not config-exposed — a caller-side rendering-cost knob, not a modeling
+    choice) since a full (top_k+n_shared)*N_patches grid is impractically large to render
+    (e.g. 20 slots * 40 patches = 800 topo+PSD columns).
+    """
+    z, _ = model.stage_features(x, coords, time_idx=time_idx)
+    z_bnc, valid_mask = model._pool_channels(z, valid_channels)  # [M, C, D], M = N (B=1)
+    out = model.stamps(z_bnc, valid_mask=valid_mask)  # eval-mode call, aux/dead-atom path never runs
+
+    contribution, _z_h = model.stamps.decode_selected(out.idx, out.h, out.pooled)  # [M, K, C, L]
+
+    M = contribution.shape[0]
+    sel = list(range(0, M, patch_stride))
+    contribution_sel = contribution[sel]  # [P, K, C, L]
+    L = contribution_sel.shape[-1]
+
+    n_fft = L
+    if fs and freq_resolution:
+        n_fft = max(L, int(round(fs / freq_resolution)))
+    fft_c = _demean_hann_rfft(contribution_sel.float(), n_fft)  # [P, K, C, F]
+    psd = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
+    freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
+
+    topo = contribution_sel.norm(dim=-1).cpu().numpy()  # [P, K, C]
+
+    # Real per-patch full reconstruction (sum of all K slots' contributions, same sum
+    # StampBank.forward's `recon` computes) — its own topo/psd, not derived from the
+    # per-slot ones above (norm/FFT aren't linear, see PatchGridResult docstring).
+    recon_sel = contribution_sel.sum(dim=1)  # [P, C, L]
+    fft_recon = _demean_hann_rfft(recon_sel.float(), n_fft)  # [P, C, F]
+    recon_psd = (fft_recon.real.pow(2) + fft_recon.imag.pow(2)).cpu().numpy()
+    recon_topo = recon_sel.norm(dim=-1).cpu().numpy()  # [P, C]
+
+    # Real per-patch raw input (model's own x at that patch, B=1) — same n_fft as recon
+    # above so raw/recon/slot rows share one freq axis.
+    raw_sel = x[0, :, sel, :].permute(1, 0, 2)  # [P, C, L]
+    fft_raw = _demean_hann_rfft(raw_sel.float(), n_fft)  # [P, C, F]
+    raw_psd = (fft_raw.real.pow(2) + fft_raw.imag.pow(2)).cpu().numpy()
+    raw_topo = raw_sel.norm(dim=-1).cpu().numpy()  # [P, C]
+
+    return PatchGridResult(
+        patch_ids=np.array(sel), stamp_ids=out.idx[sel].cpu().numpy(),
+        topo=topo, psd=psd, h=out.h[sel].cpu().numpy(),
+        recon_topo=recon_topo, recon_psd=recon_psd,
+        raw_topo=raw_topo, raw_psd=raw_psd, freqs=freqs,
+    )
+
+
+@torch.no_grad()
 def extract_filter_spectra(model, x: torch.Tensor, coords: torch.Tensor,
                            time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
                            fs: float = None, freq_resolution: float = None) -> SpectraResult:
@@ -251,7 +362,7 @@ def extract_filter_spectra(model, x: torch.Tensor, coords: torch.Tensor,
     if fs and freq_resolution:
         n_fft = max(L, int(round(fs / freq_resolution)))
 
-    fft_c = torch.fft.rfft(fp.float(), n=n_fft, dim=-1)
+    fft_c = _demean_hann_rfft(fp.float(), n_fft)
     psd = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()  # [Qu, C, F]
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
 

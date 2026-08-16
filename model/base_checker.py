@@ -86,6 +86,59 @@ class BaseEpochChecker:
             metrics.update(trainer.epoch_metrics(model, out))
         return metrics
 
+    def _render_topo_psd(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
+                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance):
+        """Default: plot_topo_psd_filter (per-unit dedup, trial-averaged over every patch a
+        unit fired at). MeSAEChecker overrides this with a real per-patch grid instead (see
+        viz.extract.extract_filter_psd_by_patch) — StampBank's hard top-k per-patch dispatch
+        means the trial-wide dedup here hides whether a stamp fired once or on every patch;
+        MeFSQ's dense per-patch routing doesn't have the same sparsity story, stays default."""
+        spectra_result = self.extract_spectra(
+            bundle.psd_model, bundle.x_in, bundle.c_in, bundle.t_in, bundle.vc_in, fs, 0.2)
+        psd_x, freqs = spectra_result.psd, spectra_result.freqs
+
+        # Raw/recon PSD reads the FULL concatenated trial (raw_t/recon_t, [1,C,T],
+        # T=N*patch_len) instead of per-patch_len-then-averaged — a single 100ms
+        # patch can't resolve real Delta/Theta content and a per-patch FFT leaks DC
+        # /edge-discontinuity power across 0-20Hz regardless of true content (see
+        # viz/extract._demean_hann_rfft). The full trial is long enough to actually
+        # resolve down near l_freq. n_fft is driven by the same freq_resolution=0.2Hz
+        # target either way, so it lands on the same value (and same freqs axis) as
+        # psd_x's patch-level FFT as long as T <= that n_fft — true for any config
+        # where the trial is a few seconds, so no downstream shape mismatch.
+        raw_t   = bundle.raw_t[0].numpy()    # [C, T]
+        recon_t = bundle.recon_t[0].numpy()  # [C, T]
+        T = raw_t.shape[-1]
+        n_fft = max(T, int(round(fs / 0.2))) if fs else T
+
+        def _demean_hann_rfft_np(x):
+            x = x - x.mean(axis=-1, keepdims=True)
+            win = np.hanning(x.shape[-1])
+            return np.fft.rfft(x * win, n=n_fft, axis=-1)
+
+        fft_raw   = _demean_hann_rfft_np(raw_t)
+        fft_recon = _demean_hann_rfft_np(recon_t)
+        psd_raw   = fft_raw.real**2   + fft_raw.imag**2
+        psd_recon = fft_recon.real**2 + fft_recon.imag**2
+
+        if l_freq is not None and h_freq is not None:
+            band = (freqs >= l_freq) & (freqs <= h_freq)
+            freqs, psd_x   = freqs[band], psd_x[:, :, band]
+            psd_raw, psd_recon = psd_raw[:, band], psd_recon[:, band]
+
+        raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
+        recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
+
+        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_psd_filter.png")
+        plot_topo_psd_filter(
+            out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
+            psd_ch_x, psd_x, freqs, importance, cmap=cmap,
+            subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
+            unit_label=self.unit_label, l_freq=l_freq, h_freq=h_freq,
+            unit_colors=bundle.unit_colors,
+        )
+        print(f"  [epoch] -> {out_path}")
+
     # -- shared snapshot renderer: PSD/FFT/band-crop/panel-render, stage-agnostic ---
 
     @torch.no_grad()
@@ -101,6 +154,10 @@ class BaseEpochChecker:
         pos2d = project_coords_2d(bundle.coords)
         C, N, patch_len = bundle.raw_cnl.shape
 
+        pp = config.get('preprocess_params', {})
+        fs = pp.get('target_freq')  # None means "unknown" downstream, see extract_spectra/n_fft below
+        l_freq, h_freq = pp.get('l_freq'), pp.get('h_freq')
+
         if plot_recon:
             visualize_reconstruction(
                 None, (bundle.raw_t, bundle.recon_t), epoch,
@@ -109,6 +166,7 @@ class BaseEpochChecker:
                 subject_id=subject_id, trial_idx=trial_idx,
                 mask=bundle.mask_np, patch_len=bundle.patch_len,
                 tag=filename_tag.lstrip('_') + ('_' if filename_tag else ''),
+                fs=fs or 200.0, l_freq=l_freq, h_freq=h_freq,
             )
 
         if not (plot_topo_psd or plot_attn_topo):
@@ -124,36 +182,8 @@ class BaseEpochChecker:
 
         if plot_topo_psd:
             try:
-                pp = config.get('preprocess_params', {})
-                fs = pp.get('target_freq')
-                l_freq, h_freq = pp.get('l_freq'), pp.get('h_freq')
-                spectra_result = self.extract_spectra(
-                    bundle.psd_model, bundle.x_in, bundle.c_in, bundle.t_in, bundle.vc_in, fs, 0.2)
-                psd_x, freqs = spectra_result.psd, spectra_result.freqs
-
-                n_fft = max(patch_len, int(round(fs / 0.2))) if fs else patch_len
-                fft_raw   = np.fft.rfft(bundle.raw_cnl,   n=n_fft, axis=-1)
-                fft_recon = np.fft.rfft(bundle.recon_cnl, n=n_fft, axis=-1)
-                psd_raw   = (fft_raw.real**2   + fft_raw.imag**2  ).mean(axis=1)
-                psd_recon = (fft_recon.real**2 + fft_recon.imag**2).mean(axis=1)
-
-                if l_freq is not None and h_freq is not None:
-                    band = (freqs >= l_freq) & (freqs <= h_freq)
-                    freqs, psd_x   = freqs[band], psd_x[:, :, band]
-                    psd_raw, psd_recon = psd_raw[:, band], psd_recon[:, band]
-
-                raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
-                recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
-
-                out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_psd_filter.png")
-                plot_topo_psd_filter(
-                    out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
-                    psd_ch_x, psd_x, freqs, importance, cmap=cmap,
-                    subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
-                    unit_label=self.unit_label, l_freq=l_freq, h_freq=h_freq,
-                    unit_colors=bundle.unit_colors,
-                )
-                print(f"  [epoch] -> {out_path}")
+                self._render_topo_psd(bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
+                                       tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance)
             except Exception as e:
                 print(f"  [epoch] topo_psd_filter failed: {e}")
 

@@ -16,7 +16,7 @@ import torch
 
 from viz.codebook import (
     plot_usage_and_activity, plot_embedding_scatter_by_dataset, plot_embedding_scatter_by_target,
-    plot_filter_relation, plot_patch_similarity_hierarchy,
+    plot_patch_similarity_hierarchy,
     plot_patch_position_consistency, plot_dataset_relation, plot_unit_freedom,
 )
 
@@ -92,8 +92,6 @@ class BaseCodebookChecker:
             print(f"  [codebook] {ds_name}: sampled {n_trials}/{n} trials "
                   f"-> {usage_by_dataset[ds_name].shape[0]} patches")
 
-        fp_matrix = self.decoder_fingerprint_matrix(model)
-
         viz_dir = os.path.join(output_dir, 'codebook')
         os.makedirs(viz_dir, exist_ok=True)
 
@@ -115,8 +113,6 @@ class BaseCodebookChecker:
             os.path.join(viz_dir, 'trial_embedding_scatter_per_dataset.png'),
             trial_usage_by_dataset, trial_labels_by_dataset,
             unit_label=self.unit_label, max_points=max_scatter_points, random_state=seed)
-        plot_filter_relation(
-            os.path.join(viz_dir, 'filter_relation.png'), usage_by_dataset, fp_matrix, unit_label=self.unit_label)
         plot_patch_similarity_hierarchy(
             os.path.join(viz_dir, 'patch_similarity_hierarchy.png'), trial_records,
             unit_label=self.unit_label, seed=seed)
