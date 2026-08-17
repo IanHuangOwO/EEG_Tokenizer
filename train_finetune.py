@@ -208,10 +208,26 @@ def _resolve_all_subjects(data_root):
 
 
 def _resolve_requested_subjects(ds_args, all_available_subjects):
+    """all_available_subjects is int-typed when every metadata subject key int-converts
+    (see _resolve_all_subjects), so a JSON config's string subject ids ("1", not 1) never
+    matched by raw `in` membership -- try both the requested value as-is and int-converted
+    against whichever type all_available_subjects actually holds."""
     requested_subjects = ds_args['subject_to_use']
     if requested_subjects in (["all"], "all"):
         return list(all_available_subjects)
-    return [s for s in requested_subjects if s in all_available_subjects or str(s) in all_available_subjects]
+    available = set(all_available_subjects)
+    resolved = []
+    for s in requested_subjects:
+        if s in available:
+            resolved.append(s)
+            continue
+        try:
+            si = int(s)
+        except (TypeError, ValueError):
+            continue
+        if si in available:
+            resolved.append(si)
+    return resolved
 
 
 def build_subject_split_datasets(config, dataset_params, split_ratio, logger):
