@@ -162,6 +162,13 @@ if __name__ == '__main__':
         codebook_cfg = check_cfg.get('codebook', {})
         max_trials   = codebook_cfg.get('max_trials_per_dataset', 200)
 
+        # codebook diagnostics read the backbone's own patchified forward (extract_usage
+        # calls model(x_in, c_in, time_idx=, valid_channels=)) regardless of --mode, so
+        # always use the 'pretrain' dataset shape (MaskedPretrainDataset's 7-tuple) even
+        # when checking a finetune checkpoint -- FinetuneDataset's 5-tuple (raw [C,T], no
+        # patch/mask) doesn't match what BaseCodebookChecker._trial_tensors unpacks.
+        codebook_ds_params = cfg['dataset_params']['pretrain']
+
         # one dataset per entry (not the full multi-dataset concatenation) so usage stats
         # stay attributable to a single source dataset, see viz/codebook.py.
         # assemble_trials=False: codebook's by-target plots need each patch's real trial
@@ -169,14 +176,14 @@ if __name__ == '__main__':
         # back torch.zeros(...) (see IO/dataset.py _window_subject_signal), collapsing every
         # target to a single dummy class.
         datasets_by_name = {}
-        for ds_name, ds_args in ds_params.items():
+        for ds_name, ds_args in codebook_ds_params.items():
             single_cfg = copy.deepcopy(cfg)
-            single_cfg['dataset_params'][data_mode] = {ds_name: ds_args}
+            single_cfg['dataset_params']['pretrain'] = {ds_name: ds_args}
             datasets_by_name[ds_name] = build_dataset_from_config(
-                single_cfg, mode=data_mode, assemble_trials=False)
+                single_cfg, mode='pretrain', assemble_trials=False)
 
         out = resolve_output_dir(cfg, 'analysis', mode=mode)
-        checker.check_codebook(cfg, out, mdl, datasets_by_name, max_trials_per_dataset=max_trials)
+        checker.check_codebook(cfg, out, probe, datasets_by_name, max_trials_per_dataset=max_trials)
         print(f"[check] codebook analysis done: datasets={list(datasets_by_name)}  |  out={out}")
 
     if analysis in ('snapshot', 'both'):
