@@ -77,10 +77,12 @@ class MeSAETrainer(BaseTrainer):
         aux_weight = hparams.get('aux_weight', 0.03)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
         decorr_weight = hparams.get('decorr_weight', 0.01)
+        stamp_lb_weight = hparams.get('stamp_lb_weight', 0.01)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
                                decorr_loss=out.decorr_loss, decorr_weight=decorr_weight,
+                               stamp_lb_loss=out.stamp_lb_loss, stamp_lb_weight=stamp_lb_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight)
 
     def update_diagnostics(self, model, out):
@@ -94,6 +96,7 @@ class MeSAETrainer(BaseTrainer):
         # instead of an epoch average like every other loss stat.
         metrics = model.get_metrics(out.dense_routed.detach())
         metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
+        metrics['stamp_lb_loss'] = out.stamp_lb_loss.item() if hasattr(out.stamp_lb_loss, 'item') else float(out.stamp_lb_loss)
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
 

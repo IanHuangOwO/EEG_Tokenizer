@@ -294,9 +294,9 @@ class MeSAEPretrain(nn.Module):
         valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional).
         returns SimpleNamespace(recon [B,C,N,L], attn [B,N,n_stamps,C] (per-stamp
         topography), h [M,Q] selection strengths, dense_routed [M,n_routed_stamps]
-        (diagnostic selection-frequency source), aux_loss scalar, ffn_lb_loss scalar
-        (TSABlock MoEFFN routers, summed across blocks — StampBank has no load-balance
-        loss of its own, see StampBank.forward).
+        (diagnostic selection-frequency source), aux_loss scalar, stamp_lb_loss scalar
+        (StampBank's own routed-pool load-balance term, see StampBank.forward), ffn_lb_loss
+        scalar (TSABlock MoEFFN routers, summed across blocks — a separate MoE/loss).
         """
         B, C, N, L = x.shape
 
@@ -314,6 +314,7 @@ class MeSAEPretrain(nn.Module):
             h=out.h,
             dense_routed=out.dense_routed,
             aux_loss=out.aux_loss,
+            stamp_lb_loss=out.stamp_lb_loss,
             ffn_lb_loss=ffn_lb_loss,
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
@@ -377,6 +378,7 @@ class MeSAEPretrain(nn.Module):
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
                  decorr_loss=None, decorr_weight=0.01,
+                 stamp_lb_loss=None, stamp_lb_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01):
         """
         Returns (total, l_masked, l_unmasked).
@@ -393,11 +395,11 @@ class MeSAEPretrain(nn.Module):
         frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
         freeze_stamps().
 
-        decorr_loss (StampBank's spatial-pattern decorrelation) is dropped the same way and
-        for the same reason once frozen — freeze_stamps() locks the whole StampBank, so a
-        frozen spatial pattern can't act on the gradient either (see docs/adr/0007,
-        docs/adr/0009). StampBank has no load-balance loss of its own — dropped deliberately,
-        see StampBank.forward docstring.
+        decorr_loss (StampBank's spatial-pattern decorrelation) and stamp_lb_loss
+        (StampBank's routed-pool load-balance term, see StampBank.forward) are dropped the
+        same way and for the same reason once frozen — freeze_stamps() locks the whole
+        StampBank, so neither can act on the gradient anymore (see docs/adr/0007,
+        docs/adr/0009).
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
@@ -411,6 +413,8 @@ class MeSAEPretrain(nn.Module):
             total = total + aux_weight * aux_loss
             if decorr_loss is not None:
                 total = total + decorr_weight * decorr_loss
+            if stamp_lb_loss is not None:
+                total = total + stamp_lb_weight * stamp_lb_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
         return total, l_masked, l_unmasked
