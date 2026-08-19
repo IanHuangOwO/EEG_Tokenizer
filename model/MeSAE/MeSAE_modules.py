@@ -542,21 +542,19 @@ class StampBank(nn.Module):
         return contribution, z_h
 
     def _generate(self, idx, h, pooled):
-        """recon [M, C, patch_len] (h-WEIGHTED sum of decode_selected's per-slot
-        contributions — each slot's raw contribution scaled by its own selection strength
-        h before summing), z_h [M, top_k+n_shared, D] — see decode_selected for the
-        unweighted per-slot version.
+        """recon [M, C, patch_len] (plain unweighted sum of decode_selected's per-slot
+        contributions), z_h [M, top_k+n_shared, D] — see decode_selected for the per-slot
+        version.
 
-        Weighting by h here (not just in z_h) matters: an unweighted sum lets the loss
-        (which only ever sees the SUMMED recon) permit multiple atoms to grow to large
-        opposite-sign values that cancel in the sum — invisible in the final
-        reconstruction but visible as a huge raw per-atom topo/PSD value. h_routed being a
-        top-k softmax (sums to 1 within the routed group) and h_shared a small fixed
-        constant means a low-confidence or accidentally-selected atom's raw magnitude gets
-        shrunk before it can cancel a high-confidence one, closing that loophole instead
-        of just hiding it."""
+        h-weighting the sum was tried (each slot's contribution scaled by its own
+        selection strength before summing, to stop atoms cancelling out at large opposite-
+        sign magnitudes) but regressed router health — a low-confidence atom earning
+        almost no gradient credit for a genuinely useful contribution pushed the top-k
+        softmax to sharpen onto fewer atoms over training (see git history on this
+        method). Reverted back to the plain sum; the cancellation issue it was meant to
+        fix is a real but separate problem, not solved here."""
         contribution, z_h = self.decode_selected(idx, h, pooled)
-        recon = (contribution * h.view(*h.shape, 1, 1)).sum(dim=1)
+        recon = contribution.sum(dim=1)
         return recon, z_h
 
     def decorrelation_loss(self):
