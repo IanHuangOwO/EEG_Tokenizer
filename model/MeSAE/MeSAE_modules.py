@@ -402,12 +402,11 @@ class StampBank(nn.Module):
     nn.Linear(dim, n_routed) gate (MoEFFN's FFNRouter convention) — that assumes every
     expert reads the same input, but every atom here already has its OWN input
     (pooled_i, from its own channel-attention view, see _pool), so the scorer needs its
-    own per-atom weight vector too. Unlike MoEFFN (compute-all-then-mask, needs traffic
-    spread for compute balance), this module dispatches sparsely (gather by idx) — no
-    compute-balance problem, so stamp_lb_loss (see forward()) is weighted low and exists
-    only to counter the collapse pressure h-weighted recon introduces, not to force
-    uniform routing — legitimate power-law usage is still fine. Dead-atom collapse that
-    slips through anyway is also guarded by fire_ema/dead_threshold/aux_loss below.
+    own per-atom weight vector too. No load-balance loss: unlike MoEFFN (compute-all-
+    then-mask, needs traffic spread for compute balance), this module dispatches
+    sparsely (gather by idx) — no compute-balance problem, and forcing uniform routing
+    would fight the legitimate power-law usage a content-addressed dictionary should
+    have. Collapse is instead guarded by fire_ema/dead_threshold/aux_loss below.
 
     phi_i(pooled_i) is a small bottleneck MLP straight to the output, no tied
     reconstruction step: hidden_i = gelu(pooled_i @ W_down_i + b_down_i) -> [hidden_width],
@@ -543,26 +542,19 @@ class StampBank(nn.Module):
         return contribution, z_h
 
     def _generate(self, idx, h, pooled):
-        """recon [M, C, patch_len] (h-WEIGHTED sum of decode_selected's per-slot
-        contributions — each slot's raw contribution scaled by its own selection strength
-        h before summing), z_h [M, top_k+n_shared, D] — see decode_selected for the
-        unweighted per-slot version.
+        """recon [M, C, patch_len] (plain unweighted sum of decode_selected's per-slot
+        contributions), z_h [M, top_k+n_shared, D] — see decode_selected for the per-slot
+        version.
 
-        Weighting by h here (not just in z_h) matters: an unweighted sum lets the loss
-        (which only ever sees the SUMMED recon) permit multiple atoms to grow to large
-        opposite-sign values that cancel in the sum — invisible in the final
-        reconstruction but visible as a huge raw per-atom topo/PSD value. h_routed being a
-        top-k softmax (sums to 1 within the routed group) and h_shared a small fixed
-        constant means a low-confidence or accidentally-selected atom's raw magnitude gets
-        shrunk before it can cancel a high-confidence one, closing that loophole instead
-        of just hiding it.
-
-        On its own this regressed router health (starves low-h atoms of gradient credit,
-        sharpens top-k softmax onto fewer atoms — see git history). Paired now with
-        forward()'s stamp_lb_loss, which directly penalizes exactly that population-level
-        imbalance instead of leaving it to fire_ema/aux to catch after the fact."""
+        h-weighting the sum was tried (each slot's contribution scaled by its own
+        selection strength before summing, to stop atoms cancelling out at large opposite-
+        sign magnitudes) but regressed router health — a low-confidence atom earning
+        almost no gradient credit for a genuinely useful contribution pushed the top-k
+        softmax to sharpen onto fewer atoms over training (see git history on this
+        method). Reverted back to the plain sum; the cancellation issue it was meant to
+        fix is a real but separate problem, not solved here."""
         contribution, z_h = self.decode_selected(idx, h, pooled)
-        recon = (contribution * h.view(*h.shape, 1, 1)).sum(dim=1)
+        recon = contribution.sum(dim=1)
         return recon, z_h
 
     def decorrelation_loss(self):
@@ -639,18 +631,11 @@ class StampBank(nn.Module):
         finetune feature), h [M, top_k+n_shared] (selection strengths, routed then shared —
         same ordering convention `docs/adr/0007`'s gate used), dense_routed [M, n_routed]
         (zeros at unselected — the diagnostic object MeSAETrainer/MeSAECodebookChecker read
-        for router-health/usage-histogram panels), decorr_loss, aux_loss, stamp_lb_loss.
+        for router-health/usage-histogram panels), decorr_loss, aux_loss.
 
-        stamp_lb_loss: Switch-Transformer-style load-balance term (same formula as
-        FFNRouter.forward), added once _generate's recon became h-weighted — h-weighting
-        gives real gradient credit only to the winning atom(s) of each patch's top-k, which
-        on its own sharpens the routed pool onto fewer and fewer atoms over training (see
-        git history). This penalizes correlation between hard selection frequency f and
-        dense softmax prob p across the ROUTED population, directly countering that
-        population-level imbalance rather than leaving it to fire_ema/aux to catch after
-        collapse has already happened. Deliberately NOT used to force literal uniform
-        routing (weighted low, see stamp_lb_weight in config) — some legitimate power-law
-        usage is fine, this only stops it running away to a handful of atoms.
+        No load-balance loss — see class docstring: sparse dispatch, no compute-balance
+        problem, and forcing uniform routing would fight legitimate power-law usage. Dead-
+        atom collapse is handled instead by fire_ema/dead_threshold/aux_loss below.
         """
         M = z.shape[0]
         pooled, attn = self._pool(z, valid_mask)  # [M, n_stamps, D], [M, n_stamps, C]
@@ -673,10 +658,6 @@ class StampBank(nn.Module):
         recon, z_h = self._generate(idx, h, pooled)
 
         decorr_loss = self.decorrelation_loss()
-
-        f = dense_routed.detach().gt(0).float().mean(dim=0)      # [n_routed] hard selection frequency
-        p = torch.softmax(score, dim=-1).mean(dim=0)              # [n_routed] dense prob, has grad
-        stamp_lb_loss = self.n_routed * ((f / (f.sum() + 1e-8)) * (p / (p.sum() + 1e-8))).sum()
 
         aux_loss = recon.new_zeros(())
         if self.training:
@@ -703,7 +684,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, attn=attn, pooled=pooled, z_h=z_h, h=h, idx=idx, dense_routed=dense_routed,
-            decorr_loss=decorr_loss, aux_loss=aux_loss, stamp_lb_loss=stamp_lb_loss,
+            decorr_loss=decorr_loss, aux_loss=aux_loss,
         )
 
 
