@@ -669,17 +669,22 @@ class StampBank(nn.Module):
                 dead_mask = self.fire_ema < self.dead_threshold  # [n_routed]
 
             if dead_mask.any() and x_target is not None:
-                dead_score = score.masked_fill(~dead_mask.unsqueeze(0), float('-inf'))
-                aux_k = min(self.aux_k_cap, int(dead_mask.sum().item()))
-                aux_val, aux_idx = dead_score.topk(aux_k, dim=-1)
-                # WHICH aux_k dead atoms get a shot is still a hard, non-differentiable
-                # topk (same as the main path's routed selection) — but softmax-weighting
-                # their contribution by aux_val (their REAL score, not detached) instead of
-                # summing it unweighted means aux_loss now backprops into that score: an
-                # atom whose contribution actually reduces the residual gets its weight
-                # (and therefore its score) pushed up for real. The old unweighted sum only
-                # ever trained the rescued atoms' DECODER (W_down/W_out) — their score never
-                # moved, so a "rescued" atom could never re-enter real top-k competition.
+                # WHICH dead atoms get a rescue shot each step: random sample from the dead
+                # pool, not top-k by current score. Top-k-by-score starves anything below the
+                # cutoff forever — once dead_mask.sum() exceeds aux_k_cap (the normal case
+                # once collapse starts), the same ~aux_k_cap "best of the worst" atoms win
+                # every single step and every atom ranked below them gets zero gradient,
+                # ever. Random sampling means every dead atom gets a rescue turn eventually.
+                dead_idx_pool = dead_mask.nonzero(as_tuple=True)[0]  # [n_dead]
+                aux_k = min(self.aux_k_cap, dead_idx_pool.numel())
+                perm = torch.randperm(dead_idx_pool.numel(), device=z.device)[:aux_k]
+                aux_idx = dead_idx_pool[perm].unsqueeze(0).expand(M, -1)  # [M, aux_k]
+                aux_val = score.gather(-1, aux_idx)  # [M, aux_k], differentiable w.r.t. score
+                # softmax-weighting contribution by aux_val (real score, not detached) means
+                # aux_loss backprops into score: an atom whose contribution actually reduces
+                # the residual gets its weight (and score) pushed up for real. The old
+                # unweighted sum only ever trained the rescued atoms' DECODER (W_down/W_out)
+                # — score never moved, so a "rescued" atom could never re-enter real top-k.
                 # rescue only ever draws from the routed pool (dead atoms are a routed-only
                 # concept, shared stamps are always "alive" by construction) — use
                 # _generate_routed directly rather than the mixed routed+shared _generate.

@@ -58,7 +58,7 @@
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
           "decorr_weight": 0.01,
-          "aux_weight": 0.05
+          "aux_weight": 0.2
         }
       },
       "pretrain": {
@@ -89,7 +89,7 @@
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
           "decorr_weight": 0.01,
-          "aux_weight": 0.05
+          "aux_weight": 0.2
         }
       },
       "finetune": {
