@@ -444,13 +444,18 @@ class StampBank(nn.Module):
         self.shared_hidden_width = shared_hidden_width
 
         # u: spatial topography, all n_stamps rows (routed + shared share the same table,
-        # shared rows just never get scored). Same non-overlapping cluster init as the
-        # retired ExpertChannelPool, spread over the full n_stamps so shared stamps also
-        # start on distinct scalp regions rather than at zero.
+        # shared rows just never get scored). Round-robin cluster init (h % num_channels,
+        # not a linspace bucket) so EVERY stamp gets a real one-hot-biased starting
+        # channel — n_stamps > num_channels is the common case (e.g. 300 stamps / 64
+        # channels), and linspace(0, num_channels, n_stamps+1) rounds most consecutive
+        # bounds[h]:bounds[h+1] slices to empty, silently skipping cluster_bias for most
+        # stamps (only num_channels of them ever got a real bias). Those un-biased stamps
+        # started at near-uniform channel attention (near-identical near-mean-pooled
+        # input to every one of them), a real structural cause of router collapse
+        # (confirmed: attn spread ~0.01-0.07 around the 1/num_channels uniform value).
         logit = torch.randn(n_stamps, num_channels) * 0.02
-        bounds = torch.linspace(0, num_channels, n_stamps + 1).long()
-        for h in range(n_stamps):
-            logit[h, bounds[h]:bounds[h + 1]] += cluster_bias
+        channel_idx = torch.arange(n_stamps) % num_channels
+        logit[torch.arange(n_stamps), channel_idx] += cluster_bias
         self.u = nn.Parameter(logit)
 
         # Per-atom linear selection scorer, routed atoms only (shared atoms are never
