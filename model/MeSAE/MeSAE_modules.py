@@ -421,7 +421,7 @@ class StampBank(nn.Module):
     MeSAECodebookChecker's fingerprint-affinity panel.
     """
     def __init__(self, dim, num_channels, patch_len, n_stamps=800, n_shared_stamps=4,
-                 top_k=32, hidden_width=8, shared_hidden_width=16, shared_weight=0.2,
+                 top_k=32, hidden_width=8, shared_hidden_width=16, shared_weight=0.1,
                  cluster_bias=2.0, dead_threshold_frac=0.1, aux_k_cap_frac=0.04, ema_decay=0.999):
         super().__init__()
         self.n_stamps = n_stamps
@@ -542,10 +542,21 @@ class StampBank(nn.Module):
         return contribution, z_h
 
     def _generate(self, idx, h, pooled):
-        """recon [M, C, patch_len] (sum of decode_selected's per-slot contributions), z_h
-        [M, top_k+n_shared, D] — see decode_selected for the unsummed per-slot version."""
+        """recon [M, C, patch_len] (h-WEIGHTED sum of decode_selected's per-slot
+        contributions — each slot's raw contribution scaled by its own selection strength
+        h before summing), z_h [M, top_k+n_shared, D] — see decode_selected for the
+        unweighted per-slot version.
+
+        Weighting by h here (not just in z_h) matters: an unweighted sum lets the loss
+        (which only ever sees the SUMMED recon) permit multiple atoms to grow to large
+        opposite-sign values that cancel in the sum — invisible in the final
+        reconstruction but visible as a huge raw per-atom topo/PSD value. h_routed being a
+        top-k softmax (sums to 1 within the routed group) and h_shared a small fixed
+        constant means a low-confidence or accidentally-selected atom's raw magnitude gets
+        shrunk before it can cancel a high-confidence one, closing that loophole instead
+        of just hiding it."""
         contribution, z_h = self.decode_selected(idx, h, pooled)
-        recon = contribution.sum(dim=1)
+        recon = (contribution * h.view(*h.shape, 1, 1)).sum(dim=1)
         return recon, z_h
 
     def decorrelation_loss(self):
@@ -661,11 +672,20 @@ class StampBank(nn.Module):
                 dead_score = score.masked_fill(~dead_mask.unsqueeze(0), float('-inf'))
                 aux_k = min(self.aux_k_cap, int(dead_mask.sum().item()))
                 aux_val, aux_idx = dead_score.topk(aux_k, dim=-1)
+                # WHICH aux_k dead atoms get a shot is still a hard, non-differentiable
+                # topk (same as the main path's routed selection) — but softmax-weighting
+                # their contribution by aux_val (their REAL score, not detached) instead of
+                # summing it unweighted means aux_loss now backprops into that score: an
+                # atom whose contribution actually reduces the residual gets its weight
+                # (and therefore its score) pushed up for real. The old unweighted sum only
+                # ever trained the rescued atoms' DECODER (W_down/W_out) — their score never
+                # moved, so a "rescued" atom could never re-enter real top-k competition.
                 # rescue only ever draws from the routed pool (dead atoms are a routed-only
                 # concept, shared stamps are always "alive" by construction) — use
                 # _generate_routed directly rather than the mixed routed+shared _generate.
+                aux_weight = torch.softmax(aux_val, dim=-1)  # [M, aux_k], differentiable w.r.t. score
                 contribution_aux, _ = self._generate_routed(aux_idx, pooled)
-                recon_aux = contribution_aux.sum(dim=1)
+                recon_aux = (contribution_aux * aux_weight.view(*aux_weight.shape, 1, 1)).sum(dim=1)
                 residual = (x_target - recon).detach()
                 aux_loss = F.mse_loss(recon_aux, residual) / (residual.pow(2).mean() + 1e-8)
 
