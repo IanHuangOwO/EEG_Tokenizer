@@ -218,7 +218,7 @@ class MeSAEChecker(BaseEpochChecker):
             out_path, pos2d, chan_attn, importance, channel_names,
             valid_channels=valid_channels.numpy(),
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=f'{epoch_tag} [finetune]',
-            unit_label=self.unit_label, unit_colors=colors,
+            unit_label=self.unit_label, unit_colors=colors, unit_ids=used_ids.cpu().numpy(),
             heatmap_attn=patch_filter_attn, heatmap_ylabels=list(range(patch_filter_attn.shape[1])),
             heatmap_ylabel='Patch (time)', heatmap_title=f'Patch x {self.unit_label} Attention',
             heatmap_transpose=False,

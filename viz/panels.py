@@ -167,7 +167,7 @@ def plot_topo_psd_by_patch(out_path, pos2d, raw_power, recon_power, psd_raw, psd
 
 def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_channels=None,
                     subject_id=None, trial_idx=None, epoch_tag='', unit_label='Filter',
-                    unit_colors=None, topo_attn=None, heatmap_attn=None, heatmap_ylabels=None,
+                    unit_colors=None, unit_ids=None, topo_attn=None, heatmap_attn=None, heatmap_ylabels=None,
                     heatmap_ylabel='Channel', heatmap_title=None, heatmap_transpose=True,
                     bar_vertical=None):
     """
@@ -175,6 +175,11 @@ def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_chann
     `importance`), plus one large heatmap spanning all rows.
     attn: [Q, C] — each unit's own channel attention weight (rows sum to 1). Used for both
     the topomaps and the big heatmap unless overridden below.
+    unit_ids: optional [Q] real unit ids for tick-label text, when `attn`'s row order is a
+    caller-side compacted/filtered subset (e.g. MeSAE's used_stamp_ids) whose row position
+    no longer matches the model's own global unit numbering. None (default) labels units by
+    their row position in `attn` — correct only when `attn` already covers every unit in
+    its natural order (e.g. MeFSQ's fixed Expert pool, never filtered).
     topo_attn: optional [Q, C] override for the topomap values only — e.g. channel
     attention scaled by each unit's overall importance, so units are visually comparable
     (raw per-unit attention rows each sum to 1 and aren't).
@@ -195,6 +200,7 @@ def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_chann
     means no color override (default black).
     """
     Q, C = attn.shape
+    display_ids = np.arange(Q) if unit_ids is None else np.asarray(unit_ids)
     sorted_ord = np.argsort(importance)[::-1]
     topo_src = attn if topo_attn is None else topo_attn
     attn_masked = topo_src if valid_channels is None else np.where(valid_channels[None, :], topo_src, np.nan)
@@ -204,7 +210,7 @@ def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_chann
     hm_ylabel = 'Channel' if heatmap_attn is None else heatmap_ylabel
     hm_title = (f'Channel x {unit_label} Attention' if heatmap_title is None and heatmap_attn is None
                 else heatmap_title if heatmap_title is not None else f'{unit_label} Attention')
-    unit_tick_labels = [f'{unit_label[0]}{q}\n{importance[q]:.3f}' for q in sorted_ord]
+    unit_tick_labels = [f'{unit_label[0]}{display_ids[q]}\n{importance[q]:.3f}' for q in sorted_ord]
     img = hm_src[sorted_ord].T if heatmap_transpose else hm_src[sorted_ord]
 
     # Topomap columns per row — was fixed at 2, bumped to 4 to roughly halve the number

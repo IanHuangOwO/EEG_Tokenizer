@@ -47,6 +47,8 @@ class SnapshotBundle:
     mask_np: Optional[np.ndarray] = None   # [C, N] masked-patch overlay, or None
     title_suffix: str = ''                 # e.g. ' [finetune]'
     unit_colors: Optional[List[str]] = None  # [Q] per-unit title/label color override, or None
+    unit_ids: Optional[np.ndarray] = None    # [Q] real global unit ids matching attn's row order,
+                                              # or None (attn's row order already IS the real ids)
 
 
 class BaseEpochChecker:
@@ -194,7 +196,7 @@ class BaseEpochChecker:
                     out_path, pos2d, bundle.attn, importance, bundle.channel_names,
                     valid_channels=bundle.valid_channels,
                     subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag, unit_label=self.unit_label,
-                    unit_colors=bundle.unit_colors,
+                    unit_colors=bundle.unit_colors, unit_ids=bundle.unit_ids,
                     heatmap_transpose=False,  # filter on Y, channel on X — same axis convention as finetune's panel
                     # bar_vertical left at default (None) -> follows heatmap_transpose -> horizontal,
                     # so each bar sits in the same row as its filter in the heatmap above.
@@ -243,6 +245,7 @@ class BaseEpochChecker:
                 coords=coords.numpy(), channel_names=dataset.base_dataset.channel_names,
                 valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=mask_np,
                 unit_colors=unit_colors,
+                unit_ids=used_ids.cpu().numpy() if used_ids is not None else None,
             )
             self._render_snapshot(bundle, config, output_dir, subject_id=subject_id,
                                    epoch=epoch, trial_idx=trial_idx, cmap=cmap,
