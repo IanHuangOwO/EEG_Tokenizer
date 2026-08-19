@@ -672,20 +672,15 @@ class StampBank(nn.Module):
                 dead_score = score.masked_fill(~dead_mask.unsqueeze(0), float('-inf'))
                 aux_k = min(self.aux_k_cap, int(dead_mask.sum().item()))
                 aux_val, aux_idx = dead_score.topk(aux_k, dim=-1)
-                # WHICH aux_k dead atoms get a shot is still a hard, non-differentiable
-                # topk (same as the main path's routed selection) — but softmax-weighting
-                # their contribution by aux_val (their REAL score, not detached) instead of
-                # summing it unweighted means aux_loss now backprops into that score: an
-                # atom whose contribution actually reduces the residual gets its weight
-                # (and therefore its score) pushed up for real. The old unweighted sum only
-                # ever trained the rescued atoms' DECODER (W_down/W_out) — their score never
-                # moved, so a "rescued" atom could never re-enter real top-k competition.
                 # rescue only ever draws from the routed pool (dead atoms are a routed-only
                 # concept, shared stamps are always "alive" by construction) — use
                 # _generate_routed directly rather than the mixed routed+shared _generate.
-                aux_weight = torch.softmax(aux_val, dim=-1)  # [M, aux_k], differentiable w.r.t. score
+                # Unweighted sum: trains rescued atoms' decoder (W_down/W_out) only, not
+                # their score. Softmax-weighting by aux_val was tried to route gradient into
+                # score too, but regressed real training (see git history on this block) —
+                # reverted back to this simpler, working version.
                 contribution_aux, _ = self._generate_routed(aux_idx, pooled)
-                recon_aux = (contribution_aux * aux_weight.view(*aux_weight.shape, 1, 1)).sum(dim=1)
+                recon_aux = contribution_aux.sum(dim=1)
                 residual = (x_target - recon).detach()
                 aux_loss = F.mse_loss(recon_aux, residual) / (residual.pow(2).mean() + 1e-8)
 
