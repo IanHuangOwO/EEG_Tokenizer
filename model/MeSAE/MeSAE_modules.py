@@ -410,15 +410,18 @@ class StampBank(nn.Module):
 
     phi_i(pooled_i) is a small bottleneck MLP straight to the output, no tied
     reconstruction step: hidden_i = gelu(pooled_i @ W_down_i + b_down_i) -> [hidden_width],
-    contribution_i = hidden_i @ W_out(group) + b_out(group) -> [C, patch_len]. W_down is
-    per-atom (all cross-atom diversity lives here); W_out/b_out are shared within each
-    group (routed vs shared, separate tables since hidden widths differ) rather than
-    per-atom, same cost argument as the retired tied-autoencoder version's shared W_out
-    (~D*C*patch_len params, independent of n_stamps, vs ~n_stamps x that for per-atom).
-    Consequence: two atoms converging to a similar hidden_i now produce IDENTICAL output
-    (deterministic shared function) — redundancy in hidden space maps 1:1 to redundancy
-    in output space, a direct read on real redundancy for
-    MeSAECodebookChecker's fingerprint-affinity panel.
+    contribution_i = hidden_i @ W_out_i + b_out_i -> [C, patch_len]. Both W_down and W_out
+    are per-atom (routed and shared use separate tables since hidden widths differ) — was
+    previously a single W_out/b_out SHARED within each group (~D*C*patch_len params,
+    independent of n_stamps), which forced every atom's output through the same
+    hidden_width-dim output basis: two atoms with very different inputs/attention could
+    still land on similar hidden_i and produce near-identical recon shapes, since only the
+    MIX of that shared basis differed, not the basis itself. Per-atom W_out costs
+    ~n_stamps x more params but removes that ceiling — confirm this is actually the fix
+    before considering a cheaper middle ground (e.g. a handful of shared "basis groups").
+    Consequence of going fully per-atom: MeSAECodebookChecker's fingerprint-affinity panel
+    now reads a weaker signal — atoms with identical hidden_i no longer force identical
+    output, since W_out itself differs too.
     """
     def __init__(self, dim, num_channels, patch_len, n_stamps=800, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16, shared_weight=0.1,
@@ -465,17 +468,17 @@ class StampBank(nn.Module):
         nn.init.kaiming_uniform_(self.w_score, a=math.sqrt(5))
 
         # phi: bottleneck generator, per-atom W_down/b_down (down-project + gelu only, no
-        # tied up-project — see class docstring), decoding through a per-GROUP shared
-        # W_out/b_out straight to [C, patch_len]. Routed and shared use separate
-        # W_down/b_down/W_out/b_out tables (different hidden widths).
+        # tied up-project — see class docstring) AND per-atom W_out/b_out (up-project to
+        # [C, patch_len]) — routed and shared use separate tables (different hidden
+        # widths).
         self.W_down_routed = nn.Parameter(torch.empty(self.n_routed, dim, hidden_width))
         self.b_down_routed = nn.Parameter(torch.zeros(self.n_routed, hidden_width))
         self.W_down_shared = nn.Parameter(torch.empty(self.n_shared, dim, shared_hidden_width))
         self.b_down_shared = nn.Parameter(torch.zeros(self.n_shared, shared_hidden_width))
-        self.W_out_routed = nn.Parameter(torch.empty(hidden_width, num_channels, patch_len))
-        self.b_out_routed = nn.Parameter(torch.zeros(num_channels, patch_len))
-        self.W_out_shared = nn.Parameter(torch.empty(shared_hidden_width, num_channels, patch_len))
-        self.b_out_shared = nn.Parameter(torch.zeros(num_channels, patch_len))
+        self.W_out_routed = nn.Parameter(torch.empty(self.n_routed, hidden_width, num_channels, patch_len))
+        self.b_out_routed = nn.Parameter(torch.zeros(self.n_routed, num_channels, patch_len))
+        self.W_out_shared = nn.Parameter(torch.empty(self.n_shared, shared_hidden_width, num_channels, patch_len))
+        self.b_out_shared = nn.Parameter(torch.zeros(self.n_shared, num_channels, patch_len))
         nn.init.kaiming_uniform_(self.W_down_routed, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W_down_shared, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W_out_routed, a=math.sqrt(5))
@@ -496,29 +499,31 @@ class StampBank(nn.Module):
         pooled = torch.einsum('mhc,mcd->mhd', attn, z)
         return pooled, attn
 
-    def _decode_atoms(self, idx, pooled, W_down_sel, b_down_sel, W_out, b_out):
+    def _decode_atoms(self, idx, pooled, W_down_sel, b_down_sel, W_out_sel, b_out_sel):
         """idx: [M, K] GLOBAL atom indices (into pooled, 0..n_stamps-1 regardless of
-        routed/shared), W_down_sel/b_down_sel: already gathered from whichever (routed or
-        shared) table matches these atoms, W_out/b_out: that group's SHARED decode table
-        (no gather — same matrix for every atom in the group, see __init__).
+        routed/shared), W_down_sel/b_down_sel/W_out_sel/b_out_sel: already gathered from
+        whichever (routed or shared) table matches these atoms — every atom has its own
+        full W_down AND W_out now (see __init__ and class docstring).
         -> contribution [M, K, C, patch_len], pooled_sel [M, K, D]."""
         D = pooled.shape[-1]
         pooled_sel = pooled.gather(1, idx.unsqueeze(-1).expand(-1, -1, D))  # [M, K, D]
 
         pre = torch.einsum('mkd,mkdh->mkh', pooled_sel, W_down_sel) + b_down_sel  # [M, K, hidden]
         hidden = F.gelu(pre)
-        contribution = torch.einsum('mkh,hcp->mkcp', hidden, W_out) + b_out  # [M, K, C, patch_len]
+        contribution = torch.einsum('mkh,mkhcp->mkcp', hidden, W_out_sel) + b_out_sel  # [M, K, C, patch_len]
         return contribution, pooled_sel
 
     def _generate_routed(self, idx, pooled):
         """idx: [M, K] routed-only indices (values in [0, n_routed), used both as the
         GLOBAL index (pooled's routed range matches global indices 0..n_routed-1 1:1) and
-        to gather W_down_routed/b_down_routed directly. Used by both the main forward
-        path's routed half and the dead-atom aux rescue (rescue only ever draws from the
-        routed pool, never shared — see forward())."""
+        to gather W_down_routed/b_down_routed/W_out_routed/b_out_routed directly. Used by
+        both the main forward path's routed half and the dead-atom aux rescue (rescue only
+        ever draws from the routed pool, never shared — see forward())."""
         W_down_sel = self.W_down_routed[idx]
         b_down_sel = self.b_down_routed[idx]
-        return self._decode_atoms(idx, pooled, W_down_sel, b_down_sel, self.W_out_routed, self.b_out_routed)
+        W_out_sel = self.W_out_routed[idx]
+        b_out_sel = self.b_out_routed[idx]
+        return self._decode_atoms(idx, pooled, W_down_sel, b_down_sel, W_out_sel, b_out_sel)
 
     def decode_selected(self, idx, h, pooled):
         """idx: [M, top_k+n_shared] GLOBAL indices, first top_k routed then n_shared shared
@@ -536,10 +541,13 @@ class StampBank(nn.Module):
 
         contribution_r, pooled_sel_r = self._generate_routed(idx_routed, pooled)
 
-        W_down_s_sel = self.W_down_shared[idx_shared - self.n_routed]  # local index into the shared table
-        b_down_s_sel = self.b_down_shared[idx_shared - self.n_routed]
+        local_shared_idx = idx_shared - self.n_routed  # local index into the shared table
+        W_down_s_sel = self.W_down_shared[local_shared_idx]
+        b_down_s_sel = self.b_down_shared[local_shared_idx]
+        W_out_s_sel = self.W_out_shared[local_shared_idx]
+        b_out_s_sel = self.b_out_shared[local_shared_idx]
         contribution_s, pooled_sel_s = self._decode_atoms(
-            idx_shared, pooled, W_down_s_sel, b_down_s_sel, self.W_out_shared, self.b_out_shared)
+            idx_shared, pooled, W_down_s_sel, b_down_s_sel, W_out_s_sel, b_out_s_sel)
 
         contribution = torch.cat([contribution_r, contribution_s], dim=1)     # [M, top_k+n_shared, C, patch_len]
         pooled_sel = torch.cat([pooled_sel_r, pooled_sel_s], dim=1)           # [M, top_k+n_shared, D]
@@ -590,10 +598,10 @@ class StampBank(nn.Module):
             probe = probe.expand(self.n_stamps, self.dim)
 
         pre_r = torch.einsum('kd,kdh->kh', probe[:self.n_routed], self.W_down_routed) + self.b_down_routed
-        contrib_r = torch.einsum('kh,hcp->kcp', F.gelu(pre_r), self.W_out_routed) + self.b_out_routed
+        contrib_r = torch.einsum('kh,khcp->kcp', F.gelu(pre_r), self.W_out_routed) + self.b_out_routed
 
         pre_s = torch.einsum('kd,kdh->kh', probe[self.n_routed:], self.W_down_shared) + self.b_down_shared
-        contrib_s = torch.einsum('kh,hcp->kcp', F.gelu(pre_s), self.W_out_shared) + self.b_out_shared
+        contrib_s = torch.einsum('kh,khcp->kcp', F.gelu(pre_s), self.W_out_shared) + self.b_out_shared
 
         return torch.cat([contrib_r, contrib_s], dim=0)  # [n_stamps, C, patch_len]
 
@@ -618,10 +626,10 @@ class StampBank(nn.Module):
         pooled = self.input_norm(pooled)
 
         pre_r = torch.einsum('mhd,hdk->mhk', pooled[:, :self.n_routed], self.W_down_routed) + self.b_down_routed
-        contrib_r = torch.einsum('mhk,kcp->mhcp', F.gelu(pre_r), self.W_out_routed) + self.b_out_routed
+        contrib_r = torch.einsum('mhk,hkcp->mhcp', F.gelu(pre_r), self.W_out_routed) + self.b_out_routed
 
         pre_s = torch.einsum('mhd,hdk->mhk', pooled[:, self.n_routed:], self.W_down_shared) + self.b_down_shared
-        contrib_s = torch.einsum('mhk,kcp->mhcp', F.gelu(pre_s), self.W_out_shared) + self.b_out_shared
+        contrib_s = torch.einsum('mhk,hkcp->mhcp', F.gelu(pre_s), self.W_out_shared) + self.b_out_shared
 
         contribution = torch.cat([contrib_r, contrib_s], dim=1)  # [M, n_stamps, C, patch_len]
         return contribution, attn
