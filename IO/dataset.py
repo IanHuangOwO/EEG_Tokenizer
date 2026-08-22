@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 from typing import List, Dict, Optional, Tuple, Callable, Any
 
 from .loader import load_coords_from_metadata
-from IO.preprocessing import build_normalizer_from_config, cache_suffix, slice_patches, window_continuous_signal
+from IO.preprocessing import build_normalizer_from_config, cache_suffix, slice_patches, num_patches, window_continuous_signal
 from IO.masking import BaseMaskingStrategy, RandomMaskingStrategy, ComplementaryMaskingStrategy, RandomToComplementaryMaskingStrategy
 
 # Channels excluded by default when channels_to_use is "all".
@@ -26,7 +26,7 @@ class EEGDataset(Dataset):
     """
     Loads EEG data from multiple subjects/datasets into a unified tensor.
     When assemble_trials=True, flattens each subject's trials into a continuous
-    signal and cuts non-overlapping windows of assembly_params['trial_length'].
+    signal and cuts non-overlapping windows of assembly_params['window_length'].
     """
     def __init__(
         self,
@@ -147,8 +147,8 @@ class EEGDataset(Dataset):
         padded[:, target_pos, :] = raw_data
 
         if self.assemble_trials:
-            target_L = self.assembly_params.get('trial_length', padded.shape[-1])
-            threshold = self.assembly_params.get('trial_pad_threshold', 0.5)
+            target_L = self.assembly_params.get('window_length', padded.shape[-1])
+            threshold = self.assembly_params.get('window_pad_threshold', 0.5)
             padded, labels = window_continuous_signal(padded, target_L, threshold, ds_name, subject_id)
         else:
             labels = torch.from_numpy(npz['labels'].astype(np.int64))
@@ -213,6 +213,86 @@ class EEGDataset(Dataset):
         return len(self.data)
 
 
+# --- Sanity checks ---
+
+def sanity_check_base(base_dataset: 'EEGDataset') -> None:
+    """
+    Verifies EEGDataset's parallel per-trial/per-task arrays stayed aligned
+    through loading/padding/windowing. Call once after construction, before
+    training starts — cheap (no data copies), catches an alignment bug (wrong
+    label/coords/subject_id paired with a trial) that would otherwise silently
+    corrupt training instead of crashing anywhere obvious.
+    """
+    n = len(base_dataset)
+    if n == 0:
+        raise ValueError("EEGDataset has 0 trials.")
+
+    for name, arr in (('labels', base_dataset.labels), ('subject_data', base_dataset.subject_data),
+                       ('dataset_names', base_dataset.dataset_names),
+                       ('trial_to_coords_idx', base_dataset.trial_to_coords_idx)):
+        if len(arr) != n:
+            raise ValueError(f"EEGDataset.{name} has length {len(arr)}, expected {n} (== len(data)).")
+
+    n_tasks = len(base_dataset.all_coords)
+    for name, arr in (('all_valid_channels', base_dataset.all_valid_channels),
+                       ('all_valid_length', base_dataset.all_valid_length)):
+        if len(arr) != n_tasks:
+            raise ValueError(f"EEGDataset.{name} has length {len(arr)}, expected {n_tasks} (== len(all_coords)).")
+
+    max_idx = max(base_dataset.trial_to_coords_idx)
+    if max_idx >= n_tasks:
+        raise ValueError(f"trial_to_coords_idx references task {max_idx}, but only {n_tasks} tasks were loaded.")
+
+    for coords in base_dataset.all_coords:
+        if coords.shape != (base_dataset.Nc, 3):
+            raise ValueError(f"A coords entry has shape {tuple(coords.shape)}, expected ({base_dataset.Nc}, 3).")
+    for vc in base_dataset.all_valid_channels:
+        if vc.shape != (base_dataset.Nc,):
+            raise ValueError(f"A valid_channels entry has shape {tuple(vc.shape)}, expected ({base_dataset.Nc},).")
+
+    # dataset_names and trial_to_coords_idx are built in the same per-task loop
+    # (EEGDataset.__init__), so every trial mapped to task index T must report the
+    # same dataset_name every time it recurs -- a scramble (wrong zip/append order)
+    # breaks this even though the plain length checks above still pass.
+    task_dataset_name: Dict[int, str] = {}
+    for i in range(n):
+        task_idx = base_dataset.trial_to_coords_idx[i]
+        name = base_dataset.dataset_names[i]
+        seen = task_dataset_name.setdefault(task_idx, name)
+        if seen != name:
+            raise ValueError(
+                f"Trial {i}: dataset_name {name!r} disagrees with an earlier trial mapped "
+                f"to the same task index {task_idx} ({seen!r}) — trial_to_coords_idx and "
+                f"dataset_names are out of sync."
+            )
+
+    if not torch.isfinite(base_dataset.data).all():
+        raise ValueError("EEGDataset.data contains NaN/Inf — check upstream cache/normalize.")
+
+    print(f"[sanity check] EEGDataset: {n} trials, {n_tasks} tasks — "
+          f"data/labels/coords/subject/dataset_name alignment OK.")
+
+
+def sanity_check_wrapper(dataset) -> None:
+    """
+    Pulls the first and last item through __getitem__ on the actual training
+    dataset (TokenizerDataset/PretrainDataset/FinetuneDataset) — catches an
+    index-mapping bug in the wrapper itself (e.g. a masking-strategy resolve()
+    or trial_to_coords_idx lookup gone wrong) before training starts, rather
+    than a cryptic mid-epoch crash or, worse, silently wrong data with no
+    crash at all.
+    """
+    n = len(dataset)
+    if n == 0:
+        raise ValueError(f"{type(dataset).__name__} has 0 items.")
+    for idx in sorted({0, n - 1}):
+        item = dataset[idx]
+        for t in item:
+            if torch.is_tensor(t) and t.is_floating_point() and not torch.isfinite(t).all():
+                raise ValueError(f"{type(dataset).__name__}[{idx}] contains NaN/Inf.")
+    print(f"[sanity check] {type(dataset).__name__}: {n} items, first/last __getitem__ OK.")
+
+
 # --- Dataset Wrappers ---
 
 def _resolve_default_patch_len(base_dataset: 'EEGDataset') -> int:
@@ -240,18 +320,18 @@ class TokenizerDataset(Dataset):
       fft_patches:    [C, P, F] or empty tensor
       valid_channels: [C] bool, True = real (not zero-padded) channel
     """
-    def __init__(self, base_dataset: 'EEGDataset', patch_len: Optional[int] = None):
+    def __init__(self, base_dataset: 'EEGDataset', patch_len: Optional[int] = None,
+                 patch_stride: Optional[int] = None):
         self.base_dataset = base_dataset
         self.patch_len = patch_len or _resolve_default_patch_len(base_dataset)
+        self.patch_stride = patch_stride or self.patch_len
 
         total_T = base_dataset.data.shape[-1]
-        num_patches = total_T // self.patch_len
-        remainder = total_T % self.patch_len
+        n_patches = num_patches(total_T, self.patch_len, self.patch_stride)
 
         print(f"\n--- TokenizerDataset ---")
-        print(f"  {len(base_dataset)} trials | {num_patches} patches/trial | unmasked")
-        if remainder > 0:
-            print(f"  [Truncation] {remainder} samples dropped per trial ({remainder/total_T*100:.1f}%).")
+        print(f"  {len(base_dataset)} trials | {n_patches} patches/trial "
+              f"(patch_len={self.patch_len}, patch_stride={self.patch_stride}) | unmasked")
         print(f"----------------------------\n")
 
     def __len__(self):
@@ -259,7 +339,7 @@ class TokenizerDataset(Dataset):
 
     def __getitem__(self, index):
         x, y = self.base_dataset[index]
-        x_patches, time_indices = slice_patches(x, self.patch_len)
+        x_patches, time_indices = slice_patches(x, self.patch_len, self.patch_stride)
         C, P, _L = x_patches.shape
         mask = torch.zeros(C * P, dtype=torch.bool)
 
@@ -293,6 +373,7 @@ class PretrainDataset(Dataset):
         self,
         base_dataset: EEGDataset,
         patch_len: Optional[int] = None,
+        patch_stride: Optional[int] = None,
         mask_ratio: float = 0.5,
         masking_strategy: Optional[BaseMaskingStrategy] = None,
     ):
@@ -304,9 +385,9 @@ class PretrainDataset(Dataset):
             patch_len = _resolve_default_patch_len(base_dataset)
 
         self.patch_len = patch_len
+        self.patch_stride = patch_stride or patch_len
         total_T     = base_dataset.data.shape[-1]
-        self.num_patches = total_T // patch_len
-        remainder   = total_T % patch_len
+        self.num_patches = num_patches(total_T, self.patch_len, self.patch_stride)
 
         # pre-generate one mask per trial so complementary pairs are exact inverses
         self._masks = [
@@ -317,10 +398,9 @@ class PretrainDataset(Dataset):
         strategy_name = type(self.masking_strategy).__name__.replace('MaskingStrategy', '').lower()
         n_effective   = len(base_dataset) * self.masking_strategy.multiplier
         print(f"\n--- PretrainDataset ---")
-        print(f"  {len(base_dataset)} trials | {self.num_patches} patches/trial | mask_ratio={self.mask_ratio} | strategy={strategy_name}")
+        print(f"  {len(base_dataset)} trials | {self.num_patches} patches/trial "
+              f"(patch_len={self.patch_len}, patch_stride={self.patch_stride}) | mask_ratio={self.mask_ratio} | strategy={strategy_name}")
         print(f"  effective dataset size: {n_effective}")
-        if remainder > 0:
-            print(f"  [Truncation] {remainder} samples dropped per trial ({remainder/total_T*100:.1f}%).")
         print(f"----------------------------\n")
 
     def set_masking(self, masking_strategy: BaseMaskingStrategy, mask_ratio: float = 0.5):
@@ -347,7 +427,7 @@ class PretrainDataset(Dataset):
         trial_idx, mask = self.masking_strategy.resolve(self._masks, index, N)
 
         x, y = self.base_dataset[trial_idx]
-        x_patches, time_indices = slice_patches(x, self.patch_len)
+        x_patches, time_indices = slice_patches(x, self.patch_len, self.patch_stride)
 
         if self.base_dataset.fft_params is not None:
             n_fft = self.base_dataset.fft_params.get('n_fft')
@@ -464,6 +544,7 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     dataset_params = config_dict.get('dataset_params', {}).get(ds_mode, {})
     pp             = config_dict.get('preprocess_params', {})
     patch_len      = pp.get('patch_length', 100)
+    patch_stride   = pp.get('patch_stride', patch_len)
 
     loading_tasks = []
     for ds_name, ds_args in dataset_params.items():
@@ -519,11 +600,14 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         assemble_trials=assemble_trials,
         assembly_params=assembly_params
     )
+    sanity_check_base(base_dataset)
 
     if mode == 'base':
         return base_dataset
     elif mode == 'tokenizer':
-        return TokenizerDataset(base_dataset, patch_len=patch_len)
+        ds = TokenizerDataset(base_dataset, patch_len=patch_len, patch_stride=patch_stride)
+        sanity_check_wrapper(ds)
+        return ds
     elif mode == 'pretrain':
         mask_pp       = pp.get('mask', {})
         strategy_name = mask_pp.get('masking_strategy', 'random')
@@ -544,9 +628,13 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
             strategy   = RandomMaskingStrategy()
             mask_ratio = strategy_cfg.get('mask_ratio', 0.5)
 
-        return PretrainDataset(base_dataset, patch_len=patch_len,
-                               mask_ratio=mask_ratio, masking_strategy=strategy)
+        ds = PretrainDataset(base_dataset, patch_len=patch_len, patch_stride=patch_stride,
+                             mask_ratio=mask_ratio, masking_strategy=strategy)
+        sanity_check_wrapper(ds)
+        return ds
     elif mode == 'finetune':
-        return FinetuneDataset(base_dataset)
+        ds = FinetuneDataset(base_dataset)
+        sanity_check_wrapper(ds)
+        return ds
     else:
         raise ValueError(f"Unknown mode: '{mode}'. Expected one of: base, tokenizer, pretrain, finetune.")

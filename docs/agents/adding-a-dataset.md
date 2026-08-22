@@ -351,7 +351,7 @@ Things the existing loaders show you need to handle per format:
 
 Always wrap per-subject/per-file failures so one bad file doesn't kill the
 whole loading run — return `None, None` from `_load_data()` rather than
-raising; `EEGDataset.__init__` (`IO/dataset.py:118-163`) already
+raising; `EEGDataset.__init__` (`IO/dataset.py`) already
 try/excepts around each task and just skips it with a printed warning.
 
 ## Step 7: compile the cache
@@ -415,7 +415,7 @@ your config JSON:
   `build_dataset_from_config` ever runs, so subjects never leak across the
   split.
 - `channels_to_use: ["all"]` on the **first** dataset listed determines the
-  unified channel space (`_resolve_target_channels`, `IO/dataset.py:396`);
+  unified channel space (`_resolve_target_channels`, `IO/dataset.py`);
   other datasets get their channels remapped onto it by label
   (`_map_channels`), zero-padding anything they don't have. Alternatively set
   `preprocess_params.canonical_channels` to a fixed ordered list to pin the

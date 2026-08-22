@@ -50,8 +50,9 @@ class FinetuneCollate:
     trailing time (subjects shorter than the batch's max_T) so it doesn't get pooled into the
     classification head as if it were real signal.
     A class (not a closure) so it's picklable for num_workers > 0 on Windows."""
-    def __init__(self, patch_len):
+    def __init__(self, patch_len, patch_stride=None):
         self.patch_len = patch_len
+        self.patch_stride = patch_stride or patch_len
 
     def __call__(self, batch):
         xs, coords, labels, valid_channels, valid_length = zip(*batch)
@@ -62,13 +63,19 @@ class FinetuneCollate:
         labels = torch.as_tensor([l.item() if torch.is_tensor(l) else l for l in labels], dtype=torch.long)
 
         B, C, T = xs.shape
-        x_patches, _ = slice_patches(xs, self.patch_len)
+        x_patches, _ = slice_patches(xs, self.patch_len, self.patch_stride)
         P = x_patches.shape[2]
         time_idx = torch.arange(P, dtype=torch.long).unsqueeze(0).expand(B, P).contiguous()
 
         # ponytail: a patch counts valid only if fully inside the real (non-padded) length —
-        # conservative (drops at most one boundary patch per trial) rather than tracking partial overlap
-        n_valid_patches = (valid_length // self.patch_len).clamp(max=P)             # [B]
+        # conservative (drops at most one boundary patch per trial) rather than tracking partial overlap.
+        # Same "patch i spans [i*stride, i*stride+patch_len)" formula as IO.preprocessing.num_patches,
+        # just against valid_length instead of the full (possibly zero-padded) T.
+        n_valid_patches = torch.where(
+            valid_length >= self.patch_len,
+            (valid_length - self.patch_len) // self.patch_stride + 1,
+            torch.zeros_like(valid_length),
+        ).clamp(max=P)                                                              # [B]
         pad_mask = torch.arange(P).unsqueeze(0) < n_valid_patches.unsqueeze(1)      # [B, P]
 
         return x_patches, coords, time_idx, labels, valid_channels, pad_mask
@@ -300,7 +307,8 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     device = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     viz_every_n = config.get('training_params', {}).get('visualize', {}).get('finetune', {}).get('every_n_epochs', 5)
 
-    collate_fn = FinetuneCollate(patch_len)
+    patch_stride = config.get('preprocess_params', {}).get('patch_stride', patch_len)
+    collate_fn = FinetuneCollate(patch_len, patch_stride)
     train_loader = DataLoader(train_dataset, batch_size=train_params['batch_size'], shuffle=True,  num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True, collate_fn=collate_fn)
     val_loader   = DataLoader(val_dataset,   batch_size=train_params['batch_size'], shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True, collate_fn=collate_fn)
 

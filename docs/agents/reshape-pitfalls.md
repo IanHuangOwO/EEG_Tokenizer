@@ -32,13 +32,15 @@ and small dummy dims — the bug is invisible in shape asserts (shapes always
 All three were `reshape` calls that merged/reordered non-adjacent axes without a
 preceding permute:
 
-1. **`IO/dataset.py` `_window_subject_signal`** — `trials.reshape(N * T, C).T`
+1. **`IO/preprocessing.py` `window_continuous_signal`** (originally `IO/dataset.py`'s
+   `EEGDataset._window_subject_signal`, moved verbatim in a later refactor) —
+   `trials.reshape(N * T, C).T`
    on a `(N, C, T)` tensor. Intent: concatenate each subject's trials end-to-end
    per channel, to produce `(C, N*T)`. Actual effect: scrambled channel and time
    together, since `C` sits between `N` and `T` in memory and reshape merged `N`
    and `T` as if they were adjacent. **Every tokenizer-stage and pretrain-stage
-   training run** (`assemble_trials=True`, the default for `mode='pretrain'`)
-   trained on this corrupted signal. `FinetuneDataset` (`assemble_trials=False`)
+   training run** (`assemble_trials=True`, the default for `mode='pretrain'`/
+   `mode='tokenizer'`) trained on this corrupted signal. `FinetuneDataset` (`assemble_trials=False`)
    was not directly affected, but any backbone finetuned from a tokenizer/pretrain
    checkpoint inherited weights trained on the corrupted data.
    Fix: `trials.permute(1, 0, 2).reshape(C, N * T)` — permute first so the merge

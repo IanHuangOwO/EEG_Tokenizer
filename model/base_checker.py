@@ -89,14 +89,15 @@ class BaseEpochChecker:
         return metrics
 
     def _render_topo_psd(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
-                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance):
+                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
+                          fft_resolution=0.2):
         """Default: plot_topo_psd_filter (per-unit dedup, trial-averaged over every patch a
         unit fired at). MeSAEChecker overrides this with a real per-patch grid instead (see
         viz.extract.extract_filter_psd_by_patch) — StampBank's hard top-k per-patch dispatch
         means the trial-wide dedup here hides whether a stamp fired once or on every patch;
         MeFSQ's dense per-patch routing doesn't have the same sparsity story, stays default."""
         spectra_result = self.extract_spectra(
-            bundle.psd_model, bundle.x_in, bundle.c_in, bundle.t_in, bundle.vc_in, fs, 0.2)
+            bundle.psd_model, bundle.x_in, bundle.c_in, bundle.t_in, bundle.vc_in, fs, fft_resolution)
         psd_x, freqs = spectra_result.psd, spectra_result.freqs
 
         # Raw/recon PSD reads the FULL concatenated trial (raw_t/recon_t, [1,C,T],
@@ -104,14 +105,15 @@ class BaseEpochChecker:
         # patch can't resolve real Delta/Theta content and a per-patch FFT leaks DC
         # /edge-discontinuity power across 0-20Hz regardless of true content (see
         # viz/extract._demean_hann_rfft). The full trial is long enough to actually
-        # resolve down near l_freq. n_fft is driven by the same freq_resolution=0.2Hz
-        # target either way, so it lands on the same value (and same freqs axis) as
-        # psd_x's patch-level FFT as long as T <= that n_fft — true for any config
-        # where the trial is a few seconds, so no downstream shape mismatch.
+        # resolve down near l_freq. n_fft is driven by the same fft_resolution (Hz/bin,
+        # preprocess_params.fft_resolution) target either way, so it lands on the same
+        # value (and same freqs axis) as psd_x's patch-level FFT as long as T <= that
+        # n_fft — true for any config where the trial is a few seconds, so no
+        # downstream shape mismatch.
         raw_t   = bundle.raw_t[0].numpy()    # [C, T]
         recon_t = bundle.recon_t[0].numpy()  # [C, T]
         T = raw_t.shape[-1]
-        n_fft = max(T, int(round(fs / 0.2))) if fs else T
+        n_fft = max(T, int(round(fs / fft_resolution))) if fs else T
 
         def _demean_hann_rfft_np(x):
             x = x - x.mean(axis=-1, keepdims=True)
@@ -160,6 +162,7 @@ class BaseEpochChecker:
         fs = pp.get('sample_freq')  # None means "unknown" downstream, see extract_spectra/n_fft below
         bandpass = pp.get('bandpass_filter', {})
         l_freq, h_freq = bandpass.get('l_freq'), bandpass.get('h_freq')
+        fft_resolution = pp.get('fft_resolution', 0.2)
 
         if plot_recon:
             visualize_reconstruction(
@@ -186,7 +189,8 @@ class BaseEpochChecker:
         if plot_topo_psd:
             try:
                 self._render_topo_psd(bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
-                                       tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance)
+                                       tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
+                                       fft_resolution=fft_resolution)
             except Exception as e:
                 print(f"  [epoch] topo_psd_filter failed: {e}")
 

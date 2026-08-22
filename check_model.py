@@ -173,7 +173,7 @@ if __name__ == '__main__':
         # stay attributable to a single source dataset, see viz/codebook.py.
         # assemble_trials=False: codebook's by-target plots need each patch's real trial
         # label; data_mode='pretrain' would otherwise window-assemble and every label comes
-        # back torch.zeros(...) (see IO/dataset.py _window_subject_signal), collapsing every
+        # back torch.zeros(...) (see IO/preprocessing.py window_continuous_signal), collapsing every
         # target to a single dummy class.
         datasets_by_name = {}
         for ds_name, ds_args in codebook_ds_params.items():

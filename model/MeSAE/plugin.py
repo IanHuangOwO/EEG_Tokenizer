@@ -127,7 +127,8 @@ class MeSAEChecker(BaseEpochChecker):
         return _run_reconstruction_sae(model, dataset, trial_idx, device)
 
     def _render_topo_psd(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
-                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance):
+                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
+                          fft_resolution=0.2):
         """Overrides BaseEpochChecker's default (per-unit dedup, trial-averaged) with a real
         per-patch grid (every patch_stride-th patch's own actual top_k+n_shared selection
         and decoded content — see viz.extract.extract_filter_psd_by_patch) — StampBank's
@@ -136,13 +137,13 @@ class MeSAEChecker(BaseEpochChecker):
         model = bundle.psd_model
         grid = extract_filter_psd_by_patch(
             model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
-            fs=fs, freq_resolution=0.2)
+            fs=fs, freq_resolution=fft_resolution)
 
         # Same raw/recon full-trial FFT as the base default, see BaseEpochChecker._render_topo_psd.
         raw_t   = bundle.raw_t[0].numpy()
         recon_t = bundle.recon_t[0].numpy()
         T = raw_t.shape[-1]
-        n_fft = max(T, int(round(fs / 0.2))) if fs else T
+        n_fft = max(T, int(round(fs / fft_resolution))) if fs else T
 
         def _demean_hann_rfft_np(x):
             x = x - x.mean(axis=-1, keepdims=True)
@@ -154,7 +155,7 @@ class MeSAEChecker(BaseEpochChecker):
         psd_raw   = fft_raw.real**2   + fft_raw.imag**2
         psd_recon = fft_recon.real**2 + fft_recon.imag**2
 
-        # grid.freqs and raw/recon's freqs share the same n_fft target (freq_resolution=0.2
+        # grid.freqs and raw/recon's freqs share the same n_fft target (fft_resolution
         # drives both, see extract_filter_psd_by_patch), so one shared band-crop applies.
         freqs = grid.freqs
         if l_freq is not None and h_freq is not None:

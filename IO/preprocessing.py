@@ -107,15 +107,33 @@ def cache_suffix(sample_freq, bandpass_filter: dict) -> str:
     return f"fs{sample_freq}_bp{l_freq}-{h_freq}"
 
 
-def slice_patches(x: torch.Tensor, patch_len: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def num_patches(total_T: int, patch_len: int, patch_stride: Optional[int] = None) -> int:
+    """Patch count slice_patches would produce for a signal of length total_T —
+    shared so callers that need P before calling slice_patches (e.g. to size a
+    mask) can't drift out of sync with the real formula."""
+    patch_stride = patch_stride or patch_len
+    return (total_T - patch_len) // patch_stride + 1 if total_T >= patch_len else 0
+
+
+def slice_patches(x: torch.Tensor, patch_len: int, patch_stride: Optional[int] = None
+                   ) -> Tuple[torch.Tensor, torch.Tensor]:
     """x: [..., T] (any leading dims — [C,T] per-sample or [B,C,T] batched) ->
-    (x_patches [..., P, L], time_indices [P], unbatched). Drops any remainder <
-    patch_len. Shared by IO/dataset.py's TokenizerDataset/PretrainDataset
-    (per-sample) and train_finetune.py's FinetuneCollate (batched)."""
+    (x_patches [..., P, L], time_indices [P], unbatched). patch_stride=None (or
+    equal to patch_len) gives the original non-overlapping behavior; smaller
+    strides overlap consecutive patches within the same Window. Uses unfold
+    (a view, not a copy, for the non-overlap case) so it stays generic on
+    leading dims. Drops any remainder < patch_len. Shared by IO/dataset.py's
+    TokenizerDataset/PretrainDataset (per-sample) and train_finetune.py's
+    FinetuneCollate (batched)."""
+    patch_stride = patch_stride or patch_len
     T = x.shape[-1]
-    P = T // patch_len
-    x_patches = x[..., :P * patch_len].reshape(*x.shape[:-1], P, patch_len)
-    time_indices = torch.arange(P, dtype=torch.long)
+    if T < patch_len:
+        x_patches = x[..., :0].reshape(*x.shape[:-1], 0, patch_len)
+    else:
+        # unfold returns a strided view (not a reshape-compatible copy) — .contiguous()
+        # so downstream code (fft, model forward, collate) doesn't have to know that.
+        x_patches = x.unfold(-1, patch_len, patch_stride).contiguous()  # [..., P, patch_len]
+    time_indices = torch.arange(x_patches.shape[-2], dtype=torch.long)
     return x_patches, time_indices
 
 

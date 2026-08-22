@@ -9,13 +9,13 @@ A raw, labeled recording segment as it comes from the source dataset (variable l
 _Avoid_: Segment, recording, epoch (for this meaning)
 
 **Window**:
-A fixed-length chunk of signal (`trial_length` samples) produced by flattening a subject's trials into one continuous stream and re-cutting it (`assemble_trials=True`). Distinct from a Trial — a Window has no direct 1:1 label relationship to the original trial(s) it was cut from.
+A fixed-length chunk of signal (`window_length` samples) produced by flattening a subject's trials into one continuous stream and re-cutting it (`assemble_trials=True`). Distinct from a Trial — a Window has no direct 1:1 label relationship to the original trial(s) it was cut from.
 _Avoid_: Trial (for this meaning), chunk
 
 ## Quantization (MeFSQ)
 
 **Patch**:
-One channel's raw `patch_len`-sample time slice within a Window — the smallest unit of signal before embedding.
+One channel's raw `patch_len`-sample time slice within a Window — the smallest unit of signal before embedding, stepped by `patch_stride` (equal to `patch_len` for non-overlapping patches, smaller to overlap consecutive patches — see `IO/preprocessing.py`'s `slice_patches`).
 
 **Token** (_retired_):
 Former fused, cross-channel representation of one patch position: all C channels' patch embeddings concatenated into one C*D vector, shared identically by the Router and every Expert. Retired because concatenation bakes channel *position* into a fixed slot, which breaks under cross-dataset channel-count/order variance and zero-padded channels (see `docs/adr/0002-per-expert-channel-attention.md`). Superseded by **Expert View**.

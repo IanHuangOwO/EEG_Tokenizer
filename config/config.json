@@ -37,10 +37,12 @@
   },
   "preprocess_params": {
     "canonical_channels": "10-10",
-    "trial_length": 800,
-    "trial_pad_threshold": 0.5,
+    "window_length": 800,
+    "window_pad_threshold": 0.5,
     "patch_length": 20,
+    "patch_stride": 20,
     "sample_freq": 200,
+    "fft_resolution": 0.2,
     "bandpass_filter": {
       "l_freq": 0.5,
       "h_freq": 100.0

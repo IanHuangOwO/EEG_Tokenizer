@@ -26,6 +26,14 @@ python train_finetune.py --config config/config.json
 # config/analysis.json is a small overlay; viz/extract.py, panels.py, timeseries.py,
 # topomap.py are shared primitives it and model/base_checker.py both call — not run directly)
 python check_model.py --config config/analysis.json --checkpoint <path>
+
+# Compile raw datasets into per-subject bandpass+resample-baked .npz caches (run once, or
+# after changing sample_freq/bandpass_filter — see config/compile.json, docs/agents/adding-a-dataset.md)
+python cache_compile.py --config config/compile.json
+
+# Sanity-check a compiled cache (shape/labels/dead-channels/bandpass-rolloff, --deep for a
+# raw-vs-cache diff)
+python cache_verify.py --config config/compile.json
 ```
 
 No test suite exists. Validation runs during training.
@@ -37,15 +45,26 @@ No test suite exists. Validation runs during training.
 ### Data flow
 
 ```
-EEG signals
-  └─ IO/loader.py          # dataset-specific loaders (BETA, BCICIV, Inria, EEGMMIdb, Dial)
-  └─ IO/preprocessing.py   # bandpass filter → resample → normalize (zscore/robust/fixed)
-  └─ IO/dataset.py         # EEGDataset → MaskedPretrainDataset / FinetuneDataset
-       ├─ assemble_trials=True (pretrain): flattens Trials into continuous signal, cuts Windows
-       └─ IO/masking.py: random / complementary masking strategies (block strategy removed)
-  └─ train_tokenizer.py    # Tokenizer stage: unmasked, encoder+VQ/SAE joint, AdamW + cosine LR
-  └─ train_pretrain.py     # Pretrain stage: masked reconstruction, loads Tokenizer checkpoint
+EEG signals (raw dataset files)
+  └─ datas/<Name>/loader.py    # dataset-specific loader, compile-time only (never runs at train time)
+  └─ cache_compile.py          # bandpass filter → resample, baked once into datas/<Name>/cache/*.npz
+  └─ IO/dataset.py             # EEGDataset reads the compiled cache directly, channel-maps/pads,
+  │                            # applies IO/preprocessing.py's Normalizer (zscore/robust/fixed)
+  │    └─ EEGDataset → TokenizerDataset / PretrainDataset / FinetuneDataset
+  │         ├─ assemble_trials=True (tokenizer/pretrain): flattens Trials into continuous
+  │         │  signal, cuts Windows (IO/preprocessing.py's window_continuous_signal)
+  │         ├─ IO/preprocessing.py's slice_patches: Window → Patches, patch_stride for overlap
+  │         └─ IO/masking.py: random / complementary / random_to_complementary masking
+  │            strategies (block strategy removed) — PretrainDataset only, TokenizerDataset
+  │            is always unmasked
+  └─ train_tokenizer.py        # Tokenizer stage: unmasked, encoder+VQ/SAE joint, AdamW + cosine LR
+  └─ train_pretrain.py         # Pretrain stage: masked reconstruction, loads Tokenizer checkpoint
 ```
+
+`build_dataset_from_config` runs `sanity_check_base`/`sanity_check_wrapper` (`IO/dataset.py`)
+automatically on every call — verifies the per-trial parallel arrays (labels/coords/subject_id/
+dataset_name) stayed index-aligned through loading/padding/windowing, and that the wrapper's
+`__getitem__` produces finite tensors, before training starts.
 
 Pretraining is split into two sequential scripts/checkpoints (not two phases of one run):
 - **`train_tokenizer.py`**: builds the model, calls `trainer.on_tokenizer_start()` (enables
@@ -90,7 +109,7 @@ contract.
 
 Key fields:
 - `model_params.MeFSQ.pretrain`: architecture hyperparams — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks`, `upsample_residual_add`, `n_routed_experts`, `n_shared_experts`, `top_k`, `routed_r`/`shared_r` (codebook size), `routed_num_discrete`/`shared_num_discrete`
-- `preprocess_params`: `trial_length`, `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `masking_strategy` (random/complementary/random_to_complementary — the last ramps random into complementary over a curriculum, see `IO/masking.py`)
+- `preprocess_params`: `window_length`, `window_pad_threshold`, `patch_length`, `patch_stride` (patch step in samples within a Window; equal to `patch_length` for non-overlapping patches, smaller for overlapping — see `IO/preprocessing.py`'s `slice_patches`), `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `fft_resolution` (Hz/bin for check_model.py's diagnostic PSD panels — `model/base_checker.py`/`model/MeSAE/plugin.py`'s `n_fft = round(sample_freq / fft_resolution)`; the dead train-time `fft_patches` path in `IO/dataset.py` is unrelated and stays unwired), `normalization_type`, `masking_strategy` (random/complementary/random_to_complementary — the last ramps random into complementary over a curriculum, see `IO/masking.py`)
 - `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — shared by both `train_tokenizer.py` and `train_pretrain.py` (same raw data, masking applied only in the Pretrain stage)
 - `training_params.tokenizer`: `model_name` (determines output dir), `epochs`, `batch_size`, `device`
 - `training_params.pretrain`: same fields plus `tokenizer_checkpoint` (path to the Tokenizer stage's `best_tokenizer.pth`)
@@ -108,9 +127,9 @@ Key fields:
 ### Dataset metadata
 
 Each dataset under `datas/<name>/metadata.json` uses a unified schema:
-- `data_metadata.acquisition.sample_frequency` — used for preprocessing
-- `data_metadata.channels` — 1-indexed dict with `label` + `position` (3D coords for spatial embedding)
-- `data_structure` — per-subject file references
+- `data_metadata.acquisition.sample_frequency` — used for compiling (`cache_compile.py`)
+- `data_metadata.channels` — 1-indexed dict with `label` + `coordinates` (polar angle/radius, converted to 3D for spatial embedding — see `IO/loader.py`'s `load_coords_from_metadata`)
+- `data_structure` — per-subject file references, `raw/`-prefixed (relative to `datas/<name>/`)
 
 Subject-level train/val split is done by shuffling subject IDs (seed 42) at `train_val_split` ratio — **data never leaks between subjects**.
 
@@ -137,7 +156,9 @@ wiring a new tokenizer model into the shared plugin architecture (see
 ### Adding a dataset
 
 Step-by-step protocol for converting a raw EEG dataset into the standard `datas/<name>/`
-layout and wiring it into `IO/dataset.py`. See `docs/agents/adding-a-dataset.md`.
+layout (`loader.py`, `gen_metadata.py`, `raw/`) and compiling it into the per-subject
+cache `cache_compile.py` reads — no registry to edit, directory presence is the
+registration. See `docs/agents/adding-a-dataset.md`.
 
 ### Adding a montage
 
@@ -151,7 +172,7 @@ Step-by-step protocol for adding a new standard (MNE-sourced) or custom montage.
 `.reshape(`/`.view(` silently scrambles data (no error) if it merges or reorders
 axes that aren't already adjacent in the tensor's current dimension order — three
 real instances of this hit training data and the MeSAE reconstruction loss in the
-same session (see `IO/dataset.py` `_window_subject_signal`, `model/MeSAE/MeSAE.py`
+same session (see `IO/preprocessing.py` `window_continuous_signal`, `model/MeSAE/MeSAE.py`
 `_patch_pyramid_levels`). Check any new `.reshape(`/`.view(` against
 `docs/agents/reshape-pitfalls.md` before assuming it's correct just because
 shapes match.
