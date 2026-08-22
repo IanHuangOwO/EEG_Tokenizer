@@ -1,0 +1,147 @@
+{
+    "data_metadata": {
+        "dataset_name": "BCICIV2b",
+        "dataset_info": {
+            "source_url": "https://www.bbci.de/competition/iv/#dataset2b",
+            "file_format": "GDF",
+            "description": "BCI Competition IV Dataset 2b - 2-class motor imagery (left hand, right hand), bipolar C3/Cz/C4 montage, 3 training sessions per subject",
+            "task_type": "Motor Imagery",
+            "reference": "Leeb, R., Brunner, C., Muller-Putz, G., Schlogl, A., Pfurtscheller, G. (2008). BCI Competition 2008 - Graz data set B.",
+            "contact": "BCI Competition IV organizers",
+            "note": "Only the 3 *T (training) sessions per subject are included. The 2 *E (evaluation) sessions' true labels were distributed separately as .mat files not present in this raw download, so E-session trials cannot be labeled and are excluded. Cue-onset event codes (769/770) mark the start of a 4s motor-imagery window (verified 3.0s after the 768 trial-start marker, matching the published paradigm timing)."
+        },
+        "acquisition": {
+            "sample_frequency": 250,
+            "window_size_seconds": 4.0,
+            "num_sessions_per_subject": 3,
+            "trials_per_subject": 400,
+            "num_subjects": 9
+        },
+        "targets": {
+            "count": 2,
+            "type": "motor_imagery",
+            "0": {
+                "label": "Left hand",
+                "description": "Event code 769"
+            },
+            "1": {
+                "label": "Right hand",
+                "description": "Event code 770"
+            }
+        },
+        "channels": {
+            "count": 6,
+            "system": "10-20 International System (central line only)",
+            "1": {
+                "label": "C3",
+                "original_label": "EEG:C3",
+                "coordinates": {
+                    "polar_angle_deg": -100.091205,
+                    "polar_radius": 0.663851
+                }
+            },
+            "2": {
+                "label": "Cz",
+                "original_label": "EEG:Cz",
+                "coordinates": {
+                    "polar_angle_deg": 177.495882,
+                    "polar_radius": 0.091758
+                }
+            },
+            "3": {
+                "label": "C4",
+                "original_label": "EEG:C4",
+                "coordinates": {
+                    "polar_angle_deg": 99.224598,
+                    "polar_radius": 0.679973
+                }
+            },
+            "4": {
+                "label": "EOG",
+                "original_label": "EOG:ch01"
+            },
+            "5": {
+                "label": "EOG",
+                "original_label": "EOG:ch02"
+            },
+            "6": {
+                "label": "EOG",
+                "original_label": "EOG:ch03"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0101T.gdf",
+                "B0102T.gdf",
+                "B0103T.gdf"
+            ]
+        },
+        "2": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0201T.gdf",
+                "B0202T.gdf",
+                "B0203T.gdf"
+            ]
+        },
+        "3": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0301T.gdf",
+                "B0302T.gdf",
+                "B0303T.gdf"
+            ]
+        },
+        "4": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0401T.gdf",
+                "B0402T.gdf",
+                "B0403T.gdf"
+            ]
+        },
+        "5": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0501T.gdf",
+                "B0502T.gdf",
+                "B0503T.gdf"
+            ]
+        },
+        "6": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0601T.gdf",
+                "B0602T.gdf",
+                "B0603T.gdf"
+            ]
+        },
+        "7": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0701T.gdf",
+                "B0702T.gdf",
+                "B0703T.gdf"
+            ]
+        },
+        "8": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0801T.gdf",
+                "B0802T.gdf",
+                "B0803T.gdf"
+            ]
+        },
+        "9": {
+            "folder": "raw/BCICIV_2b_gdf",
+            "runs": [
+                "B0901T.gdf",
+                "B0902T.gdf",
+                "B0903T.gdf"
+            ]
+        }
+    }
+}

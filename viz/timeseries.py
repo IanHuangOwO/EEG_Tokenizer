@@ -43,7 +43,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     Rows: channels. Cols: Raw / Delta / Theta / Alpha / Beta / Gamma.
     Masked patches highlighted in red per channel.
     mask: [C, N] bool numpy array or None.
-    fs: sample rate in Hz (preprocess_params.target_freq) — used for both the time axis
+    fs: sample rate in Hz (preprocess_params.sample_freq) — used for both the time axis
     and the band-filter cutoffs; defaults to 200.0 only for callers that don't pass one.
     l_freq/h_freq: preprocess_params bandpass — clips the canonical band edges to what the
     preprocessing bandpass actually preserved, see _canonical_bands.

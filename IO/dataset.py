@@ -1,12 +1,13 @@
 import os
 import json
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 from typing import List, Dict, Optional, Tuple, Callable, Any
 
-from .loader import BETALoader, DialLoader, BCICIVLoader, InriaLoader, EEGMMIdbLoader, BCICIV2aLoader, BCICIV2bLoader, GraspAndLiftLoader
-from IO.preprocessing import build_preprocessing_from_config
-from IO.masking import BaseMaskingStrategy, RandomMaskingStrategy, ComplementaryMaskingStrategy
+from .loader import load_coords_from_metadata
+from IO.preprocessing import build_normalizer_from_config, cache_suffix, slice_patches, window_continuous_signal
+from IO.masking import BaseMaskingStrategy, RandomMaskingStrategy, ComplementaryMaskingStrategy, RandomToComplementaryMaskingStrategy
 
 # Channels excluded by default when channels_to_use is "all".
 # Set include_non_eeg_channels: true in dataset_params to override.
@@ -104,17 +105,32 @@ class EEGDataset(Dataset):
         """
         ds_name = task['dataset_name']
         subject_id = task['subject_id']
-        loader_cls = task['loader_class']
         transform = task['transform']
         ds_config = task['dataset_config']
 
         ds_indices, target_pos = self._map_channels(desired_channels, ds_config['data_metadata']['channels'])
-        loader = loader_cls(config=ds_config, subject_id=subject_id, desired_channel_indices=ds_indices)
-        subject_data = loader.get_subject_data()
-        if subject_data is None:
-            return None
 
-        raw_data = torch.from_numpy(subject_data['data'])  # (N, C, T)
+        # Train-time read: compiled cache only (see cache_compile.py) — dataset-specific
+        # loading code (datas/<Name>/loader.py) never runs at train time. The cached
+        # array holds ALL native channels in metadata.json's index order (compile time
+        # keeps every channel, no target-channel subsetting), so ds_indices indexes
+        # directly into it, no extra mapping needed.
+        dataset_path = ds_config['dataset_params']['dataset_path']
+        cache_path = os.path.join(dataset_path, 'cache', f"{subject_id}_{task['cache_suffix']}.npz")
+        if not os.path.exists(cache_path):
+            raise FileNotFoundError(
+                f"No compiled cache at {cache_path}. Run "
+                f"`python cache_compile.py --config config/compile.json` first "
+                f"(and make sure compile.json's sample_freq/bandpass_filter match "
+                f"this config's preprocess_params)."
+            )
+        npz = np.load(cache_path)
+        data_np = npz['data'][:, ds_indices, :]
+        if data_np.shape[0] == 0:
+            return None
+        coords_np = load_coords_from_metadata(ds_config['data_metadata'], ds_indices)
+
+        raw_data = torch.from_numpy(data_np.astype(np.float32))  # (N, C, T)
         N, _, T = raw_data.shape
 
         # Transform (bandpass/resample/normalize) on the REAL channels only, before padding —
@@ -131,12 +147,14 @@ class EEGDataset(Dataset):
         padded[:, target_pos, :] = raw_data
 
         if self.assemble_trials:
-            padded, labels = self._window_subject_signal(padded, ds_name, subject_id)
+            target_L = self.assembly_params.get('trial_length', padded.shape[-1])
+            threshold = self.assembly_params.get('trial_pad_threshold', 0.5)
+            padded, labels = window_continuous_signal(padded, target_L, threshold, ds_name, subject_id)
         else:
-            labels = torch.from_numpy(subject_data['labels'])
+            labels = torch.from_numpy(npz['labels'].astype(np.int64))
 
         task_coords = torch.zeros((self.Nc, 3), dtype=torch.float32)
-        task_coords[target_pos] = torch.from_numpy(subject_data['coords'])
+        task_coords[target_pos] = torch.from_numpy(coords_np.astype(np.float32))
 
         valid_channels = torch.zeros(self.Nc, dtype=torch.bool)
         valid_channels[target_pos] = True
@@ -150,44 +168,6 @@ class EEGDataset(Dataset):
             'valid_channels': valid_channels,
             'valid_length': post_transform_T,
         }
-
-    def _window_subject_signal(self, trials: torch.Tensor, ds_name: str, subject_id: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Flatten all trials into a continuous signal, then cut into non-overlapping
-        windows of trial_length. Keeps the last chunk (zero-padded) only if it
-        fills at least trial_pad_threshold of trial_length.
-        """
-        target_L = self.assembly_params.get('trial_length', trials.shape[-1])
-        threshold = self.assembly_params.get('trial_pad_threshold', 0.5)
-
-        N, C, T = trials.shape
-        # NOT trials.reshape(N*T, C).T — that reinterprets the (N,C,T) memory buffer
-        # directly without transposing, scrambling channel and time together. permute
-        # first so reshape only merges the N and T axes (already-adjacent after permute),
-        # keeping each channel's own timeseries intact and trial-concatenated in order.
-        signal = trials.permute(1, 0, 2).reshape(C, N * T)  # (C, N*T)
-        total_T = signal.shape[-1]
-
-        n_complete = total_T // target_L
-        remainder = total_T % target_L
-
-        windows = [signal[:, i * target_L:(i + 1) * target_L] for i in range(n_complete)]
-
-        if remainder > 0:
-            if remainder >= target_L * threshold:
-                last = torch.zeros((C, target_L), dtype=signal.dtype)
-                last[:, :remainder] = signal[:, n_complete * target_L:]
-                windows.append(last)
-                print(f"  [{ds_name} S{subject_id}] Last chunk {remainder}/{target_L}pts kept (padded {target_L - remainder}pts).")
-            else:
-                print(f"  [{ds_name} S{subject_id}] Last chunk {remainder}/{target_L}pts discarded (below {threshold*100:.0f}% threshold).")
-
-        if not windows:
-            raise RuntimeError(f"No windows produced for {ds_name} subject {subject_id} (total_T={total_T}, target_L={target_L}).")
-
-        assembled = torch.stack(windows)
-        print(f"  [{ds_name} S{subject_id}] {N} trials x {T}pts -> {total_T}pts -> {len(assembled)} windows of {target_L}pts.")
-        return assembled, torch.zeros(len(assembled), dtype=torch.long)
 
     # Old → canonical label aliases (covers both 10-20 naming conventions)
     _LABEL_ALIASES = {
@@ -235,7 +215,69 @@ class EEGDataset(Dataset):
 
 # --- Dataset Wrappers ---
 
-class MaskedPretrainDataset(Dataset):
+def _resolve_default_patch_len(base_dataset: 'EEGDataset') -> int:
+    model_type = base_dataset.config.get('training_params', {}).get('pretrain', {}).get('model_type', 'MeFSQ')
+    preprocess = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
+    return preprocess.get('patch_length', 200)
+
+
+class TokenizerDataset(Dataset):
+    """
+    Wraps EEGDataset for the Tokenizer stage — unmasked, patchified. Unlike
+    PretrainDataset there is no masking-strategy machinery here: bool_masked_pos
+    is always None for this stage (see train_tokenizer.py), so no mask needs
+    generating, tracking, or curriculum-swapping, and __len__ has no multiplier
+    (a masking-strategy multiplier like ComplementaryMaskingStrategy's 2x would
+    otherwise silently double "epoch" size for a mask this stage never reads).
+    Yields the same 7-tuple shape as PretrainDataset for unpack compatibility
+    (x_patches, coords, mask, time_indices, label, fft_patches, valid_channels)
+    — mask is a constant all-False placeholder, never read downstream.
+      x_patches:      [C, P, L]
+      coords:         [C, 3]
+      mask:           [C * P] bool, always False
+      time_indices:   [P]
+      label:          scalar
+      fft_patches:    [C, P, F] or empty tensor
+      valid_channels: [C] bool, True = real (not zero-padded) channel
+    """
+    def __init__(self, base_dataset: 'EEGDataset', patch_len: Optional[int] = None):
+        self.base_dataset = base_dataset
+        self.patch_len = patch_len or _resolve_default_patch_len(base_dataset)
+
+        total_T = base_dataset.data.shape[-1]
+        num_patches = total_T // self.patch_len
+        remainder = total_T % self.patch_len
+
+        print(f"\n--- TokenizerDataset ---")
+        print(f"  {len(base_dataset)} trials | {num_patches} patches/trial | unmasked")
+        if remainder > 0:
+            print(f"  [Truncation] {remainder} samples dropped per trial ({remainder/total_T*100:.1f}%).")
+        print(f"----------------------------\n")
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, index):
+        x, y = self.base_dataset[index]
+        x_patches, time_indices = slice_patches(x, self.patch_len)
+        C, P, _L = x_patches.shape
+        mask = torch.zeros(C * P, dtype=torch.bool)
+
+        if self.base_dataset.fft_params is not None:
+            n_fft = self.base_dataset.fft_params.get('n_fft')
+            norm  = self.base_dataset.fft_params.get('norm', 'ortho')
+            fft_patches = torch.fft.rfft(x_patches, n=n_fft, dim=-1, norm=norm)
+        else:
+            fft_patches = torch.empty(0)
+
+        coords_idx = self.base_dataset.trial_to_coords_idx[index]
+        coords     = self.base_dataset.all_coords[coords_idx]
+        valid_channels = self.base_dataset.all_valid_channels[coords_idx]
+
+        return x_patches, coords, mask, time_indices, y, fft_patches, valid_channels
+
+
+class PretrainDataset(Dataset):
     """
     Wraps EEGDataset for masked pretraining.
     Yields: (x_patches, coords, mask, time_indices, label, fft_patches, valid_channels)
@@ -259,9 +301,7 @@ class MaskedPretrainDataset(Dataset):
         self.mask_ratio       = self.masking_strategy.effective_mask_ratio(mask_ratio)
 
         if patch_len is None:
-            model_type = base_dataset.config.get('training_params', {}).get('pretrain', {}).get('model_type', 'MeFSQ')
-            preprocess = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
-            patch_len = preprocess.get('patch_length', 200)
+            patch_len = _resolve_default_patch_len(base_dataset)
 
         self.patch_len = patch_len
         total_T     = base_dataset.data.shape[-1]
@@ -276,7 +316,7 @@ class MaskedPretrainDataset(Dataset):
 
         strategy_name = type(self.masking_strategy).__name__.replace('MaskingStrategy', '').lower()
         n_effective   = len(base_dataset) * self.masking_strategy.multiplier
-        print(f"\n--- MaskedPretrainDataset ---")
+        print(f"\n--- PretrainDataset ---")
         print(f"  {len(base_dataset)} trials | {self.num_patches} patches/trial | mask_ratio={self.mask_ratio} | strategy={strategy_name}")
         print(f"  effective dataset size: {n_effective}")
         if remainder > 0:
@@ -307,12 +347,7 @@ class MaskedPretrainDataset(Dataset):
         trial_idx, mask = self.masking_strategy.resolve(self._masks, index, N)
 
         x, y = self.base_dataset[trial_idx]
-        C, T = x.shape
-        P = T // self.patch_len
-        L = self.patch_len
-
-        x_patches    = x[:, :P * L].reshape(C, P, L)
-        time_indices = torch.arange(P, dtype=torch.long)
+        x_patches, time_indices = slice_patches(x, self.patch_len)
 
         if self.base_dataset.fft_params is not None:
             n_fft = self.base_dataset.fft_params.get('n_fft')
@@ -357,27 +392,6 @@ class FinetuneDataset(Dataset):
 
 
 # --- Factory ---
-
-def _resolve_loader(dataset_name: str, ds_name_key: str):
-    for name in (dataset_name, ds_name_key):
-        if 'BETA' in name:
-            return BETALoader
-        if 'BCICIV2a' in name:
-            return BCICIV2aLoader
-        if 'BCICIV2b' in name:
-            return BCICIV2bLoader
-        if 'BCICIV' in name:
-            return BCICIVLoader
-        if 'Inria' in name:
-            return InriaLoader
-        if 'GraspAndLift' in name:
-            return GraspAndLiftLoader
-        if 'EEGMMIdb' in name:
-            return EEGMMIdbLoader
-        if 'Dial' in name:
-            return DialLoader
-    return DialLoader  # safe fallback
-
 
 def load_montage_channels(name: str) -> List[str]:
     """Looks up a named montage's ordered channel-label list from config/montages.json —
@@ -460,11 +474,8 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         data_metadata = metadata.get('data_metadata', {})
         data_structure = metadata.get('data_structure', {})
 
-        fs_orig = data_metadata['acquisition']['sample_frequency']
-        dataset_name = data_metadata.get('dataset_name', ds_name)
-        loader_cls = _resolve_loader(dataset_name, ds_name)
-
-        ds_transform = transform if transform is not None else build_preprocessing_from_config(config_dict, fs_orig=fs_orig)
+        ds_transform = transform if transform is not None else build_normalizer_from_config(config_dict)
+        ds_cache_suffix = cache_suffix(pp['sample_freq'], pp['bandpass_filter'])
 
         loader_config = {
             'dataset_params': ds_args,
@@ -484,9 +495,9 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
             loading_tasks.append({
                 'dataset_name': ds_name,
                 'subject_id': sub_id,
-                'loader_class': loader_cls,
                 'transform': ds_transform,
-                'dataset_config': loader_config
+                'dataset_config': loader_config,
+                'cache_suffix': ds_cache_suffix,
             })
 
     target_channels = _resolve_target_channels(dataset_params, pp=pp)
@@ -494,9 +505,10 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     fft_params = None
 
     if assemble_trials is None:
-        assemble_trials = mode in ('pretrain',)  # explicit override: e.g. real per-trial
-        # labels for codebook diagnostics (mode='pretrain' normally assembles trials into
-        # continuous-signal windows, which discards real labels -- see _window_subject_signal)
+        assemble_trials = mode in ('pretrain', 'tokenizer')  # explicit override: e.g. real
+        # per-trial labels for codebook diagnostics (pretrain/tokenizer normally assemble
+        # trials into continuous-signal windows, which discards real labels -- see
+        # IO/preprocessing.py's window_continuous_signal)
     assembly_params = pp
 
     base_dataset = EEGDataset(
@@ -510,6 +522,8 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
 
     if mode == 'base':
         return base_dataset
+    elif mode == 'tokenizer':
+        return TokenizerDataset(base_dataset, patch_len=patch_len)
     elif mode == 'pretrain':
         mask_pp       = pp.get('mask', {})
         strategy_name = mask_pp.get('masking_strategy', 'random')
@@ -518,12 +532,20 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         if strategy_name == 'complementary':
             strategy   = ComplementaryMaskingStrategy()
             mask_ratio = ComplementaryMaskingStrategy.MASK_RATIO
+        elif strategy_name == 'random_to_complementary':
+            strategy = RandomToComplementaryMaskingStrategy(
+                target_ratio=ComplementaryMaskingStrategy.MASK_RATIO,
+                start_ratio=strategy_cfg.get('start_ratio', 0.1),
+                ramp_epochs=strategy_cfg.get('ramp_epochs', 25),
+                step_every=strategy_cfg.get('step_every', 5),
+            )
+            mask_ratio = strategy.effective_mask_ratio(ComplementaryMaskingStrategy.MASK_RATIO)
         else:
             strategy   = RandomMaskingStrategy()
             mask_ratio = strategy_cfg.get('mask_ratio', 0.5)
 
-        return MaskedPretrainDataset(base_dataset, patch_len=patch_len,
-                                     mask_ratio=mask_ratio, masking_strategy=strategy)
+        return PretrainDataset(base_dataset, patch_len=patch_len,
+                               mask_ratio=mask_ratio, masking_strategy=strategy)
     elif mode == 'finetune':
         return FinetuneDataset(base_dataset)
     else:

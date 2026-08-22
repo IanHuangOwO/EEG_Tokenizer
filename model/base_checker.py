@@ -157,8 +157,9 @@ class BaseEpochChecker:
         C, N, patch_len = bundle.raw_cnl.shape
 
         pp = config.get('preprocess_params', {})
-        fs = pp.get('target_freq')  # None means "unknown" downstream, see extract_spectra/n_fft below
-        l_freq, h_freq = pp.get('l_freq'), pp.get('h_freq')
+        fs = pp.get('sample_freq')  # None means "unknown" downstream, see extract_spectra/n_fft below
+        bandpass = pp.get('bandpass_filter', {})
+        l_freq, h_freq = bandpass.get('l_freq'), bandpass.get('h_freq')
 
         if plot_recon:
             visualize_reconstruction(

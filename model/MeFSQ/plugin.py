@@ -19,7 +19,7 @@ def _run_reconstruction(model, dataset, trial_idx, device):
     x_patches, coords, mask, time_indices, _, _, _ = dataset[trial_idx]
     C, N, L = x_patches.shape
     T_total = N * L
-    fs = dataset.base_dataset.config['preprocess_params']['target_freq']
+    fs = dataset.base_dataset.config['preprocess_params']['sample_freq']
 
     x_in      = x_patches.unsqueeze(0).to(device)
     coords_in = coords.unsqueeze(0).to(device)

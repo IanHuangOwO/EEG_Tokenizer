@@ -90,7 +90,7 @@ contract.
 
 Key fields:
 - `model_params.MeFSQ.pretrain`: architecture hyperparams — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks`, `upsample_residual_add`, `n_routed_experts`, `n_shared_experts`, `top_k`, `routed_r`/`shared_r` (codebook size), `routed_num_discrete`/`shared_num_discrete`
-- `preprocess_params`: `trial_length`, `target_freq`, bandpass `l_freq`/`h_freq`, `normalization_type`, `masking_strategy` (random/complementary)
+- `preprocess_params`: `trial_length`, `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `masking_strategy` (random/complementary/random_to_complementary — the last ramps random into complementary over a curriculum, see `IO/masking.py`)
 - `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — shared by both `train_tokenizer.py` and `train_pretrain.py` (same raw data, masking applied only in the Pretrain stage)
 - `training_params.tokenizer`: `model_name` (determines output dir), `epochs`, `batch_size`, `device`
 - `training_params.pretrain`: same fields plus `tokenizer_checkpoint` (path to the Tokenizer stage's `best_tokenizer.pth`)

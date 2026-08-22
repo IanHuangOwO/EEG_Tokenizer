@@ -19,6 +19,7 @@ from tqdm import tqdm
 from sklearn.metrics import f1_score, balanced_accuracy_score, cohen_kappa_score
 
 from IO.dataset import build_dataset_from_config
+from IO.preprocessing import slice_patches
 from model.factory import build_finetune_from_config, MODEL_REGISTRY
 from viz import pick_trial
 
@@ -42,7 +43,8 @@ def setup_logger(output_dir):
 
 class FinetuneCollate:
     """FinetuneDataset yields raw (x [C,T], coords [C,3], label, valid_channels [C], valid_length).
-    Patchify here the same way MaskedPretrainDataset does, since the backbone expects [B,C,N,L].
+    Patchify here via IO.preprocessing.slice_patches, the same helper PretrainDataset/
+    TokenizerDataset use, since the backbone expects [B,C,N,L].
     valid_channels is passed through separately (backbone's own channel-attention pool masks
     zero-padded channels internally). pad_mask [B,N] (True=valid) covers only zero-padded
     trailing time (subjects shorter than the batch's max_T) so it doesn't get pooled into the
@@ -60,9 +62,9 @@ class FinetuneCollate:
         labels = torch.as_tensor([l.item() if torch.is_tensor(l) else l for l in labels], dtype=torch.long)
 
         B, C, T = xs.shape
-        P = T // self.patch_len
-        x_patches = xs[:, :, :P * self.patch_len].reshape(B, C, P, self.patch_len)
-        time_idx  = torch.arange(P, dtype=torch.long).unsqueeze(0).expand(B, P).contiguous()
+        x_patches, _ = slice_patches(xs, self.patch_len)
+        P = x_patches.shape[2]
+        time_idx = torch.arange(P, dtype=torch.long).unsqueeze(0).expand(B, P).contiguous()
 
         # ponytail: a patch counts valid only if fully inside the real (non-padded) length —
         # conservative (drops at most one boundary patch per trial) rather than tracking partial overlap

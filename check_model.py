@@ -164,7 +164,7 @@ if __name__ == '__main__':
 
         # codebook diagnostics read the backbone's own patchified forward (extract_usage
         # calls model(x_in, c_in, time_idx=, valid_channels=)) regardless of --mode, so
-        # always use the 'pretrain' dataset shape (MaskedPretrainDataset's 7-tuple) even
+        # always use the 'pretrain' dataset shape (PretrainDataset's 7-tuple) even
         # when checking a finetune checkpoint -- FinetuneDataset's 5-tuple (raw [C,T], no
         # patch/mask) doesn't match what BaseCodebookChecker._trial_tensors unpacks.
         codebook_ds_params = cfg['dataset_params']['pretrain']

@@ -55,7 +55,7 @@ class BaseCodebookChecker:
 
     @staticmethod
     def _subject_id(dataset, trial_idx):
-        """MaskedPretrainDataset.__getitem__ index (0..len(base_dataset)*mask_multiplier-1)
+        """PretrainDataset.__getitem__ index (0..len(base_dataset)*mask_multiplier-1)
         maps to a real trial via `index % len(base_dataset)` (see IO/masking.py resolve) --
         same modulo here to read the true trial's subject id off base_dataset.subject_data."""
         base_idx = trial_idx % len(dataset.base_dataset)

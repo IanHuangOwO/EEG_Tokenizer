@@ -1,0 +1,804 @@
+{
+    "data_metadata": {
+        "dataset_name": "BETA_4s",
+        "dataset_info": {
+            "source_url": "https://bci.med.tsinghua.edu.cn/download.html",
+            "file_format": "MATLAB (.mat)",
+            "description": "Beijing EEG Signal Data for Chinese Brain Computer Interface Competition (BETA) - 4 second trials subset",
+            "window_size": "4.0s",
+            "task_type": "SSVEP (Steady-State Visual Evoked Potential)",
+            "note": "This is a 4-second window variant of the full BETA dataset (original has 70 subjects total)",
+            "contact": "wuhaolin@tsinghua.edu.cn",
+            "reference": "Tsinghua University, School of Software. BCI Competition IV Dataset 2B"
+        },
+        "acquisition": {
+            "sample_frequency": 250,
+            "window_size_seconds": 4.0,
+            "num_subjects": 55,
+            "num_runs_per_subject": 4
+        },
+        "targets": {
+            "count": 40,
+            "type": "ssvep",
+            "0": {
+                "label": "8.6 Hz",
+                "stimulus_frequency_hz": 8.6
+            },
+            "1": {
+                "label": "8.8 Hz",
+                "stimulus_frequency_hz": 8.8
+            },
+            "2": {
+                "label": "9.0 Hz",
+                "stimulus_frequency_hz": 9.0
+            },
+            "3": {
+                "label": "9.2 Hz",
+                "stimulus_frequency_hz": 9.2
+            },
+            "4": {
+                "label": "9.4 Hz",
+                "stimulus_frequency_hz": 9.4
+            },
+            "5": {
+                "label": "9.6 Hz",
+                "stimulus_frequency_hz": 9.6
+            },
+            "6": {
+                "label": "9.8 Hz",
+                "stimulus_frequency_hz": 9.8
+            },
+            "7": {
+                "label": "10.0 Hz",
+                "stimulus_frequency_hz": 10.0
+            },
+            "8": {
+                "label": "10.2 Hz",
+                "stimulus_frequency_hz": 10.2
+            },
+            "9": {
+                "label": "10.4 Hz",
+                "stimulus_frequency_hz": 10.4
+            },
+            "10": {
+                "label": "10.6 Hz",
+                "stimulus_frequency_hz": 10.6
+            },
+            "11": {
+                "label": "10.8 Hz",
+                "stimulus_frequency_hz": 10.8
+            },
+            "12": {
+                "label": "11.0 Hz",
+                "stimulus_frequency_hz": 11.0
+            },
+            "13": {
+                "label": "11.2 Hz",
+                "stimulus_frequency_hz": 11.2
+            },
+            "14": {
+                "label": "11.4 Hz",
+                "stimulus_frequency_hz": 11.4
+            },
+            "15": {
+                "label": "11.6 Hz",
+                "stimulus_frequency_hz": 11.6
+            },
+            "16": {
+                "label": "11.8 Hz",
+                "stimulus_frequency_hz": 11.8
+            },
+            "17": {
+                "label": "12.0 Hz",
+                "stimulus_frequency_hz": 12.0
+            },
+            "18": {
+                "label": "12.2 Hz",
+                "stimulus_frequency_hz": 12.2
+            },
+            "19": {
+                "label": "12.4 Hz",
+                "stimulus_frequency_hz": 12.4
+            },
+            "20": {
+                "label": "12.6 Hz",
+                "stimulus_frequency_hz": 12.6
+            },
+            "21": {
+                "label": "12.8 Hz",
+                "stimulus_frequency_hz": 12.8
+            },
+            "22": {
+                "label": "13.0 Hz",
+                "stimulus_frequency_hz": 13.0
+            },
+            "23": {
+                "label": "13.2 Hz",
+                "stimulus_frequency_hz": 13.2
+            },
+            "24": {
+                "label": "13.4 Hz",
+                "stimulus_frequency_hz": 13.4
+            },
+            "25": {
+                "label": "13.6 Hz",
+                "stimulus_frequency_hz": 13.6
+            },
+            "26": {
+                "label": "13.8 Hz",
+                "stimulus_frequency_hz": 13.8
+            },
+            "27": {
+                "label": "14.0 Hz",
+                "stimulus_frequency_hz": 14.0
+            },
+            "28": {
+                "label": "14.2 Hz",
+                "stimulus_frequency_hz": 14.2
+            },
+            "29": {
+                "label": "14.4 Hz",
+                "stimulus_frequency_hz": 14.4
+            },
+            "30": {
+                "label": "14.6 Hz",
+                "stimulus_frequency_hz": 14.6
+            },
+            "31": {
+                "label": "14.8 Hz",
+                "stimulus_frequency_hz": 14.8
+            },
+            "32": {
+                "label": "15.0 Hz",
+                "stimulus_frequency_hz": 15.0
+            },
+            "33": {
+                "label": "15.2 Hz",
+                "stimulus_frequency_hz": 15.2
+            },
+            "34": {
+                "label": "15.4 Hz",
+                "stimulus_frequency_hz": 15.4
+            },
+            "35": {
+                "label": "15.6 Hz",
+                "stimulus_frequency_hz": 15.6
+            },
+            "36": {
+                "label": "15.8 Hz",
+                "stimulus_frequency_hz": 15.8
+            },
+            "37": {
+                "label": "8.0 Hz",
+                "stimulus_frequency_hz": 8.0
+            },
+            "38": {
+                "label": "8.2 Hz",
+                "stimulus_frequency_hz": 8.2
+            },
+            "39": {
+                "label": "8.4 Hz",
+                "stimulus_frequency_hz": 8.4
+            }
+        },
+        "channels": {
+            "count": 64,
+            "system": "10-20 International System",
+            "1": {
+                "label": "FP1",
+                "coordinates": {
+                    "polar_angle_deg": -17.926,
+                    "polar_radius": 0.51499
+                }
+            },
+            "2": {
+                "label": "FPZ",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.50669
+                }
+            },
+            "3": {
+                "label": "FP2",
+                "coordinates": {
+                    "polar_angle_deg": 17.926,
+                    "polar_radius": 0.51499
+                }
+            },
+            "4": {
+                "label": "AF3",
+                "coordinates": {
+                    "polar_angle_deg": -22.461,
+                    "polar_radius": 0.42113
+                }
+            },
+            "5": {
+                "label": "AF4",
+                "coordinates": {
+                    "polar_angle_deg": 22.461,
+                    "polar_radius": 0.42113
+                }
+            },
+            "6": {
+                "label": "F7",
+                "coordinates": {
+                    "polar_angle_deg": -53.913,
+                    "polar_radius": 0.52808
+                }
+            },
+            "7": {
+                "label": "F5",
+                "coordinates": {
+                    "polar_angle_deg": -49.405,
+                    "polar_radius": 0.43159
+                }
+            },
+            "8": {
+                "label": "F3",
+                "coordinates": {
+                    "polar_angle_deg": -39.947,
+                    "polar_radius": 0.34459
+                }
+            },
+            "9": {
+                "label": "F1",
+                "coordinates": {
+                    "polar_angle_deg": -23.493,
+                    "polar_radius": 0.27903
+                }
+            },
+            "10": {
+                "label": "FZ",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.25338
+                }
+            },
+            "11": {
+                "label": "F2",
+                "coordinates": {
+                    "polar_angle_deg": 23.493,
+                    "polar_radius": 0.27878
+                }
+            },
+            "12": {
+                "label": "F4",
+                "coordinates": {
+                    "polar_angle_deg": 39.897,
+                    "polar_radius": 0.3445
+                }
+            },
+            "13": {
+                "label": "F6",
+                "coordinates": {
+                    "polar_angle_deg": 49.405,
+                    "polar_radius": 0.43128
+                }
+            },
+            "14": {
+                "label": "F8",
+                "coordinates": {
+                    "polar_angle_deg": 53.867,
+                    "polar_radius": 0.52807
+                }
+            },
+            "15": {
+                "label": "FT7",
+                "coordinates": {
+                    "polar_angle_deg": -71.948,
+                    "polar_radius": 0.53192
+                }
+            },
+            "16": {
+                "label": "FC5",
+                "coordinates": {
+                    "polar_angle_deg": -69.332,
+                    "polar_radius": 0.40823
+                }
+            },
+            "17": {
+                "label": "FC3",
+                "coordinates": {
+                    "polar_angle_deg": -62.425,
+                    "polar_radius": 0.28822
+                }
+            },
+            "18": {
+                "label": "FC1",
+                "coordinates": {
+                    "polar_angle_deg": -44.925,
+                    "polar_radius": 0.18118
+                }
+            },
+            "19": {
+                "label": "FCz",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.12662
+                }
+            },
+            "20": {
+                "label": "FC2",
+                "coordinates": {
+                    "polar_angle_deg": 44.925,
+                    "polar_radius": 0.18118
+                }
+            },
+            "21": {
+                "label": "FC4",
+                "coordinates": {
+                    "polar_angle_deg": 62.425,
+                    "polar_radius": 0.28822
+                }
+            },
+            "22": {
+                "label": "FC6",
+                "coordinates": {
+                    "polar_angle_deg": 69.332,
+                    "polar_radius": 0.40823
+                }
+            },
+            "23": {
+                "label": "FT8",
+                "coordinates": {
+                    "polar_angle_deg": 71.948,
+                    "polar_radius": 0.53192
+                }
+            },
+            "24": {
+                "label": "T7",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.53318
+                }
+            },
+            "25": {
+                "label": "C5",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.3999
+                }
+            },
+            "26": {
+                "label": "C3",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.26669
+                }
+            },
+            "27": {
+                "label": "C1",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.13319
+                }
+            },
+            "28": {
+                "label": "Cz",
+                "coordinates": {
+                    "polar_angle_deg": 177.496,
+                    "polar_radius": 0.00918
+                }
+            },
+            "29": {
+                "label": "C2",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.13348
+                }
+            },
+            "30": {
+                "label": "C4",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.26667
+                }
+            },
+            "31": {
+                "label": "C6",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.3999
+                }
+            },
+            "32": {
+                "label": "T8",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.53318
+                }
+            },
+            "33": {
+                "label": "M1",
+                "coordinates": {
+                    "polar_angle_deg": -100.42,
+                    "polar_radius": 0.74733
+                }
+            },
+            "34": {
+                "label": "TP7",
+                "coordinates": {
+                    "polar_angle_deg": -108.05,
+                    "polar_radius": 0.53192
+                }
+            },
+            "35": {
+                "label": "CP5",
+                "coordinates": {
+                    "polar_angle_deg": -110.67,
+                    "polar_radius": 0.40823
+                }
+            },
+            "36": {
+                "label": "CP3",
+                "coordinates": {
+                    "polar_angle_deg": -117.57,
+                    "polar_radius": 0.28822
+                }
+            },
+            "37": {
+                "label": "CP1",
+                "coordinates": {
+                    "polar_angle_deg": -135.07,
+                    "polar_radius": 0.18118
+                }
+            },
+            "38": {
+                "label": "CPZ",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.12662
+                }
+            },
+            "39": {
+                "label": "CP2",
+                "coordinates": {
+                    "polar_angle_deg": 135.07,
+                    "polar_radius": 0.18118
+                }
+            },
+            "40": {
+                "label": "CP4",
+                "coordinates": {
+                    "polar_angle_deg": 117.57,
+                    "polar_radius": 0.28822
+                }
+            },
+            "41": {
+                "label": "CP6",
+                "coordinates": {
+                    "polar_angle_deg": 110.67,
+                    "polar_radius": 0.40823
+                }
+            },
+            "42": {
+                "label": "TP8",
+                "coordinates": {
+                    "polar_angle_deg": 108.11,
+                    "polar_radius": 0.53191
+                }
+            },
+            "43": {
+                "label": "M2",
+                "coordinates": {
+                    "polar_angle_deg": 100.42,
+                    "polar_radius": 0.74733
+                }
+            },
+            "44": {
+                "label": "P7",
+                "coordinates": {
+                    "polar_angle_deg": -126.09,
+                    "polar_radius": 0.52808
+                }
+            },
+            "45": {
+                "label": "P5",
+                "coordinates": {
+                    "polar_angle_deg": -130.6,
+                    "polar_radius": 0.43159
+                }
+            },
+            "46": {
+                "label": "P3",
+                "coordinates": {
+                    "polar_angle_deg": -140.05,
+                    "polar_radius": 0.34459
+                }
+            },
+            "47": {
+                "label": "P1",
+                "coordinates": {
+                    "polar_angle_deg": -156.51,
+                    "polar_radius": 0.27903
+                }
+            },
+            "48": {
+                "label": "PZ",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.25338
+                }
+            },
+            "49": {
+                "label": "P2",
+                "coordinates": {
+                    "polar_angle_deg": 156.51,
+                    "polar_radius": 0.27878
+                }
+            },
+            "50": {
+                "label": "P4",
+                "coordinates": {
+                    "polar_angle_deg": 140.1,
+                    "polar_radius": 0.3445
+                }
+            },
+            "51": {
+                "label": "P6",
+                "coordinates": {
+                    "polar_angle_deg": 130.6,
+                    "polar_radius": 0.43128
+                }
+            },
+            "52": {
+                "label": "P8",
+                "coordinates": {
+                    "polar_angle_deg": 126.13,
+                    "polar_radius": 0.52807
+                }
+            },
+            "53": {
+                "label": "PO7",
+                "coordinates": {
+                    "polar_angle_deg": -144.11,
+                    "polar_radius": 0.52233
+                }
+            },
+            "54": {
+                "label": "PO5",
+                "coordinates": {
+                    "polar_angle_deg": -149.46,
+                    "polar_radius": 0.46649
+                }
+            },
+            "55": {
+                "label": "PO3",
+                "coordinates": {
+                    "polar_angle_deg": -157.54,
+                    "polar_radius": 0.42113
+                }
+            },
+            "56": {
+                "label": "POz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.37994
+                }
+            },
+            "57": {
+                "label": "PO4",
+                "coordinates": {
+                    "polar_angle_deg": 157.54,
+                    "polar_radius": 0.42113
+                }
+            },
+            "58": {
+                "label": "PO6",
+                "coordinates": {
+                    "polar_angle_deg": 149.46,
+                    "polar_radius": 0.46649
+                }
+            },
+            "59": {
+                "label": "PO8",
+                "coordinates": {
+                    "polar_angle_deg": 144.14,
+                    "polar_radius": 0.52231
+                }
+            },
+            "60": {
+                "label": "CB1",
+                "coordinates": {
+                    "polar_angle_deg": -170.0,
+                    "polar_radius": 0.52
+                }
+            },
+            "61": {
+                "label": "O1",
+                "coordinates": {
+                    "polar_angle_deg": -162.07,
+                    "polar_radius": 0.51499
+                }
+            },
+            "62": {
+                "label": "Oz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.50669
+                }
+            },
+            "63": {
+                "label": "O2",
+                "coordinates": {
+                    "polar_angle_deg": 162.07,
+                    "polar_radius": 0.51499
+                }
+            },
+            "64": {
+                "label": "CB2",
+                "coordinates": {
+                    "polar_angle_deg": 170.0,
+                    "polar_radius": 0.52
+                }
+            }
+        }
+    },
+    "data_structure": {
+        "16": {
+            "file": "raw/signals_labels/S16.mat"
+        },
+        "17": {
+            "file": "raw/signals_labels/S17.mat"
+        },
+        "18": {
+            "file": "raw/signals_labels/S18.mat"
+        },
+        "19": {
+            "file": "raw/signals_labels/S19.mat"
+        },
+        "20": {
+            "file": "raw/signals_labels/S20.mat"
+        },
+        "21": {
+            "file": "raw/signals_labels/S21.mat"
+        },
+        "22": {
+            "file": "raw/signals_labels/S22.mat"
+        },
+        "23": {
+            "file": "raw/signals_labels/S23.mat"
+        },
+        "24": {
+            "file": "raw/signals_labels/S24.mat"
+        },
+        "25": {
+            "file": "raw/signals_labels/S25.mat"
+        },
+        "26": {
+            "file": "raw/signals_labels/S26.mat"
+        },
+        "27": {
+            "file": "raw/signals_labels/S27.mat"
+        },
+        "28": {
+            "file": "raw/signals_labels/S28.mat"
+        },
+        "29": {
+            "file": "raw/signals_labels/S29.mat"
+        },
+        "30": {
+            "file": "raw/signals_labels/S30.mat"
+        },
+        "31": {
+            "file": "raw/signals_labels/S31.mat"
+        },
+        "32": {
+            "file": "raw/signals_labels/S32.mat"
+        },
+        "33": {
+            "file": "raw/signals_labels/S33.mat"
+        },
+        "34": {
+            "file": "raw/signals_labels/S34.mat"
+        },
+        "35": {
+            "file": "raw/signals_labels/S35.mat"
+        },
+        "36": {
+            "file": "raw/signals_labels/S36.mat"
+        },
+        "37": {
+            "file": "raw/signals_labels/S37.mat"
+        },
+        "38": {
+            "file": "raw/signals_labels/S38.mat"
+        },
+        "39": {
+            "file": "raw/signals_labels/S39.mat"
+        },
+        "40": {
+            "file": "raw/signals_labels/S40.mat"
+        },
+        "41": {
+            "file": "raw/signals_labels/S41.mat"
+        },
+        "42": {
+            "file": "raw/signals_labels/S42.mat"
+        },
+        "43": {
+            "file": "raw/signals_labels/S43.mat"
+        },
+        "44": {
+            "file": "raw/signals_labels/S44.mat"
+        },
+        "45": {
+            "file": "raw/signals_labels/S45.mat"
+        },
+        "46": {
+            "file": "raw/signals_labels/S46.mat"
+        },
+        "47": {
+            "file": "raw/signals_labels/S47.mat"
+        },
+        "48": {
+            "file": "raw/signals_labels/S48.mat"
+        },
+        "49": {
+            "file": "raw/signals_labels/S49.mat"
+        },
+        "50": {
+            "file": "raw/signals_labels/S50.mat"
+        },
+        "51": {
+            "file": "raw/signals_labels/S51.mat"
+        },
+        "52": {
+            "file": "raw/signals_labels/S52.mat"
+        },
+        "53": {
+            "file": "raw/signals_labels/S53.mat"
+        },
+        "54": {
+            "file": "raw/signals_labels/S54.mat"
+        },
+        "55": {
+            "file": "raw/signals_labels/S55.mat"
+        },
+        "56": {
+            "file": "raw/signals_labels/S56.mat"
+        },
+        "57": {
+            "file": "raw/signals_labels/S57.mat"
+        },
+        "58": {
+            "file": "raw/signals_labels/S58.mat"
+        },
+        "59": {
+            "file": "raw/signals_labels/S59.mat"
+        },
+        "60": {
+            "file": "raw/signals_labels/S60.mat"
+        },
+        "61": {
+            "file": "raw/signals_labels/S61.mat"
+        },
+        "62": {
+            "file": "raw/signals_labels/S62.mat"
+        },
+        "63": {
+            "file": "raw/signals_labels/S63.mat"
+        },
+        "64": {
+            "file": "raw/signals_labels/S64.mat"
+        },
+        "65": {
+            "file": "raw/signals_labels/S65.mat"
+        },
+        "66": {
+            "file": "raw/signals_labels/S66.mat"
+        },
+        "67": {
+            "file": "raw/signals_labels/S67.mat"
+        },
+        "68": {
+            "file": "raw/signals_labels/S68.mat"
+        },
+        "69": {
+            "file": "raw/signals_labels/S69.mat"
+        },
+        "70": {
+            "file": "raw/signals_labels/S70.mat"
+        }
+    }
+}

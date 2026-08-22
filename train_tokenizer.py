@@ -202,9 +202,9 @@ def main():
         logger.info(f"Dataset {ds_name}: {n_train} Train, {len(subjects_to_split) - n_train} Val subjects")
 
     logger.info("Building Training Dataset...")
-    train_dataset = build_dataset_from_config(train_config, transform=None, mode='pretrain')
+    train_dataset = build_dataset_from_config(train_config, transform=None, mode='tokenizer')
     logger.info("Building Validation Dataset...")
-    val_dataset   = build_dataset_from_config(val_config,   transform=None, mode='pretrain')
+    val_dataset   = build_dataset_from_config(val_config,   transform=None, mode='tokenizer')
     logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
 
     def _first_subject(dataset_name=None):

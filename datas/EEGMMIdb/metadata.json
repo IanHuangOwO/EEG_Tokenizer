@@ -1,0 +1,2595 @@
+{
+    "data_metadata": {
+        "dataset_name": "EEGMMIdb",
+        "dataset_info": {
+            "source_url": "https://www.physionet.org/content/eegmmidb/1.0.0/",
+            "file_format": "EDF+",
+            "description": "EEG Motor Movement/Imagery Database (EEGMMIdb) - PhysioNet collection",
+            "electrode_note": "64 electrodes from 10-10 international system (excluding Nz, F9, F10, FT9, FT10, A1, A2, TP9, TP10, P9, P10)",
+            "contact": "PhysioNet",
+            "reference": "Goldberger, A. L., Amaral, L. A., Glass, L., et al. PhysioBank, PhysioToolkit, and PhysioNet: Components of a new research resource for complex physiologic signals. Circulation 101(23):e215-e220 (2000)."
+        },
+        "acquisition": {
+            "sample_frequency": 160.0,
+            "window_size_seconds": 4.0,
+            "num_subjects": 109,
+            "num_runs_per_subject": 14
+        },
+        "targets": {
+            "count": 3,
+            "type": "motor_imagery",
+            "0": {
+                "label": "Rest",
+                "description": "T0 - Resting state (no motor imagery)",
+                "stimulus_frequency_hz": null
+            },
+            "1": {
+                "label": "Left fist or both fists",
+                "description": "T1 - Left fist or both fists motor imagery",
+                "stimulus_frequency_hz": null
+            },
+            "2": {
+                "label": "Right fist or both feet",
+                "description": "T2 - Right fist or both feet motor imagery",
+                "stimulus_frequency_hz": null
+            }
+        },
+        "channels": {
+            "count": 64,
+            "system": "10-10 International System",
+            "1": {
+                "label": "FC5",
+                "original_label": "Fc5.",
+                "coordinates": {
+                    "polar_angle_deg": -76.42590504508098,
+                    "polar_radius": 0.7943370453969775
+                }
+            },
+            "2": {
+                "label": "FC3",
+                "original_label": "Fc3.",
+                "coordinates": {
+                    "polar_angle_deg": -69.32053429378861,
+                    "polar_radius": 0.6432640849643324
+                }
+            },
+            "3": {
+                "label": "FC1",
+                "original_label": "Fc1.",
+                "coordinates": {
+                    "polar_angle_deg": -52.63312388070132,
+                    "polar_radius": 0.428577922298851
+                }
+            },
+            "4": {
+                "label": "FCZ",
+                "original_label": "Fcz."
+            },
+            "5": {
+                "label": "FC2",
+                "original_label": "Fc2.",
+                "coordinates": {
+                    "polar_angle_deg": 52.76309456726431,
+                    "polar_radius": 0.43690916323876755
+                }
+            },
+            "6": {
+                "label": "FC4",
+                "original_label": "Fc4.",
+                "coordinates": {
+                    "polar_angle_deg": 69.15189142384068,
+                    "polar_radius": 0.6665734428740767
+                }
+            },
+            "7": {
+                "label": "FC6",
+                "original_label": "Fc6.",
+                "coordinates": {
+                    "polar_angle_deg": 75.9283864803437,
+                    "polar_radius": 0.8199454370444414
+                }
+            },
+            "8": {
+                "label": "C5",
+                "original_label": "C5..",
+                "coordinates": {
+                    "polar_angle_deg": -99.72577392042757,
+                    "polar_radius": 0.8145074462581665
+                }
+            },
+            "9": {
+                "label": "C3",
+                "original_label": "C3..",
+                "coordinates": {
+                    "polar_angle_deg": -100.09120486162583,
+                    "polar_radius": 0.6638507121710421
+                }
+            },
+            "10": {
+                "label": "C1",
+                "original_label": "C1..",
+                "coordinates": {
+                    "polar_angle_deg": -105.43582452956097,
+                    "polar_radius": 0.37511054680053985
+                }
+            },
+            "11": {
+                "label": "CZ",
+                "original_label": "Cz..",
+                "coordinates": {
+                    "polar_angle_deg": 177.4958818648799,
+                    "polar_radius": 0.09175762083336728
+                }
+            },
+            "12": {
+                "label": "C2",
+                "original_label": "C2..",
+                "coordinates": {
+                    "polar_angle_deg": 104.33088263904357,
+                    "polar_radius": 0.3888190947998824
+                }
+            },
+            "13": {
+                "label": "C4",
+                "original_label": "C4..",
+                "coordinates": {
+                    "polar_angle_deg": 99.22459761294736,
+                    "polar_radius": 0.679972723019093
+                }
+            },
+            "14": {
+                "label": "C6",
+                "original_label": "C6..",
+                "coordinates": {
+                    "polar_angle_deg": 98.70385908672239,
+                    "polar_radius": 0.844282007773469
+                }
+            },
+            "15": {
+                "label": "CP5",
+                "original_label": "Cp5.",
+                "coordinates": {
+                    "polar_angle_deg": -120.32187527550083,
+                    "polar_radius": 0.9220567212124209
+                }
+            },
+            "16": {
+                "label": "CP3",
+                "original_label": "Cp3.",
+                "coordinates": {
+                    "polar_angle_deg": -126.4881645271155,
+                    "polar_radius": 0.7905199450918363
+                }
+            },
+            "17": {
+                "label": "CP1",
+                "original_label": "Cp1.",
+                "coordinates": {
+                    "polar_angle_deg": -143.09586519893588,
+                    "polar_radius": 0.5914139055872799
+                }
+            },
+            "18": {
+                "label": "CPZ",
+                "original_label": "Cpz."
+            },
+            "19": {
+                "label": "CP2",
+                "original_label": "Cp2.",
+                "coordinates": {
+                    "polar_angle_deg": 140.8059092127152,
+                    "polar_radius": 0.6073872608188288
+                }
+            },
+            "20": {
+                "label": "CP4",
+                "original_label": "Cp4.",
+                "coordinates": {
+                    "polar_angle_deg": 124.99718074071295,
+                    "polar_radius": 0.813151912195993
+                }
+            },
+            "21": {
+                "label": "CP6",
+                "original_label": "Cp6.",
+                "coordinates": {
+                    "polar_angle_deg": 118.95541217578682,
+                    "polar_radius": 0.9522527089449523
+                }
+            },
+            "22": {
+                "label": "FP1",
+                "original_label": "Fp1.",
+                "coordinates": {
+                    "polar_angle_deg": -19.330007944279625,
+                    "polar_radius": 0.8893030405491709
+                }
+            },
+            "23": {
+                "label": "FPZ",
+                "original_label": "Fpz."
+            },
+            "24": {
+                "label": "FP2",
+                "original_label": "Fp2.",
+                "coordinates": {
+                    "polar_angle_deg": 19.38542872808649,
+                    "polar_radius": 0.8999815633722726
+                }
+            },
+            "25": {
+                "label": "AF7",
+                "original_label": "Af7.",
+                "coordinates": {
+                    "polar_angle_deg": -38.650605787642725,
+                    "polar_radius": 0.8780398230678378
+                }
+            },
+            "26": {
+                "label": "AF3",
+                "original_label": "Af3.",
+                "coordinates": {
+                    "polar_angle_deg": -23.682223771278377,
+                    "polar_radius": 0.8390278372557134
+                }
+            },
+            "27": {
+                "label": "AFZ",
+                "original_label": "Afz."
+            },
+            "28": {
+                "label": "AF4",
+                "original_label": "Af4.",
+                "coordinates": {
+                    "polar_angle_deg": 24.677106634440914,
+                    "polar_radius": 0.8553761688345075
+                }
+            },
+            "29": {
+                "label": "AF8",
+                "original_label": "Af8.",
+                "coordinates": {
+                    "polar_angle_deg": 38.66876483804009,
+                    "polar_radius": 0.8921538702000905
+                }
+            },
+            "30": {
+                "label": "F7",
+                "original_label": "F7..",
+                "coordinates": {
+                    "polar_angle_deg": -58.84681304243345,
+                    "polar_radius": 0.8210323548374937
+                }
+            },
+            "31": {
+                "label": "F5",
+                "original_label": "F5..",
+                "coordinates": {
+                    "polar_angle_deg": -53.30915771914511,
+                    "polar_radius": 0.8039421257609282
+                }
+            },
+            "32": {
+                "label": "F3",
+                "original_label": "F3..",
+                "coordinates": {
+                    "polar_angle_deg": -43.410838497590674,
+                    "polar_radius": 0.7311114144834561
+                }
+            },
+            "33": {
+                "label": "F1",
+                "original_label": "F1..",
+                "coordinates": {
+                    "polar_angle_deg": -25.778974747105302,
+                    "polar_radius": 0.6322316952549911
+                }
+            },
+            "34": {
+                "label": "FZ",
+                "original_label": "Fz..",
+                "coordinates": {
+                    "polar_angle_deg": 0.3057077627961028,
+                    "polar_radius": 0.5851283289023016
+                }
+            },
+            "35": {
+                "label": "F2",
+                "original_label": "F2..",
+                "coordinates": {
+                    "polar_angle_deg": 27.129803194947772,
+                    "polar_radius": 0.6472300120706703
+                }
+            },
+            "36": {
+                "label": "F4",
+                "original_label": "F4..",
+                "coordinates": {
+                    "polar_angle_deg": 43.667669733479386,
+                    "polar_radius": 0.7507331705393068
+                }
+            },
+            "37": {
+                "label": "F6",
+                "original_label": "F6..",
+                "coordinates": {
+                    "polar_angle_deg": 53.73192644346953,
+                    "polar_radius": 0.8423382671902065
+                }
+            },
+            "38": {
+                "label": "F8",
+                "original_label": "F8..",
+                "coordinates": {
+                    "polar_angle_deg": 58.693815790713,
+                    "polar_radius": 0.8549024440542909
+                }
+            },
+            "39": {
+                "label": "FT7",
+                "original_label": "Ft7.",
+                "coordinates": {
+                    "polar_angle_deg": -80.08430223446933,
+                    "polar_radius": 0.8199989937243825
+                }
+            },
+            "40": {
+                "label": "FT8",
+                "original_label": "Ft8.",
+                "coordinates": {
+                    "polar_angle_deg": 79.32868817343721,
+                    "polar_radius": 0.8325494115606592
+                }
+            },
+            "41": {
+                "label": "T7",
+                "original_label": "T7..",
+                "coordinates": {
+                    "polar_angle_deg": -100.77642362288974,
+                    "polar_radius": 0.8567198785425724
+                }
+            },
+            "42": {
+                "label": "T8",
+                "original_label": "T8..",
+                "coordinates": {
+                    "polar_angle_deg": 100.01202894815384,
+                    "polar_radius": 0.8639559477253456
+                }
+            },
+            "43": {
+                "label": "T9",
+                "original_label": "T9..",
+                "coordinates": {
+                    "polar_angle_deg": -100.44141246827564,
+                    "polar_radius": 0.8734039247965399
+                }
+            },
+            "44": {
+                "label": "T10",
+                "original_label": "T10.",
+                "coordinates": {
+                    "polar_angle_deg": 100.82576354258411,
+                    "polar_radius": 0.8711020965248562
+                }
+            },
+            "45": {
+                "label": "TP7",
+                "original_label": "Tp7.",
+                "coordinates": {
+                    "polar_angle_deg": -118.48051813638996,
+                    "polar_radius": 0.9650989432659224
+                }
+            },
+            "46": {
+                "label": "TP8",
+                "original_label": "Tp8.",
+                "coordinates": {
+                    "polar_angle_deg": 118.0303773930428,
+                    "polar_radius": 0.9691734382209407
+                }
+            },
+            "47": {
+                "label": "P7",
+                "original_label": "P7..",
+                "coordinates": {
+                    "polar_angle_deg": -135.3999607509189,
+                    "polar_radius": 1.0316020043495455
+                }
+            },
+            "48": {
+                "label": "P5",
+                "original_label": "P5..",
+                "coordinates": {
+                    "polar_angle_deg": -138.59450681731226,
+                    "polar_radius": 1.0171446924494076
+                }
+            },
+            "49": {
+                "label": "P3",
+                "original_label": "P3..",
+                "coordinates": {
+                    "polar_angle_deg": -146.0679005881858,
+                    "polar_radius": 0.9495941913328029
+                }
+            },
+            "50": {
+                "label": "P1",
+                "original_label": "P1..",
+                "coordinates": {
+                    "polar_angle_deg": -160.43368108248998,
+                    "polar_radius": 0.854598215075365
+                }
+            },
+            "51": {
+                "label": "PZ",
+                "original_label": "Pz.."
+            },
+            "52": {
+                "label": "P2",
+                "original_label": "P2..",
+                "coordinates": {
+                    "polar_angle_deg": 158.367635802523,
+                    "polar_radius": 0.8658545209502574
+                }
+            },
+            "53": {
+                "label": "P4",
+                "original_label": "P4..",
+                "coordinates": {
+                    "polar_angle_deg": 144.67912725864227,
+                    "polar_radius": 0.9628336571251546
+                }
+            },
+            "54": {
+                "label": "P6",
+                "original_label": "P6..",
+                "coordinates": {
+                    "polar_angle_deg": 138.19101442334932,
+                    "polar_radius": 1.0183419155558706
+                }
+            },
+            "55": {
+                "label": "P8",
+                "original_label": "P8..",
+                "coordinates": {
+                    "polar_angle_deg": 135.00494050819904,
+                    "polar_radius": 1.033252716782298
+                }
+            },
+            "56": {
+                "label": "PO7",
+                "original_label": "Po7.",
+                "coordinates": {
+                    "polar_angle_deg": -150.65074594060442,
+                    "polar_radius": 1.1188905554418627
+                }
+            },
+            "57": {
+                "label": "PO3",
+                "original_label": "Po3.",
+                "coordinates": {
+                    "polar_angle_deg": -160.0984128428656,
+                    "polar_radius": 1.0725851839537035
+                }
+            },
+            "58": {
+                "label": "POZ",
+                "original_label": "Poz."
+            },
+            "59": {
+                "label": "PO4",
+                "original_label": "Po4.",
+                "coordinates": {
+                    "polar_angle_deg": 159.96211790757454,
+                    "polar_radius": 1.0734722664964382
+                }
+            },
+            "60": {
+                "label": "PO8",
+                "original_label": "Po8.",
+                "coordinates": {
+                    "polar_angle_deg": 150.30787135744788,
+                    "polar_radius": 1.1238073903285206
+                }
+            },
+            "61": {
+                "label": "O1",
+                "original_label": "O1..",
+                "coordinates": {
+                    "polar_angle_deg": -165.34150269088192,
+                    "polar_radius": 1.1623220595239514
+                }
+            },
+            "62": {
+                "label": "OZ",
+                "original_label": "Oz.."
+            },
+            "63": {
+                "label": "O2",
+                "original_label": "O2..",
+                "coordinates": {
+                    "polar_angle_deg": 165.09990657799872,
+                    "polar_radius": 1.1605838664551562
+                }
+            },
+            "64": {
+                "label": "IZ",
+                "original_label": "Iz.."
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "folder": "raw/S001",
+            "runs": [
+                "S001R01.edf",
+                "S001R02.edf",
+                "S001R03.edf",
+                "S001R04.edf",
+                "S001R05.edf",
+                "S001R06.edf",
+                "S001R07.edf",
+                "S001R08.edf",
+                "S001R09.edf",
+                "S001R10.edf",
+                "S001R11.edf",
+                "S001R12.edf",
+                "S001R13.edf",
+                "S001R14.edf"
+            ]
+        },
+        "2": {
+            "folder": "raw/S002",
+            "runs": [
+                "S002R01.edf",
+                "S002R02.edf",
+                "S002R03.edf",
+                "S002R04.edf",
+                "S002R05.edf",
+                "S002R06.edf",
+                "S002R07.edf",
+                "S002R08.edf",
+                "S002R09.edf",
+                "S002R10.edf",
+                "S002R11.edf",
+                "S002R12.edf",
+                "S002R13.edf",
+                "S002R14.edf"
+            ]
+        },
+        "3": {
+            "folder": "raw/S003",
+            "runs": [
+                "S003R01.edf",
+                "S003R02.edf",
+                "S003R03.edf",
+                "S003R04.edf",
+                "S003R05.edf",
+                "S003R06.edf",
+                "S003R07.edf",
+                "S003R08.edf",
+                "S003R09.edf",
+                "S003R10.edf",
+                "S003R11.edf",
+                "S003R12.edf",
+                "S003R13.edf",
+                "S003R14.edf"
+            ]
+        },
+        "4": {
+            "folder": "raw/S004",
+            "runs": [
+                "S004R01.edf",
+                "S004R02.edf",
+                "S004R03.edf",
+                "S004R04.edf",
+                "S004R05.edf",
+                "S004R06.edf",
+                "S004R07.edf",
+                "S004R08.edf",
+                "S004R09.edf",
+                "S004R10.edf",
+                "S004R11.edf",
+                "S004R12.edf",
+                "S004R13.edf",
+                "S004R14.edf"
+            ]
+        },
+        "5": {
+            "folder": "raw/S005",
+            "runs": [
+                "S005R01.edf",
+                "S005R02.edf",
+                "S005R03.edf",
+                "S005R04.edf",
+                "S005R05.edf",
+                "S005R06.edf",
+                "S005R07.edf",
+                "S005R08.edf",
+                "S005R09.edf",
+                "S005R10.edf",
+                "S005R11.edf",
+                "S005R12.edf",
+                "S005R13.edf",
+                "S005R14.edf"
+            ]
+        },
+        "6": {
+            "folder": "raw/S006",
+            "runs": [
+                "S006R01.edf",
+                "S006R02.edf",
+                "S006R03.edf",
+                "S006R04.edf",
+                "S006R05.edf",
+                "S006R06.edf",
+                "S006R07.edf",
+                "S006R08.edf",
+                "S006R09.edf",
+                "S006R10.edf",
+                "S006R11.edf",
+                "S006R12.edf",
+                "S006R13.edf",
+                "S006R14.edf"
+            ]
+        },
+        "7": {
+            "folder": "raw/S007",
+            "runs": [
+                "S007R01.edf",
+                "S007R02.edf",
+                "S007R03.edf",
+                "S007R04.edf",
+                "S007R05.edf",
+                "S007R06.edf",
+                "S007R07.edf",
+                "S007R08.edf",
+                "S007R09.edf",
+                "S007R10.edf",
+                "S007R11.edf",
+                "S007R12.edf",
+                "S007R13.edf",
+                "S007R14.edf"
+            ]
+        },
+        "8": {
+            "folder": "raw/S008",
+            "runs": [
+                "S008R01.edf",
+                "S008R02.edf",
+                "S008R03.edf",
+                "S008R04.edf",
+                "S008R05.edf",
+                "S008R06.edf",
+                "S008R07.edf",
+                "S008R08.edf",
+                "S008R09.edf",
+                "S008R10.edf",
+                "S008R11.edf",
+                "S008R12.edf",
+                "S008R13.edf",
+                "S008R14.edf"
+            ]
+        },
+        "9": {
+            "folder": "raw/S009",
+            "runs": [
+                "S009R01.edf",
+                "S009R02.edf",
+                "S009R03.edf",
+                "S009R04.edf",
+                "S009R05.edf",
+                "S009R06.edf",
+                "S009R07.edf",
+                "S009R08.edf",
+                "S009R09.edf",
+                "S009R10.edf",
+                "S009R11.edf",
+                "S009R12.edf",
+                "S009R13.edf",
+                "S009R14.edf"
+            ]
+        },
+        "10": {
+            "folder": "raw/S010",
+            "runs": [
+                "S010R01.edf",
+                "S010R02.edf",
+                "S010R03.edf",
+                "S010R04.edf",
+                "S010R05.edf",
+                "S010R06.edf",
+                "S010R07.edf",
+                "S010R08.edf",
+                "S010R09.edf",
+                "S010R10.edf",
+                "S010R11.edf",
+                "S010R12.edf",
+                "S010R13.edf",
+                "S010R14.edf"
+            ]
+        },
+        "11": {
+            "folder": "raw/S011",
+            "runs": [
+                "S011R01.edf",
+                "S011R02.edf",
+                "S011R03.edf",
+                "S011R04.edf",
+                "S011R05.edf",
+                "S011R06.edf",
+                "S011R07.edf",
+                "S011R08.edf",
+                "S011R09.edf",
+                "S011R10.edf",
+                "S011R11.edf",
+                "S011R12.edf",
+                "S011R13.edf",
+                "S011R14.edf"
+            ]
+        },
+        "12": {
+            "folder": "raw/S012",
+            "runs": [
+                "S012R01.edf",
+                "S012R02.edf",
+                "S012R03.edf",
+                "S012R04.edf",
+                "S012R05.edf",
+                "S012R06.edf",
+                "S012R07.edf",
+                "S012R08.edf",
+                "S012R09.edf",
+                "S012R10.edf",
+                "S012R11.edf",
+                "S012R12.edf",
+                "S012R13.edf",
+                "S012R14.edf"
+            ]
+        },
+        "13": {
+            "folder": "raw/S013",
+            "runs": [
+                "S013R01.edf",
+                "S013R02.edf",
+                "S013R03.edf",
+                "S013R04.edf",
+                "S013R05.edf",
+                "S013R06.edf",
+                "S013R07.edf",
+                "S013R08.edf",
+                "S013R09.edf",
+                "S013R10.edf",
+                "S013R11.edf",
+                "S013R12.edf",
+                "S013R13.edf",
+                "S013R14.edf"
+            ]
+        },
+        "14": {
+            "folder": "raw/S014",
+            "runs": [
+                "S014R01.edf",
+                "S014R02.edf",
+                "S014R03.edf",
+                "S014R04.edf",
+                "S014R05.edf",
+                "S014R06.edf",
+                "S014R07.edf",
+                "S014R08.edf",
+                "S014R09.edf",
+                "S014R10.edf",
+                "S014R11.edf",
+                "S014R12.edf",
+                "S014R13.edf",
+                "S014R14.edf"
+            ]
+        },
+        "15": {
+            "folder": "raw/S015",
+            "runs": [
+                "S015R01.edf",
+                "S015R02.edf",
+                "S015R03.edf",
+                "S015R04.edf",
+                "S015R05.edf",
+                "S015R06.edf",
+                "S015R07.edf",
+                "S015R08.edf",
+                "S015R09.edf",
+                "S015R10.edf",
+                "S015R11.edf",
+                "S015R12.edf",
+                "S015R13.edf",
+                "S015R14.edf"
+            ]
+        },
+        "16": {
+            "folder": "raw/S016",
+            "runs": [
+                "S016R01.edf",
+                "S016R02.edf",
+                "S016R03.edf",
+                "S016R04.edf",
+                "S016R05.edf",
+                "S016R06.edf",
+                "S016R07.edf",
+                "S016R08.edf",
+                "S016R09.edf",
+                "S016R10.edf",
+                "S016R11.edf",
+                "S016R12.edf",
+                "S016R13.edf",
+                "S016R14.edf"
+            ]
+        },
+        "17": {
+            "folder": "raw/S017",
+            "runs": [
+                "S017R01.edf",
+                "S017R02.edf",
+                "S017R03.edf",
+                "S017R04.edf",
+                "S017R05.edf",
+                "S017R06.edf",
+                "S017R07.edf",
+                "S017R08.edf",
+                "S017R09.edf",
+                "S017R10.edf",
+                "S017R11.edf",
+                "S017R12.edf",
+                "S017R13.edf",
+                "S017R14.edf"
+            ]
+        },
+        "18": {
+            "folder": "raw/S018",
+            "runs": [
+                "S018R01.edf",
+                "S018R02.edf",
+                "S018R03.edf",
+                "S018R04.edf",
+                "S018R05.edf",
+                "S018R06.edf",
+                "S018R07.edf",
+                "S018R08.edf",
+                "S018R09.edf",
+                "S018R10.edf",
+                "S018R11.edf",
+                "S018R12.edf",
+                "S018R13.edf",
+                "S018R14.edf"
+            ]
+        },
+        "19": {
+            "folder": "raw/S019",
+            "runs": [
+                "S019R01.edf",
+                "S019R02.edf",
+                "S019R03.edf",
+                "S019R04.edf",
+                "S019R05.edf",
+                "S019R06.edf",
+                "S019R07.edf",
+                "S019R08.edf",
+                "S019R09.edf",
+                "S019R10.edf",
+                "S019R11.edf",
+                "S019R12.edf",
+                "S019R13.edf",
+                "S019R14.edf"
+            ]
+        },
+        "20": {
+            "folder": "raw/S020",
+            "runs": [
+                "S020R01.edf",
+                "S020R02.edf",
+                "S020R03.edf",
+                "S020R04.edf",
+                "S020R05.edf",
+                "S020R06.edf",
+                "S020R07.edf",
+                "S020R08.edf",
+                "S020R09.edf",
+                "S020R10.edf",
+                "S020R11.edf",
+                "S020R12.edf",
+                "S020R13.edf",
+                "S020R14.edf"
+            ]
+        },
+        "21": {
+            "folder": "raw/S021",
+            "runs": [
+                "S021R01.edf",
+                "S021R02.edf",
+                "S021R03.edf",
+                "S021R04.edf",
+                "S021R05.edf",
+                "S021R06.edf",
+                "S021R07.edf",
+                "S021R08.edf",
+                "S021R09.edf",
+                "S021R10.edf",
+                "S021R11.edf",
+                "S021R12.edf",
+                "S021R13.edf",
+                "S021R14.edf"
+            ]
+        },
+        "22": {
+            "folder": "raw/S022",
+            "runs": [
+                "S022R01.edf",
+                "S022R02.edf",
+                "S022R03.edf",
+                "S022R04.edf",
+                "S022R05.edf",
+                "S022R06.edf",
+                "S022R07.edf",
+                "S022R08.edf",
+                "S022R09.edf",
+                "S022R10.edf",
+                "S022R11.edf",
+                "S022R12.edf",
+                "S022R13.edf",
+                "S022R14.edf"
+            ]
+        },
+        "23": {
+            "folder": "raw/S023",
+            "runs": [
+                "S023R01.edf",
+                "S023R02.edf",
+                "S023R03.edf",
+                "S023R04.edf",
+                "S023R05.edf",
+                "S023R06.edf",
+                "S023R07.edf",
+                "S023R08.edf",
+                "S023R09.edf",
+                "S023R10.edf",
+                "S023R11.edf",
+                "S023R12.edf",
+                "S023R13.edf",
+                "S023R14.edf"
+            ]
+        },
+        "24": {
+            "folder": "raw/S024",
+            "runs": [
+                "S024R01.edf",
+                "S024R02.edf",
+                "S024R03.edf",
+                "S024R04.edf",
+                "S024R05.edf",
+                "S024R06.edf",
+                "S024R07.edf",
+                "S024R08.edf",
+                "S024R09.edf",
+                "S024R10.edf",
+                "S024R11.edf",
+                "S024R12.edf",
+                "S024R13.edf",
+                "S024R14.edf"
+            ]
+        },
+        "25": {
+            "folder": "raw/S025",
+            "runs": [
+                "S025R01.edf",
+                "S025R02.edf",
+                "S025R03.edf",
+                "S025R04.edf",
+                "S025R05.edf",
+                "S025R06.edf",
+                "S025R07.edf",
+                "S025R08.edf",
+                "S025R09.edf",
+                "S025R10.edf",
+                "S025R11.edf",
+                "S025R12.edf",
+                "S025R13.edf",
+                "S025R14.edf"
+            ]
+        },
+        "26": {
+            "folder": "raw/S026",
+            "runs": [
+                "S026R01.edf",
+                "S026R02.edf",
+                "S026R03.edf",
+                "S026R04.edf",
+                "S026R05.edf",
+                "S026R06.edf",
+                "S026R07.edf",
+                "S026R08.edf",
+                "S026R09.edf",
+                "S026R10.edf",
+                "S026R11.edf",
+                "S026R12.edf",
+                "S026R13.edf",
+                "S026R14.edf"
+            ]
+        },
+        "27": {
+            "folder": "raw/S027",
+            "runs": [
+                "S027R01.edf",
+                "S027R02.edf",
+                "S027R03.edf",
+                "S027R04.edf",
+                "S027R05.edf",
+                "S027R06.edf",
+                "S027R07.edf",
+                "S027R08.edf",
+                "S027R09.edf",
+                "S027R10.edf",
+                "S027R11.edf",
+                "S027R12.edf",
+                "S027R13.edf",
+                "S027R14.edf"
+            ]
+        },
+        "28": {
+            "folder": "raw/S028",
+            "runs": [
+                "S028R01.edf",
+                "S028R02.edf",
+                "S028R03.edf",
+                "S028R04.edf",
+                "S028R05.edf",
+                "S028R06.edf",
+                "S028R07.edf",
+                "S028R08.edf",
+                "S028R09.edf",
+                "S028R10.edf",
+                "S028R11.edf",
+                "S028R12.edf",
+                "S028R13.edf",
+                "S028R14.edf"
+            ]
+        },
+        "29": {
+            "folder": "raw/S029",
+            "runs": [
+                "S029R01.edf",
+                "S029R02.edf",
+                "S029R03.edf",
+                "S029R04.edf",
+                "S029R05.edf",
+                "S029R06.edf",
+                "S029R07.edf",
+                "S029R08.edf",
+                "S029R09.edf",
+                "S029R10.edf",
+                "S029R11.edf",
+                "S029R12.edf",
+                "S029R13.edf",
+                "S029R14.edf"
+            ]
+        },
+        "30": {
+            "folder": "raw/S030",
+            "runs": [
+                "S030R01.edf",
+                "S030R02.edf",
+                "S030R03.edf",
+                "S030R04.edf",
+                "S030R05.edf",
+                "S030R06.edf",
+                "S030R07.edf",
+                "S030R08.edf",
+                "S030R09.edf",
+                "S030R10.edf",
+                "S030R11.edf",
+                "S030R12.edf",
+                "S030R13.edf",
+                "S030R14.edf"
+            ]
+        },
+        "31": {
+            "folder": "raw/S031",
+            "runs": [
+                "S031R01.edf",
+                "S031R02.edf",
+                "S031R03.edf",
+                "S031R04.edf",
+                "S031R05.edf",
+                "S031R06.edf",
+                "S031R07.edf",
+                "S031R08.edf",
+                "S031R09.edf",
+                "S031R10.edf",
+                "S031R11.edf",
+                "S031R12.edf",
+                "S031R13.edf",
+                "S031R14.edf"
+            ]
+        },
+        "32": {
+            "folder": "raw/S032",
+            "runs": [
+                "S032R01.edf",
+                "S032R02.edf",
+                "S032R03.edf",
+                "S032R04.edf",
+                "S032R05.edf",
+                "S032R06.edf",
+                "S032R07.edf",
+                "S032R08.edf",
+                "S032R09.edf",
+                "S032R10.edf",
+                "S032R11.edf",
+                "S032R12.edf",
+                "S032R13.edf",
+                "S032R14.edf"
+            ]
+        },
+        "33": {
+            "folder": "raw/S033",
+            "runs": [
+                "S033R01.edf",
+                "S033R02.edf",
+                "S033R03.edf",
+                "S033R04.edf",
+                "S033R05.edf",
+                "S033R06.edf",
+                "S033R07.edf",
+                "S033R08.edf",
+                "S033R09.edf",
+                "S033R10.edf",
+                "S033R11.edf",
+                "S033R12.edf",
+                "S033R13.edf",
+                "S033R14.edf"
+            ]
+        },
+        "34": {
+            "folder": "raw/S034",
+            "runs": [
+                "S034R01.edf",
+                "S034R02.edf",
+                "S034R03.edf",
+                "S034R04.edf",
+                "S034R05.edf",
+                "S034R06.edf",
+                "S034R07.edf",
+                "S034R08.edf",
+                "S034R09.edf",
+                "S034R10.edf",
+                "S034R11.edf",
+                "S034R12.edf",
+                "S034R13.edf",
+                "S034R14.edf"
+            ]
+        },
+        "35": {
+            "folder": "raw/S035",
+            "runs": [
+                "S035R01.edf",
+                "S035R02.edf",
+                "S035R03.edf",
+                "S035R04.edf",
+                "S035R05.edf",
+                "S035R06.edf",
+                "S035R07.edf",
+                "S035R08.edf",
+                "S035R09.edf",
+                "S035R10.edf",
+                "S035R11.edf",
+                "S035R12.edf",
+                "S035R13.edf",
+                "S035R14.edf"
+            ]
+        },
+        "36": {
+            "folder": "raw/S036",
+            "runs": [
+                "S036R01.edf",
+                "S036R02.edf",
+                "S036R03.edf",
+                "S036R04.edf",
+                "S036R05.edf",
+                "S036R06.edf",
+                "S036R07.edf",
+                "S036R08.edf",
+                "S036R09.edf",
+                "S036R10.edf",
+                "S036R11.edf",
+                "S036R12.edf",
+                "S036R13.edf",
+                "S036R14.edf"
+            ]
+        },
+        "37": {
+            "folder": "raw/S037",
+            "runs": [
+                "S037R01.edf",
+                "S037R02.edf",
+                "S037R03.edf",
+                "S037R04.edf",
+                "S037R05.edf",
+                "S037R06.edf",
+                "S037R07.edf",
+                "S037R08.edf",
+                "S037R09.edf",
+                "S037R10.edf",
+                "S037R11.edf",
+                "S037R12.edf",
+                "S037R13.edf",
+                "S037R14.edf"
+            ]
+        },
+        "38": {
+            "folder": "raw/S038",
+            "runs": [
+                "S038R01.edf",
+                "S038R02.edf",
+                "S038R03.edf",
+                "S038R04.edf",
+                "S038R05.edf",
+                "S038R06.edf",
+                "S038R07.edf",
+                "S038R08.edf",
+                "S038R09.edf",
+                "S038R10.edf",
+                "S038R11.edf",
+                "S038R12.edf",
+                "S038R13.edf",
+                "S038R14.edf"
+            ]
+        },
+        "39": {
+            "folder": "raw/S039",
+            "runs": [
+                "S039R01.edf",
+                "S039R02.edf",
+                "S039R03.edf",
+                "S039R04.edf",
+                "S039R05.edf",
+                "S039R06.edf",
+                "S039R07.edf",
+                "S039R08.edf",
+                "S039R09.edf",
+                "S039R10.edf",
+                "S039R11.edf",
+                "S039R12.edf",
+                "S039R13.edf",
+                "S039R14.edf"
+            ]
+        },
+        "40": {
+            "folder": "raw/S040",
+            "runs": [
+                "S040R01.edf",
+                "S040R02.edf",
+                "S040R03.edf",
+                "S040R04.edf",
+                "S040R05.edf",
+                "S040R06.edf",
+                "S040R07.edf",
+                "S040R08.edf",
+                "S040R09.edf",
+                "S040R10.edf",
+                "S040R11.edf",
+                "S040R12.edf",
+                "S040R13.edf",
+                "S040R14.edf"
+            ]
+        },
+        "41": {
+            "folder": "raw/S041",
+            "runs": [
+                "S041R01.edf",
+                "S041R02.edf",
+                "S041R03.edf",
+                "S041R04.edf",
+                "S041R05.edf",
+                "S041R06.edf",
+                "S041R07.edf",
+                "S041R08.edf",
+                "S041R09.edf",
+                "S041R10.edf",
+                "S041R11.edf",
+                "S041R12.edf",
+                "S041R13.edf",
+                "S041R14.edf"
+            ]
+        },
+        "42": {
+            "folder": "raw/S042",
+            "runs": [
+                "S042R01.edf",
+                "S042R02.edf",
+                "S042R03.edf",
+                "S042R04.edf",
+                "S042R05.edf",
+                "S042R06.edf",
+                "S042R07.edf",
+                "S042R08.edf",
+                "S042R09.edf",
+                "S042R10.edf",
+                "S042R11.edf",
+                "S042R12.edf",
+                "S042R13.edf",
+                "S042R14.edf"
+            ]
+        },
+        "43": {
+            "folder": "raw/S043",
+            "runs": [
+                "S043R01.edf",
+                "S043R02.edf",
+                "S043R03.edf",
+                "S043R04.edf",
+                "S043R05.edf",
+                "S043R06.edf",
+                "S043R07.edf",
+                "S043R08.edf",
+                "S043R09.edf",
+                "S043R10.edf",
+                "S043R11.edf",
+                "S043R12.edf",
+                "S043R13.edf",
+                "S043R14.edf"
+            ]
+        },
+        "44": {
+            "folder": "raw/S044",
+            "runs": [
+                "S044R01.edf",
+                "S044R02.edf",
+                "S044R03.edf",
+                "S044R04.edf",
+                "S044R05.edf",
+                "S044R06.edf",
+                "S044R07.edf",
+                "S044R08.edf",
+                "S044R09.edf",
+                "S044R10.edf",
+                "S044R11.edf",
+                "S044R12.edf",
+                "S044R13.edf",
+                "S044R14.edf"
+            ]
+        },
+        "45": {
+            "folder": "raw/S045",
+            "runs": [
+                "S045R01.edf",
+                "S045R02.edf",
+                "S045R03.edf",
+                "S045R04.edf",
+                "S045R05.edf",
+                "S045R06.edf",
+                "S045R07.edf",
+                "S045R08.edf",
+                "S045R09.edf",
+                "S045R10.edf",
+                "S045R11.edf",
+                "S045R12.edf",
+                "S045R13.edf",
+                "S045R14.edf"
+            ]
+        },
+        "46": {
+            "folder": "raw/S046",
+            "runs": [
+                "S046R01.edf",
+                "S046R02.edf",
+                "S046R03.edf",
+                "S046R04.edf",
+                "S046R05.edf",
+                "S046R06.edf",
+                "S046R07.edf",
+                "S046R08.edf",
+                "S046R09.edf",
+                "S046R10.edf",
+                "S046R11.edf",
+                "S046R12.edf",
+                "S046R13.edf",
+                "S046R14.edf"
+            ]
+        },
+        "47": {
+            "folder": "raw/S047",
+            "runs": [
+                "S047R01.edf",
+                "S047R02.edf",
+                "S047R03.edf",
+                "S047R04.edf",
+                "S047R05.edf",
+                "S047R06.edf",
+                "S047R07.edf",
+                "S047R08.edf",
+                "S047R09.edf",
+                "S047R10.edf",
+                "S047R11.edf",
+                "S047R12.edf",
+                "S047R13.edf",
+                "S047R14.edf"
+            ]
+        },
+        "48": {
+            "folder": "raw/S048",
+            "runs": [
+                "S048R01.edf",
+                "S048R02.edf",
+                "S048R03.edf",
+                "S048R04.edf",
+                "S048R05.edf",
+                "S048R06.edf",
+                "S048R07.edf",
+                "S048R08.edf",
+                "S048R09.edf",
+                "S048R10.edf",
+                "S048R11.edf",
+                "S048R12.edf",
+                "S048R13.edf",
+                "S048R14.edf"
+            ]
+        },
+        "49": {
+            "folder": "raw/S049",
+            "runs": [
+                "S049R01.edf",
+                "S049R02.edf",
+                "S049R03.edf",
+                "S049R04.edf",
+                "S049R05.edf",
+                "S049R06.edf",
+                "S049R07.edf",
+                "S049R08.edf",
+                "S049R09.edf",
+                "S049R10.edf",
+                "S049R11.edf",
+                "S049R12.edf",
+                "S049R13.edf",
+                "S049R14.edf"
+            ]
+        },
+        "50": {
+            "folder": "raw/S050",
+            "runs": [
+                "S050R01.edf",
+                "S050R02.edf",
+                "S050R03.edf",
+                "S050R04.edf",
+                "S050R05.edf",
+                "S050R06.edf",
+                "S050R07.edf",
+                "S050R08.edf",
+                "S050R09.edf",
+                "S050R10.edf",
+                "S050R11.edf",
+                "S050R12.edf",
+                "S050R13.edf",
+                "S050R14.edf"
+            ]
+        },
+        "51": {
+            "folder": "raw/S051",
+            "runs": [
+                "S051R01.edf",
+                "S051R02.edf",
+                "S051R03.edf",
+                "S051R04.edf",
+                "S051R05.edf",
+                "S051R06.edf",
+                "S051R07.edf",
+                "S051R08.edf",
+                "S051R09.edf",
+                "S051R10.edf",
+                "S051R11.edf",
+                "S051R12.edf",
+                "S051R13.edf",
+                "S051R14.edf"
+            ]
+        },
+        "52": {
+            "folder": "raw/S052",
+            "runs": [
+                "S052R01.edf",
+                "S052R02.edf",
+                "S052R03.edf",
+                "S052R04.edf",
+                "S052R05.edf",
+                "S052R06.edf",
+                "S052R07.edf",
+                "S052R08.edf",
+                "S052R09.edf",
+                "S052R10.edf",
+                "S052R11.edf",
+                "S052R12.edf",
+                "S052R13.edf",
+                "S052R14.edf"
+            ]
+        },
+        "53": {
+            "folder": "raw/S053",
+            "runs": [
+                "S053R01.edf",
+                "S053R02.edf",
+                "S053R03.edf",
+                "S053R04.edf",
+                "S053R05.edf",
+                "S053R06.edf",
+                "S053R07.edf",
+                "S053R08.edf",
+                "S053R09.edf",
+                "S053R10.edf",
+                "S053R11.edf",
+                "S053R12.edf",
+                "S053R13.edf",
+                "S053R14.edf"
+            ]
+        },
+        "54": {
+            "folder": "raw/S054",
+            "runs": [
+                "S054R01.edf",
+                "S054R02.edf",
+                "S054R03.edf",
+                "S054R04.edf",
+                "S054R05.edf",
+                "S054R06.edf",
+                "S054R07.edf",
+                "S054R08.edf",
+                "S054R09.edf",
+                "S054R10.edf",
+                "S054R11.edf",
+                "S054R12.edf",
+                "S054R13.edf",
+                "S054R14.edf"
+            ]
+        },
+        "55": {
+            "folder": "raw/S055",
+            "runs": [
+                "S055R01.edf",
+                "S055R02.edf",
+                "S055R03.edf",
+                "S055R04.edf",
+                "S055R05.edf",
+                "S055R06.edf",
+                "S055R07.edf",
+                "S055R08.edf",
+                "S055R09.edf",
+                "S055R10.edf",
+                "S055R11.edf",
+                "S055R12.edf",
+                "S055R13.edf",
+                "S055R14.edf"
+            ]
+        },
+        "56": {
+            "folder": "raw/S056",
+            "runs": [
+                "S056R01.edf",
+                "S056R02.edf",
+                "S056R03.edf",
+                "S056R04.edf",
+                "S056R05.edf",
+                "S056R06.edf",
+                "S056R07.edf",
+                "S056R08.edf",
+                "S056R09.edf",
+                "S056R10.edf",
+                "S056R11.edf",
+                "S056R12.edf",
+                "S056R13.edf",
+                "S056R14.edf"
+            ]
+        },
+        "57": {
+            "folder": "raw/S057",
+            "runs": [
+                "S057R01.edf",
+                "S057R02.edf",
+                "S057R03.edf",
+                "S057R04.edf",
+                "S057R05.edf",
+                "S057R06.edf",
+                "S057R07.edf",
+                "S057R08.edf",
+                "S057R09.edf",
+                "S057R10.edf",
+                "S057R11.edf",
+                "S057R12.edf",
+                "S057R13.edf",
+                "S057R14.edf"
+            ]
+        },
+        "58": {
+            "folder": "raw/S058",
+            "runs": [
+                "S058R01.edf",
+                "S058R02.edf",
+                "S058R03.edf",
+                "S058R04.edf",
+                "S058R05.edf",
+                "S058R06.edf",
+                "S058R07.edf",
+                "S058R08.edf",
+                "S058R09.edf",
+                "S058R10.edf",
+                "S058R11.edf",
+                "S058R12.edf",
+                "S058R13.edf",
+                "S058R14.edf"
+            ]
+        },
+        "59": {
+            "folder": "raw/S059",
+            "runs": [
+                "S059R01.edf",
+                "S059R02.edf",
+                "S059R03.edf",
+                "S059R04.edf",
+                "S059R05.edf",
+                "S059R06.edf",
+                "S059R07.edf",
+                "S059R08.edf",
+                "S059R09.edf",
+                "S059R10.edf",
+                "S059R11.edf",
+                "S059R12.edf",
+                "S059R13.edf",
+                "S059R14.edf"
+            ]
+        },
+        "60": {
+            "folder": "raw/S060",
+            "runs": [
+                "S060R01.edf",
+                "S060R02.edf",
+                "S060R03.edf",
+                "S060R04.edf",
+                "S060R05.edf",
+                "S060R06.edf",
+                "S060R07.edf",
+                "S060R08.edf",
+                "S060R09.edf",
+                "S060R10.edf",
+                "S060R11.edf",
+                "S060R12.edf",
+                "S060R13.edf",
+                "S060R14.edf"
+            ]
+        },
+        "61": {
+            "folder": "raw/S061",
+            "runs": [
+                "S061R01.edf",
+                "S061R02.edf",
+                "S061R03.edf",
+                "S061R04.edf",
+                "S061R05.edf",
+                "S061R06.edf",
+                "S061R07.edf",
+                "S061R08.edf",
+                "S061R09.edf",
+                "S061R10.edf",
+                "S061R11.edf",
+                "S061R12.edf",
+                "S061R13.edf",
+                "S061R14.edf"
+            ]
+        },
+        "62": {
+            "folder": "raw/S062",
+            "runs": [
+                "S062R01.edf",
+                "S062R02.edf",
+                "S062R03.edf",
+                "S062R04.edf",
+                "S062R05.edf",
+                "S062R06.edf",
+                "S062R07.edf",
+                "S062R08.edf",
+                "S062R09.edf",
+                "S062R10.edf",
+                "S062R11.edf",
+                "S062R12.edf",
+                "S062R13.edf",
+                "S062R14.edf"
+            ]
+        },
+        "63": {
+            "folder": "raw/S063",
+            "runs": [
+                "S063R01.edf",
+                "S063R02.edf",
+                "S063R03.edf",
+                "S063R04.edf",
+                "S063R05.edf",
+                "S063R06.edf",
+                "S063R07.edf",
+                "S063R08.edf",
+                "S063R09.edf",
+                "S063R10.edf",
+                "S063R11.edf",
+                "S063R12.edf",
+                "S063R13.edf",
+                "S063R14.edf"
+            ]
+        },
+        "64": {
+            "folder": "raw/S064",
+            "runs": [
+                "S064R01.edf",
+                "S064R02.edf",
+                "S064R03.edf",
+                "S064R04.edf",
+                "S064R05.edf",
+                "S064R06.edf",
+                "S064R07.edf",
+                "S064R08.edf",
+                "S064R09.edf",
+                "S064R10.edf",
+                "S064R11.edf",
+                "S064R12.edf",
+                "S064R13.edf",
+                "S064R14.edf"
+            ]
+        },
+        "65": {
+            "folder": "raw/S065",
+            "runs": [
+                "S065R01.edf",
+                "S065R02.edf",
+                "S065R03.edf",
+                "S065R04.edf",
+                "S065R05.edf",
+                "S065R06.edf",
+                "S065R07.edf",
+                "S065R08.edf",
+                "S065R09.edf",
+                "S065R10.edf",
+                "S065R11.edf",
+                "S065R12.edf",
+                "S065R13.edf",
+                "S065R14.edf"
+            ]
+        },
+        "66": {
+            "folder": "raw/S066",
+            "runs": [
+                "S066R01.edf",
+                "S066R02.edf",
+                "S066R03.edf",
+                "S066R04.edf",
+                "S066R05.edf",
+                "S066R06.edf",
+                "S066R07.edf",
+                "S066R08.edf",
+                "S066R09.edf",
+                "S066R10.edf",
+                "S066R11.edf",
+                "S066R12.edf",
+                "S066R13.edf",
+                "S066R14.edf"
+            ]
+        },
+        "67": {
+            "folder": "raw/S067",
+            "runs": [
+                "S067R01.edf",
+                "S067R02.edf",
+                "S067R03.edf",
+                "S067R04.edf",
+                "S067R05.edf",
+                "S067R06.edf",
+                "S067R07.edf",
+                "S067R08.edf",
+                "S067R09.edf",
+                "S067R10.edf",
+                "S067R11.edf",
+                "S067R12.edf",
+                "S067R13.edf",
+                "S067R14.edf"
+            ]
+        },
+        "68": {
+            "folder": "raw/S068",
+            "runs": [
+                "S068R01.edf",
+                "S068R02.edf",
+                "S068R03.edf",
+                "S068R04.edf",
+                "S068R05.edf",
+                "S068R06.edf",
+                "S068R07.edf",
+                "S068R08.edf",
+                "S068R09.edf",
+                "S068R10.edf",
+                "S068R11.edf",
+                "S068R12.edf",
+                "S068R13.edf",
+                "S068R14.edf"
+            ]
+        },
+        "69": {
+            "folder": "raw/S069",
+            "runs": [
+                "S069R01.edf",
+                "S069R02.edf",
+                "S069R03.edf",
+                "S069R04.edf",
+                "S069R05.edf",
+                "S069R06.edf",
+                "S069R07.edf",
+                "S069R08.edf",
+                "S069R09.edf",
+                "S069R10.edf",
+                "S069R11.edf",
+                "S069R12.edf",
+                "S069R13.edf",
+                "S069R14.edf"
+            ]
+        },
+        "70": {
+            "folder": "raw/S070",
+            "runs": [
+                "S070R01.edf",
+                "S070R02.edf",
+                "S070R03.edf",
+                "S070R04.edf",
+                "S070R05.edf",
+                "S070R06.edf",
+                "S070R07.edf",
+                "S070R08.edf",
+                "S070R09.edf",
+                "S070R10.edf",
+                "S070R11.edf",
+                "S070R12.edf",
+                "S070R13.edf",
+                "S070R14.edf"
+            ]
+        },
+        "71": {
+            "folder": "raw/S071",
+            "runs": [
+                "S071R01.edf",
+                "S071R02.edf",
+                "S071R03.edf",
+                "S071R04.edf",
+                "S071R05.edf",
+                "S071R06.edf",
+                "S071R07.edf",
+                "S071R08.edf",
+                "S071R09.edf",
+                "S071R10.edf",
+                "S071R11.edf",
+                "S071R12.edf",
+                "S071R13.edf",
+                "S071R14.edf"
+            ]
+        },
+        "72": {
+            "folder": "raw/S072",
+            "runs": [
+                "S072R01.edf",
+                "S072R02.edf",
+                "S072R03.edf",
+                "S072R04.edf",
+                "S072R05.edf",
+                "S072R06.edf",
+                "S072R07.edf",
+                "S072R08.edf",
+                "S072R09.edf",
+                "S072R10.edf",
+                "S072R11.edf",
+                "S072R12.edf",
+                "S072R13.edf",
+                "S072R14.edf"
+            ]
+        },
+        "73": {
+            "folder": "raw/S073",
+            "runs": [
+                "S073R01.edf",
+                "S073R02.edf",
+                "S073R03.edf",
+                "S073R04.edf",
+                "S073R05.edf",
+                "S073R06.edf",
+                "S073R07.edf",
+                "S073R08.edf",
+                "S073R09.edf",
+                "S073R10.edf",
+                "S073R11.edf",
+                "S073R12.edf",
+                "S073R13.edf",
+                "S073R14.edf"
+            ]
+        },
+        "74": {
+            "folder": "raw/S074",
+            "runs": [
+                "S074R01.edf",
+                "S074R02.edf",
+                "S074R03.edf",
+                "S074R04.edf",
+                "S074R05.edf",
+                "S074R06.edf",
+                "S074R07.edf",
+                "S074R08.edf",
+                "S074R09.edf",
+                "S074R10.edf",
+                "S074R11.edf",
+                "S074R12.edf",
+                "S074R13.edf",
+                "S074R14.edf"
+            ]
+        },
+        "75": {
+            "folder": "raw/S075",
+            "runs": [
+                "S075R01.edf",
+                "S075R02.edf",
+                "S075R03.edf",
+                "S075R04.edf",
+                "S075R05.edf",
+                "S075R06.edf",
+                "S075R07.edf",
+                "S075R08.edf",
+                "S075R09.edf",
+                "S075R10.edf",
+                "S075R11.edf",
+                "S075R12.edf",
+                "S075R13.edf",
+                "S075R14.edf"
+            ]
+        },
+        "76": {
+            "folder": "raw/S076",
+            "runs": [
+                "S076R01.edf",
+                "S076R02.edf",
+                "S076R03.edf",
+                "S076R04.edf",
+                "S076R05.edf",
+                "S076R06.edf",
+                "S076R07.edf",
+                "S076R08.edf",
+                "S076R09.edf",
+                "S076R10.edf",
+                "S076R11.edf",
+                "S076R12.edf",
+                "S076R13.edf",
+                "S076R14.edf"
+            ]
+        },
+        "77": {
+            "folder": "raw/S077",
+            "runs": [
+                "S077R01.edf",
+                "S077R02.edf",
+                "S077R03.edf",
+                "S077R04.edf",
+                "S077R05.edf",
+                "S077R06.edf",
+                "S077R07.edf",
+                "S077R08.edf",
+                "S077R09.edf",
+                "S077R10.edf",
+                "S077R11.edf",
+                "S077R12.edf",
+                "S077R13.edf",
+                "S077R14.edf"
+            ]
+        },
+        "78": {
+            "folder": "raw/S078",
+            "runs": [
+                "S078R01.edf",
+                "S078R02.edf",
+                "S078R03.edf",
+                "S078R04.edf",
+                "S078R05.edf",
+                "S078R06.edf",
+                "S078R07.edf",
+                "S078R08.edf",
+                "S078R09.edf",
+                "S078R10.edf",
+                "S078R11.edf",
+                "S078R12.edf",
+                "S078R13.edf",
+                "S078R14.edf"
+            ]
+        },
+        "79": {
+            "folder": "raw/S079",
+            "runs": [
+                "S079R01.edf",
+                "S079R02.edf",
+                "S079R03.edf",
+                "S079R04.edf",
+                "S079R05.edf",
+                "S079R06.edf",
+                "S079R07.edf",
+                "S079R08.edf",
+                "S079R09.edf",
+                "S079R10.edf",
+                "S079R11.edf",
+                "S079R12.edf",
+                "S079R13.edf",
+                "S079R14.edf"
+            ]
+        },
+        "80": {
+            "folder": "raw/S080",
+            "runs": [
+                "S080R01.edf",
+                "S080R02.edf",
+                "S080R03.edf",
+                "S080R04.edf",
+                "S080R05.edf",
+                "S080R06.edf",
+                "S080R07.edf",
+                "S080R08.edf",
+                "S080R09.edf",
+                "S080R10.edf",
+                "S080R11.edf",
+                "S080R12.edf",
+                "S080R13.edf",
+                "S080R14.edf"
+            ]
+        },
+        "81": {
+            "folder": "raw/S081",
+            "runs": [
+                "S081R01.edf",
+                "S081R02.edf",
+                "S081R03.edf",
+                "S081R04.edf",
+                "S081R05.edf",
+                "S081R06.edf",
+                "S081R07.edf",
+                "S081R08.edf",
+                "S081R09.edf",
+                "S081R10.edf",
+                "S081R11.edf",
+                "S081R12.edf",
+                "S081R13.edf",
+                "S081R14.edf"
+            ]
+        },
+        "82": {
+            "folder": "raw/S082",
+            "runs": [
+                "S082R01.edf",
+                "S082R02.edf",
+                "S082R03.edf",
+                "S082R04.edf",
+                "S082R05.edf",
+                "S082R06.edf",
+                "S082R07.edf",
+                "S082R08.edf",
+                "S082R09.edf",
+                "S082R10.edf",
+                "S082R11.edf",
+                "S082R12.edf",
+                "S082R13.edf",
+                "S082R14.edf"
+            ]
+        },
+        "83": {
+            "folder": "raw/S083",
+            "runs": [
+                "S083R01.edf",
+                "S083R02.edf",
+                "S083R03.edf",
+                "S083R04.edf",
+                "S083R05.edf",
+                "S083R06.edf",
+                "S083R07.edf",
+                "S083R08.edf",
+                "S083R09.edf",
+                "S083R10.edf",
+                "S083R11.edf",
+                "S083R12.edf",
+                "S083R13.edf",
+                "S083R14.edf"
+            ]
+        },
+        "84": {
+            "folder": "raw/S084",
+            "runs": [
+                "S084R01.edf",
+                "S084R02.edf",
+                "S084R03.edf",
+                "S084R04.edf",
+                "S084R05.edf",
+                "S084R06.edf",
+                "S084R07.edf",
+                "S084R08.edf",
+                "S084R09.edf",
+                "S084R10.edf",
+                "S084R11.edf",
+                "S084R12.edf",
+                "S084R13.edf",
+                "S084R14.edf"
+            ]
+        },
+        "85": {
+            "folder": "raw/S085",
+            "runs": [
+                "S085R01.edf",
+                "S085R02.edf",
+                "S085R03.edf",
+                "S085R04.edf",
+                "S085R05.edf",
+                "S085R06.edf",
+                "S085R07.edf",
+                "S085R08.edf",
+                "S085R09.edf",
+                "S085R10.edf",
+                "S085R11.edf",
+                "S085R12.edf",
+                "S085R13.edf",
+                "S085R14.edf"
+            ]
+        },
+        "86": {
+            "folder": "raw/S086",
+            "runs": [
+                "S086R01.edf",
+                "S086R02.edf",
+                "S086R03.edf",
+                "S086R04.edf",
+                "S086R05.edf",
+                "S086R06.edf",
+                "S086R07.edf",
+                "S086R08.edf",
+                "S086R09.edf",
+                "S086R10.edf",
+                "S086R11.edf",
+                "S086R12.edf",
+                "S086R13.edf",
+                "S086R14.edf"
+            ]
+        },
+        "87": {
+            "folder": "raw/S087",
+            "runs": [
+                "S087R01.edf",
+                "S087R02.edf",
+                "S087R03.edf",
+                "S087R04.edf",
+                "S087R05.edf",
+                "S087R06.edf",
+                "S087R07.edf",
+                "S087R08.edf",
+                "S087R09.edf",
+                "S087R10.edf",
+                "S087R11.edf",
+                "S087R12.edf",
+                "S087R13.edf",
+                "S087R14.edf"
+            ]
+        },
+        "88": {
+            "folder": "raw/S088",
+            "runs": [
+                "S088R01.edf",
+                "S088R02.edf",
+                "S088R03.edf",
+                "S088R04.edf",
+                "S088R05.edf",
+                "S088R06.edf",
+                "S088R07.edf",
+                "S088R08.edf",
+                "S088R09.edf",
+                "S088R10.edf",
+                "S088R11.edf",
+                "S088R12.edf",
+                "S088R13.edf",
+                "S088R14.edf"
+            ]
+        },
+        "89": {
+            "folder": "raw/S089",
+            "runs": [
+                "S089R01.edf",
+                "S089R02.edf",
+                "S089R03.edf",
+                "S089R04.edf",
+                "S089R05.edf",
+                "S089R06.edf",
+                "S089R07.edf",
+                "S089R08.edf",
+                "S089R09.edf",
+                "S089R10.edf",
+                "S089R11.edf",
+                "S089R12.edf",
+                "S089R13.edf",
+                "S089R14.edf"
+            ]
+        },
+        "90": {
+            "folder": "raw/S090",
+            "runs": [
+                "S090R01.edf",
+                "S090R02.edf",
+                "S090R03.edf",
+                "S090R04.edf",
+                "S090R05.edf",
+                "S090R06.edf",
+                "S090R07.edf",
+                "S090R08.edf",
+                "S090R09.edf",
+                "S090R10.edf",
+                "S090R11.edf",
+                "S090R12.edf",
+                "S090R13.edf",
+                "S090R14.edf"
+            ]
+        },
+        "91": {
+            "folder": "raw/S091",
+            "runs": [
+                "S091R01.edf",
+                "S091R02.edf",
+                "S091R03.edf",
+                "S091R04.edf",
+                "S091R05.edf",
+                "S091R06.edf",
+                "S091R07.edf",
+                "S091R08.edf",
+                "S091R09.edf",
+                "S091R10.edf",
+                "S091R11.edf",
+                "S091R12.edf",
+                "S091R13.edf",
+                "S091R14.edf"
+            ]
+        },
+        "92": {
+            "folder": "raw/S092",
+            "runs": [
+                "S092R01.edf",
+                "S092R02.edf",
+                "S092R03.edf",
+                "S092R04.edf",
+                "S092R05.edf",
+                "S092R06.edf",
+                "S092R07.edf",
+                "S092R08.edf",
+                "S092R09.edf",
+                "S092R10.edf",
+                "S092R11.edf",
+                "S092R12.edf",
+                "S092R13.edf",
+                "S092R14.edf"
+            ]
+        },
+        "93": {
+            "folder": "raw/S093",
+            "runs": [
+                "S093R01.edf",
+                "S093R02.edf",
+                "S093R03.edf",
+                "S093R04.edf",
+                "S093R05.edf",
+                "S093R06.edf",
+                "S093R07.edf",
+                "S093R08.edf",
+                "S093R09.edf",
+                "S093R10.edf",
+                "S093R11.edf",
+                "S093R12.edf",
+                "S093R13.edf",
+                "S093R14.edf"
+            ]
+        },
+        "94": {
+            "folder": "raw/S094",
+            "runs": [
+                "S094R01.edf",
+                "S094R02.edf",
+                "S094R03.edf",
+                "S094R04.edf",
+                "S094R05.edf",
+                "S094R06.edf",
+                "S094R07.edf",
+                "S094R08.edf",
+                "S094R09.edf",
+                "S094R10.edf",
+                "S094R11.edf",
+                "S094R12.edf",
+                "S094R13.edf",
+                "S094R14.edf"
+            ]
+        },
+        "95": {
+            "folder": "raw/S095",
+            "runs": [
+                "S095R01.edf",
+                "S095R02.edf",
+                "S095R03.edf",
+                "S095R04.edf",
+                "S095R05.edf",
+                "S095R06.edf",
+                "S095R07.edf",
+                "S095R08.edf",
+                "S095R09.edf",
+                "S095R10.edf",
+                "S095R11.edf",
+                "S095R12.edf",
+                "S095R13.edf",
+                "S095R14.edf"
+            ]
+        },
+        "96": {
+            "folder": "raw/S096",
+            "runs": [
+                "S096R01.edf",
+                "S096R02.edf",
+                "S096R03.edf",
+                "S096R04.edf",
+                "S096R05.edf",
+                "S096R06.edf",
+                "S096R07.edf",
+                "S096R08.edf",
+                "S096R09.edf",
+                "S096R10.edf",
+                "S096R11.edf",
+                "S096R12.edf",
+                "S096R13.edf",
+                "S096R14.edf"
+            ]
+        },
+        "97": {
+            "folder": "raw/S097",
+            "runs": [
+                "S097R01.edf",
+                "S097R02.edf",
+                "S097R03.edf",
+                "S097R04.edf",
+                "S097R05.edf",
+                "S097R06.edf",
+                "S097R07.edf",
+                "S097R08.edf",
+                "S097R09.edf",
+                "S097R10.edf",
+                "S097R11.edf",
+                "S097R12.edf",
+                "S097R13.edf",
+                "S097R14.edf"
+            ]
+        },
+        "98": {
+            "folder": "raw/S098",
+            "runs": [
+                "S098R01.edf",
+                "S098R02.edf",
+                "S098R03.edf",
+                "S098R04.edf",
+                "S098R05.edf",
+                "S098R06.edf",
+                "S098R07.edf",
+                "S098R08.edf",
+                "S098R09.edf",
+                "S098R10.edf",
+                "S098R11.edf",
+                "S098R12.edf",
+                "S098R13.edf",
+                "S098R14.edf"
+            ]
+        },
+        "99": {
+            "folder": "raw/S099",
+            "runs": [
+                "S099R01.edf",
+                "S099R02.edf",
+                "S099R03.edf",
+                "S099R04.edf",
+                "S099R05.edf",
+                "S099R06.edf",
+                "S099R07.edf",
+                "S099R08.edf",
+                "S099R09.edf",
+                "S099R10.edf",
+                "S099R11.edf",
+                "S099R12.edf",
+                "S099R13.edf",
+                "S099R14.edf"
+            ]
+        },
+        "100": {
+            "folder": "raw/S100",
+            "runs": [
+                "S100R01.edf",
+                "S100R02.edf",
+                "S100R03.edf",
+                "S100R04.edf",
+                "S100R05.edf",
+                "S100R06.edf",
+                "S100R07.edf",
+                "S100R08.edf",
+                "S100R09.edf",
+                "S100R10.edf",
+                "S100R11.edf",
+                "S100R12.edf",
+                "S100R13.edf",
+                "S100R14.edf"
+            ]
+        },
+        "101": {
+            "folder": "raw/S101",
+            "runs": [
+                "S101R01.edf",
+                "S101R02.edf",
+                "S101R03.edf",
+                "S101R04.edf",
+                "S101R05.edf",
+                "S101R06.edf",
+                "S101R07.edf",
+                "S101R08.edf",
+                "S101R09.edf",
+                "S101R10.edf",
+                "S101R11.edf",
+                "S101R12.edf",
+                "S101R13.edf",
+                "S101R14.edf"
+            ]
+        },
+        "102": {
+            "folder": "raw/S102",
+            "runs": [
+                "S102R01.edf",
+                "S102R02.edf",
+                "S102R03.edf",
+                "S102R04.edf",
+                "S102R05.edf",
+                "S102R06.edf",
+                "S102R07.edf",
+                "S102R08.edf",
+                "S102R09.edf",
+                "S102R10.edf",
+                "S102R11.edf",
+                "S102R12.edf",
+                "S102R13.edf",
+                "S102R14.edf"
+            ]
+        },
+        "103": {
+            "folder": "raw/S103",
+            "runs": [
+                "S103R01.edf",
+                "S103R02.edf",
+                "S103R03.edf",
+                "S103R04.edf",
+                "S103R05.edf",
+                "S103R06.edf",
+                "S103R07.edf",
+                "S103R08.edf",
+                "S103R09.edf",
+                "S103R10.edf",
+                "S103R11.edf",
+                "S103R12.edf",
+                "S103R13.edf",
+                "S103R14.edf"
+            ]
+        },
+        "104": {
+            "folder": "raw/S104",
+            "runs": [
+                "S104R01.edf",
+                "S104R02.edf",
+                "S104R03.edf",
+                "S104R04.edf",
+                "S104R05.edf",
+                "S104R06.edf",
+                "S104R07.edf",
+                "S104R08.edf",
+                "S104R09.edf",
+                "S104R10.edf",
+                "S104R11.edf",
+                "S104R12.edf",
+                "S104R13.edf",
+                "S104R14.edf"
+            ]
+        },
+        "105": {
+            "folder": "raw/S105",
+            "runs": [
+                "S105R01.edf",
+                "S105R02.edf",
+                "S105R03.edf",
+                "S105R04.edf",
+                "S105R05.edf",
+                "S105R06.edf",
+                "S105R07.edf",
+                "S105R08.edf",
+                "S105R09.edf",
+                "S105R10.edf",
+                "S105R11.edf",
+                "S105R12.edf",
+                "S105R13.edf",
+                "S105R14.edf"
+            ]
+        },
+        "106": {
+            "folder": "raw/S106",
+            "runs": [
+                "S106R01.edf",
+                "S106R02.edf",
+                "S106R03.edf",
+                "S106R04.edf",
+                "S106R05.edf",
+                "S106R06.edf",
+                "S106R07.edf",
+                "S106R08.edf",
+                "S106R09.edf",
+                "S106R10.edf",
+                "S106R11.edf",
+                "S106R12.edf",
+                "S106R13.edf",
+                "S106R14.edf"
+            ]
+        },
+        "107": {
+            "folder": "raw/S107",
+            "runs": [
+                "S107R01.edf",
+                "S107R02.edf",
+                "S107R03.edf",
+                "S107R04.edf",
+                "S107R05.edf",
+                "S107R06.edf",
+                "S107R07.edf",
+                "S107R08.edf",
+                "S107R09.edf",
+                "S107R10.edf",
+                "S107R11.edf",
+                "S107R12.edf",
+                "S107R13.edf",
+                "S107R14.edf"
+            ]
+        },
+        "108": {
+            "folder": "raw/S108",
+            "runs": [
+                "S108R01.edf",
+                "S108R02.edf",
+                "S108R03.edf",
+                "S108R04.edf",
+                "S108R05.edf",
+                "S108R06.edf",
+                "S108R07.edf",
+                "S108R08.edf",
+                "S108R09.edf",
+                "S108R10.edf",
+                "S108R11.edf",
+                "S108R12.edf",
+                "S108R13.edf",
+                "S108R14.edf"
+            ]
+        },
+        "109": {
+            "folder": "raw/S109",
+            "runs": [
+                "S109R01.edf",
+                "S109R02.edf",
+                "S109R03.edf",
+                "S109R04.edf",
+                "S109R05.edf",
+                "S109R06.edf",
+                "S109R07.edf",
+                "S109R08.edf",
+                "S109R09.edf",
+                "S109R10.edf",
+                "S109R11.edf",
+                "S109R12.edf",
+                "S109R13.edf",
+                "S109R14.edf"
+            ]
+        }
+    }
+}

@@ -1,4 +1,5 @@
-/datas
+/datas/*/raw
+/datas/*/cache
 /resources
 /output
 

@@ -1,0 +1,21 @@
+{
+  "compile_params": {
+    "_comment": "sample_freq/bandpass_filter here MUST match config.json's preprocess_params — that's how the compiled cache filename is derived on both the write side (this script) and the read side (IO/dataset.py). A mismatch just misses the cache with a clear FileNotFoundError, never silently reads stale data.",
+    "sample_freq": 200,
+    "bandpass_filter": { "l_freq": 0.5, "h_freq": 100.0 },
+    "datasets": {
+      "Dial": { "dataset_path": "datas/Dial" },
+      "BETA_4s": { "dataset_path": "datas/BETA_4s" },
+      "BETA_3s": { "dataset_path": "datas/BETA_3s" },
+      "BCICIV1_Train": { "dataset_path": "datas/BCICIV1_Train" },
+      "BCICIV1_Test": { "dataset_path": "datas/BCICIV1_Test" },
+      "BCICIV2a": { "dataset_path": "datas/BCICIV2a" },
+      "BCICIV2b": { "dataset_path": "datas/BCICIV2b" },
+      "Inria_Train": { "dataset_path": "datas/Inria_Train" },
+      "Inria_Test": { "dataset_path": "datas/Inria_Test" },
+      "EEGMMIdb": { "dataset_path": "datas/EEGMMIdb" },
+      "GraspAndLift_Train": { "dataset_path": "datas/GraspAndLift_Train" },
+      "GraspAndLift_Test": { "dataset_path": "datas/GraspAndLift_Test" }
+    }
+  }
+}

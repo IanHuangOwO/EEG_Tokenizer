@@ -15,46 +15,29 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from IO.dataset import build_dataset_from_config
-from IO.masking import RandomMaskingStrategy, ComplementaryMaskingStrategy
+from IO.masking import RandomMaskingStrategy, ComplementaryMaskingStrategy, RandomToComplementaryMaskingStrategy
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
 from viz import pick_trial
 
 torch.set_float32_matmul_precision('high')
 
 
-def _masking_for_epoch(epoch, strat_name, target_ratio, curriculum):
-    """Returns (masking_strategy, ratio) for this epoch. Only ramps when the configured
-    strategy is 'complementary' (which structurally ignores any ratio argument, always
-    pairing mask+~mask at a fixed 0.5 — see IO/masking.py) and
-    preprocess_params.mask.mask_curriculum.enabled is true; otherwise passes the
-    configured strategy/ratio through unchanged from epoch 1, same as before this existed.
-
-    Ramps a RandomMaskingStrategy from start_ratio up to target_ratio in coarse steps (one
-    new ratio every step_every epochs) over ramp_epochs total, then switches to the real
-    configured strategy once the ramp completes. Exists because masking is the one
-    un-softened distribution shock at the Tokenizer->Masked stage boundary: spatial/
-    temporal mixing already ramps in gradually via zero-init LayerScale
-    (TSABlock.enable_temporal/enable_spatial), but bool_masked_pos substitutes mask_token
-    wholesale with no ramp, and MeSAE's StampBank generator is now content-conditioned
-    (docs/adr/0009's later revision) rather than just amplitude-conditioned — a sudden,
-    never-seen-in-Tokenizer-stage input distribution is a sharper shock to a nonlinear
-    generator than it was to the old linear decode chain.
-    """
-    if strat_name != 'complementary' or not curriculum.get('enabled', False):
-        strategy = ComplementaryMaskingStrategy() if strat_name == 'complementary' else RandomMaskingStrategy()
-        return strategy, target_ratio
-
-    ramp_epochs = curriculum.get('ramp_epochs', 25)
-    step_every  = max(1, curriculum.get('step_every', 5))
-    start_ratio = curriculum.get('start_ratio', 0.1)
-
-    if epoch > ramp_epochs:
-        return ComplementaryMaskingStrategy(), ComplementaryMaskingStrategy.MASK_RATIO
-
-    n_steps = max(1, ramp_epochs // step_every)
-    step = min((epoch - 1) // step_every, n_steps - 1)
-    ratio = start_ratio if n_steps <= 1 else start_ratio + (target_ratio - start_ratio) * step / (n_steps - 1)
-    return RandomMaskingStrategy(), ratio
+def build_masking_strategy(strat_name, pp):
+    """Constructs the configured masking strategy once, up front. Only
+    'random_to_complementary' varies per epoch afterward (via its own
+    set_epoch(); see IO/masking.py) — 'random'/'complementary' are constant
+    for the whole run, same as before curriculum existed."""
+    if strat_name == 'random_to_complementary':
+        curriculum = pp.get('random_to_complementary', {})
+        return RandomToComplementaryMaskingStrategy(
+            target_ratio=ComplementaryMaskingStrategy.MASK_RATIO,
+            start_ratio=curriculum.get('start_ratio', 0.1),
+            ramp_epochs=curriculum.get('ramp_epochs', 25),
+            step_every=curriculum.get('step_every', 5),
+        )
+    if strat_name == 'complementary':
+        return ComplementaryMaskingStrategy()
+    return RandomMaskingStrategy()
 
 
 def setup_logger(output_dir):
@@ -336,36 +319,37 @@ def main():
 
     pp          = config.get('preprocess_params', {}).get('mask', {})
     strat_name  = pp.get('masking_strategy', 'random')
-    mask_ratio  = 0.5 if strat_name == 'complementary' else pp.get(strat_name, {}).get('mask_ratio', 0.5)
-    mask_curriculum = pp.get('mask_curriculum', {})
+    mask_ratio  = 0.5 if strat_name in ('complementary', 'random_to_complementary') else pp.get(strat_name, {}).get('mask_ratio', 0.5)
     loss_params = config.get('model_params', {}).get(model_type, {}).get('pretrain', {}).get('loss', {})
     masked_mse_weight   = loss_params.get('masked_mse_weight', (1.0 - mask_ratio) / mask_ratio)
     unmasked_mse_weight = loss_params.get('unmasked_mse_weight', 1.0)
     loss_hparams = {k: v for k, v in loss_params.items() if k not in ('masked_mse_weight', 'unmasked_mse_weight')}
     logger.info(f"model_type={model_type}  mask_ratio={mask_ratio}  masked_mse_weight={masked_mse_weight:.4f}  "
                 f"unmasked_mse_weight={unmasked_mse_weight:.4f}  loss_hparams={loss_hparams}")
-    if mask_curriculum.get('enabled', False) and strat_name == 'complementary':
-        logger.info(f"  [mask curriculum] ramping random-mask ratio {mask_curriculum.get('start_ratio', 0.1)} -> "
-                    f"{mask_ratio} over {mask_curriculum.get('ramp_epochs', 25)} epochs "
-                    f"(step every {mask_curriculum.get('step_every', 5)}), then switching to complementary")
+    mask_strategy = build_masking_strategy(strat_name, pp)
+    if strat_name == 'random_to_complementary':
+        logger.info(f"  [mask curriculum] ramping random-mask ratio {mask_strategy.start_ratio} -> "
+                    f"{mask_strategy.target_ratio} over {mask_strategy.ramp_epochs} epochs "
+                    f"(step every {mask_strategy.step_every}), then switching to complementary")
 
     best_val_loss  = float('inf')
     total_epochs   = train_params['epochs']
     logger.info(f"Starting {model_type} Pretraining ({total_epochs} epochs, masked)")
 
-    current_mask_state = None  # (strategy class name, ratio) — tracks the last (strategy, ratio) applied
+    current_mask_state = None  # (ratio, multiplier) — tracks the last applied state
     for epoch in range(1, total_epochs + 1):
-        mask_strategy, epoch_ratio = _masking_for_epoch(epoch, strat_name, mask_ratio, mask_curriculum)
-        new_mask_state = (type(mask_strategy).__name__, epoch_ratio)
+        mask_strategy.set_epoch(epoch)
+        epoch_ratio = mask_strategy.effective_mask_ratio(mask_ratio)
+        new_mask_state = (epoch_ratio, mask_strategy.multiplier)
         if new_mask_state != current_mask_state:
             train_dataset.set_masking(mask_strategy, epoch_ratio)
             val_dataset.set_masking(mask_strategy, epoch_ratio)
             # rebuild, don't just re-iterate: persistent_workers=True means worker
             # subprocesses hold their own copy of the dataset from spawn time and never
-            # see the mutation above otherwise (see MaskedPretrainDataset.set_masking).
+            # see the mutation above otherwise (see PretrainDataset.set_masking).
             train_loader = _make_loader(train_dataset, shuffle=True)
             val_loader   = _make_loader(val_dataset,   shuffle=False)
-            logger.info(f"  [mask curriculum] epoch {epoch}: strategy={new_mask_state[0]} ratio={epoch_ratio:.3f}")
+            logger.info(f"  [mask curriculum] epoch {epoch}: strategy={type(mask_strategy).__name__} ratio={epoch_ratio:.3f}")
             current_mask_state = new_mask_state
 
         train_metrics = train_one_epoch(model, trainer, train_loader, optimizer, scaler, device, epoch,
