@@ -1,6 +1,7 @@
 import torch
 from model.MeFSQ.plugin import PLUGIN as MEFSQ_PLUGIN
 from model.MeSAE.plugin import PLUGIN as MESAE_PLUGIN
+from model.MeSAEFlat.plugin import PLUGIN as MESAEFLAT_PLUGIN
 from IO.dataset import resolve_canonical_channels
 
 # Adding a model = implement model/<Name>/plugin.py (Trainer/Checker/Plotter + build_model,
@@ -9,6 +10,7 @@ from IO.dataset import resolve_canonical_channels
 MODEL_REGISTRY = {
     'MeFSQ': MEFSQ_PLUGIN,
     'MeSAE': MESAE_PLUGIN,
+    'MeSAEFlat': MESAEFLAT_PLUGIN,
 }
 
 
