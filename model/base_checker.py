@@ -20,7 +20,7 @@ import torch.nn as nn
 
 from viz.extract import PsdResult, SpectraResult
 from viz.topomap import project_coords_2d
-from viz.panels import plot_topo_psd_filter, plot_attn_topo as render_attn_topo
+from viz.panels import plot_topo_psd_filter, plot_attn_topo as render_attn_topo, plot_stamp_panel
 from viz.timeseries import visualize_reconstruction
 
 
@@ -88,14 +88,11 @@ class BaseEpochChecker:
             metrics.update(trainer.epoch_metrics(model, out))
         return metrics
 
-    def _render_topo_psd(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
-                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
-                          fft_resolution=0.2):
-        """Default: plot_topo_psd_filter (per-unit dedup, trial-averaged over every patch a
-        unit fired at). MeSAEChecker overrides this with a real per-patch grid instead (see
-        viz.extract.extract_filter_psd_by_patch) — StampBank's hard top-k per-patch dispatch
-        means the trial-wide dedup here hides whether a stamp fired once or on every patch;
-        MeFSQ's dense per-patch routing doesn't have the same sparsity story, stays default."""
+    def _compute_spectra(self, bundle, fs, l_freq, h_freq, fft_resolution):
+        """Shared psd_x/freqs/raw-recon-power computation for both _render_topo_psd and
+        _render_stamp_panel — same FFT settings, so both panels stay directly comparable.
+        Recomputed per caller rather than cached: this only runs on periodic snapshot
+        epochs, not the training hot path."""
         spectra_result = self.extract_spectra(
             bundle.psd_model, bundle.x_in, bundle.c_in, bundle.t_in, bundle.vc_in, fs, fft_resolution)
         psd_x, freqs = spectra_result.psd, spectra_result.freqs
@@ -132,6 +129,18 @@ class BaseEpochChecker:
 
         raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
         recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
+        return psd_x, freqs, raw_power, recon_power, psd_raw, psd_recon
+
+    def _render_topo_psd(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
+                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
+                          fft_resolution=0.2):
+        """Default: plot_topo_psd_filter (per-unit dedup, trial-averaged over every patch a
+        unit fired at). MeSAEChecker overrides this with a real per-patch grid instead (see
+        viz.extract.extract_filter_psd_by_patch) — StampBank's hard top-k per-patch dispatch
+        means the trial-wide dedup here hides whether a stamp fired once or on every patch;
+        MeFSQ's dense per-patch routing doesn't have the same sparsity story, stays default."""
+        psd_x, freqs, raw_power, recon_power, psd_raw, psd_recon = self._compute_spectra(
+            bundle, fs, l_freq, h_freq, fft_resolution)
 
         out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_psd_filter.png")
         plot_topo_psd_filter(
@@ -140,6 +149,22 @@ class BaseEpochChecker:
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
             unit_label=self.unit_label, l_freq=l_freq, h_freq=h_freq,
             unit_colors=bundle.unit_colors,
+        )
+        print(f"  [epoch] -> {out_path}")
+
+    def _render_stamp_panel(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
+                             tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
+                             fft_resolution=0.2):
+        """Per-stamp block: recon topo + attn topo side by side, that stamp's own PSD
+        (channel x freq) spanning both below — see viz.panels.plot_stamp_panel."""
+        psd_x, freqs, _, _, _, _ = self._compute_spectra(bundle, fs, l_freq, h_freq, fft_resolution)
+
+        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_stamp_panel.png")
+        plot_stamp_panel(
+            out_path, pos2d, psd_ch_x, psd_x, freqs, bundle.attn, importance,
+            cmap=cmap, subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
+            unit_label=self.unit_label, valid_channels=bundle.valid_channels,
+            unit_colors=bundle.unit_colors, unit_ids=bundle.unit_ids,
         )
         print(f"  [epoch] -> {out_path}")
 
@@ -162,7 +187,12 @@ class BaseEpochChecker:
         fs = pp.get('sample_freq')  # None means "unknown" downstream, see extract_spectra/n_fft below
         bandpass = pp.get('bandpass_filter', {})
         l_freq, h_freq = bandpass.get('l_freq'), bandpass.get('h_freq')
-        fft_resolution = pp.get('fft_resolution', 0.2)
+
+        viz_cfg = config.get('training_params', {}).get('visualize_params', {})
+        fft_resolution = viz_cfg.get('fft_resolution', 0.2)
+        psd_range = viz_cfg.get('psd_freq_range')
+        psd_l_freq, psd_h_freq = tuple(psd_range) if psd_range else (l_freq, h_freq)
+        band_edges = {name: tuple(edges) for name, edges in viz_cfg['bands'].items()} if viz_cfg.get('bands') else None
 
         if plot_recon:
             visualize_reconstruction(
@@ -172,7 +202,7 @@ class BaseEpochChecker:
                 subject_id=subject_id, trial_idx=trial_idx,
                 mask=bundle.mask_np, patch_len=bundle.patch_len,
                 tag=filename_tag.lstrip('_') + ('_' if filename_tag else ''),
-                fs=fs or 200.0, l_freq=l_freq, h_freq=h_freq,
+                fs=fs or 200.0, l_freq=l_freq, h_freq=h_freq, band_edges=band_edges,
             )
 
         if not (plot_topo_psd or plot_attn_topo):
@@ -189,7 +219,7 @@ class BaseEpochChecker:
         if plot_topo_psd:
             try:
                 self._render_topo_psd(bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
-                                       tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
+                                       tagged_epoch_tag, cmap, fs, psd_l_freq, psd_h_freq, psd_ch_x, importance,
                                        fft_resolution=fft_resolution)
             except Exception as e:
                 print(f"  [epoch] topo_psd_filter failed: {e}")
@@ -209,6 +239,13 @@ class BaseEpochChecker:
                 print(f"  [epoch] -> {out_path}")
             except Exception as e:
                 print(f"  [epoch] attn_topo failed: {e}")
+
+            try:
+                self._render_stamp_panel(bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
+                                          tagged_epoch_tag, cmap, fs, psd_l_freq, psd_h_freq, psd_ch_x, importance,
+                                          fft_resolution=fft_resolution)
+            except Exception as e:
+                print(f"  [epoch] stamp_panel failed: {e}")
 
     # -- pretrain-stage snapshot: recon_signal / topo_psd_filter / attn_topo -------
 

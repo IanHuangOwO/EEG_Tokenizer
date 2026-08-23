@@ -165,6 +165,108 @@ def plot_topo_psd_by_patch(out_path, pos2d, raw_power, recon_power, psd_raw, psd
     plt.close(fig)
 
 
+def plot_stamp_panel(out_path, pos2d, psd_ch_x, psd_x, freqs, attn, importance,
+                      cmap='YlOrRd', subject_id=None, trial_idx=None, epoch_tag='',
+                      unit_label='Filter', valid_channels=None, unit_colors=None,
+                      unit_ids=None, n_per_row=6):
+    """
+    One block per unit (Expert/Filter/Stamp), sorted by `importance`: recon topo + attn
+    topo side by side on top, that unit's own PSD (channel x freq) spanning both columns
+    below. `n_per_row` blocks per grid row.
+
+    psd_ch_x: [C, Q] per-unit decoded channel power (recon topo). psd_x: [Q, C, F]
+    per-unit PSD. attn: [Q, C] per-unit channel attention (attn topo) — same convention as
+    plot_attn_topo. valid_channels: [C] bool or None, hides padded channels on the topos.
+    unit_ids: optional [Q] real global unit ids for the title, when attn/psd_ch_x/psd_x's
+    row order is a caller-side compacted subset (see plot_attn_topo's unit_ids doc).
+    """
+    Q = psd_ch_x.shape[1]
+    display_ids = np.arange(Q) if unit_ids is None else np.asarray(unit_ids)
+    sorted_ord = np.argsort(importance)[::-1]
+    freq_label = 'Hz' if freqs is not None and len(freqs) else 'cyc/patch'
+    freq_ticks = np.linspace(freqs[0], freqs[-1], 5)
+
+    valid = valid_channels if valid_channels is not None else np.ones(pos2d.shape[0], dtype=bool)
+    pos2d_v = pos2d[valid]
+    triang = build_triangulation(pos2d_v)
+
+    n_rows = math.ceil(Q / n_per_row)
+    # Topo cells use ax.set_aspect('equal') (draw_topomap) — under constrained_layout a
+    # cell whose height_ratio doesn't roughly match its allotted width leaves the rest of
+    # its row blank to keep that square aspect, which is where the big white gaps came
+    # from. col_w keeps each topo cell ~square (topo row height == 1 col-width unit) so
+    # there's nothing left over to pad with; psd_h stays a flatter rectangle.
+    col_w, psd_h, bar_w = 2.6, 1.7, 3.5
+    n_cols = n_per_row * 2
+    suptitle_in, margin_in = 1.0, 0.15  # fixed inches, not a fraction — stays small on tall figures
+    fig_w = col_w * n_cols + bar_w
+    fig_h = (col_w + psd_h) * n_rows + suptitle_in + margin_in
+    fig = plt.figure(figsize=(fig_w, fig_h))
+    gs = fig.add_gridspec(n_rows * 2, n_cols + 1,
+                           height_ratios=[col_w, psd_h] * n_rows,
+                           width_ratios=[col_w] * n_cols + [bar_w],
+                           left=0.02, right=0.98, top=1 - suptitle_in / fig_h, bottom=margin_in / fig_h,
+                           hspace=0.6, wspace=0.35)
+    fig.suptitle(f"Per-{unit_label} Recon Topo / Attn Topo / PSD ({unit_label}s sorted by "
+                 f"contribution) — Sub {subject_id}, Trial {trial_idx}{epoch_tag}",
+                 fontsize=13, fontweight='bold')
+
+    for i, q in enumerate(sorted_ord):
+        block_row, block_col = divmod(i, n_per_row)
+        topo_row, psd_row = block_row * 2, block_row * 2 + 1
+        col_recon, col_attn = block_col * 2, block_col * 2 + 1
+        color = unit_colors[q] if unit_colors else 'black'
+        label = f'{unit_label} {display_ids[q]} ({importance[q]:.3f})'
+
+        ax_recon = fig.add_subplot(gs[topo_row, col_recon])
+        recon_vals = psd_ch_x[:, q][valid]
+        im_r = draw_topomap(ax_recon, pos2d_v, recon_vals, cmap=cmap,
+                             vmin=recon_vals.min(), vmax=recon_vals.max(), triang=triang)
+        ax_recon.set_title(f'{label}\nRecon Topo', fontsize=8, fontweight='bold', color=color)
+        fig.colorbar(im_r, ax=ax_recon, fraction=0.05, pad=0.02)
+
+        ax_attn = fig.add_subplot(gs[topo_row, col_attn])
+        attn_vals = attn[q][valid]
+        im_a = draw_topomap(ax_attn, pos2d_v, attn_vals, cmap='viridis',
+                             vmin=attn_vals.min(), vmax=attn_vals.max(), triang=triang)
+        ax_attn.set_title(f'{label}\nAttn Topo', fontsize=8, fontweight='bold', color=color)
+        fig.colorbar(im_a, ax=ax_attn, fraction=0.05, pad=0.02)
+
+        ax_psd = fig.add_subplot(gs[psd_row, col_recon:col_attn + 1])
+        ax_psd.imshow(psd_x[q][::-1], aspect='auto', cmap=cmap, origin='lower',
+                      extent=[freqs[0], freqs[-1], 0, psd_x[q].shape[0]])
+        ax_psd.set_title(f'{label} PSD (channel x freq)', fontsize=8, fontweight='bold', color=color)
+        ax_psd.set_xticks(freq_ticks)
+        ax_psd.set_xticklabels([f'{f:.0f}' for f in freq_ticks], fontsize=6)
+        ax_psd.set_xlabel(freq_label, fontsize=7)
+        ax_psd.set_yticks([])
+
+    for i in range(Q, n_rows * n_per_row):
+        block_row, block_col = divmod(i, n_per_row)
+        topo_row, psd_row = block_row * 2, block_row * 2 + 1
+        col_recon, col_attn = block_col * 2, block_col * 2 + 1
+        fig.add_subplot(gs[topo_row, col_recon]).axis('off')
+        fig.add_subplot(gs[topo_row, col_attn]).axis('off')
+        fig.add_subplot(gs[psd_row, col_recon:col_attn + 1]).axis('off')
+
+    ax_bar = fig.add_subplot(gs[:, n_cols])
+    bar_labels = [f'{unit_label[0]}{display_ids[q]}' for q in sorted_ord]
+    bars = ax_bar.barh(range(Q), importance[sorted_ord], color='steelblue')
+    ax_bar.set_yticks(range(Q))
+    ax_bar.set_yticklabels(bar_labels, fontsize=6)
+    ax_bar.invert_yaxis()
+    ax_bar.set_xlabel('Importance', fontsize=9)
+    ax_bar.set_title(f'{unit_label} Importance', fontsize=10, fontweight='bold')
+    if unit_colors:
+        for tick, bar, q in zip(ax_bar.get_yticklabels(), bars, sorted_ord):
+            tick.set_color(unit_colors[q])
+            bar.set_color(unit_colors[q])
+
+    fig.text(0.5, 0.002, 'PSD y-axis: Channel (Iz -> Fp1)', ha='center', fontsize=8)
+    fig.savefig(out_path, dpi=100)
+    plt.close(fig)
+
+
 def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_channels=None,
                     subject_id=None, trial_idx=None, epoch_tag='', unit_label='Filter',
                     unit_colors=None, unit_ids=None, topo_attn=None, heatmap_attn=None, heatmap_ylabels=None,

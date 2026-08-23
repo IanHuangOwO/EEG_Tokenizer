@@ -290,7 +290,7 @@ def extract_filter_psd(model, x: torch.Tensor, coords: torch.Tensor,
 def extract_filter_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
                                  time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
                                  fs: float = None, freq_resolution: float = None,
-                                 patch_stride: int = 5) -> PatchGridResult:
+                                 patch_stride: int = 1) -> PatchGridResult:
     """
     Per-patch counterpart to extract_filter_psd/_used_stamps: instead of deduplicating a
     stamp across the whole trial and averaging its content over every patch it fired at

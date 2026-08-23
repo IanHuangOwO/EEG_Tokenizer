@@ -239,8 +239,8 @@ if __name__ == '__main__':
                     print(f"[check] done: target={cls_idx}({name}) status={status} subject={subject_id} "
                           f"trial_idx={t_idx}  |  {metrics_str}")
 
-        elif cfg.get('training_params', {}).get('visualize', {}).get(data_mode, {}).get('targets'):
-            # Same visualize.<mode>.targets key/shape as config.json's own periodic-viz config
+        elif cfg.get('training_params', {}).get('visualize_params', {}).get(data_mode, {}).get('targets'):
+            # Same visualize_params.<mode>.targets key/shape as config.json's own periodic-viz config
             # (see train_pretrain.py's viz_targets) — a list of {dataset, subject, trial} triples
             # picking exactly which snapshots to render, instead of dataset_params.<mode>'s
             # one-subject-per-dataset-entry mechanism below. dataset_params.<mode> still governs
@@ -257,7 +257,7 @@ if __name__ == '__main__':
                         return sub_data[idx].item()
                 return sub_data[0].item()
 
-            targets = cfg['training_params']['visualize'][data_mode]['targets']
+            targets = cfg['training_params']['visualize_params'][data_mode]['targets']
             for t in targets:
                 t_dataset = t.get('dataset')
                 subj = t.get('subject') if t.get('subject') is not None else _first_subject(t_dataset)

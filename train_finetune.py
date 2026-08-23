@@ -305,7 +305,7 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     train/val dataset pair. Returns the metrics dict (train+val) from the best-val-acc epoch."""
     train_params = config['training_params']['finetune']
     device = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
-    viz_every_n = config.get('training_params', {}).get('visualize', {}).get('finetune', {}).get('every_n_epochs', 5)
+    viz_every_n = config.get('training_params', {}).get('visualize_params', {}).get('finetune', {}).get('every_n_epochs', 5)
 
     patch_stride = config.get('preprocess_params', {}).get('patch_stride', patch_len)
     collate_fn = FinetuneCollate(patch_len, patch_stride)
@@ -392,6 +392,7 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
                 checker.check_finetune(
                     config, vis_dir, model, val_dataset,
                     topo_trial_idx, subject_id=topo_subject_id, epoch=epoch,
+                    cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'),
                 )
             except Exception as e:
                 logger.warning(f"  Topomap viz failed (epoch {epoch}): {e}")

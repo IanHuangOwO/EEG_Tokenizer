@@ -216,7 +216,7 @@ def main():
                 return sub_data[idx].item()
         return sub_data[0].item()
 
-    viz_params  = config.get('training_params', {}).get('visualize', {}).get('pretrain', {})
+    viz_params  = config.get('training_params', {}).get('visualize_params', {}).get('pretrain', {})
     viz_target_cfg = viz_params.get('targets') or [{'subject': None, 'trial': 0}]
     viz_every_n = viz_params.get('every_n_epochs', 2)
     viz_targets = [
@@ -311,6 +311,7 @@ def main():
                     checker.check_pretrain(
                         config, vis_dir, model, val_dataset,
                         topo_trial_idx, subject_id=topo_subject_id, epoch=epoch,
+                        cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'),
                     )
                 except Exception as e:
                     logger.warning(f"  Topomap viz failed (epoch {epoch}, subject={topo_subject_id}, trial_idx={topo_trial_idx}): {e}")

@@ -39,10 +39,9 @@
     "canonical_channels": "10-10",
     "window_length": 800,
     "window_pad_threshold": 0.5,
-    "patch_length": 20,
-    "patch_stride": 20,
+    "patch_length": 50,
+    "patch_stride": 50,
     "sample_freq": 200,
-    "fft_resolution": 0.2,
     "bandpass_filter": {
       "l_freq": 0.5,
       "h_freq": 100.0
@@ -62,7 +61,7 @@
   "model_params": {
     "MeFSQ": {
       "pretrain": {
-        "patch_len": 20,
+        "patch_len": 50,
         "embed_dim": 100,
         "enc_depth": 12,
         "spatial_heads": 10,
@@ -91,7 +90,7 @@
     },
     "MeSAE": {
       "tokenizer": {
-        "patch_len": 20,
+        "patch_len": 50,
         "embed_dim": 100,
         "enc_depth": 4,
         "spatial_heads": 10,
@@ -105,9 +104,9 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 300,
-          "n_shared_stamps": 4,
-          "stamp_top_k": 12,
+          "n_stamps": 180,
+          "n_shared_stamps": 2,
+          "stamp_top_k": 6,
           "stamp_hidden_width": 8,
           "stamp_shared_hidden_width": 16,
           "dead_threshold_frac": 0.1,
@@ -122,7 +121,7 @@
         }
       },
       "pretrain": {
-        "patch_len": 20,
+        "patch_len": 100,
         "embed_dim": 100,
         "enc_depth": 12,
         "spatial_heads": 10,
@@ -136,9 +135,9 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 300,
-          "n_shared_stamps": 4,
-          "stamp_top_k": 12,
+          "n_stamps": 180,
+          "n_shared_stamps": 2,
+          "stamp_top_k": 6,
           "stamp_hidden_width": 8,
           "stamp_shared_hidden_width": 16,
           "dead_threshold_frac": 0.1,
@@ -162,7 +161,7 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAE",
-      "model_name": "mesae_tokenizer_v7",
+      "model_name": "mesae_tokenizer_v8",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -174,8 +173,8 @@
     },
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_pretrain_v7",
-      "tokenizer_checkpoint": "output/mesae_tokenizer_v7/tokenizer/best_tokenizer.pth",
+      "model_name": "mesae_pretrain_v8",
+      "tokenizer_checkpoint": "output/mesae_tokenizer_v8/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -187,8 +186,8 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_v7",
-      "pretrained_checkpoint": "output/mesae_pretrain_v7/pretrain/best_pretrain.pth",
+      "model_name": "mesae_finetune_v8",
+      "pretrained_checkpoint": "output/mesae_pretrain_v8/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.01,
@@ -200,7 +199,17 @@
       "split_mode": "subject",
       "train_val_split": 0.8
     },
-    "visualize": {
+    "visualize_params": {
+      "cmap": "YlOrRd",
+      "fft_resolution": 0.2,
+      "psd_freq_range": null,
+      "bands": {
+        "Delta": [0.5, 4],
+        "Theta": [4, 8],
+        "Alpha": [8, 13],
+        "Beta": [13, 30],
+        "Gamma": [30, 100]
+      },
       "pretrain": {
         "targets": [
           { "dataset": "BETA_4s", "subject": null, "trial": 0 },

@@ -5,27 +5,34 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def _canonical_bands(l_freq=None, h_freq=None):
-    """Delta/Theta/Alpha/Beta/Gamma edges, clipped to [l_freq, h_freq] when given (the
+_DEFAULT_BANDS = {
+    'Delta': (0.5,  4),
+    'Theta': (4,    8),
+    'Alpha': (8,   13),
+    'Beta':  (13,  30),
+    'Gamma': (30, 100),
+}
+
+
+def _canonical_bands(l_freq=None, h_freq=None, band_edges=None, fs=None):
+    """Delta/Theta/Alpha/Beta/Gamma edges (overridable via training_params.visualize.bands
+    in config, default _DEFAULT_BANDS), clipped to [l_freq, h_freq] when given (the
     preprocessing bandpass, see preprocess_params) — a band entirely outside that range
     is dropped rather than plotted as filtered-out-but-labeled-real content (e.g. Gamma's
     default 30-80Hz upper edge exceeds a common h_freq=75 bandpass; unclipped, MNE would
     filter for 75-80Hz content the preprocessing bandpass already removed upstream, and
     the resulting near-flat trace could misread as a real "no gamma" finding instead of
     "already filtered out before the model ever saw it")."""
-    raw = {
-        'Delta': (0.5,  4),
-        'Theta': (4,    8),
-        'Alpha': (8,   13),
-        'Beta':  (13,  30),
-        'Gamma': (30,  80),
-    }
+    raw = band_edges or _DEFAULT_BANDS
     bands = {'Raw': None}
+    nyquist = fs / 2 if fs else None
     for name, (lo, hi) in raw.items():
         if l_freq is not None:
             lo = max(lo, l_freq)
         if h_freq is not None:
             hi = min(hi, h_freq)
+        if nyquist is not None:
+            hi = min(hi, nyquist * 0.999)  # MNE IIR rejects h_freq >= Nyquist
         if lo >= hi:
             continue
         bands[f'{name} ({lo:g}-{hi:g})'] = (lo, hi)
@@ -37,7 +44,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
                              channel_names=None,
                              subject_id=None, trial_idx=None,
                              mask=None, patch_len=100, tag='',
-                             fs=200.0, l_freq=None, h_freq=None):
+                             fs=200.0, l_freq=None, h_freq=None, band_edges=None):
     """
     Band-filtered orig vs recon for all channels of one val sample.
     Rows: channels. Cols: Raw / Delta / Theta / Alpha / Beta / Gamma.
@@ -61,7 +68,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     orig, recon = orig[:, :n], recon[:, :n]
     t = np.arange(n) / fs
 
-    bands = _canonical_bands(l_freq, h_freq)
+    bands = _canonical_bands(l_freq, h_freq, band_edges, fs=fs)
 
     n_rows, n_cols = C, len(bands)
     fig, axes = plt.subplots(n_rows, n_cols,
@@ -118,5 +125,6 @@ def _band_filter(orig, recon, freqs, fs=200.0):
         yr = mne.filter.filter_data(recon.reshape(1, -1).astype(np.float64),
                                     fs, l_f, h_f, method='iir', verbose=False)[0]
         return yo, yr
-    except Exception:
+    except Exception as e:
+        print(f"[timeseries] band filter {freqs} failed, plotting zeros: {e}")
         return np.zeros_like(orig), np.zeros_like(recon)
