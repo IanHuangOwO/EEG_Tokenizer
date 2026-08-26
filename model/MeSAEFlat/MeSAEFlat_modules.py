@@ -409,47 +409,33 @@ class StampBank(nn.Module):
     dictionary should have. Collapse is instead guarded by fire_ema/dead_threshold/
     aux_loss below.
 
-    phi_i(z) = amp_i(z) * D_i, same recipe as the retired free-form-template version
-    (see git history) but D_i is now a SINGLE-FREQUENCY SINUSOID, not a free
-    [patch_len] parameter vector: D_i(t) = cos(2*pi*freq_i*t + phase_i). freq_i is a
-    FIXED, non-learnable buffer (evenly spaced across (0, 0.5) cycles/sample, i.e.
-    always below Nyquist) — NOT optimized by gradient descent (see __init__: an
-    earlier version made freq_i learnable and every atom collapsed onto nearly the
-    same frequency within a few epochs — EEG's 1/f-heavy power spectrum gives every
-    atom's gradient the same "move toward low frequency" pull, and freq_i is one
-    scalar with zero diversity pressure on it, so nothing stopped mass convergence;
-    fixing the grid structurally guarantees coverage instead of hoping training
-    preserves it). phase_i stays learnable (no analogous collapse risk). amp_i(z) is a
-    per-token scalar gain off the same narrow hidden_i bottleneck w_score already
-    reads, exactly as before.
+    phi_i(z) = amp_i(z) * D_i: a fixed per-atom waveform TEMPLATE D_i (nn.Parameter
+    [patch_len], no z dependence at all) scaled by a per-token, per-atom scalar gain
+    amp_i(z) (from the same narrow hidden_i bottleneck w_score already reads).
+    Deliberately NOT a generator that can bend its own shape per token (that was the
+    prior design: hidden_i @ W_out_i + b_out_i, a full per-atom linear map from the
+    bottleneck to [patch_len]) — replaced because the target signal this is meant to
+    capture (a shared source, e.g. line noise, arriving at every channel as the SAME
+    waveform at a channel-specific amplitude/polarity, near-zero phase lag) is
+    structurally amplitude-varying, not shape-varying. Forcing shape to be a pure
+    parameter and amplitude to be the only z-dependent knob makes "same waveform,
+    different amplitude across channels" a structural guarantee instead of something
+    training has to discover on its own, and is provably phase-safe: scalar-multiplying
+    a real time-domain vector scales every frequency bin's magnitude by the same
+    factor and leaves phase untouched (amp<0 is a clean 180-degree flip, not
+    distortion) — unlike scaling a waveform's real/imag FFT components independently,
+    which does distort phase (that failure mode doesn't apply here since there's no
+    real/imag split anywhere in this module, only a real time-domain vector, see
+    dense_probe's docstring for the earlier scalar-weighting attempts that got
+    entangled with the ROUTING scalar h instead of using a free one).
 
-    Why a parametric sinusoid instead of a free template: a free [patch_len] template
-    is DENSE across frequency by construction — nothing stops it from picking up
-    broadband content alongside whatever narrowband structure training wants, and a
-    dense time-domain vector times a real/imag-Cartesian reparameterization of it are
-    mathematically IDENTICAL (FFT/iFFT are linear, so amp_i * D_freq_i and
-    iFFT(amp_i * D_freq_i) carry the same information either domain) — switching
-    domains alone buys nothing. A single-tone atom is a genuine structural change: it
-    is narrowband by construction, energy at exactly one frequency, zero elsewhere,
-    which is what an atom meant to capture a shared periodic source (e.g. line noise:
-    same waveform at every channel, channel-specific amplitude, near-zero phase lag)
-    should look like. amp_i(z) still does 100% of the cross-channel/cross-token
-    variation, still provably phase-safe (real-scalar-times-real-signal scales every
-    frequency's magnitude uniformly, never rotates phase; amp<0 is a clean 180-degree
-    flip, not distortion — this only breaks if you scale real/imag independently,
-    which nothing here ever does).
-
-    Cost: one atom = exactly one pure tone, can't by itself represent a non-sinusoidal
-    periodic shape or several harmonics at once, or bend its shape per token (a genuine
-    conduction-delay phase difference across channels, or an amplitude-dependent shape
-    change like a spike broadening as it grows — see docs/adr/0009's discussion of that
-    tradeoff). Mitigated by volume: with hundreds of routed atoms, the router can spend
-    separate atoms on separate harmonics (50/100/150Hz) or on genuinely broadband
-    transient content living in atoms whose amp_i(z) the router weights differently per
-    token — no single atom needs to cover everything. fingerprint() now returns each
-    atom's exact unit-amplitude tone directly (no probing needed, same as the retired
-    free-template version) — even more literal now, freq_i/phase_i ARE the shape, not
-    just a stored numeric vector that happens not to depend on z.
+    Cost trade against the old per-atom W_out design: loses the ability for an atom to
+    warp its own shape per token (e.g. a genuine conduction-delay phase difference
+    across channels, or an amplitude-dependent shape change like a spike broadening as
+    it grows — see docs/adr/0009's discussion of this exact tradeoff). Also a real
+    fingerprint simplification: D_i now IS each atom's shape, unconditionally — no more
+    fabricated-probe fingerprint() vs real-data dense_probe() split to work around a
+    generator whose shape depended on its input (see both methods below).
     """
     def __init__(self, dim, patch_len, n_stamps=800, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16, shared_weight=0.2,
@@ -514,73 +500,48 @@ class StampBank(nn.Module):
         nn.init.kaiming_uniform_(self.w_amp_routed, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.w_amp_shared, a=math.sqrt(5))
 
-        # D_i(t) = cos(2*pi*freq_i*t + phase_i): each atom's own single-tone template.
-        # freq_i is now a FIXED, non-learnable buffer, not a parameter — see class
-        # docstring: a learnable freq_i collapsed onto the single dominant
-        # reconstruction basin (EEG's 1/f-heavy power spectrum pulls every atom's
-        # gradient toward the same low frequency, and freq_i is one scalar with zero
-        # diversity pressure on it — decorrelation_loss only ever touched W_down
-        # direction, never frequency). Fixing coverage structurally instead of hoping
-        # gradient descent preserves it: every atom gets a distinct frequency by
-        # construction, evenly spaced linearly across (0, 0.5) cycles/sample (also
-        # linear in Hz once multiplied by sample_freq elsewhere — swap to a log-spaced
-        # grid here if the lower EEG bands need denser coverage than a linear grid
-        # gives them). Only phase_i and amp_i(z) stay learnable — phase has no
-        # analogous collapse risk (nothing in the loss favors one phase over another
-        # the way it favors low frequency), so it's fine left free.
-        self.register_buffer('freq_routed', torch.linspace(0.01, 0.49, self.n_routed))
-        self.phase_routed = nn.Parameter(torch.rand(self.n_routed) * (2 * math.pi))
-        self.register_buffer('freq_shared', torch.linspace(0.01, 0.49, self.n_shared))
-        self.phase_shared = nn.Parameter(torch.rand(self.n_shared) * (2 * math.pi))
-        # Local sample index within a patch, 0..patch_len-1 — every patch is generated
-        # independently (no phase continuity enforced across adjacent patches, same
-        # patch-independence the retired free-template version also had).
-        self.register_buffer('t_idx', torch.arange(patch_len, dtype=torch.float32))
+        # D_i: the atom's own waveform template, a plain parameter with NO z dependence
+        # — phi_i(z) = amp_i(z) * D_i, see class docstring. Normal-init at a modest std
+        # (not kaiming, there's no fan-in/fan-out here: this is a direct [patch_len]
+        # output vector, not a weight matrix multiplying some input) so early-training
+        # contributions start comparable in scale to a typical normalized patch.
+        self.D_routed = nn.Parameter(torch.randn(self.n_routed, patch_len) * 0.02)
+        self.D_shared = nn.Parameter(torch.randn(self.n_shared, patch_len) * 0.02)
 
         self.dead_threshold = dead_threshold_frac * (self.top_k / self.n_routed)
         self.aux_k_cap = max(1, int(aux_k_cap_frac * self.n_routed))
         self.ema_decay = ema_decay
         self.register_buffer('fire_ema', torch.zeros(self.n_routed))
 
-    def _tone(self, freq, phase):
-        """freq/phase: any matching broadcastable shape [...] -> [..., patch_len] cos
-        template, freq already passed through _freq (post-sigmoid, cycles/sample)."""
-        phase_arg = 2 * math.pi * freq.unsqueeze(-1) * self.t_idx + phase.unsqueeze(-1)
-        return torch.cos(phase_arg)
-
-    def _decode_atoms(self, idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, freq_sel, phase_sel):
+    def _decode_atoms(self, idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, D_sel):
         """idx: [T, K] GLOBAL atom indices (0..n_stamps-1 regardless of routed/shared),
         z: [T, D] the token itself (same row for every atom, no per-atom view anymore),
-        W_down_sel/b_down_sel/w_amp_sel/b_amp_sel/freq_sel/phase_sel: all already
-        gathered per-atom from whichever (routed or shared) table matches these atoms
-        (see __init__; freq_sel is already post-_freq, cycles/sample).
-        -> contribution [T, K, patch_len] = amp_i(z) * cos(2*pi*freq_i*t + phase_i),
-        see class docstring.
+        W_down_sel/b_down_sel/w_amp_sel/b_amp_sel/D_sel: all already gathered per-atom
+        from whichever (routed or shared) table matches these atoms (see __init__).
+        -> contribution [T, K, patch_len] = amp_i(z) * D_i, see class docstring.
 
-        The tone (freq_sel/phase_sel) never depends on z — same single-frequency
-        template regardless of which token selected it — only amp_i is a function of
+        D_sel never depends on z (gathered straight from the parameter table, same
+        template regardless of which token selected it) — only amp_i is a function of
         the token, via the same hidden_i bottleneck w_score reads."""
         z_sel = z.unsqueeze(1).expand(-1, idx.shape[1], -1)  # [T, K, D] — identical row per atom
 
         hidden = torch.einsum('tkd,tkdh->tkh', z_sel, W_down_sel) + b_down_sel  # [T, K, hidden]
         amp = torch.einsum('tkh,tkh->tk', hidden, w_amp_sel) + b_amp_sel  # [T, K]
-        contribution = amp.unsqueeze(-1) * self._tone(freq_sel, phase_sel)  # [T, K, patch_len]
+        contribution = amp.unsqueeze(-1) * D_sel  # [T, K, patch_len]
         return contribution, z_sel
 
     def _generate_routed(self, idx, z):
         """idx: [T, K] routed-only indices (values in [0, n_routed)), used both as the
-        GLOBAL index and to gather W_down_routed/b_down_routed/w_amp_routed/
-        freq_routed/phase_routed directly (freq_routed is a fixed buffer, not a
-        parameter — see __init__). z: [T, D] the token itself. Used by both
-        the main forward path's routed half and the dead-atom aux rescue (rescue only
-        ever draws from the routed pool, never shared — see forward())."""
+        GLOBAL index and to gather W_down_routed/b_down_routed/w_amp_routed/D_routed
+        directly. z: [T, D] the token itself. Used by both the main forward path's
+        routed half and the dead-atom aux rescue (rescue only ever draws from the
+        routed pool, never shared — see forward())."""
         W_down_sel = self.W_down_routed[idx]
         b_down_sel = self.b_down_routed[idx]
         w_amp_sel = self.w_amp_routed[idx]
         b_amp_sel = self.b_amp_routed[idx]
-        freq_sel = self.freq_routed[idx]
-        phase_sel = self.phase_routed[idx]
-        return self._decode_atoms(idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, freq_sel, phase_sel)
+        D_sel = self.D_routed[idx]
+        return self._decode_atoms(idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, D_sel)
 
     def decode_selected(self, idx, h, z):
         """idx: [T, top_k+n_shared] GLOBAL indices, first top_k routed then n_shared shared
@@ -606,10 +567,9 @@ class StampBank(nn.Module):
         b_down_s_sel = self.b_down_shared[local_shared]
         w_amp_s_sel = self.w_amp_shared[local_shared]
         b_amp_s_sel = self.b_amp_shared[local_shared]
-        freq_s_sel = self.freq_shared[local_shared]
-        phase_s_sel = self.phase_shared[local_shared]
+        D_s_sel = self.D_shared[local_shared]
         contribution_s, z_sel_s = self._decode_atoms(
-            idx_shared, z, W_down_s_sel, b_down_s_sel, w_amp_s_sel, b_amp_s_sel, freq_s_sel, phase_s_sel)
+            idx_shared, z, W_down_s_sel, b_down_s_sel, w_amp_s_sel, b_amp_s_sel, D_s_sel)
 
         contribution = torch.cat([contribution_r, contribution_s], dim=1)     # [T, top_k+n_shared, patch_len]
         z_sel = torch.cat([z_sel_r, z_sel_s], dim=1)                          # [T, top_k+n_shared, D]
@@ -648,25 +608,27 @@ class StampBank(nn.Module):
 
     @torch.no_grad()
     def fingerprint(self):
-        """Every stamp's raw single-tone template cos(2*pi*freq_i*t + phase_i) at unit
-        amplitude, concatenated routed-then-shared. No z dependence at all — it IS the
-        shape, unconditionally, no fabricated probe needed (the old generator-based
-        design needed one; see git history). amp_i(z) never touches shape, only overall
-        scale/sign — see class docstring — so this tone alone is the complete, correct
-        answer to "what does this atom look like". Dense over all n_stamps. Returns
-        [n_stamps, patch_len]."""
-        return torch.cat([self._tone(self.freq_routed, self.phase_routed),
-                           self._tone(self.freq_shared, self.phase_shared)], dim=0)
+        """Every stamp's raw waveform template D_i, concatenated routed-then-shared.
+        Unlike the old generator-based design (phi_i(z) = hidden_i @ W_out_i + b_out_i,
+        an actual function of some probe z), D_i now has NO z dependence at all — it IS
+        the shape, unconditionally, no fabricated probe needed and no "which probe do
+        we use" question to answer (the old zero-probe default reduced the bottleneck
+        to its bias terms only, understating diversity early in training — see git
+        history for dense_probe's original docstring on that problem). amp_i(z) never
+        touches shape, only overall scale/sign — see class docstring — so D_i alone is
+        the complete, correct answer to "what does this atom look like". Dense over all
+        n_stamps. Returns [n_stamps, patch_len]."""
+        return torch.cat([self.D_routed, self.D_shared], dim=0)
 
     @torch.no_grad()
     def dense_probe(self, z):
         """The real per-token, per-atom CONTRIBUTION each stamp would produce if it had
-        fired on this token — amp_i(z) * its tone, dense over all n_stamps
-        (diagnostic-only, not the sparse-dispatch training path, which only ever
-        gathers the top_k+n_shared selected atoms via decode_selected). Distinct from
-        fingerprint() (the atom's own unit-amplitude tone, no z at all) by design now:
-        this shows the SCALED contribution a real token would get, fingerprint() shows
-        the unscaled tone underneath it.
+        fired on this token — amp_i(z) * D_i, dense over all n_stamps (diagnostic-only,
+        not the sparse-dispatch training path, which only ever gathers the
+        top_k+n_shared selected atoms via decode_selected). Distinct from fingerprint()
+        (the atom's own shape, no z at all) by design now: this shows the SCALED
+        contribution a real token would get, fingerprint() shows the unscaled template
+        underneath it.
         z: [T, D] real token embeddings (same input StampBank.forward takes) ->
         contribution [T, n_stamps, patch_len].
         """
@@ -674,13 +636,11 @@ class StampBank(nn.Module):
 
         hidden_r = torch.einsum('td,hdk->thk', z, self.W_down_routed) + self.b_down_routed  # [T, n_routed, hidden]
         amp_r = torch.einsum('thk,hk->th', hidden_r, self.w_amp_routed) + self.b_amp_routed  # [T, n_routed]
-        tone_r = self._tone(self.freq_routed, self.phase_routed)  # [n_routed, patch_len]
-        contrib_r = amp_r.unsqueeze(-1) * tone_r.unsqueeze(0)  # [T, n_routed, patch_len]
+        contrib_r = amp_r.unsqueeze(-1) * self.D_routed.unsqueeze(0)  # [T, n_routed, patch_len]
 
         hidden_s = torch.einsum('td,hdk->thk', z, self.W_down_shared) + self.b_down_shared
         amp_s = torch.einsum('thk,hk->th', hidden_s, self.w_amp_shared) + self.b_amp_shared
-        tone_s = self._tone(self.freq_shared, self.phase_shared)  # [n_shared, patch_len]
-        contrib_s = amp_s.unsqueeze(-1) * tone_s.unsqueeze(0)  # [T, n_shared, patch_len]
+        contrib_s = amp_s.unsqueeze(-1) * self.D_shared.unsqueeze(0)  # [T, n_shared, patch_len]
 
         contribution = torch.cat([contrib_r, contrib_s], dim=1)  # [T, n_stamps, patch_len]
         return contribution
