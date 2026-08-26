@@ -410,12 +410,18 @@ class StampBank(nn.Module):
     aux_loss below.
 
     phi_i(z) = amp_i(z) * D_i, same recipe as the retired free-form-template version
-    (see git history) but D_i is now a CONTINUOUS-FREQUENCY SINUSOID, not a free
-    [patch_len] parameter vector: D_i(t) = cos(2*pi*freq_i*t + phase_i), freq_i and
-    phase_i each a single learnable scalar per atom (freq_i squashed through
-    0.5*sigmoid into (0, 0.5) cycles/sample, i.e. always below Nyquist, no aliasing
-    ambiguity; phase_i free). amp_i(z) is a per-token scalar gain off the same narrow
-    hidden_i bottleneck w_score already reads, exactly as before.
+    (see git history) but D_i is now a SINGLE-FREQUENCY SINUSOID, not a free
+    [patch_len] parameter vector: D_i(t) = cos(2*pi*freq_i*t + phase_i). freq_i is a
+    FIXED, non-learnable buffer (evenly spaced across (0, 0.5) cycles/sample, i.e.
+    always below Nyquist) — NOT optimized by gradient descent (see __init__: an
+    earlier version made freq_i learnable and every atom collapsed onto nearly the
+    same frequency within a few epochs — EEG's 1/f-heavy power spectrum gives every
+    atom's gradient the same "move toward low frequency" pull, and freq_i is one
+    scalar with zero diversity pressure on it, so nothing stopped mass convergence;
+    fixing the grid structurally guarantees coverage instead of hoping training
+    preserves it). phase_i stays learnable (no analogous collapse risk). amp_i(z) is a
+    per-token scalar gain off the same narrow hidden_i bottleneck w_score already
+    reads, exactly as before.
 
     Why a parametric sinusoid instead of a free template: a free [patch_len] template
     is DENSE across frequency by construction — nothing stops it from picking up
@@ -508,20 +514,23 @@ class StampBank(nn.Module):
         nn.init.kaiming_uniform_(self.w_amp_routed, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.w_amp_shared, a=math.sqrt(5))
 
-        # D_i(t) = cos(2*pi*freq_i*t + phase_i): each atom's own single-tone template,
-        # freq_i/phase_i plain learnable scalars (no z dependence at all — see class
-        # docstring). freq_raw is passed through 0.5*sigmoid (see _freq) to land in
-        # (0, 0.5) cycles/sample; init spreads freq_raw so atoms START at frequencies
-        # evenly covering that whole range (via logit of a shuffled linspace) instead
-        # of all clustering at sigmoid(0)=0.25 — random-init raw scalars would bunch up
-        # near the sigmoid's saturated edges instead of covering the range, the same
-        # "atoms start too similar to each other" collapse risk w_score's docstring
-        # describes for a full-D scorer. phase_i initialized uniform over a full cycle.
-        freq_span = torch.linspace(0.01, 0.49, self.n_routed)[torch.randperm(self.n_routed)]
-        self.freq_raw_routed = nn.Parameter(torch.logit(freq_span / 0.5))
+        # D_i(t) = cos(2*pi*freq_i*t + phase_i): each atom's own single-tone template.
+        # freq_i is now a FIXED, non-learnable buffer, not a parameter — see class
+        # docstring: a learnable freq_i collapsed onto the single dominant
+        # reconstruction basin (EEG's 1/f-heavy power spectrum pulls every atom's
+        # gradient toward the same low frequency, and freq_i is one scalar with zero
+        # diversity pressure on it — decorrelation_loss only ever touched W_down
+        # direction, never frequency). Fixing coverage structurally instead of hoping
+        # gradient descent preserves it: every atom gets a distinct frequency by
+        # construction, evenly spaced linearly across (0, 0.5) cycles/sample (also
+        # linear in Hz once multiplied by sample_freq elsewhere — swap to a log-spaced
+        # grid here if the lower EEG bands need denser coverage than a linear grid
+        # gives them). Only phase_i and amp_i(z) stay learnable — phase has no
+        # analogous collapse risk (nothing in the loss favors one phase over another
+        # the way it favors low frequency), so it's fine left free.
+        self.register_buffer('freq_routed', torch.linspace(0.01, 0.49, self.n_routed))
         self.phase_routed = nn.Parameter(torch.rand(self.n_routed) * (2 * math.pi))
-        freq_span_s = torch.linspace(0.01, 0.49, self.n_shared)[torch.randperm(self.n_shared)]
-        self.freq_raw_shared = nn.Parameter(torch.logit(freq_span_s / 0.5))
+        self.register_buffer('freq_shared', torch.linspace(0.01, 0.49, self.n_shared))
         self.phase_shared = nn.Parameter(torch.rand(self.n_shared) * (2 * math.pi))
         # Local sample index within a patch, 0..patch_len-1 — every patch is generated
         # independently (no phase continuity enforced across adjacent patches, same
@@ -532,13 +541,6 @@ class StampBank(nn.Module):
         self.aux_k_cap = max(1, int(aux_k_cap_frac * self.n_routed))
         self.ema_decay = ema_decay
         self.register_buffer('fire_ema', torch.zeros(self.n_routed))
-
-    @staticmethod
-    def _freq(freq_raw):
-        """Squash a raw learnable scalar into (0, 0.5) cycles/sample — always below
-        Nyquist, no aliasing ambiguity to reason about downstream (e.g. converting to
-        Hz for diagnostics: freq_i * sample_freq is unambiguous)."""
-        return 0.5 * torch.sigmoid(freq_raw)
 
     def _tone(self, freq, phase):
         """freq/phase: any matching broadcastable shape [...] -> [..., patch_len] cos
@@ -568,14 +570,15 @@ class StampBank(nn.Module):
     def _generate_routed(self, idx, z):
         """idx: [T, K] routed-only indices (values in [0, n_routed)), used both as the
         GLOBAL index and to gather W_down_routed/b_down_routed/w_amp_routed/
-        freq_raw_routed/phase_routed directly. z: [T, D] the token itself. Used by both
+        freq_routed/phase_routed directly (freq_routed is a fixed buffer, not a
+        parameter — see __init__). z: [T, D] the token itself. Used by both
         the main forward path's routed half and the dead-atom aux rescue (rescue only
         ever draws from the routed pool, never shared — see forward())."""
         W_down_sel = self.W_down_routed[idx]
         b_down_sel = self.b_down_routed[idx]
         w_amp_sel = self.w_amp_routed[idx]
         b_amp_sel = self.b_amp_routed[idx]
-        freq_sel = self._freq(self.freq_raw_routed[idx])
+        freq_sel = self.freq_routed[idx]
         phase_sel = self.phase_routed[idx]
         return self._decode_atoms(idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, freq_sel, phase_sel)
 
@@ -603,7 +606,7 @@ class StampBank(nn.Module):
         b_down_s_sel = self.b_down_shared[local_shared]
         w_amp_s_sel = self.w_amp_shared[local_shared]
         b_amp_s_sel = self.b_amp_shared[local_shared]
-        freq_s_sel = self._freq(self.freq_raw_shared[local_shared])
+        freq_s_sel = self.freq_shared[local_shared]
         phase_s_sel = self.phase_shared[local_shared]
         contribution_s, z_sel_s = self._decode_atoms(
             idx_shared, z, W_down_s_sel, b_down_s_sel, w_amp_s_sel, b_amp_s_sel, freq_s_sel, phase_s_sel)
@@ -652,10 +655,8 @@ class StampBank(nn.Module):
         scale/sign — see class docstring — so this tone alone is the complete, correct
         answer to "what does this atom look like". Dense over all n_stamps. Returns
         [n_stamps, patch_len]."""
-        freq_r = self._freq(self.freq_raw_routed)
-        freq_s = self._freq(self.freq_raw_shared)
-        return torch.cat([self._tone(freq_r, self.phase_routed),
-                           self._tone(freq_s, self.phase_shared)], dim=0)
+        return torch.cat([self._tone(self.freq_routed, self.phase_routed),
+                           self._tone(self.freq_shared, self.phase_shared)], dim=0)
 
     @torch.no_grad()
     def dense_probe(self, z):
@@ -673,12 +674,12 @@ class StampBank(nn.Module):
 
         hidden_r = torch.einsum('td,hdk->thk', z, self.W_down_routed) + self.b_down_routed  # [T, n_routed, hidden]
         amp_r = torch.einsum('thk,hk->th', hidden_r, self.w_amp_routed) + self.b_amp_routed  # [T, n_routed]
-        tone_r = self._tone(self._freq(self.freq_raw_routed), self.phase_routed)  # [n_routed, patch_len]
+        tone_r = self._tone(self.freq_routed, self.phase_routed)  # [n_routed, patch_len]
         contrib_r = amp_r.unsqueeze(-1) * tone_r.unsqueeze(0)  # [T, n_routed, patch_len]
 
         hidden_s = torch.einsum('td,hdk->thk', z, self.W_down_shared) + self.b_down_shared
         amp_s = torch.einsum('thk,hk->th', hidden_s, self.w_amp_shared) + self.b_amp_shared
-        tone_s = self._tone(self._freq(self.freq_raw_shared), self.phase_shared)  # [n_shared, patch_len]
+        tone_s = self._tone(self.freq_shared, self.phase_shared)  # [n_shared, patch_len]
         contrib_s = amp_s.unsqueeze(-1) * tone_s.unsqueeze(0)  # [T, n_shared, patch_len]
 
         contribution = torch.cat([contrib_r, contrib_s], dim=1)  # [T, n_stamps, patch_len]

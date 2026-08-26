@@ -1,5 +1,5 @@
 {
-  "checkpoint": "output/mesaeflat_tokenizer_v1/tokenizer/best_tokenizer.pth",
+  "checkpoint": "output/mesaeflat_tokenizer_v2/tokenizer/best_tokenizer.pth",
   "mode": "tokenizer",
 
   "dataset_params": {
