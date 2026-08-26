@@ -25,6 +25,14 @@ class BaseCodebookChecker:
     """unit_label: 'Expert' | 'Filter' | ... — used in panel titles/axis labels."""
     unit_label = 'Unit'
 
+    # True only for subclasses whose _render_patch_similarity override needs a fresh
+    # forward pass per trial (e.g. MeSAEFlatCodebookChecker's dense per-token decoder
+    # content — too expensive to compute for every sampled trial up front, see
+    # extract_stamp_content) — check_codebook stashes each trial's (cpu-side, cheap) input
+    # tensors in trial_records only when this is set, so the default (usage-only) path
+    # pays nothing for it.
+    needs_raw_tensors = False
+
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
         """One trial -> np.ndarray [M, Q, F]: M patches, Q units (Experts/Filters), F
         dictionary/discrete-code activations per unit. Subclass-specific: reads whatever
@@ -43,6 +51,26 @@ class BaseCodebookChecker:
         exceed that regardless of dictionary size F. Return None (default) to let
         plot_unit_freedom fall back to F, a much looser bound. Override per model."""
         return None
+
+    def _render_patch_similarity(self, trial_records, viz_dir, model, device, seed):
+        """Default: plot_patch_similarity_hierarchy off the already-computed (cheap,
+        gating-strength) usage in trial_records -> patch_similarity_hierarchy.png.
+        Override (e.g. MeSAEFlatCodebookChecker) to render a different question/basis
+        instead -- model/device are passed through only for overrides that need a fresh
+        forward pass per trial (see needs_raw_tensors), unused by this default."""
+        plot_patch_similarity_hierarchy(
+            os.path.join(viz_dir, 'patch_similarity_hierarchy.png'), trial_records,
+            unit_label=self.unit_label, seed=seed)
+
+    def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed):
+        """Default: plot_patch_position_consistency off the already-computed (cheap,
+        gating-strength) usage in ds_trials -> patch_position_consistency_<ds_name>.png.
+        Override (e.g. MeSAEFlatCodebookChecker) to render a different question/basis
+        instead -- model/device are passed through only for overrides that need a fresh
+        forward pass per trial (see needs_raw_tensors), unused by this default."""
+        plot_patch_position_consistency(
+            os.path.join(viz_dir, f'patch_position_consistency_{ds_name}.png'), ds_trials,
+            unit_label=self.unit_label, seed=seed)
 
     @staticmethod
     def _trial_tensors(dataset, trial_idx, device):
@@ -70,7 +98,7 @@ class BaseCodebookChecker:
 
         usage_by_dataset, labels_by_dataset = {}, {}          # patch-level: [M_total, Q, F], [M_total]
         trial_usage_by_dataset, trial_labels_by_dataset = {}, {}  # trial-level: [n_trials, Q, F], [n_trials]
-        trial_records = []  # one dict per trial: {usage: [M,Q,F], dataset, subject} -- feeds plot_patch_similarity_hierarchy
+        trial_records = []  # one dict per trial: {usage: [M,Q,F], dataset, subject[, raw]} -- feeds _render_patch_similarity
         for ds_name, dataset in datasets_by_name.items():
             n = len(dataset)
             n_trials = min(max_trials_per_dataset, n)
@@ -84,7 +112,13 @@ class BaseCodebookChecker:
                 label_chunks.append(np.full(usage.shape[0], label, dtype=np.int64))  # label per trial -> broadcast to all M patches in it
                 trial_chunks.append(usage.mean(axis=0))  # [Q, F] -- one point per trial, patches averaged out
                 trial_labels.append(label)
-                trial_records.append(dict(usage=usage, dataset=ds_name, subject=self._subject_id(dataset, t_idx)))
+                record = dict(usage=usage, dataset=ds_name, subject=self._subject_id(dataset, t_idx))
+                if self.needs_raw_tensors:
+                    # cpu + no grad: cheap to keep ~max_trials_per_dataset of these around
+                    # (small EEG patch tensors), unlike the dense content they'll later be
+                    # used to recompute on demand for only a small subsample of trials.
+                    record['raw'] = (x_in.cpu(), c_in.cpu(), t_in.cpu(), vc_in.cpu())
+                trial_records.append(record)
             usage_by_dataset[ds_name] = np.concatenate(chunks, axis=0)  # [M_total, Q, F]
             labels_by_dataset[ds_name] = np.concatenate(label_chunks, axis=0)  # [M_total]
             trial_usage_by_dataset[ds_name] = np.stack(trial_chunks, axis=0)  # [n_trials, Q, F]
@@ -113,9 +147,7 @@ class BaseCodebookChecker:
             os.path.join(viz_dir, 'trial_embedding_scatter_per_dataset.png'),
             trial_usage_by_dataset, trial_labels_by_dataset,
             unit_label=self.unit_label, max_points=max_scatter_points, random_state=seed)
-        plot_patch_similarity_hierarchy(
-            os.path.join(viz_dir, 'patch_similarity_hierarchy.png'), trial_records,
-            unit_label=self.unit_label, seed=seed)
+        self._render_patch_similarity(trial_records, viz_dir, model, device, seed)
         plot_dataset_relation(
             os.path.join(viz_dir, 'dataset_relation.png'), usage_by_dataset, unit_label=self.unit_label)
         plot_unit_freedom(
@@ -141,8 +173,6 @@ class BaseCodebookChecker:
         # only means the same timeline slot within one dataset's own trial length/patch_len).
         for ds_name in dataset_order:
             ds_trials = [t for t in trial_records if t['dataset'] == ds_name]
-            plot_patch_position_consistency(
-                os.path.join(viz_dir, f'patch_position_consistency_{ds_name}.png'), ds_trials,
-                unit_label=self.unit_label, seed=seed)
+            self._render_patch_position_consistency(ds_trials, ds_name, viz_dir, model, device, seed)
 
         print(f"  [codebook] -> {viz_dir}")

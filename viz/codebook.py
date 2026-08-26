@@ -409,20 +409,26 @@ def print_redundant_unit_pairs(usage_by_dataset, unit_label='Filter', top_k=10):
 
 
 def _pairwise_stats(vecs, max_n, rng):
-    """[N, D] continuous activations, subsampled to max_n rows -> mean/std Jaccard (on
-    the >0 mask) and cosine over every unique pair. Shared by all three grouping levels
-    in plot_patch_similarity_hierarchy -- only what rows get handed in differs."""
+    """[N, D] continuous activations, subsampled to max_n rows -> mean/std weighted
+    Jaccard (Ruzicka similarity: sum(min(a,b)) / sum(max(a,b)) per pair) and cosine over
+    every unique pair. Shared by all grouping levels in plot_patch_similarity_hierarchy/
+    plot_stamp_similarity -- only what rows get handed in differs.
+
+    Weighted, not the plain binary (>0 mask) Jaccard this used to be: a stamp picked once
+    with weak strength and one picked repeatedly/strongly no longer count as equally
+    "present" just because both are nonzero -- Ruzicka reduces to classic binary Jaccard
+    exactly when vecs is itself binary, so this is a strict generalization, not a
+    different metric."""
     n = vecs.shape[0]
     if n > max_n:
         vecs = vecs[rng.choice(n, max_n, replace=False)]
         n = max_n
     if n < 2:
         return None
-    active = (vecs > 0).astype(np.float64)
-    inter = active @ active.T
-    counts = active.sum(axis=1)
-    union = counts[:, None] + counts[None, :] - inter
-    jac = np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
+    vecs = np.maximum(vecs, 0.0)  # Ruzicka needs nonnegative weights; guards float noise
+    mins = np.minimum(vecs[:, None, :], vecs[None, :, :]).sum(axis=-1)
+    maxs = np.maximum(vecs[:, None, :], vecs[None, :, :]).sum(axis=-1)
+    jac = np.divide(mins, maxs, out=np.zeros_like(mins), where=maxs > 0)
     norm = np.linalg.norm(vecs, axis=1, keepdims=True)
     unit = np.divide(vecs, norm, out=np.zeros_like(vecs), where=norm > 0)
     cos = unit @ unit.T
@@ -433,18 +439,18 @@ def _pairwise_stats(vecs, max_n, rng):
 def _pair_index_stats(trial_means, pairs, cap, rng):
     """trial_means: [T, D] one flattened code per trial. pairs: list of (i, j) index
     tuples (already restricted to one grouping, e.g. same-subject or diff-subject) --
-    subsampled to `cap` pairs, then Jaccard/cosine computed per pair (not all-pairs,
-    since `pairs` is already the exact set this grouping cares about)."""
+    subsampled to `cap` pairs, then weighted Jaccard (Ruzicka, see _pairwise_stats) /
+    cosine computed per pair (not all-pairs, since `pairs` is already the exact set this
+    grouping cares about)."""
     if len(pairs) > cap:
         pairs = [pairs[k] for k in rng.choice(len(pairs), cap, replace=False)]
     if not pairs:
         return None
     ia = np.array([p[0] for p in pairs]); ib = np.array([p[1] for p in pairs])
-    va, vb = trial_means[ia], trial_means[ib]
-    act_a, act_b = va > 0, vb > 0
-    inter = (act_a & act_b).sum(axis=1).astype(np.float64)
-    union = (act_a | act_b).sum(axis=1).astype(np.float64)
-    jac = np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
+    va, vb = np.maximum(trial_means[ia], 0.0), np.maximum(trial_means[ib], 0.0)
+    mins = np.minimum(va, vb).sum(axis=1)
+    maxs = np.maximum(va, vb).sum(axis=1)
+    jac = np.divide(mins, maxs, out=np.zeros_like(mins), where=maxs > 0)
     na, nb = np.linalg.norm(va, axis=1), np.linalg.norm(vb, axis=1)
     denom = na * nb
     cos = np.divide((va * vb).sum(axis=1), denom, out=np.zeros(len(pairs)), where=denom > 0)
@@ -526,7 +532,7 @@ def plot_patch_similarity_hierarchy(out_path, trial_records, unit_label='Filter'
     x = np.arange(len(groups))
     w = 0.35
     fig, ax = plt.subplots(figsize=(9, 5.5))
-    ax.bar(x - w / 2, jac_mean, w, yerr=jac_std, capsize=4, color='darkorange', label='Jaccard (atom sets)')
+    ax.bar(x - w / 2, jac_mean, w, yerr=jac_std, capsize=4, color='darkorange', label='Weighted Jaccard (Ruzicka)')
     ax.bar(x + w / 2, cos_mean, w, yerr=cos_std, capsize=4, color='steelblue', label='Cosine (activation vectors)')
     ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=9)
     ax.set_ylabel('Similarity'); ax.set_ylim(0, 1)
@@ -543,13 +549,124 @@ def plot_patch_similarity_hierarchy(out_path, trial_records, unit_label='Filter'
     print_redundant_unit_pairs([t['usage'] for t in trial_records], unit_label=unit_label)
 
 
+def plot_stamp_similarity(out_path, trial_records, unit_label='Stamp',
+                           max_patches_per_trial=30, max_trials_per_group=60,
+                           max_pairs=4000, seed=0):
+    """Flat-token StampBank analog of plot_patch_similarity_hierarchy — same
+    Jaccard(atom support)/cosine(content) test, same 3 of its 4 groupings, but two
+    differences the flat (channel, patch) token design makes possible/necessary:
+
+    trial_records: list of {content: [C, N, n_stamps, patch_len] np.ndarray, dataset,
+    subject} (one entry per sampled trial) — REAL DECODED CONTENT per (channel, patch,
+    stamp), zero-filled at stamps that (channel, patch) token didn't select (see
+    model/MeSAEFlat/plugin.py's extract_stamp_content), not the scalar gating strength `h`
+    plot_patch_similarity_hierarchy's `usage` used. Cosine here therefore measures whether
+    the same stamp produces similar real signal when reused, not just whether it was
+    selected with a similar confidence — h is bounded (softmax over top_k / a fixed
+    constant for shared), which compresses cosine values toward each other regardless of
+    how different the underlying content actually was.
+
+    Intra-Patch (channels, same patch, same trial): NEW grouping this flat design enables
+    — pooled MeSAE has one token per patch (no channel axis to compare within a patch);
+    flat has C independent tokens per patch, so "do neighboring channels pick similar
+    stamps/content at the same instant" is now a real, answerable question. High here
+    means stamp selection is spread near-uniformly across channels at that patch; low
+    means it's spatially localized (see the amplitude/localization discussion this
+    architecture was built around).
+
+    Intra-Trial/Inter-Trial/Inter-Subject: same definitions as
+    plot_patch_similarity_hierarchy, computed on CHANNEL-COLLAPSED (mean over C) content —
+    kept at the same granularity as before so these three stay comparable to the pooled
+    model's numbers; only Intra-Patch and the content-vs-gating cosine basis are new.
+    """
+    rng = np.random.RandomState(seed)
+
+    sample = trial_records if len(trial_records) <= max_trials_per_group else \
+        [trial_records[i] for i in rng.choice(len(trial_records), max_trials_per_group, replace=False)]
+
+    intra_patch_jac, intra_patch_cos = [], []
+    intra_trial_jac, intra_trial_cos = [], []
+    for t in sample:
+        content = t['content']  # [C, N, n_stamps, patch_len]
+        C, N = content.shape[0], content.shape[1]
+
+        patch_idxs = np.arange(N) if N <= max_patches_per_trial else \
+            rng.choice(N, max_patches_per_trial, replace=False)
+        for n in patch_idxs:
+            stats = _pairwise_stats(content[:, n].reshape(C, -1), C, rng)  # channels @ this patch
+            if stats is not None:
+                intra_patch_jac.append(stats[0]); intra_patch_cos.append(stats[1])
+
+        collapsed = content.mean(axis=0).reshape(N, -1)  # [N, n_stamps*patch_len] -- channel-collapsed
+        stats = _pairwise_stats(collapsed, max_patches_per_trial, rng)
+        if stats is not None:
+            intra_trial_jac.append(stats[0]); intra_trial_cos.append(stats[1])
+
+    intra_patch_jac = np.concatenate(intra_patch_jac) if intra_patch_jac else np.array([np.nan])
+    intra_patch_cos = np.concatenate(intra_patch_cos) if intra_patch_cos else np.array([np.nan])
+    intra_trial_jac = np.concatenate(intra_trial_jac) if intra_trial_jac else np.array([np.nan])
+    intra_trial_cos = np.concatenate(intra_trial_cos) if intra_trial_cos else np.array([np.nan])
+
+    trial_means = np.stack([t['content'].mean(axis=(0, 1)).reshape(-1) for t in trial_records])  # [T, n_stamps*patch_len]
+    datasets = [t['dataset'] for t in trial_records]
+    subjects = [t['subject'] for t in trial_records]
+    T = len(trial_records)
+    idx_pool = np.arange(T) if T <= max_trials_per_group * 4 else \
+        rng.choice(T, max_trials_per_group * 4, replace=False)
+
+    same_subj_pairs, diff_subj_pairs = [], []
+    for a in range(len(idx_pool)):
+        i = idx_pool[a]
+        for j in idx_pool[a + 1:]:
+            if datasets[i] != datasets[j]:
+                continue  # cross-dataset pairs excluded -- see plot_dataset_relation instead
+            (same_subj_pairs if subjects[i] == subjects[j] else diff_subj_pairs).append((i, j))
+
+    inter_trial = _pair_index_stats(trial_means, same_subj_pairs, max_pairs, rng)
+    inter_subj  = _pair_index_stats(trial_means, diff_subj_pairs, max_pairs, rng)
+
+    groups = [
+        ('Intra-Patch\n(channels, same patch)', intra_patch_jac, intra_patch_cos),
+        ('Intra-Trial\n(patches, same trial)', intra_trial_jac, intra_trial_cos),
+        ('Inter-Trial\n(same subject)', *(inter_trial if inter_trial else (np.array([np.nan]),) * 2)),
+        ('Inter-Subject\n(same dataset)', *(inter_subj if inter_subj else (np.array([np.nan]),) * 2)),
+    ]
+    labels    = [g[0] for g in groups]
+    jac_mean  = [np.nanmean(g[1]) for g in groups]
+    jac_std   = [np.nanstd(g[1]) for g in groups]
+    cos_mean  = [np.nanmean(g[2]) for g in groups]
+    cos_std   = [np.nanstd(g[2]) for g in groups]
+
+    x = np.arange(len(groups))
+    w = 0.35
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    ax.bar(x - w / 2, jac_mean, w, yerr=jac_std, capsize=4, color='darkorange', label='Weighted Jaccard (Ruzicka)')
+    ax.bar(x + w / 2, cos_mean, w, yerr=cos_std, capsize=4, color='steelblue', label='Cosine (decoder output)')
+    ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=9)
+    ax.set_ylabel('Similarity'); ax.set_ylim(0, 1)
+    ax.legend(fontsize=9)
+    ax.set_title(f'{unit_label} Selection Similarity by Grouping\n(high = same code (and content) reused across that grouping)',
+                 fontsize=11, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  [codebook] -> {out_path}")
+    for name, jm, js, cm, cs in zip(labels, jac_mean, jac_std, cos_mean, cos_std):
+        print(f"    {name.splitlines()[0]}: jaccard={jm:.3f}+/-{js:.3f}  cosine={cm:.3f}+/-{cs:.3f}")
+
+
 def _patch_position_consistency_grids(codes, subjects, max_trials, rng):
     """codes: [T, N, D] (T trials, N patch positions, D=Q*F flattened code) -> two
-    [T, N] grids (Jaccard, Cosine): cell (t, n) = mean similarity of trial t's code at
-    patch position n against every OTHER trial's code at that same position n. Rows are
-    sorted by subject (stable sort) so a caller can draw subject-block boundaries -- lets
-    a viewer check whether a pooled-average dip actually holds up within every subject's
-    own block instead of only appearing once everyone's trials are averaged together."""
+    [T, N] grids (weighted Jaccard, Cosine): cell (t, n) = mean similarity of trial t's
+    code at patch position n against every OTHER trial's code at that same position n.
+    Rows are sorted by subject (stable sort) so a caller can draw subject-block
+    boundaries -- lets a viewer check whether a pooled-average dip actually holds up
+    within every subject's own block instead of only appearing once everyone's trials are
+    averaged together.
+
+    Jaccard here is weighted (Ruzicka similarity: sum(min(a,b))/sum(max(a,b)), see
+    _pairwise_stats) rather than a binary (>0 mask) set overlap -- how STRONGLY/how many
+    times a stamp fired now matters, not just whether it fired at all."""
     T = codes.shape[0]
     if T > max_trials:
         idx = rng.choice(T, max_trials, replace=False)
@@ -562,12 +679,10 @@ def _patch_position_consistency_grids(codes, subjects, max_trials, rng):
     jac_grid = np.zeros((T, N))
     cos_grid = np.zeros((T, N))
     for n in range(N):
-        v = codes[:, n, :]  # [T, D]
-        active = (v > 0).astype(np.float64)
-        inter = active @ active.T
-        counts = active.sum(axis=1)
-        union = counts[:, None] + counts[None, :] - inter
-        jac = np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
+        v = np.maximum(codes[:, n, :], 0.0)  # [T, D] -- Ruzicka needs nonnegative weights
+        mins = np.minimum(v[:, None, :], v[None, :, :]).sum(axis=-1)
+        maxs = np.maximum(v[:, None, :], v[None, :, :]).sum(axis=-1)
+        jac = np.divide(mins, maxs, out=np.zeros_like(mins), where=maxs > 0)
         norm = np.linalg.norm(v, axis=1, keepdims=True)
         unit = np.divide(v, norm, out=np.zeros_like(v), where=norm > 0)
         cos = unit @ unit.T
@@ -578,14 +693,18 @@ def _patch_position_consistency_grids(codes, subjects, max_trials, rng):
 
 
 def plot_patch_position_consistency(out_path, trial_records, unit_label='Filter',
-                                     max_trials=90, seed=0):
+                                     max_trials=90, seed=0, code_label='activation vector'):
     """trial_records: trials from ONE dataset (usage [N, Q, F] each, same N across trials
     -- patch position n therefore means the same thing, e.g. time-since-trial-onset, in
-    every trial; mixing datasets here would compare unrelated timelines). Two Trial x
+    every trial; mixing datasets here would compare unrelated timelines). `usage` is
+    basis-agnostic (gating strength like extract_usage's, or real decoder content like
+    MeSAEFlatCodebookChecker.extract_stamp_content's channel-collapsed version) -- pass a
+    matching code_label ('activation vector' default, e.g. 'decoder output') so the Cosine
+    panel's title says which. Two Trial x
     Patch grids side by side, cell (t, n) = trial t's code at patch n vs every OTHER
     trial's code at that same n (see _patch_position_consistency_grids):
 
-    - Jaccard: do trials agree on WHICH Filters+atoms fire at this patch position.
+    - Jaccard (weighted/Ruzicka): do trials agree on WHICH Filters+atoms fire, and how strongly, at this patch position.
     - Cosine: do trials agree on the actual activation VECTOR there.
 
     A patch column bright in both = a structurally consistent slot across trials
@@ -636,8 +755,8 @@ def plot_patch_position_consistency(out_path, trial_records, unit_label='Filter'
     tick_labels = [subjects[int(p)] for p in tick_pos]
 
     fig, axes = plt.subplots(1, 2, figsize=(max(10, 0.3 * N * 2), max(5, 0.15 * (T + 1))))
-    for ax, grid, title in ((axes[0], jac_disp, 'Cross-Trial Jaccard\n(same Filters+atoms selected)'),
-                             (axes[1], cos_disp, 'Cross-Trial Cosine\n(same activation vector)')):
+    for ax, grid, title in ((axes[0], jac_disp, 'Cross-Trial Weighted Jaccard\n(same Filters+atoms, similar strength)'),
+                             (axes[1], cos_disp, f'Cross-Trial Cosine\n(same {code_label})')):
         im = ax.imshow(grid, aspect='auto', vmin=float(np.nanmin(grid)), vmax=float(np.nanmax(grid)), cmap='YlOrRd')
         for b in boundaries:
             ax.axhline(b, color='black', linewidth=0.8, alpha=0.6)

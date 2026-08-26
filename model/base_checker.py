@@ -52,8 +52,13 @@ class SnapshotBundle:
 
 
 class BaseEpochChecker:
-    """unit_label: 'Expert' | 'Filter' | ... — used in panel titles/axis labels."""
+    """unit_label: 'Expert' | 'Filter' | ... — used in panel titles/axis labels.
+    has_attn_topo: False for models with no cross-channel attention to show (e.g.
+    MeSAEFlat's flat per-(channel,patch) StampBank has no pooled View to read attn from,
+    see MeSAEFlatChecker) — check_pretrain skips computing/plotting attn_topo entirely
+    rather than erroring on a missing out.attn."""
     unit_label = 'Unit'
+    has_attn_topo = True
 
     def compute_unit_colors(self, model, out):
         """Optional per-unit title/label color override for topo_psd_filter/attn_topo
@@ -270,10 +275,10 @@ class BaseEpochChecker:
             recon_cnl = data['recon'].reshape(C, N, patch_len)
 
             out = model(x_in, c_in, time_idx=t_in, bool_masked_pos=None, valid_channels=vc_in)
-            attn = out.attn[0].mean(dim=0).cpu().numpy()
+            attn = out.attn[0].mean(dim=0).cpu().numpy() if self.has_attn_topo else None
 
             unit_colors, used_ids = self.compute_unit_colors(model, out)
-            if used_ids is not None:
+            if used_ids is not None and attn is not None:
                 attn = attn[used_ids.cpu().numpy()]
 
             metrics = self._epoch_metrics(trainer, model, out,
@@ -292,7 +297,7 @@ class BaseEpochChecker:
             self._render_snapshot(bundle, config, output_dir, subject_id=subject_id,
                                    epoch=epoch, trial_idx=trial_idx, cmap=cmap,
                                    plot_recon=plot_recon, plot_topo_psd=plot_topo_psd,
-                                   plot_attn_topo=plot_attn_topo)
+                                   plot_attn_topo=plot_attn_topo and self.has_attn_topo)
             return metrics
         finally:
             model.train(was_training)

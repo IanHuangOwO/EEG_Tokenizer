@@ -171,9 +171,10 @@ class MeSAEChecker(BaseEpochChecker):
 
         out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_psd_by_patch.png")
         plot_topo_psd_by_patch(
-            out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon, grid, cmap=cmap,
+            out_path, pos2d, grid, cmap=cmap,
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
             unit_label=self.unit_label, n_routed=model.n_routed_stamps,
+            raw_power=raw_power, recon_power=recon_power, psd_raw=psd_raw, psd_recon=psd_recon,
         )
         print(f"  [epoch] -> {out_path}")
 

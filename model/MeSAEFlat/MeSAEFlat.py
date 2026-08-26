@@ -58,6 +58,7 @@ class MeSAEFlatPretrain(nn.Module):
         stamp_top_k=32,
         stamp_hidden_width=8,
         stamp_shared_hidden_width=16,
+        stamp_shared_weight=0.2,
         dead_threshold_frac=0.1,
         aux_k_cap_frac=0.04,
         stamp_ema_decay=0.999,
@@ -83,6 +84,7 @@ class MeSAEFlatPretrain(nn.Module):
             embed_dim, patch_len,
             n_stamps=n_stamps, n_shared_stamps=n_shared_stamps, top_k=stamp_top_k,
             hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
+            shared_weight=stamp_shared_weight,
             dead_threshold_frac=dead_threshold_frac,
             aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
         )
@@ -249,11 +251,13 @@ class MeSAEFlatPretrain(nn.Module):
         bool_masked_pos: [B, C, N] bool — None during the Tokenizer stage (no masking);
         pass real masks only in the Masked stage, once temporal/spatial mixing are enabled
         and the stamps are frozen (see enable_temporal/enable_spatial/freeze_stamps).
-        valid_channels: accepted for call-site compatibility but unused — StampBank has no
-        cross-channel pool left to mask (see MeSAEFlat_modules.StampBank class docstring);
-        padded channels just flow through as zero-valued tokens, same as the loss's
-        existing behavior (never separately masked by valid_channels either, see
-        get_loss/_hierarchical_recon_loss).
+        valid_channels: [B, C] bool, True=real (not zero-padded) channel, or None. Unused
+        by StampBank itself — there's no cross-channel pool left to mask (see
+        MeSAEFlat_modules.StampBank class docstring), a padded channel's tokens just flow
+        through and get reconstructed like any other. Carried through on the returned
+        SimpleNamespace instead so get_loss/_recon_loss can exclude padded
+        channels from the loss (see get_loss) — a zero-padded channel's "reconstruction"
+        is meaningless signal, not a real target.
         returns SimpleNamespace(recon [B,C,N,L], h [T,Q] selection strengths,
         dense_routed [T,n_routed_stamps] (diagnostic selection-frequency source, T =
         B*C*N flat tokens), aux_loss scalar, ffn_lb_loss scalar (TSABlock MoEFFN routers,
@@ -284,70 +288,78 @@ class MeSAEFlatPretrain(nn.Module):
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
             decorr_loss=out.decorr_loss,
+            valid_channels=valid_channels,
         )
 
-    @staticmethod
-    def _patch_pyramid_levels(recon, x):
-        """Pool the patch axis N by successive halving, keeping the within-patch axis L
-        intact: level 0 = 1 group of N patches averaged together (-> [B,C,1,L], the
-        trial's average patch shape), ..., last level = win=1 (every patch its own group,
-        L untouched) which is numerically identical to the raw (recon, x) pair. Returns
-        list of (recon_level, x_level) coarsest-first, finest ([recon, x] themselves) last.
-        """
-        B, C, N, L = x.shape
-        # Merge B,C (adjacent, safe) — the one unavoidable copy, since recon arrives
-        # already permuted upstream (non-contiguous). Everything below then only ever
-        # SPLITS the N axis in place (never merges/transposes non-adjacent axes), so each
-        # pyramid level is a free reshape + a cheap mean — no per-level permute/avg_pool1d.
-        # Must stay .reshape, not .view — recon arrives non-contiguous (permuted upstream).
-        # Swapping to .view for a "perf win" hard-crashes here (good); pre-calling
-        # .contiguous() on the wrong intermediate shape would silently scramble instead.
-        r = recon.reshape(B * C, N, L).float()
-        t = x.reshape(B * C, N, L).float()
-        levels = []
-        win = N
-        while True:
-            n_groups = N // win
-            n_keep = n_groups * win  # avg_pool1d-equivalent: drop a non-dividing remainder
-            rp = r[:, :n_keep, :].reshape(B * C, n_groups, win, L).mean(dim=2)
-            tp = t[:, :n_keep, :].reshape(B * C, n_groups, win, L).mean(dim=2)
-            levels.append((rp.reshape(B, C, n_groups, L), tp.reshape(B, C, n_groups, L)))
-            if win == 1:
-                break
-            win = max(1, win // 2)
-        return levels
+    def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None):
+        """Two-level recon MSE: patch-level (finest, every patch its own term) + window-
+        level (coarsest, whole-trial average patch shape, N patches averaged into one).
+        Middle ground between the retired 5-level pyramid (the 3 intermediate levels were
+        mostly redundant gradient — a coarser level's lower MSE was largely an artifact of
+        averaging shrinking the target's variance ~1/N, and a model fitting the finest
+        level already fits every coarser deterministic-average level too) and dropping the
+        window-level term entirely (loses any explicit supervision on the trial's overall
+        shape, only implicit via the patch term). Both terms unweighted, summed, then
+        scaled together by hierarchical_mse_weight in get_loss. masked/unmasked are NOT
+        weighted into the loss (no masked_mse_weight/unmasked_mse_weight) and come from
+        the patch (finest) level only — the split is a diagnostic, plays no part in
+        `total`.
 
-    def _hierarchical_recon_loss(self, recon, x, bool_masked_pos):
-        """Multi-scale MSE pyramid over the patch axis (see _patch_pyramid_levels): every
-        level — coarsest trial-average-shape down to the finest per-patch/per-element
-        level — is plain unweighted MSE, then summed across levels. masked/unmasked are
-        NOT weighted into the loss (no masked_mse_weight/unmasked_mse_weight anymore); the
-        finest level's masked-vs-unmasked split is still computed and returned, purely as
-        a diagnostic (see MeSAEFlatTrainer/logging) — it plays no part in `total`.
+        valid_channels: [B, C] bool, True=real channel, or None. Padded channels are
+        excluded from both terms and the masked/unmasked split — a zero-padded channel's
+        "reconstruction" is meaningless signal (target is always exactly 0), not a real
+        target.
         """
-        levels = self._patch_pyramid_levels(recon, x)
-        losses = [F.mse_loss(r, t) for r, t in levels]
+        def _vmask_like(t):
+            if valid_channels is None:
+                return None
+            B, C = valid_channels.shape
+            return valid_channels.view(B, C, *([1] * (t.dim() - 2))).expand_as(t)
 
-        l_masked, l_unmasked = 1.0, losses[-1]
+        def _masked_mse(r, t):
+            vmask = _vmask_like(t)
+            if vmask is None:
+                return F.mse_loss(r, t)
+            return F.mse_loss(r[vmask].float(), t[vmask].float()) if vmask.any() else r.new_zeros(())
+
+        patch_loss = _masked_mse(recon, x)
+
+        # Average the patch axis N into one — recon/x are already [B,C,N,L], mean doesn't
+        # need contiguity so no reshape needed even though recon arrives non-contiguous
+        # (permuted upstream, see docs/agents/reshape-pitfalls.md).
+        window_recon = recon.float().mean(dim=2, keepdim=True)  # [B, C, 1, L]
+        window_x = x.float().mean(dim=2, keepdim=True)
+        window_loss = _masked_mse(window_recon, window_x)
+
+        total = patch_loss + window_loss
+
+        l_masked, l_unmasked = 1.0, patch_loss
         if bool_masked_pos is not None:
-            r, t = levels[-1]
-            mask4    = bool_masked_pos.unsqueeze(-1).expand_as(t)
-            unmasked = ~mask4
-            l_masked   = F.mse_loss(r[mask4].float(),    t[mask4].float())    if mask4.any()    else r.new_zeros(1).squeeze()
-            l_unmasked = F.mse_loss(r[unmasked].float(), t[unmasked].float()) if unmasked.any() else r.new_zeros(1).squeeze()
+            mask4 = bool_masked_pos.unsqueeze(-1).expand_as(x)
+            vmask = _vmask_like(x)
+            if vmask is not None:
+                unmasked = (~bool_masked_pos.unsqueeze(-1).expand_as(x)) & vmask
+                mask4 = mask4 & vmask
+            else:
+                unmasked = ~mask4
+            l_masked   = F.mse_loss(recon[mask4].float(),    x[mask4].float())    if mask4.any()    else recon.new_zeros(1).squeeze()
+            l_unmasked = F.mse_loss(recon[unmasked].float(), x[unmasked].float()) if unmasked.any() else recon.new_zeros(1).squeeze()
 
-        # coarsest -> finest, for the plotter (see MeSAEFlatTrainer.epoch_metrics)
-        self._last_pyramid_levels = [lv.detach().item() for lv in losses]
-        return torch.stack(losses).sum(), l_masked, l_unmasked
+        # coarsest -> finest (window, patch) — mse_level_0/mse_level_1 on the plotter, see
+        # MeSAEFlatTrainer.epoch_metrics / train_tokenizer.py/train_pretrain.py's
+        # getattr(model, '_last_pyramid_levels', ...).
+        self._last_pyramid_levels = [window_loss.detach().item(), patch_loss.detach().item()]
+        return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
                  decorr_loss=None, decorr_weight=0.01,
-                 ffn_lb_loss=None, ffn_lb_weight=0.01):
+                 ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
         """
         Returns (total, l_masked, l_unmasked).
 
-        Reconstruction term is the hierarchical patch-pyramid MSE (see
-        _hierarchical_recon_loss), scaled by hierarchical_mse_weight.
+        Reconstruction term is plain per-patch MSE (see _recon_loss — no longer a
+        multi-scale pyramid, kept the hierarchical_mse_weight name/config key to avoid
+        churning every config that sets it), scaled by hierarchical_mse_weight.
 
         Tokenizer stage (bool_masked_pos=None): plain full reconstruction, l_masked=1.0
         placeholder (nothing masked yet), aux_loss included so StampBank's dead-atom
@@ -369,7 +381,8 @@ class MeSAEFlatPretrain(nn.Module):
         from the encoder, which keeps training through the Masked stage (freeze_stamps()
         never locks the encoder).
         """
-        recon_loss, l_masked, l_unmasked = self._hierarchical_recon_loss(recon, x, bool_masked_pos)
+        recon_loss, l_masked, l_unmasked = self._recon_loss(
+            recon, x, bool_masked_pos, valid_channels=valid_channels)
         total = hierarchical_mse_weight * recon_loss
 
         if bool_masked_pos is None or not self.stamps_frozen:

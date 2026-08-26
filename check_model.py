@@ -37,6 +37,19 @@ def _safe_name(s):
     return ''.join(c if c.isalnum() else '_' for c in s).strip('_') or 'unnamed'
 
 
+def _detect_model_type(probe):
+    """MeFSQ/MeSAE/MeSAEFlat resolved from the live model instance. MeSAEFlat must be
+    checked before the generic "no n_routed_experts -> MeSAE" fallback: it doesn't have
+    n_routed_experts either (that's an MeFSQ-only attribute) and would otherwise
+    misdetect as plain MeSAE, picking the wrong checker (MeSAEChecker expects attn/
+    _pool_channels MeSAEFlat's forward doesn't produce — see model/MeSAEFlat/plugin.py)."""
+    if hasattr(probe, 'n_routed_experts'):
+        return 'MeFSQ'
+    if type(probe).__name__.startswith('MeSAEFlat'):
+        return 'MeSAEFlat'
+    return 'MeSAE'
+
+
 def _predict_all(model, dataset, patch_len, device):
     """Runs the finetune model over every trial in `dataset` (in index order, no shuffle)
     and returns (preds, labels) numpy arrays aligned to dataset indices — used to find one
@@ -72,7 +85,7 @@ def run(config, output_dir, model, dataset, trial_idx, mode='pretrain', subject_
     # attribute that tells MeFSQ from MeSAE apart lives on the backbone submodule then,
     # not on the wrapper itself.
     probe = model.backbone if hasattr(model, 'backbone') else model
-    model_type = 'MeFSQ' if hasattr(probe, 'n_routed_experts') else 'MeSAE'
+    model_type = _detect_model_type(probe)
     plugin  = MODEL_REGISTRY[model_type]
     checker = plugin.checker_cls()
     trainer = plugin.trainer_cls()
@@ -153,7 +166,7 @@ if __name__ == '__main__':
         from model.factory import MODEL_REGISTRY
 
         probe = mdl.backbone if hasattr(mdl, 'backbone') else mdl
-        model_type = 'MeFSQ' if hasattr(probe, 'n_routed_experts') else 'MeSAE'
+        model_type = _detect_model_type(probe)
         plugin = MODEL_REGISTRY[model_type]
         if plugin.codebook_checker_cls is None:
             raise NotImplementedError(f"{model_type} has no codebook_checker_cls yet (see model/base_plugin.py)")
