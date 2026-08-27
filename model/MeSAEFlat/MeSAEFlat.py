@@ -288,6 +288,7 @@ class MeSAEFlatPretrain(nn.Module):
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
             decorr_loss=out.decorr_loss,
+            indep_loss=out.indep_loss,
             valid_channels=valid_channels,
         )
 
@@ -353,6 +354,7 @@ class MeSAEFlatPretrain(nn.Module):
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
                  decorr_loss=None, decorr_weight=0.01,
+                 indep_loss=None, indep_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
         """
         Returns (total, l_masked, l_unmasked).
@@ -373,8 +375,15 @@ class MeSAEFlatPretrain(nn.Module):
         decorr_loss (StampBank's spatial-pattern decorrelation) is dropped the same way and
         for the same reason once frozen — freeze_stamps() locks the whole StampBank, so a
         frozen spatial pattern can't act on the gradient either (see docs/adr/0007,
-        docs/adr/0009). StampBank has no load-balance loss of its own — dropped deliberately,
-        see StampBank.forward docstring.
+        docs/adr/0009). indep_loss (StampBank.independence_loss — penalizes the top_k
+        routed selection collapsing onto redundant shapes for a given token) is dropped
+        the same way too: even though it still has a live gradient path into z/the
+        encoder after freeze_stamps() (unlike decorr_loss, which is purely a function of
+        W_down and goes fully inert once frozen), its purpose is shaping StampBank's own
+        dictionary structure during the Tokenizer stage, not steering the encoder during
+        masked reconstruction — kept scoped to match decorr_loss rather than carved out
+        as a special case. StampBank has no load-balance loss of its own — dropped
+        deliberately, see StampBank.forward docstring.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
@@ -389,6 +398,8 @@ class MeSAEFlatPretrain(nn.Module):
             total = total + aux_weight * aux_loss
             if decorr_loss is not None:
                 total = total + decorr_weight * decorr_loss
+            if indep_loss is not None:
+                total = total + indep_weight * indep_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
         return total, l_masked, l_unmasked

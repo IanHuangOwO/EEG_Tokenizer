@@ -578,8 +578,10 @@ class StampBank(nn.Module):
 
     def _generate(self, idx, h, z):
         """recon [T, patch_len] (plain UNWEIGHTED sum of decode_selected's per-slot
-        contributions), z_h [T, top_k+n_shared, D] — see decode_selected for the per-slot
-        contributions this sums.
+        contributions), z_h [T, top_k+n_shared, D], contribution [T, top_k+n_shared,
+        patch_len] (exposed, not just consumed internally — forward() slices its
+        routed-only prefix for independence_loss) — see decode_selected for the
+        per-slot contributions this sums.
 
         Tried both weighting the raw per-slot contribution by h (bled into recon's
         spectral shape, not just its strength) and normalizing each slot to unit norm
@@ -590,7 +592,7 @@ class StampBank(nn.Module):
         finetune-facing feature) unchanged."""
         contribution, z_h = self.decode_selected(idx, h, z)
         recon = contribution.sum(dim=1)
-        return recon, z_h
+        return recon, z_h, contribution
 
     def decorrelation_loss(self):
         """Pairwise cosine sim of each routed atom's own W_down direction (flattened
@@ -605,6 +607,43 @@ class StampBank(nn.Module):
         sim = w @ w.t()
         off_diag = ~torch.eye(self.n_routed, dtype=torch.bool, device=sim.device)
         return sim[off_diag].pow(2).mean()
+
+    def independence_loss(self, contribution_routed):
+        """contribution_routed: [T, top_k, patch_len], the raw (unweighted, unsummed)
+        per-slot outputs of the top_k ROUTED atoms actually selected for each token —
+        NOT shared (shared atoms are fixed/always-on, not part of the router's
+        competition, so not the redundancy this loss targets). Penalizes the SELECTED
+        SET collectively collapsing onto a lower-dimensional subspace (two+ atoms
+        producing near-identical shapes for the same token, wasting the fixed top_k
+        budget reconstructing the same information twice) — distinct from
+        decorrelation_loss, which decorrelates W_down_routed globally/statically,
+        regardless of what's actually co-selected on any given token.
+
+        True mutual independence (statistical) isn't cheaply estimable during
+        training; this is the tractable proxy — spectral entropy of the selected
+        set's Gram matrix. Each contribution unit-normalized first (measures SHAPE
+        redundancy only, not one atom simply being louder — amp_i is unconstrained
+        and would otherwise dominate the eigenvalues trivially). entropy=log(top_k)
+        means the top_k vectors spread across top_k orthogonal directions (maximally
+        independent under this proxy); entropy=0 means they're all parallel (total
+        redundancy). Returns the entropy DEFICIT log(top_k) - entropy — minimizing it
+        pushes entropy up toward its max, same sign convention as every other loss
+        term here (lower is better)."""
+        T, K, _ = contribution_routed.shape
+        if K < 2:
+            return contribution_routed.new_zeros(())
+        # autocast(enabled=False): torch.linalg.eigvalsh has no CUDA fp16 kernel, and
+        # this runs inside forward() under autocast during training — autocast
+        # intercepts bmm() itself back to fp16 even when fed a .float() input, so a
+        # plain .float() on the input alone isn't enough (same fp16-under-autocast
+        # issue MoEFFN._record_health's docstring already flags for a different op).
+        with torch.autocast(device_type=contribution_routed.device.type, enabled=False):
+            c = F.normalize(contribution_routed.float(), dim=-1)     # [T, K, patch_len]
+            gram = torch.bmm(c, c.transpose(1, 2))                   # [T, K, K], PSD, diag=1
+            eigvals = torch.linalg.eigvalsh(gram).clamp(min=0)       # [T, K]
+        p = eigvals / (eigvals.sum(dim=-1, keepdim=True) + 1e-8)
+        entropy = -(p * torch.log(p + 1e-8)).sum(dim=-1)         # [T]
+        return math.log(K) - entropy.mean()
 
     @torch.no_grad()
     def fingerprint(self):
@@ -655,9 +694,11 @@ class StampBank(nn.Module):
         feature), h [T, top_k+n_shared] (selection strengths, routed then shared — same
         ordering convention `docs/adr/0007`'s gate used), dense_routed [T, n_routed]
         (zeros at unselected — the diagnostic object MeSAEFlatTrainer/MeSAEFlatCodebookChecker
-        read for router-health/usage-histogram panels), decorr_loss, aux_loss. No `attn`
-        anymore — there is no cross-channel pool left to produce a channel-attention map
-        from (see class docstring); callers must not assume this field exists.
+        read for router-health/usage-histogram panels), decorr_loss, indep_loss (see
+        independence_loss — routed-selection redundancy, distinct from decorr_loss),
+        aux_loss. No `attn` anymore — there is no cross-channel pool left to produce a
+        channel-attention map from (see class docstring); callers must not assume this
+        field exists.
 
         No load-balance loss — see class docstring: sparse dispatch, no compute-balance
         problem, and forcing uniform routing would fight legitimate power-law usage. Dead-
@@ -686,9 +727,10 @@ class StampBank(nn.Module):
         idx = torch.cat([topk_idx, shared_idx], dim=-1)   # [T, top_k+n_shared]
         h   = torch.cat([h_routed, h_shared], dim=-1)
 
-        recon, z_h = self._generate(idx, h, z)
+        recon, z_h, contribution = self._generate(idx, h, z)
 
         decorr_loss = self.decorrelation_loss()
+        indep_loss = self.independence_loss(contribution[:, :self.top_k, :])
 
         aux_loss = recon.new_zeros(())
         if self.training:
@@ -716,7 +758,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, z_h=z_h, h=h, idx=idx, dense_routed=dense_routed,
-            decorr_loss=decorr_loss, aux_loss=aux_loss,
+            decorr_loss=decorr_loss, indep_loss=indep_loss, aux_loss=aux_loss,
         )
 
 
