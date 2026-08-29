@@ -100,6 +100,7 @@ class MeSAEFlatTrainer(BaseTrainer):
         metrics = model.get_metrics(out.dense_routed.detach())
         metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
         metrics['sparsity'] = out.sparsity_loss.item() if hasattr(out.sparsity_loss, 'item') else float(out.sparsity_loss)
+        metrics['k_eff'] = out.k_eff.item() if hasattr(out.k_eff, 'item') else float(out.k_eff)
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
 
@@ -438,8 +439,12 @@ class MeSAEFlatPlotter(BasePlotter):
                  ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
             dict(title='Dead Feature Rate', ylabel='Fraction',
                  series=[dict(key='dead_feature_rate', color='crimson')]),
-            dict(title='Amp Sparsity (L1, selected routed)\n(falling = tokens quieting atoms they don\'t need)',
-                 ylabel='mean |amp|', series=[dict(key='sparsity', color='seagreen')]),
+            dict(title='Amp Sparsity (normalized L1)\n(sum|amp| / ||x|| per token — 1.0 = one-perfect-atom ideal, '
+                       'higher = overhead)',
+                 ylabel='L1 / ||x||', series=[dict(key='sparsity', color='seagreen')]),
+            dict(title='Effective Atoms per Token\n(k_eff = (sum|a|)^2 / sum(a^2) — 1 = one atom carries all, '
+                       'top_k = all equal)',
+                 ylabel='k_eff', series=[dict(key='k_eff', color='darkorchid')]),
         ]
 
         # Stamp Router Health — see MeSAE.update_stamp_router_metrics for what each number

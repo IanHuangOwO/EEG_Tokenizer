@@ -316,6 +316,7 @@ class MeSAEFlatPretrain(nn.Module):
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
             sparsity_loss=out.sparsity_loss,
+            k_eff=out.k_eff,
             valid_channels=valid_channels,
         )
 

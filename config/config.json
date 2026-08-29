@@ -3,35 +3,82 @@
     "pretrain": {
       "Dial": {
         "dataset_path": "datas/Dial",
-        "subject_to_use": ["all"],
-        "channels_to_use": ["all"]
+        "subject_to_use": [
+          "all"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
       },
       "BETA_4s": {
         "dataset_path": "datas/BETA_4s",
-        "subject_to_use": ["16","17","18","19","20","21","22","23","24","25","26","27","28","29","30"],
-        "channels_to_use": ["all"]
+        "subject_to_use": [
+          "16",
+          "17",
+          "18",
+          "19",
+          "20",
+          "21",
+          "22",
+          "23",
+          "24",
+          "25",
+          "26",
+          "27",
+          "28",
+          "29",
+          "30"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
       },
       "BCICIV1_Train": {
         "dataset_path": "datas/BCICIV1_Train",
-        "subject_to_use": ["all"],
-        "channels_to_use": ["all"]
+        "subject_to_use": [
+          "all"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
       },
       "Inria_Train": {
         "dataset_path": "datas/Inria_Train",
-        "subject_to_use": ["all"],
-        "channels_to_use": ["all"]
+        "subject_to_use": [
+          "all"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
       },
       "EEGMMIdb": {
         "dataset_path": "datas/EEGMMIdb",
-        "subject_to_use": ["1","2","3","4","5","6","7","8","9","10"],
-        "channels_to_use": ["all"]
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
       }
     },
     "finetune": {
       "BCICIV2a": {
         "dataset_path": "datas/BCICIV2a",
-        "subject_to_use": ["all"],
-        "channels_to_use": ["all"]
+        "subject_to_use": [
+          "all"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
       }
     }
   },
@@ -49,7 +96,9 @@
     "normalization_type": "zscore",
     "mask": {
       "masking_strategy": "random_to_complementary",
-      "random": {"mask_ratio": 0.3},
+      "random": {
+        "mask_ratio": 0.3
+      },
       "complementary": {},
       "random_to_complementary": {
         "start_ratio": 0.1,
@@ -70,11 +119,24 @@
           "n_routed_experts": 128,
           "top_k": 32,
           "n_shared_experts": 4,
-          "routed_expert": { "r": 8, "num_discrete": 3, "decoder_hidden": 100 },
-          "shared_expert": { "r": 16, "num_discrete": 5, "decoder_hidden": 100 }
+          "routed_expert": {
+            "r": 8,
+            "num_discrete": 3,
+            "decoder_hidden": 100
+          },
+          "shared_expert": {
+            "r": 16,
+            "num_discrete": 5,
+            "decoder_hidden": 100
+          }
         },
         "dropout": 0.3,
-        "pool_after_blocks": [2, 5, 8, 11],
+        "pool_after_blocks": [
+          2,
+          5,
+          8,
+          11
+        ],
         "upsample_residual_add": true,
         "loss": {
           "masked_mse_weight": 1.0,
@@ -95,7 +157,12 @@
         "enc_depth": 4,
         "spatial_heads": 10,
         "dropout": 0.3,
-        "pool_after_blocks": [0, 1, 2, 3],
+        "pool_after_blocks": [
+          0,
+          1,
+          2,
+          3
+        ],
         "moe_ffn": {
           "mlp_ratio": 4.0,
           "n_routed_experts": 4,
@@ -126,7 +193,12 @@
         "enc_depth": 12,
         "spatial_heads": 10,
         "dropout": 0.3,
-        "pool_after_blocks": [2, 5, 8, 11],
+        "pool_after_blocks": [
+          2,
+          5,
+          8,
+          11
+        ],
         "moe_ffn": {
           "mlp_ratio": 4.0,
           "n_routed_experts": 4,
@@ -164,7 +236,12 @@
         "enc_depth": 4,
         "spatial_heads": 5,
         "dropout": 0.3,
-        "pool_after_blocks": [0, 1, 2, 3],
+        "pool_after_blocks": [
+          0,
+          1,
+          2,
+          3
+        ],
         "moe_ffn": {
           "mlp_ratio": 2.0,
           "n_routed_experts": 4,
@@ -173,11 +250,11 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 60,
-          "n_shared_stamps": 4,
-          "stamp_top_k": 12,
+          "n_stamps": 128,
+          "n_shared_stamps": 8,
+          "stamp_top_k": 16,
           "stamp_hidden_width": 4,
-          "stamp_shared_hidden_width": 1,
+          "stamp_shared_hidden_width": 4,
           "shared_weight": 0.1,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
@@ -186,7 +263,7 @@
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
-          "sparsity_weight": 0.01,
+          "sparsity_weight": 0.05,
           "aux_weight": 0.01
         }
       },
@@ -196,7 +273,12 @@
         "enc_depth": 12,
         "spatial_heads": 5,
         "dropout": 0.3,
-        "pool_after_blocks": [2, 5, 8, 11],
+        "pool_after_blocks": [
+          2,
+          5,
+          8,
+          11
+        ],
         "moe_ffn": {
           "mlp_ratio": 2.0,
           "n_routed_experts": 4,
@@ -205,11 +287,11 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 60,
-          "n_shared_stamps": 4,
-          "stamp_top_k": 12,
+          "n_stamps": 128,
+          "n_shared_stamps": 8,
+          "stamp_top_k": 16,
           "stamp_hidden_width": 4,
-          "stamp_shared_hidden_width": 1,
+          "stamp_shared_hidden_width": 4,
           "shared_weight": 0.1,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
@@ -218,7 +300,7 @@
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
-          "sparsity_weight": 0.01,
+          "sparsity_weight": 0.05,
           "aux_weight": 0.01
         }
       },
@@ -232,7 +314,7 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_tokenizer_v2",
+      "model_name": "mesaeflat_tokenizer_v3",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -244,8 +326,8 @@
     },
     "pretrain": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_pretrain_v2",
-      "tokenizer_checkpoint": "output/mesaeflat_tokenizer_v2/tokenizer/best_tokenizer.pth",
+      "model_name": "mesaeflat_pretrain_v3",
+      "tokenizer_checkpoint": "output/mesaeflat_tokenizer_v3/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -257,8 +339,8 @@
     },
     "finetune": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_finetune_v2",
-      "pretrained_checkpoint": "output/mesaeflat_pretrain_v2/pretrain/best_pretrain.pth",
+      "model_name": "mesaeflat_finetune_v3",
+      "pretrained_checkpoint": "output/mesaeflat_pretrain_v3/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.01,
@@ -275,18 +357,49 @@
       "fft_resolution": 0.2,
       "psd_freq_range": null,
       "bands": {
-        "Delta": [0.5, 4],
-        "Theta": [4, 8],
-        "Alpha": [8, 13],
-        "Beta": [13, 30],
-        "Gamma": [30, 100]
+        "Delta": [
+          0.5,
+          4
+        ],
+        "Theta": [
+          4,
+          8
+        ],
+        "Alpha": [
+          8,
+          13
+        ],
+        "Beta": [
+          13,
+          30
+        ],
+        "Gamma": [
+          30,
+          100
+        ]
       },
       "pretrain": {
         "targets": [
-          { "dataset": "BETA_4s", "subject": null, "trial": 0 },
-          { "dataset": "BCICIV1_Train", "subject": null, "trial": 0 },
-          { "dataset": "Inria_Train", "subject": null, "trial": 0 },
-          { "dataset": "EEGMMIdb", "subject": null, "trial": 0 }
+          {
+            "dataset": "BETA_4s",
+            "subject": null,
+            "trial": 0
+          },
+          {
+            "dataset": "BCICIV1_Train",
+            "subject": null,
+            "trial": 0
+          },
+          {
+            "dataset": "Inria_Train",
+            "subject": null,
+            "trial": 0
+          },
+          {
+            "dataset": "EEGMMIdb",
+            "subject": null,
+            "trial": 0
+          }
         ],
         "every_n_epochs": 10
       },

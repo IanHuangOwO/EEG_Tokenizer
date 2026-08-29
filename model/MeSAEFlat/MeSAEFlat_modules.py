@@ -575,20 +575,44 @@ class StampBank(nn.Module):
     #   objective instead — spectrally whitened recon loss (MeSAEFlat._recon_loss),
     #   ICA's own mandatory whitening step — so frequency diversity pays for itself.
 
-    def sparsity_loss(self, amp_routed):
+    def sparsity_loss(self, amp_routed, x_target=None, valid_channels=None):
         """amp_routed: [G, C, top_k], the per-channel amplitude gain (rms included)
-        each selected ROUTED atom produced. L1 penalty on |amp| — the
-        direct, differentiable "does this token need this atom" knob: contribution =
-        amp * D_hat_i with D_hat unit-norm, so amp IS the atom's whole contribution
-        scale (the unit-norm constraint is what makes this L1 un-gameable — with a
-        free-norm D the model could shrink amp into ||D|| and zero this loss without
-        sparsifying anything, see the D_routed init comment) and amp->0 makes a
-        selected atom vanish from recon exactly as if unselected. With group
-        selection this prunes BOTH directions: a stamp unneeded at one channel goes
-        quiet there (soft topomap support — the mixing column's own sparsity), and a
-        stamp unneeded at the whole patch goes quiet across every channel. Shared
-        atoms excluded (always-on by design, not part of this budget)."""
-        return amp_routed.abs().mean()
+        each selected ROUTED atom produced; x_target: [G, C, patch_len] or None.
+        L1 penalty on |amp|, NORMALIZED per token by the target's own L2 norm when
+        x_target is available: sum_k |amp_k| / (||x|| + eps), token-averaged.
+
+        Why normalized: reconstruction sets a hard floor on raw L1 mass — with unit
+        D_hat, contributions amp*D_hat must sum to the patch, so sum|amp| >= ||x||
+        (~sqrt(patch_len) on z-scored data) no matter how parsimonious the code is.
+        A raw mean|amp| loss therefore plateaus at a data-loudness-dependent floor
+        the weight knob can't push past (it just starts trading away recon), and the
+        logged value conflates "how loud is the data" with "how many atoms used".
+        Dividing by ||x|| makes the penalty the amplitude OVERHEAD relative to the
+        signal (1.0 = the one-perfectly-aligned-atom ideal; higher = redundancy or
+        cancellation) — scale-free, so sparsity_weight tuning stops fighting the
+        floor. Falls back to raw mean|amp| when x_target is None (diagnostic-only
+        eval calls from viz).
+
+        L1 itself stays essential: parsimony can never emerge from a least-squares
+        objective (see the comment above about the deleted repulsion losses); the
+        unit-norm D_hat constraint is what keeps it un-gameable (no shrinking amp
+        into ||D||, see the D_routed init comment). With group selection it prunes
+        BOTH directions: a stamp unneeded at one channel goes quiet there (soft
+        topomap support), one unneeded at the whole patch goes quiet everywhere.
+        Shared atoms excluded (always-on by design, not part of this budget).
+
+        valid_channels: [G, C] bool or None — zero-padded channels are EXCLUDED from
+        the normalized mean (their ||x|| is exactly 0, so the ratio would explode on
+        whatever bias-driven amp noise the encoder emits there; their "sparsity" is
+        meaningless anyway)."""
+        if x_target is None:
+            return amp_routed.abs().mean()
+        l1 = amp_routed.abs().sum(dim=-1)                       # [G, C]
+        x_norm = x_target.norm(dim=-1)                          # [G, C]
+        ratio = l1 / (x_norm + 1e-3)
+        if valid_channels is not None:
+            return ratio[valid_channels].mean() if valid_channels.any() else ratio.new_zeros(())
+        return ratio.mean()
 
     @torch.no_grad()
     def fingerprint(self):
@@ -697,7 +721,24 @@ class StampBank(nn.Module):
         D_sel = self._templates(idx)                       # [G, top_k+n_shared, patch_len]
         recon = torch.einsum('gck,gkl->gcl', amp, D_sel)   # sum over slots, no [G,C,K,L] materialized
 
-        sparsity_loss = self.sparsity_loss(amp[:, :, :self.top_k])
+        amp_routed_sel = amp[:, :, :self.top_k]
+        sparsity_loss = self.sparsity_loss(amp_routed_sel, x_target=x_target,
+                                           valid_channels=valid_channels)
+
+        # Scale-invariant parsimony diagnostic: effective atom count per token,
+        # k_eff = (sum|a|)^2 / sum(a^2) — 1.0 when one atom carries everything,
+        # top_k when all selected atoms contribute equally. Unlike the sparsity loss
+        # value (whose optimum depends on how many real sources a patch contains),
+        # this reads directly as "how many atoms genuinely carry the reconstruction"
+        # with no data-loudness floor. Diagnostic only (no_grad), token-averaged over
+        # valid channels.
+        with torch.no_grad():
+            a = amp_routed_sel.abs()
+            keff = a.sum(dim=-1).pow(2) / (a.pow(2).sum(dim=-1) + 1e-8)  # [G, C]
+            if valid_channels is not None and valid_channels.any():
+                k_eff = keff[valid_channels].mean()
+            else:
+                k_eff = keff.mean()
 
         aux_loss = recon.new_zeros(())
         if self.training:
@@ -725,7 +766,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, sparsity_loss=sparsity_loss,
+            aux_loss=aux_loss, sparsity_loss=sparsity_loss, k_eff=k_eff,
         )
 
 
