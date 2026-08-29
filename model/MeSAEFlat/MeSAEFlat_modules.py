@@ -418,13 +418,16 @@ class StampBank(nn.Module):
     legitimate power-law usage a content-addressed dictionary should have. Collapse
     is instead guarded by fire_ema/dead_threshold/aux_loss below.
 
-    phi_i(z_c) = amp_i(z_c) * rms_c * D_hat_i: a fixed per-atom waveform TEMPLATE D_i
-    (nn.Parameter [patch_len], no z dependence at all, used UNIT-L2-NORMALIZED
-    everywhere — see the D_routed init comment for the amp/norm degeneracy this
-    kills) scaled by a per-CHANNEL, per-atom scalar gain amp_i(z_c) (from the atom's
-    own narrow hidden_i bottleneck, computed from that channel's own token) times
-    that channel's raw-input RMS (the LayerNorm stack erases amplitude from z, so
-    the gain multiplies it back in explicitly — see forward()).
+    phi_i(z_c) = rms_c * (a_i(z_c) * D_hat_i + b_i(z_c) * Hilbert(D_hat_i)): a fixed
+    per-atom waveform TEMPLATE D_i (nn.Parameter [patch_len], no z dependence, used
+    UNIT-L2-NORMALIZED everywhere — see the D_routed init comment for the amp/norm
+    degeneracy this kills) plus its DERIVED Hilbert quadrature partner (never a free
+    parameter, see _quadrature), combined by a per-CHANNEL, per-atom gain pair
+    (a, b) from the atom's own narrow hidden_i bottleneck — amplitude
+    sqrt(a^2+b^2), phase atan2(b, a): the stamp can present its source at any
+    arrival phase without shape freedom (see the w_amp init comment) — times that
+    channel's raw-input RMS (the LayerNorm stack erases amplitude from z, so the
+    gain multiplies it back in explicitly — see forward()).
     Deliberately NOT a generator that can bend its own shape per token (that was the
     prior design: hidden_i @ W_out_i + b_out_i, a full per-atom linear map from the
     bottleneck to [patch_len]) — replaced because the target signal this is meant to
@@ -491,16 +494,22 @@ class StampBank(nn.Module):
         nn.init.kaiming_uniform_(self.W_down_routed, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W_down_shared, a=math.sqrt(5))
 
-        # amp_i(z): scalar gain read off the atom's own hidden_i bottleneck — doubles as
-        # the selection score via |amp| (see class docstring), one
-        # Linear(hidden_width, 1)-equivalent per atom. Free/unbounded/signed —
-        # no softplus/sigmoid clamp: a genuinely loud channel (e.g. right on top of a
-        # line-noise source) needs to be able to grow past 1.0, and a sign flip is a
-        # legitimate 180-degree phase flip, not something to forbid.
-        self.w_amp_routed = nn.Parameter(torch.empty(self.n_routed, hidden_width))
-        self.b_amp_routed = nn.Parameter(torch.zeros(self.n_routed))
-        self.w_amp_shared = nn.Parameter(torch.empty(self.n_shared, shared_hidden_width))
-        self.b_amp_shared = nn.Parameter(torch.zeros(self.n_shared))
+        # amp_i(z): QUADRATURE PAIR of gains (a, b) read off the atom's own hidden_i
+        # bottleneck — contribution = a*D_hat + b*Hilbert(D_hat), so the pair encodes
+        # amplitude A=sqrt(a^2+b^2) and phase phi=atan2(b, a) of the template with the
+        # generator staying fully linear (phase is the ANGLE of a learned 2-vector,
+        # never a raw scalar rotated through trig — no sin/cos optimization basins).
+        # Because the partner is the Hilbert transform of the SAME template (derived,
+        # not free — see _quadrature), (a, b) can only re-phase and scale the shape,
+        # never morph it: that tie is what separates this from the rejected
+        # "independently scale real/imag" design, which warps the waveform. Doubles as
+        # the selection score via a^2+b^2 (phase-invariant matched-filter energy — an
+        # atom now matches its source at ANY arrival phase, killing the need for
+        # phase-shifted template copies in the pool). Free/unbounded/signed, no clamp.
+        self.w_amp_routed = nn.Parameter(torch.empty(self.n_routed, hidden_width, 2))
+        self.b_amp_routed = nn.Parameter(torch.zeros(self.n_routed, 2))
+        self.w_amp_shared = nn.Parameter(torch.empty(self.n_shared, shared_hidden_width, 2))
+        self.b_amp_shared = nn.Parameter(torch.zeros(self.n_shared, 2))
         nn.init.kaiming_uniform_(self.w_amp_routed, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.w_amp_shared, a=math.sqrt(5))
 
@@ -527,8 +536,8 @@ class StampBank(nn.Module):
 
     def _amp_dense(self, z):
         """z: [G, C, D] ALREADY input_norm'd channel-grouped tokens -> per-channel,
-        per-atom scalar gains, dense over both pools:
-        (amp_routed [G, C, n_routed], amp_shared [G, C, n_shared]) — NO rms applied
+        per-atom QUADRATURE gain pairs (a, b), dense over both pools:
+        (amp_routed [G, C, n_routed, 2], amp_shared [G, C, n_shared, 2]) — NO rms applied
         (callers multiply it in where the real contribution scale is needed; the group
         selection score deliberately skips it, see forward()). Same "compute-all"
         convention MoEFFN uses (see its ponytail note): with amp needed dense for group
@@ -536,29 +545,51 @@ class StampBank(nn.Module):
         per-selected-atom gather einsums (_decode_atoms/_generate_routed) collapsed
         into this one dense computation plus a cheap gather in forward()."""
         hidden_r = torch.einsum('gcd,hdk->gchk', z, self.W_down_routed) + self.b_down_routed
-        amp_r = torch.einsum('gchk,hk->gch', hidden_r, self.w_amp_routed) + self.b_amp_routed
+        amp_r = torch.einsum('gchk,hkp->gchp', hidden_r, self.w_amp_routed) + self.b_amp_routed
         hidden_s = torch.einsum('gcd,hdk->gchk', z, self.W_down_shared) + self.b_down_shared
-        amp_s = torch.einsum('gchk,hk->gch', hidden_s, self.w_amp_shared) + self.b_amp_shared
+        amp_s = torch.einsum('gchk,hkp->gchp', hidden_s, self.w_amp_shared) + self.b_amp_shared
         return amp_r, amp_s
 
-    def _templates(self, idx):
-        """idx: [G, K] GLOBAL atom indices -> unit-normalized templates [G, K, patch_len]
-        (see the D_routed init comment for why only the normalized direction is ever
-        consumed)."""
+    @staticmethod
+    def _quadrature(D):
+        """D: [M, L] unit templates -> each row's Hilbert quadrature partner [M, L],
+        unit-normalized. Derived (rFFT, rotate every positive-frequency bin by -90
+        degrees, zero DC/Nyquist which have no quadrature, irFFT), NEVER a free
+        parameter — <D, H(D)> = 0 exactly, so (a*D_hat + b*H_hat) spans amplitude
+        A=sqrt(a^2+b^2) and constant phase phi=atan2(b,a) of the template's analytic
+        signal WITHOUT any shape freedom (see the w_amp init comment: the tie is what
+        makes two coefficients mean phase, not morphing). Re-normalized since zeroing
+        DC/Nyquist drops whatever energy the template had there; an (almost-)pure-DC
+        template's partner is degenerate — its b head just learns ~0."""
+        Fd = torch.fft.rfft(D.float(), dim=-1) * (-1j)
+        Fd[..., 0] = 0
+        if D.shape[-1] % 2 == 0:
+            Fd[..., -1] = 0
+        H = torch.fft.irfft(Fd, n=D.shape[-1], dim=-1)
+        return F.normalize(H, dim=-1).to(D.dtype)
+
+    def _template_tables(self):
+        """(D_all [n_stamps, L], H_all [n_stamps, L]) — unit templates (routed then
+        shared, see the D_routed init comment) and their Hilbert quadrature partners
+        (_quadrature), rebuilt each call so both track the live parameters."""
         D_all = torch.cat([F.normalize(self.D_routed, dim=-1),
                            F.normalize(self.D_shared, dim=-1)], dim=0)  # [n_stamps, L]
-        return D_all[idx]
+        return D_all, self._quadrature(D_all)
 
     def decode_selected(self, idx, amp):
         """idx: [G, top_k+n_shared] GLOBAL indices (routed then shared, forward()'s
-        layout), amp: [G, C, top_k+n_shared] per-channel gains WITH rms already in
-        (forward()'s out.amp) -> contribution [G, C, top_k+n_shared, patch_len], each
-        slot's own raw decoded output per channel (amp * D_hat, unsummed — viz reads
-        this to show per-stamp per-channel content; a stamp's [C] amp column at one
-        slot is its topomap at that patch time). Pure re-expansion of forward()'s
-        already-computed quantities — no model re-evaluation, so callers can't
-        accidentally decode with different selection/scale than training produced."""
-        return amp.unsqueeze(-1) * self._templates(idx).unsqueeze(1)
+        layout), amp: [G, C, top_k+n_shared, 2] per-channel quadrature gain pairs WITH
+        rms already in (forward()'s out.amp) -> contribution
+        [G, C, top_k+n_shared, patch_len] = a*D_hat + b*H_hat per slot, each slot's own
+        raw decoded output per channel (unsummed — viz reads this to show per-stamp
+        per-channel content; a stamp's [C] magnitude column sqrt(a^2+b^2) at one slot
+        is its phase-invariant topomap at that patch time). Pure re-expansion of
+        forward()'s already-computed quantities — no model re-evaluation, so callers
+        can't accidentally decode with different selection/scale than training
+        produced."""
+        D_all, H_all = self._template_tables()
+        return (amp[..., 0].unsqueeze(-1) * D_all[idx].unsqueeze(1)
+                + amp[..., 1].unsqueeze(-1) * H_all[idx].unsqueeze(1))
 
     # decorrelation_loss and independence_loss are GONE, deliberately, not lost:
     # - decorrelation_loss (W_down direction repulsion) was life support for the
@@ -643,13 +674,13 @@ class StampBank(nn.Module):
         rms: [G, C, 1] or None -> contribution [G, C, n_stamps, patch_len].
         """
         z = self.input_norm(z)
-        amp_r, amp_s = self._amp_dense(z)  # [G, C, n_routed], [G, C, n_shared]
-        amp = torch.cat([amp_r, amp_s], dim=-1)  # [G, C, n_stamps]
+        amp_r, amp_s = self._amp_dense(z)  # [G, C, n_routed, 2], [G, C, n_shared, 2]
+        amp = torch.cat([amp_r, amp_s], dim=2)  # [G, C, n_stamps, 2]
         if rms is not None:
-            amp = amp * rms
-        D_all = torch.cat([F.normalize(self.D_routed, dim=-1),
-                           F.normalize(self.D_shared, dim=-1)], dim=0)  # [n_stamps, L]
-        return amp.unsqueeze(-1) * D_all.view(1, 1, self.n_stamps, -1)
+            amp = amp * rms.unsqueeze(-1)
+        D_all, H_all = self._template_tables()  # each [n_stamps, L]
+        return (amp[..., 0].unsqueeze(-1) * D_all.view(1, 1, self.n_stamps, -1)
+                + amp[..., 1].unsqueeze(-1) * H_all.view(1, 1, self.n_stamps, -1))
 
     def forward(self, z, x_target=None, rms=None, valid_channels=None):
         """
@@ -666,9 +697,11 @@ class StampBank(nn.Module):
 
         Returns recon [G, C, patch_len], idx [G, top_k+n_shared] (GLOBAL stamp ids,
         routed then shared — ONE selection per patch position, shared by all C
-        channels), amp [G, C, top_k+n_shared] (per-channel signed gains, rms included
-        — a slot's [C] column is that stamp's mixing/topomap vector at this patch
-        time), h [G, top_k+n_shared] (selection confidence, diagnostics only),
+        channels), amp [G, C, top_k+n_shared, 2] (per-channel quadrature gain pairs
+        (a, b), rms included — a slot's [C] magnitude column sqrt(a^2+b^2) is that
+        stamp's phase-invariant mixing/topomap vector at this patch time, atan2(b, a)
+        its per-channel phase), h [G, top_k+n_shared] (selection confidence,
+        diagnostics only),
         dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
         MeSAEFlatTrainer/MeSAEFlatCodebookChecker read for router-health/usage
         panels, now at patch-position granularity), aux_loss, sparsity_loss
@@ -683,9 +716,11 @@ class StampBank(nn.Module):
         G, C, D = z.shape
         z = self.input_norm(z)  # stabilize scale before scoring/generation, see __init__
 
-        amp_r_dense, amp_s_dense = self._amp_dense(z)  # [G, C, n_routed], [G, C, n_shared]
+        amp_r_dense, amp_s_dense = self._amp_dense(z)  # [G, C, n_routed, 2], [G, C, n_shared, 2]
 
-        # Group selection score: mean over VALID channels of amp^2 — matched-filter
+        # Group selection score: mean over VALID channels of a^2+b^2 (the pair's energy
+        # — PHASE-INVARIANT matched filtering: an atom matches its source at any
+        # arrival phase, see the w_amp init comment) — matched-filter
         # energy of each atom totaled over the scalp (see class docstring). rms
         # deliberately NOT applied: unlike the per-token case (where it was a single
         # scalar and ranking-invariant), per-channel rms WOULD reweight the ranking
@@ -693,7 +728,7 @@ class StampBank(nn.Module):
         # double-weighting by raw loudness would let one hot channel drown out a
         # source spread moderately over many, exactly the topomap-binarizing failure
         # group selection exists to fix.
-        a2 = amp_r_dense.pow(2)
+        a2 = amp_r_dense.pow(2).sum(dim=-1)                         # [G, C, n_routed] — a^2+b^2
         if valid_channels is not None:
             vc = valid_channels.unsqueeze(-1).to(a2.dtype)          # [G, C, 1]
             group_score = (a2 * vc).sum(dim=1) / vc.sum(dim=1).clamp(min=1.0)  # [G, n_routed]
@@ -713,16 +748,22 @@ class StampBank(nn.Module):
 
         # Per-channel gains for the group's selected set: every channel decodes the
         # SAME stamps with its OWN amp — the [C] column per slot is the mixing vector.
-        amp_sel_r = amp_r_dense.gather(2, topk_idx.unsqueeze(1).expand(G, C, self.top_k))
-        amp = torch.cat([amp_sel_r, amp_s_dense], dim=2)  # [G, C, top_k+n_shared]
+        amp_sel_r = amp_r_dense.gather(
+            2, topk_idx.view(G, 1, self.top_k, 1).expand(G, C, self.top_k, 2))
+        amp = torch.cat([amp_sel_r, amp_s_dense], dim=2)  # [G, C, top_k+n_shared, 2]
         if rms is not None:
-            amp = amp * rms  # [G, C, 1] broadcast — restores raw amplitude, see class docstring
+            amp = amp * rms.unsqueeze(-1)  # [G, C, 1, 1] broadcast — restores raw amplitude
 
-        D_sel = self._templates(idx)                       # [G, top_k+n_shared, patch_len]
-        recon = torch.einsum('gck,gkl->gcl', amp, D_sel)   # sum over slots, no [G,C,K,L] materialized
+        D_sel, H_sel = (t[idx] for t in self._template_tables())  # each [G, top_k+n_shared, patch_len]
+        # a*D_hat + b*Hilbert(D_hat) summed over slots — no [G,C,K,L] materialized
+        recon = (torch.einsum('gck,gkl->gcl', amp[..., 0], D_sel)
+                 + torch.einsum('gck,gkl->gcl', amp[..., 1], H_sel))
 
-        amp_routed_sel = amp[:, :, :self.top_k]
-        sparsity_loss = self.sparsity_loss(amp_routed_sel, x_target=x_target,
+        # Magnitude sqrt(a^2+b^2) per selected routed slot — the phase-invariant
+        # amplitude, what sparsity/k_eff should see (penalize/count loudness, never
+        # phase).
+        amp_mag_routed = amp[:, :, :self.top_k, :].pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
+        sparsity_loss = self.sparsity_loss(amp_mag_routed, x_target=x_target,
                                            valid_channels=valid_channels)
 
         # Scale-invariant parsimony diagnostic: effective atom count per token,
@@ -733,7 +774,7 @@ class StampBank(nn.Module):
         # with no data-loudness floor. Diagnostic only (no_grad), token-averaged over
         # valid channels.
         with torch.no_grad():
-            a = amp_routed_sel.abs()
+            a = amp_mag_routed
             keff = a.sum(dim=-1).pow(2) / (a.pow(2).sum(dim=-1) + 1e-8)  # [G, C]
             if valid_channels is not None and valid_channels.any():
                 k_eff = keff[valid_channels].mean()
@@ -756,11 +797,15 @@ class StampBank(nn.Module):
                 # rescued atom's amp toward the residual raises exactly the quantity that
                 # gets it selected (group_score is amp^2-based) — the rescue revives atoms
                 # for real, per channel, at group granularity.
-                amp_aux = amp_r_dense.gather(2, aux_idx.unsqueeze(1).expand(G, C, aux_k))
+                amp_aux = amp_r_dense.gather(
+                    2, aux_idx.view(G, 1, aux_k, 1).expand(G, C, aux_k, 2))
                 if rms is not None:
-                    amp_aux = amp_aux * rms
-                D_aux = F.normalize(self.D_routed, dim=-1)[aux_idx]  # [G, aux_k, patch_len]
-                recon_aux = torch.einsum('gck,gkl->gcl', amp_aux, D_aux)
+                    amp_aux = amp_aux * rms.unsqueeze(-1)
+                D_r_hat = F.normalize(self.D_routed, dim=-1)
+                D_aux = D_r_hat[aux_idx]                       # [G, aux_k, patch_len]
+                H_aux = self._quadrature(D_r_hat)[aux_idx]
+                recon_aux = (torch.einsum('gck,gkl->gcl', amp_aux[..., 0], D_aux)
+                             + torch.einsum('gck,gkl->gcl', amp_aux[..., 1], H_aux))
                 residual = (x_target - recon).detach()
                 aux_loss = F.mse_loss(recon_aux, residual) / (residual.pow(2).mean() + 1e-8)
 

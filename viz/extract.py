@@ -398,15 +398,20 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
     buf.index_add_(0, idx.reshape(-1), contribution.permute(0, 2, 1, 3).reshape(N * K, C, patch_len))
     fp_full = buf / N  # unselected patches dilute toward 0
 
-    # SIGNED per-channel mean amp per stamp — the trial-averaged mixing/topomap column
-    # (amp*rms, signed: polarity IS the dipole structure, see plot panels' RdBu cells).
-    # fp.norm would lose the sign; this keeps it.
-    buf_amp = out.amp.new_zeros(n_stamps, C)
-    buf_amp.index_add_(0, idx.reshape(-1), out.amp.permute(0, 2, 1).reshape(N * K, C))
-    amp_topo_full = buf_amp / N
+    # SIGNED per-channel mean amp per stamp — the trial-averaged mixing/topomap column.
+    # Quadrature version: accumulate the (a, b) pairs over patches (coherent average —
+    # a source arriving at random phase per patch partially cancels here, same dilution
+    # convention as fp), then project each channel onto the stamp's channel-mean phase
+    # direction for a signed scalar (A_c * cos(phi_c - phi_ref); polarity IS the dipole
+    # structure, see plot panels' RdBu cells).
+    buf_amp = out.amp.new_zeros(n_stamps, C, 2)
+    buf_amp.index_add_(0, idx.reshape(-1), out.amp.permute(0, 2, 1, 3).reshape(N * K, C, 2))
+    ab = buf_amp[used_ids] / N                                     # [Qu, C, 2]
+    ref = ab.mean(dim=1, keepdim=True)                             # [Qu, 1, 2]
+    ref = ref / (ref.norm(dim=-1, keepdim=True) + 1e-8)
+    amp_topo = (ab * ref).sum(dim=-1)                              # [Qu, C] signed projection
 
     fp = fp_full[used_ids]           # [Qu, C, patch_len]
-    amp_topo = amp_topo_full[used_ids]  # [Qu, C] signed
     return used_ids, importance, fp, amp_topo
 
 
@@ -518,11 +523,15 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
     fft_c = _demean_hann_rfft(grid_contrib.float(), n_fft)  # [P, Kd, C, F]
     psd = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
-    # SIGNED amp*rms per channel, not the contribution norm: with unit D_hat they're
-    # equal in magnitude, but the sign carries the dipole polarity (a source arriving
-    # 180-degrees flipped at some channels is the defining visual of a mixing column) —
-    # rendered as a diverging RdBu topo by plot_topo_psd_by_patch's stamp cells.
-    topo = out.amp[sel][:, :, :Kd].permute(0, 2, 1).cpu().numpy()  # [P, Kd, C] signed
+    # SIGNED per-channel value for the diverging topo, generalized for quadrature amps:
+    # project each channel's (a, b) pair onto the slot's channel-mean phase direction —
+    # A_c * cos(phi_c - phi_ref). Zero-lag sources keep their full magnitude with the
+    # dipole's sign structure intact (a 180-degree channel projects negative), while
+    # any residual out-of-phase (travelling-wave) component drops out of this view.
+    ab = out.amp[sel][:, :, :Kd, :]                                # [P, C, Kd, 2]
+    ref = ab.mean(dim=1, keepdim=True)                             # [P, 1, Kd, 2] channel-mean phase dir
+    ref = ref / (ref.norm(dim=-1, keepdim=True) + 1e-8)
+    topo = (ab * ref).sum(dim=-1).permute(0, 2, 1).cpu().numpy()   # [P, Kd, C] signed projection
 
     # Real per-patch, per-channel full reconstruction — ALL K slots summed (StampBank.
     # forward's recon for this patch), not just the Kd displayed ones.
