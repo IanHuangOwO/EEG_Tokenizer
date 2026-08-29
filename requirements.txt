@@ -6,4 +6,5 @@ scikit-learn
 scipy
 torch --index-url https://download.pytorch.org/whl/cu118
 torchvision --index-url https://download.pytorch.org/whl/cu118
-torchaudio --index-url https://download.pytorch.org/whl/cu118mne-icalabel==0.9.0
+torchaudio --index-url https://download.pytorch.org/whl/cu118
+mne-icalabel==0.9.0
