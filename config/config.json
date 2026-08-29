@@ -173,11 +173,11 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 120,
-          "n_shared_stamps": 8,
-          "stamp_top_k": 24,
-          "stamp_hidden_width": 2,
-          "stamp_shared_hidden_width": 4,
+          "n_stamps": 60,
+          "n_shared_stamps": 4,
+          "stamp_top_k": 12,
+          "stamp_hidden_width": 4,
+          "stamp_shared_hidden_width": 1,
           "shared_weight": 0.1,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
@@ -188,6 +188,7 @@
           "ffn_lb_weight": 0.01,
           "decorr_weight": 0.01,
           "indep_weight": 0.01,
+          "sparsity_weight": 0.01,
           "aux_weight": 0.01
         }
       },
@@ -206,11 +207,11 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 120,
-          "n_shared_stamps": 8,
-          "stamp_top_k": 24,
-          "stamp_hidden_width": 2,
-          "stamp_shared_hidden_width": 4,
+          "n_stamps": 60,
+          "n_shared_stamps": 4,
+          "stamp_top_k": 12,
+          "stamp_hidden_width": 4,
+          "stamp_shared_hidden_width": 1,
           "shared_weight": 0.1,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
@@ -221,6 +222,7 @@
           "ffn_lb_weight": 0.01,
           "decorr_weight": 0.01,
           "indep_weight": 0.01,
+          "sparsity_weight": 0.01,
           "aux_weight": 0.01
         }
       },

@@ -395,23 +395,32 @@ class StampBank(nn.Module):
     routed/shared split carried over from the Filter level) and n_shared (always
     included, fixed constant `shared_weight`).
 
-    Selection is a plain per-atom linear scorer: score_i = z . w_score_i + b_score_i,
-    top-k over routed atoms, softmax over the selected top-k as h_routed (a
-    within-token selection confidence, not a self-reconstruction fit — see
-    stamp_router_confidence in MeSAEFlatPretrain.get_metrics). Kept as an nn.Parameter
-    per-atom weight matrix (not a plain nn.Linear) purely for parity with the
-    prior per-atom-view convention; since every atom now shares the same input z,
-    this is algebraically a single Linear(dim, n_routed) — `w_score`/`b_score` are
-    just its weight/bias laid out per-row. No load-balance loss: unlike MoEFFN
+    Selection is TopK-SAE style: score_i = |amp_i(z)| — the coefficient IS the score,
+    no separate scorer. The retired w_score/b_score linear scorer had ZERO gradient
+    from the reconstruction loss (its only consumer, h_routed, feeds z_h, which
+    nothing reads during Tokenizer/Pretrain training), so selection ranking stayed
+    frozen at random init for entire runs — dead_feature_rate locking ~0.7 and the
+    aux rescue never actually reviving anyone (rescue trained dead atoms' DECODE,
+    but "dead" was a SELECTION problem the scorer never learned out of). |amp| ties
+    "gets selected" to "would contribute most" (matched-filter self-relevance), is
+    trained directly by recon MSE, and makes the rescue coherent: training a dead
+    atom's amp up on the residual raises exactly the quantity that gets it selected.
+    h_routed = softmax over the selected |amp| values (a within-token selection
+    confidence for z_h/diagnostics only, never touches recon). No load-balance
+    loss: unlike MoEFFN
     (compute-all-then-mask, needs traffic spread for compute balance), this module
     dispatches sparsely (gather by idx) — no compute-balance problem, and forcing
     uniform routing would fight the legitimate power-law usage a content-addressed
     dictionary should have. Collapse is instead guarded by fire_ema/dead_threshold/
     aux_loss below.
 
-    phi_i(z) = amp_i(z) * D_i: a fixed per-atom waveform TEMPLATE D_i (nn.Parameter
-    [patch_len], no z dependence at all) scaled by a per-token, per-atom scalar gain
-    amp_i(z) (from the same narrow hidden_i bottleneck w_score already reads).
+    phi_i(z) = amp_i(z) * rms * D_hat_i: a fixed per-atom waveform TEMPLATE D_i
+    (nn.Parameter [patch_len], no z dependence at all, used UNIT-L2-NORMALIZED
+    everywhere — see the D_routed init comment for the amp/norm degeneracy this
+    kills) scaled by a per-token, per-atom scalar gain amp_i(z) (from the atom's
+    own narrow hidden_i bottleneck) times the token's raw-input RMS (see
+    _decode_atoms — the LayerNorm stack erases amplitude from z, so the gain
+    multiplies it back in explicitly).
     Deliberately NOT a generator that can bend its own shape per token (that was the
     prior design: hidden_i @ W_out_i + b_out_i, a full per-atom linear map from the
     bottleneck to [patch_len]) — replaced because the target signal this is meant to
@@ -460,22 +469,12 @@ class StampBank(nn.Module):
         self.hidden_width = hidden_width
         self.shared_hidden_width = shared_hidden_width
 
-        # Per-atom selection scorer, routed atoms only (shared atoms are never
-        # scored/gated, see class docstring) — score_i = hidden_i . w_score_i + b_score_i,
-        # where hidden_i = z @ W_down_i + b_down_i is the SAME low-dim (hidden_width, e.g.
-        # 8) bottleneck atom i's own generator already uses (see forward()'s dense
-        # hidden_score computation and _decode_atoms). NOT a full-D w_score (was
-        # torch.empty(n_routed, dim)): with n_routed atoms competing in a D-dim space (D
-        # >> hidden_width), random-init w_score directions overlap heavily and whichever
-        # happens to align best with the "typical" token wins everywhere, permanently —
-        # observed as dead_feature_rate locking to ~1 - top_k/n_routed by epoch 1 and
-        # never moving for an entire 50-epoch run. Scoring off each atom's own narrow
-        # hidden_width-dim view instead forces atoms to compete in their own personal
-        # subspace rather than the shared full-D one, and ties "how this atom is scored"
-        # to "what this atom would actually decode" (self-relevance).
-        self.w_score = nn.Parameter(torch.empty(self.n_routed, hidden_width))
-        self.b_score = nn.Parameter(torch.zeros(self.n_routed))
-        nn.init.kaiming_uniform_(self.w_score, a=math.sqrt(5))
+        # No selection scorer params — selection is |amp_i(z)| directly (see class
+        # docstring and forward()): the retired w_score/b_score never received gradient
+        # from recon (h_routed only ever fed z_h), so ranking stayed at random init all
+        # run; |amp| is trained by recon MSE and completes the earlier "self-relevance"
+        # direction (scoring off the atom's own bottleneck) to its logical end — the
+        # score IS what the atom would contribute.
 
         # phi: bottleneck generator, per-atom W_down/b_down (down-project + GELU) decoding
         # through a per-ATOM W_out/b_out straight to [patch_len] — every atom gets its own
@@ -488,8 +487,9 @@ class StampBank(nn.Module):
         nn.init.kaiming_uniform_(self.W_down_routed, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.W_down_shared, a=math.sqrt(5))
 
-        # amp_i(z): scalar gain read off the same hidden_i bottleneck w_score uses,
-        # one more Linear(hidden_width, 1)-equivalent per atom. Free/unbounded/signed —
+        # amp_i(z): scalar gain read off the atom's own hidden_i bottleneck — doubles as
+        # the selection score via |amp| (see class docstring), one
+        # Linear(hidden_width, 1)-equivalent per atom. Free/unbounded/signed —
         # no softplus/sigmoid clamp: a genuinely loud channel (e.g. right on top of a
         # line-noise source) needs to be able to grow past 1.0, and a sign flip is a
         # legitimate 180-degree phase flip, not something to forbid.
@@ -500,11 +500,19 @@ class StampBank(nn.Module):
         nn.init.kaiming_uniform_(self.w_amp_routed, a=math.sqrt(5))
         nn.init.kaiming_uniform_(self.w_amp_shared, a=math.sqrt(5))
 
-        # D_i: the atom's own waveform template, a plain parameter with NO z dependence
-        # — phi_i(z) = amp_i(z) * D_i, see class docstring. Normal-init at a modest std
-        # (not kaiming, there's no fan-in/fan-out here: this is a direct [patch_len]
-        # output vector, not a weight matrix multiplying some input) so early-training
-        # contributions start comparable in scale to a typical normalized patch.
+        # D_i: the atom's own waveform template, a plain parameter with NO z dependence.
+        # Used UNIT-L2-NORMALIZED at every consumption site (F.normalize in
+        # _generate_routed/decode_selected/dense_probe/fingerprint), never raw: with a
+        # free-norm D, amp*D has a scale degeneracy — the model can shrink amp and grow
+        # ||D|| with recon unchanged, which (a) games sparsity_loss's L1-on-amp down to
+        # nothing without any real sparsification (classic sparse-coding pitfall, fixed
+        # the standard way: unit-norm dictionary atoms), and (b) makes amp values
+        # incomparable across atoms — with unit D, amp is the one true coefficient
+        # (actual per-channel source amplitude, the thing a topomap of one stamp across
+        # channels is supposed to read). The raw parameter keeps whatever norm it drifts
+        # to; only its direction ever matters.
+        # Normal-init at a modest std (not kaiming, there's no fan-in/fan-out here: this
+        # is a direct [patch_len] output vector, not a weight matrix).
         self.D_routed = nn.Parameter(torch.randn(self.n_routed, patch_len) * 0.02)
         self.D_shared = nn.Parameter(torch.randn(self.n_shared, patch_len) * 0.02)
 
@@ -513,37 +521,47 @@ class StampBank(nn.Module):
         self.ema_decay = ema_decay
         self.register_buffer('fire_ema', torch.zeros(self.n_routed))
 
-    def _decode_atoms(self, idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, D_sel):
+    def _decode_atoms(self, idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, D_sel, rms=None):
         """idx: [T, K] GLOBAL atom indices (0..n_stamps-1 regardless of routed/shared),
         z: [T, D] the token itself (same row for every atom, no per-atom view anymore),
         W_down_sel/b_down_sel/w_amp_sel/b_amp_sel/D_sel: all already gathered per-atom
-        from whichever (routed or shared) table matches these atoms (see __init__).
-        -> contribution [T, K, patch_len] = amp_i(z) * D_i, see class docstring.
+        from whichever (routed or shared) table matches these atoms (see __init__);
+        callers pass D_sel already unit-normalized (see the D_routed init comment).
+        rms: [T, 1] per-token raw-input RMS or None (treated as 1). Multiplied into amp:
+        the LayerNorm stack upstream (embed.norm -> per-block norm_out -> input_norm)
+        erases the token's overall amplitude from z, yet amp is the ONLY z-dependent
+        output knob — without this the amp head must infer loudness from direction
+        alone. Multiplying rms back in restores exact linear amplitude equivariance:
+        scale the raw patch by a, z barely moves, rms scales by a, contribution scales
+        by a. -> contribution [T, K, patch_len] = amp_i(z) * rms * D_hat_i.
 
         D_sel never depends on z (gathered straight from the parameter table, same
         template regardless of which token selected it) — only amp_i is a function of
-        the token, via the same hidden_i bottleneck w_score reads."""
+        the token, via the same hidden_i bottleneck selection reads."""
         z_sel = z.unsqueeze(1).expand(-1, idx.shape[1], -1)  # [T, K, D] — identical row per atom
 
         hidden = torch.einsum('tkd,tkdh->tkh', z_sel, W_down_sel) + b_down_sel  # [T, K, hidden]
         amp = torch.einsum('tkh,tkh->tk', hidden, w_amp_sel) + b_amp_sel  # [T, K]
+        if rms is not None:
+            amp = amp * rms  # [T, 1] broadcast over K
         contribution = amp.unsqueeze(-1) * D_sel  # [T, K, patch_len]
-        return contribution, z_sel
+        return contribution, z_sel, amp
 
-    def _generate_routed(self, idx, z):
+    def _generate_routed(self, idx, z, rms=None):
         """idx: [T, K] routed-only indices (values in [0, n_routed)), used both as the
         GLOBAL index and to gather W_down_routed/b_down_routed/w_amp_routed/D_routed
-        directly. z: [T, D] the token itself. Used by both the main forward path's
-        routed half and the dead-atom aux rescue (rescue only ever draws from the
-        routed pool, never shared — see forward())."""
+        directly. z: [T, D] the token itself, rms: [T, 1] or None (see _decode_atoms).
+        Used by both the main forward path's routed half and the dead-atom aux rescue
+        (rescue only ever draws from the routed pool, never shared — see forward())."""
         W_down_sel = self.W_down_routed[idx]
         b_down_sel = self.b_down_routed[idx]
         w_amp_sel = self.w_amp_routed[idx]
         b_amp_sel = self.b_amp_routed[idx]
-        D_sel = self.D_routed[idx]
-        return self._decode_atoms(idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, D_sel)
+        D_sel = F.normalize(self.D_routed, dim=-1)[idx]  # unit templates, see D_routed init comment
+        contribution, z_sel, amp = self._decode_atoms(idx, z, W_down_sel, b_down_sel, w_amp_sel, b_amp_sel, D_sel, rms=rms)
+        return contribution, z_sel, amp
 
-    def decode_selected(self, idx, h, z):
+    def decode_selected(self, idx, h, z, rms=None):
         """idx: [T, top_k+n_shared] GLOBAL indices, first top_k routed then n_shared shared
         (same layout forward() builds), h: [T, top_k+n_shared] their selection strengths,
         z: [T, D] the token itself -> contribution [T, top_k+n_shared, patch_len] (each
@@ -554,33 +572,36 @@ class StampBank(nn.Module):
         below gates it down before it ever reaches recon — see docs/agents/ or the "PSD
         averages away per-patch stamp identity" investigation), z_h [T, top_k+n_shared, D]
         (pre-generator finetune feature, z itself * h — every slot now reads the
-        identical token, so z_h only differs across slots by its own h weight). Splits
-        into routed/shared halves since they use separate W_down/W_out tables (see
-        __init__) — sparse dispatch either way, only the K=top_k+n_shared selected atoms'
-        params ever get gathered, never all n_stamps."""
+        identical token, so z_h only differs across slots by its own h weight), amp_r
+        [T, top_k] (routed-only raw amplitude gains, unweighted/unclamped — exposed for
+        sparsity_loss below, see StampBank.sparsity_loss). Splits into routed/shared
+        halves since they use separate W_down/W_out tables (see __init__) — sparse
+        dispatch either way, only the K=top_k+n_shared selected atoms' params ever get
+        gathered, never all n_stamps."""
         idx_routed, idx_shared = idx[:, :self.top_k], idx[:, self.top_k:]
 
-        contribution_r, z_sel_r = self._generate_routed(idx_routed, z)
+        contribution_r, z_sel_r, amp_r = self._generate_routed(idx_routed, z, rms=rms)
 
         local_shared = idx_shared - self.n_routed  # local index into the shared table
         W_down_s_sel = self.W_down_shared[local_shared]
         b_down_s_sel = self.b_down_shared[local_shared]
         w_amp_s_sel = self.w_amp_shared[local_shared]
         b_amp_s_sel = self.b_amp_shared[local_shared]
-        D_s_sel = self.D_shared[local_shared]
-        contribution_s, z_sel_s = self._decode_atoms(
-            idx_shared, z, W_down_s_sel, b_down_s_sel, w_amp_s_sel, b_amp_s_sel, D_s_sel)
+        D_s_sel = F.normalize(self.D_shared, dim=-1)[local_shared]  # unit templates, see D_routed init comment
+        contribution_s, z_sel_s, amp_s = self._decode_atoms(
+            idx_shared, z, W_down_s_sel, b_down_s_sel, w_amp_s_sel, b_amp_s_sel, D_s_sel, rms=rms)
 
         contribution = torch.cat([contribution_r, contribution_s], dim=1)     # [T, top_k+n_shared, patch_len]
         z_sel = torch.cat([z_sel_r, z_sel_s], dim=1)                          # [T, top_k+n_shared, D]
         z_h = z_sel * h.unsqueeze(-1)
-        return contribution, z_h
+        return contribution, z_h, amp_r
 
-    def _generate(self, idx, h, z):
+    def _generate(self, idx, h, z, rms=None):
         """recon [T, patch_len] (plain UNWEIGHTED sum of decode_selected's per-slot
         contributions), z_h [T, top_k+n_shared, D], contribution [T, top_k+n_shared,
         patch_len] (exposed, not just consumed internally — forward() slices its
-        routed-only prefix for independence_loss) — see decode_selected for the
+        routed-only prefix for independence_loss), amp_r [T, top_k] (routed-only raw
+        amplitude gains, exposed for sparsity_loss) — see decode_selected for the
         per-slot contributions this sums.
 
         Tried both weighting the raw per-slot contribution by h (bled into recon's
@@ -590,9 +611,9 @@ class StampBank(nn.Module):
         a plain sum here, to keep the whole phi_i(z) generator (W_down_i -> W_out) a
         genuinely linear map end to end, per stamp. h still scales z_h (the
         finetune-facing feature) unchanged."""
-        contribution, z_h = self.decode_selected(idx, h, z)
+        contribution, z_h, amp_r = self.decode_selected(idx, h, z, rms=rms)
         recon = contribution.sum(dim=1)
-        return recon, z_h, contribution
+        return recon, z_h, contribution, amp_r
 
     def decorrelation_loss(self):
         """Pairwise cosine sim of each routed atom's own W_down direction (flattened
@@ -645,6 +666,21 @@ class StampBank(nn.Module):
         entropy = -(p * torch.log(p + 1e-8)).sum(dim=-1)         # [T]
         return math.log(K) - entropy.mean()
 
+    def sparsity_loss(self, amp_routed):
+        """amp_routed: [T, top_k], the amplitude gain (rms included, see _decode_atoms)
+        each selected ROUTED atom produced for its token. L1 penalty on |amp| — the
+        direct, differentiable "does this token need this atom" knob: contribution =
+        amp * D_hat_i with D_hat unit-norm, so amp IS the atom's whole contribution
+        scale (the unit-norm constraint is what makes this L1 un-gameable — with a
+        free-norm D the model could shrink amp into ||D|| and zero this loss without
+        sparsifying anything, see the D_routed init comment) and amp->0 makes a
+        selected atom vanish from recon exactly as if unselected. Minimizing
+        mean(|amp|) gives the network pressure to quiet atoms that don't earn their
+        keep on a given token, so a token needing few atoms doesn't spend the full
+        top_k budget at nonzero amplitude. Shared atoms excluded (always-on by
+        design, not part of this budget)."""
+        return amp_routed.abs().mean()
+
     @torch.no_grad()
     def fingerprint(self):
         """Every stamp's raw waveform template D_i, concatenated routed-then-shared.
@@ -655,40 +691,50 @@ class StampBank(nn.Module):
         to its bias terms only, understating diversity early in training — see git
         history for dense_probe's original docstring on that problem). amp_i(z) never
         touches shape, only overall scale/sign — see class docstring — so D_i alone is
-        the complete, correct answer to "what does this atom look like". Dense over all
-        n_stamps. Returns [n_stamps, patch_len]."""
-        return torch.cat([self.D_routed, self.D_shared], dim=0)
+        the complete, correct answer to "what does this atom look like". Returned
+        unit-normalized, matching what the decode path actually uses (see the D_routed
+        init comment — the raw parameter's norm is dead weight, never consumed). Dense
+        over all n_stamps. Returns [n_stamps, patch_len]."""
+        return torch.cat([F.normalize(self.D_routed, dim=-1),
+                          F.normalize(self.D_shared, dim=-1)], dim=0)
 
     @torch.no_grad()
-    def dense_probe(self, z):
+    def dense_probe(self, z, rms=None):
         """The real per-token, per-atom CONTRIBUTION each stamp would produce if it had
-        fired on this token — amp_i(z) * D_i, dense over all n_stamps (diagnostic-only,
-        not the sparse-dispatch training path, which only ever gathers the
-        top_k+n_shared selected atoms via decode_selected). Distinct from fingerprint()
-        (the atom's own shape, no z at all) by design now: this shows the SCALED
-        contribution a real token would get, fingerprint() shows the unscaled template
-        underneath it.
-        z: [T, D] real token embeddings (same input StampBank.forward takes) ->
+        fired on this token — amp_i(z) * rms * D_hat_i, dense over all n_stamps
+        (diagnostic-only, not the sparse-dispatch training path, which only ever
+        gathers the top_k+n_shared selected atoms via decode_selected). Distinct from
+        fingerprint() (the atom's own shape, no z at all) by design now: this shows the
+        SCALED contribution a real token would get, fingerprint() shows the unscaled
+        template underneath it.
+        z: [T, D] real token embeddings (same input StampBank.forward takes),
+        rms: [T, 1] per-token raw-input RMS or None (see _decode_atoms) ->
         contribution [T, n_stamps, patch_len].
         """
         z = self.input_norm(z)
+        D_r = F.normalize(self.D_routed, dim=-1)
+        D_s = F.normalize(self.D_shared, dim=-1)
 
         hidden_r = torch.einsum('td,hdk->thk', z, self.W_down_routed) + self.b_down_routed  # [T, n_routed, hidden]
         amp_r = torch.einsum('thk,hk->th', hidden_r, self.w_amp_routed) + self.b_amp_routed  # [T, n_routed]
-        contrib_r = amp_r.unsqueeze(-1) * self.D_routed.unsqueeze(0)  # [T, n_routed, patch_len]
-
         hidden_s = torch.einsum('td,hdk->thk', z, self.W_down_shared) + self.b_down_shared
         amp_s = torch.einsum('thk,hk->th', hidden_s, self.w_amp_shared) + self.b_amp_shared
-        contrib_s = amp_s.unsqueeze(-1) * self.D_shared.unsqueeze(0)  # [T, n_shared, patch_len]
+        if rms is not None:
+            amp_r = amp_r * rms
+            amp_s = amp_s * rms
+        contrib_r = amp_r.unsqueeze(-1) * D_r.unsqueeze(0)  # [T, n_routed, patch_len]
+        contrib_s = amp_s.unsqueeze(-1) * D_s.unsqueeze(0)  # [T, n_shared, patch_len]
 
         contribution = torch.cat([contrib_r, contrib_s], dim=1)  # [T, n_stamps, patch_len]
         return contribution
 
-    def forward(self, z, x_target=None):
+    def forward(self, z, x_target=None, rms=None):
         """
         z: [T, D] flat (channel, patch) token embeddings, x_target: [T, patch_len] the
         real patch content for that token (only needed for the dead-atom aux rescue,
-        training only).
+        training only), rms: [T, 1] per-token raw-input RMS or None — multiplied into
+        every amp (see _decode_atoms); callers running the real pipeline should always
+        pass it, None exists for probes that only care about shape.
 
         Returns recon [T,patch_len], z_h [T, top_k+n_shared, D] (pre-generator finetune
         feature), h [T, top_k+n_shared] (selection strengths, routed then shared — same
@@ -696,7 +742,9 @@ class StampBank(nn.Module):
         (zeros at unselected — the diagnostic object MeSAEFlatTrainer/MeSAEFlatCodebookChecker
         read for router-health/usage-histogram panels), decorr_loss, indep_loss (see
         independence_loss — routed-selection redundancy, distinct from decorr_loss),
-        aux_loss. No `attn` anymore — there is no cross-channel pool left to produce a
+        aux_loss, sparsity_loss (see sparsity_loss — L1 on selected routed atoms' amp,
+        lets a token spend fewer effective atoms). No `attn` anymore — there is no
+        cross-channel pool left to produce a
         channel-attention map from (see class docstring); callers must not assume this
         field exists.
 
@@ -711,10 +759,17 @@ class StampBank(nn.Module):
         # "compute-all, dispatch sparse" convention MoEFFN already uses in this file (see
         # its docstring's ponytail note). This is the SAME z@W_down_i+b_down_i bottleneck
         # _decode_atoms recomputes for just the selected atoms below — mild redundancy,
-        # traded for keeping the sparse decode path untouched (see w_score's docstring for
-        # why scoring needs every atom's own low-dim view, not just the winners').
+        # traded for keeping the sparse decode path untouched.
         hidden_score = torch.einsum('td,hdk->thk', z, self.W_down_routed) + self.b_down_routed  # [T, n_routed, hidden]
-        score = torch.einsum('thk,hk->th', hidden_score, self.w_score) + self.b_score  # [T, n_routed]
+        # TopK-SAE-style self-selection: score = |amp_i(z)|, the magnitude of the exact
+        # coefficient the atom would decode with (unit-norm D makes |amp| the atom's true
+        # contribution energy). rms deliberately NOT applied here: it's one positive
+        # scalar per token, so it scales every atom's score equally — per-token ranking
+        # is invariant to it, and skipping it keeps score numerically tame. See class
+        # docstring for why the old separate w_score scorer was retired (zero gradient
+        # from recon — selection ranking never trained).
+        amp_dense = torch.einsum('thk,hk->th', hidden_score, self.w_amp_routed) + self.b_amp_routed  # [T, n_routed]
+        score = amp_dense.abs()
 
         topk_val, topk_idx = score.topk(self.top_k, dim=-1)
         h_routed = torch.softmax(topk_val, dim=-1)  # [T, top_k] — within-token selection confidence
@@ -727,10 +782,11 @@ class StampBank(nn.Module):
         idx = torch.cat([topk_idx, shared_idx], dim=-1)   # [T, top_k+n_shared]
         h   = torch.cat([h_routed, h_shared], dim=-1)
 
-        recon, z_h, contribution = self._generate(idx, h, z)
+        recon, z_h, contribution, amp_r = self._generate(idx, h, z, rms=rms)
 
         decorr_loss = self.decorrelation_loss()
         indep_loss = self.independence_loss(contribution[:, :self.top_k, :])
+        sparsity_loss = self.sparsity_loss(amp_r)
 
         aux_loss = recon.new_zeros(())
         if self.training:
@@ -746,12 +802,12 @@ class StampBank(nn.Module):
                 # rescue only ever draws from the routed pool (dead atoms are a routed-only
                 # concept, shared stamps are always "alive" by construction) — use
                 # _generate_routed directly rather than the mixed routed+shared _generate.
-                # Unweighted sum: trains rescued atoms' decoder (W_down/W_out) only, not
-                # their score. Softmax-weighting by aux_val was tried to route gradient into
-                # score too, but regressed real training (see MeSAE_modules.py's own
-                # StampBank for the same revert) — reverted back to this simpler, working
-                # version.
-                contribution_aux, _ = self._generate_routed(aux_idx, z)
+                # Unweighted sum. Note: now that selection is |amp| (see class docstring),
+                # training a rescued atom's amp toward the residual ALSO raises exactly
+                # the quantity that gets it selected — the rescue finally revives atoms
+                # for real, instead of only training a decoder that the frozen-at-init
+                # w_score ranking would never pick anyway.
+                contribution_aux, _, _ = self._generate_routed(aux_idx, z, rms=rms)
                 recon_aux = contribution_aux.sum(dim=1)
                 residual = (x_target - recon).detach()
                 aux_loss = F.mse_loss(recon_aux, residual) / (residual.pow(2).mean() + 1e-8)
@@ -759,6 +815,7 @@ class StampBank(nn.Module):
         return SimpleNamespace(
             recon=recon, z_h=z_h, h=h, idx=idx, dense_routed=dense_routed,
             decorr_loss=decorr_loss, indep_loss=indep_loss, aux_loss=aux_loss,
+            sparsity_loss=sparsity_loss,
         )
 
 

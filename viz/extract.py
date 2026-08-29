@@ -371,8 +371,11 @@ def _used_flat_stamps(model, x, coords, time_idx=None, max_stamps=100):
     z, _ = model.stage_features(x, coords, time_idx=time_idx)  # [1, C, N, D]
     B, C, N, D = z.shape
     z_flat = z.reshape(B * C * N, D)  # [T, D], T = C*N (B=1)
+    # rms must match the training path (see MeSAEFlatPretrain.forward) — contribution
+    # is amp*rms*D_hat, so without rms every decoded panel is mis-scaled.
+    rms = x.reshape(B * C * N, -1).pow(2).mean(dim=-1, keepdim=True).sqrt()
 
-    out = model.stamps(z_flat, x_target=None)  # eval-mode call, aux/dead-atom path never runs
+    out = model.stamps(z_flat, x_target=None, rms=rms)  # eval-mode call, aux/dead-atom path never runs
     idx, h = out.idx, out.h  # [T, K]
     K = idx.shape[1]
     n_stamps = model.n_stamps
@@ -382,7 +385,7 @@ def _used_flat_stamps(model, x, coords, time_idx=None, max_stamps=100):
     used_ids = model.used_stamp_ids(out, max_stamps=max_stamps)
     importance = dense_imp[used_ids].cpu().numpy()
 
-    contribution, _z_h = model.stamps.decode_selected(idx, h, z_flat)  # [T, K, patch_len]
+    contribution, _z_h, _amp_r = model.stamps.decode_selected(idx, h, z_flat, rms=rms)  # [T, K, patch_len]
     patch_len = contribution.shape[-1]
 
     contribution = contribution.reshape(C, N, K, patch_len)
@@ -490,14 +493,17 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
     z, _ = model.stage_features(x, coords, time_idx=time_idx)  # [1, C, N, D]
     B, C, N, D = z.shape
     z_flat = z.reshape(B * C * N, D)  # [T, D], T = C*N (B=1)
+    # rms must match the training path (see MeSAEFlatPretrain.forward) — contribution
+    # is amp*rms*D_hat, so without rms every decoded panel is mis-scaled.
+    rms = x.reshape(B * C * N, -1).pow(2).mean(dim=-1, keepdim=True).sqrt()
 
-    out = model.stamps(z_flat, x_target=None)  # eval-mode call, aux/dead-atom path never runs
+    out = model.stamps(z_flat, x_target=None, rms=rms)  # eval-mode call, aux/dead-atom path never runs
     idx, h = out.idx, out.h  # [T, K]
     K = idx.shape[1]
     n_stamps = model.n_stamps
     Kd = k_display if k_display is not None else K
 
-    contribution, _z_h = model.stamps.decode_selected(idx, h, z_flat)  # [T, K, patch_len]
+    contribution, _z_h, _amp_r = model.stamps.decode_selected(idx, h, z_flat, rms=rms)  # [T, K, patch_len]
     patch_len = contribution.shape[-1]
 
     idx_cnk = idx.reshape(C, N, K)

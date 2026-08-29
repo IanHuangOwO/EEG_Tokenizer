@@ -274,7 +274,17 @@ class MeSAEFlatPretrain(nn.Module):
         z_flat = z.reshape(B * C * N, -1)      # [T, D], T = B*C*N
         x_target = x.reshape(B * C * N, L)     # [T, L] — aux-rescue target, see StampBank.forward
 
-        out = self.stamps(z_flat, x_target=x_target)
+        # Per-token raw-input RMS — the amplitude signal the LayerNorm stack erased from
+        # z (embed.norm -> per-block norm_out -> stamps.input_norm), multiplied back into
+        # every amp inside StampBank (see StampBank._decode_atoms). Masked positions get
+        # 1.0: their true patch is hidden from the encoder, so feeding its RMS would leak
+        # the target's amplitude into masked reconstruction — the encoder must predict a
+        # masked patch's loudness through z, same as it always did.
+        rms = x_target.pow(2).mean(dim=-1, keepdim=True).sqrt()  # [T, 1]
+        if bool_masked_pos is not None:
+            rms = torch.where(bool_masked_pos.reshape(B * C * N, 1), torch.ones_like(rms), rms)
+
+        out = self.stamps(z_flat, x_target=x_target, rms=rms)
 
         recon = out.recon.reshape(B, C, N, L)
 
@@ -289,6 +299,7 @@ class MeSAEFlatPretrain(nn.Module):
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
             decorr_loss=out.decorr_loss,
             indep_loss=out.indep_loss,
+            sparsity_loss=out.sparsity_loss,
             valid_channels=valid_channels,
         )
 
@@ -355,6 +366,7 @@ class MeSAEFlatPretrain(nn.Module):
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
                  decorr_loss=None, decorr_weight=0.01,
                  indep_loss=None, indep_weight=0.01,
+                 sparsity_loss=None, sparsity_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
         """
         Returns (total, l_masked, l_unmasked).
@@ -382,8 +394,12 @@ class MeSAEFlatPretrain(nn.Module):
         W_down and goes fully inert once frozen), its purpose is shaping StampBank's own
         dictionary structure during the Tokenizer stage, not steering the encoder during
         masked reconstruction — kept scoped to match decorr_loss rather than carved out
-        as a special case. StampBank has no load-balance loss of its own — dropped
-        deliberately, see StampBank.forward docstring.
+        as a special case. sparsity_loss (StampBank.sparsity_loss — L1 on selected
+        routed atoms' amp, the actual differentiable "does this token need this atom"
+        pressure) is scoped the same way too: its only purpose is letting the Tokenizer
+        stage's dictionary learn which atoms a token can drop, dropping it once frozen
+        for the same reason as decorr_loss/indep_loss. StampBank has no load-balance
+        loss of its own — dropped deliberately, see StampBank.forward docstring.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
@@ -400,6 +416,8 @@ class MeSAEFlatPretrain(nn.Module):
                 total = total + decorr_weight * decorr_loss
             if indep_loss is not None:
                 total = total + indep_weight * indep_loss
+            if sparsity_loss is not None:
+                total = total + sparsity_weight * sparsity_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
         return total, l_masked, l_unmasked
