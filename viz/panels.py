@@ -237,7 +237,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
                         psd_ch_x, psd_x, freqs, importance, cmap='YlOrRd',
                         subject_id=None, trial_idx=None, epoch_tag='',
                         unit_label='Stamp', unit_colors=None, unit_ids=None, n_routed=None,
-                        shared_color='crimson', n_per_row=5):
+                        shared_color='crimson', n_per_row=5, iclabel_probs=None):
     """
     Standalone whole-trial panel — split out of plot_topo_psd_by_patch's old header row
     (see that function's docstring) so the trial-wide Raw/Full-Recon view and every stamp
@@ -262,6 +262,13 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     global stamp ids for row labels/color (see plot_stamp_panel's unit_ids doc) — falls
     back to row position if None. All topo/PSD cells are log1p-scaled (see _log_pow),
     same reasoning as plot_topo_psd_by_patch.
+
+    iclabel_probs: optional [Q, 7] ICLabel class distribution per stamp
+    (viz.iclabel.ICLABEL_CLASSES order) — when given, each stamp block grows a third
+    row under its PSD: a small bar chart of the 7 class probabilities, best class
+    named in the bar row's title (see viz/iclabel.py, including the caveat that these
+    are interpretability hints, not calibrated probabilities). None keeps the old
+    two-row layout.
     """
     Q = psd_ch_x.shape[1]
     display_ids = np.arange(Q) if unit_ids is None else np.asarray(unit_ids)
@@ -276,16 +283,20 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     # height under constrained_layout or the rest of its row goes blank trying to keep
     # that aspect square.
     col_w, psd_h, bar_w = 2.6, 1.7, 3.5
+    icl_h = 0.9  # ICLabel bar row height (only present when iclabel_probs given)
+    rows_per_block = 3 if iclabel_probs is not None else 2
+    block_h = col_w + psd_h + (icl_h if iclabel_probs is not None else 0)
     n_stamp_rows = math.ceil(Q / n_per_row) if Q else 0
     n_cols = max(2, n_per_row)  # header needs 2 blocks (Raw, Full Recon)
     header_rows = 2  # topo row, psd row
-    total_rows = header_rows + n_stamp_rows * 2
+    total_rows = header_rows + n_stamp_rows * rows_per_block
     suptitle_in, margin_in = 1.6, 0.15
     fig_w = col_w * n_cols + bar_w
-    fig_h = (col_w + psd_h) * (1 + n_stamp_rows) + suptitle_in + margin_in
+    fig_h = (col_w + psd_h) + block_h * n_stamp_rows + suptitle_in + margin_in
+    block_ratios = [col_w, psd_h] + ([icl_h] if iclabel_probs is not None else [])
     fig = plt.figure(figsize=(fig_w, fig_h))
     gs = fig.add_gridspec(total_rows, n_cols + 1,
-                           height_ratios=[col_w, psd_h] * (1 + n_stamp_rows),
+                           height_ratios=[col_w, psd_h] + block_ratios * n_stamp_rows,
                            width_ratios=[col_w] * n_cols + [bar_w],
                            left=0.02, right=0.98, top=1 - suptitle_in / fig_h, bottom=margin_in / fig_h,
                            hspace=0.6, wspace=0.35)
@@ -333,19 +344,45 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
             return unit_colors[q]
         return shared_color if n_routed is not None and int(display_ids[q]) >= n_routed else 'black'
 
+    def _iclabel_cell(row, col, probs_q):
+        # 7-class ICLabel distribution bar (see viz/iclabel.py, incl. its caveat) —
+        # best class named in the title, its bar highlighted.
+        from viz.iclabel import ICLABEL_CLASSES
+        ax = fig.add_subplot(gs[row, col])
+        if probs_q is None or not np.all(np.isfinite(probs_q)):
+            # a stamp selected on very few patches has a near-all-zero stitched
+            # activity — autocorr/psd features degenerate to NaN there; label it
+            # honestly instead of argmaxing garbage.
+            ax.axis('off')
+            ax.set_title('ICLabel: n/a (too sparse)', fontsize=7, color='gray')
+            return
+        best = int(np.argmax(probs_q))
+        colors = ['dimgray'] * len(ICLABEL_CLASSES)
+        colors[best] = 'seagreen' if ICLABEL_CLASSES[best] == 'Brain' else 'darkorange'
+        ax.bar(range(len(ICLABEL_CLASSES)), probs_q, color=colors)
+        ax.set_ylim(0, 1)
+        ax.set_xticks(range(len(ICLABEL_CLASSES)))
+        ax.set_xticklabels(ICLABEL_CLASSES, fontsize=5, rotation=45)
+        ax.set_yticks([0, 1])
+        ax.tick_params(axis='y', labelsize=5)
+        ax.set_title(f'ICLabel: {ICLABEL_CLASSES[best]} {probs_q[best]:.2f}',
+                     fontsize=7, fontweight='bold')
+
     for i, q in enumerate(order):
         block_row, block_col = divmod(i, n_per_row)
-        topo_row = header_rows + block_row * 2
+        topo_row = header_rows + block_row * rows_per_block
         sid = int(display_ids[q])
         color = _stamp_color(q)
         label = f'{unit_label} {sid} ({importance[q]:.3f})'
         _cell(topo_row, block_col, psd_ch_x[:, q], psd_x[q], label, color, signed=True)
+        if iclabel_probs is not None:
+            _iclabel_cell(topo_row + 2, block_col, iclabel_probs[q])
 
     for i in range(Q, n_stamp_rows * n_per_row):
         block_row, block_col = divmod(i, n_per_row)
-        topo_row = header_rows + block_row * 2
-        fig.add_subplot(gs[topo_row, block_col]).axis('off')
-        fig.add_subplot(gs[topo_row + 1, block_col]).axis('off')
+        topo_row = header_rows + block_row * rows_per_block
+        for r in range(rows_per_block):
+            fig.add_subplot(gs[topo_row + r, block_col]).axis('off')
 
     if Q > 0:
         ax_bar = fig.add_subplot(gs[header_rows:, n_cols])

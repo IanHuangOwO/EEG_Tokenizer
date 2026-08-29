@@ -15,6 +15,7 @@ per-model-ownership rationale as docs/adr/0006.
 """
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import numpy as np
 import torch
@@ -412,7 +413,11 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
     amp_topo = (ab * ref).sum(dim=-1)                              # [Qu, C] signed projection
 
     fp = fp_full[used_ids]           # [Qu, C, patch_len]
-    return used_ids, importance, fp, amp_topo
+    # raw selection objects, for callers that need per-patch detail beyond the
+    # trial-averaged fp/amp_topo (the ICLabel pseudo-activity builder in
+    # extract_flat_stamp_gallery)
+    sel = SimpleNamespace(idx=idx, amp=out.amp)
+    return used_ids, importance, fp, amp_topo, sel
 
 
 @torch.no_grad()
@@ -428,7 +433,7 @@ def extract_flat_stamp_psd(model, x: torch.Tensor, coords: torch.Tensor,
     norms/affinity — same formulas as extract_filter_psd, off the same fp.
     importance — [Qu] accumulated selection strength (sum over channels AND patches).
     """
-    used_ids, stamp_importance, fp, _amp_topo = _used_flat_stamps(
+    used_ids, stamp_importance, fp, _amp_topo, _sel = _used_flat_stamps(
         model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=100)
     flat = fp.reshape(fp.shape[0], -1)
 
@@ -455,9 +460,12 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     Returns (used_ids [Qu] np.ndarray, importance [Qu] np.ndarray, psd_ch_x [C, Qu]
     np.ndarray — SIGNED trial-mean amp per channel (the mixing/topomap column,
     rendered as a diverging RdBu topo by plot_stamp_gallery — polarity is the dipole
-    structure), psd_x [Qu, C, F] np.ndarray, freqs [F] np.ndarray).
+    structure), psd_x [Qu, C, F] np.ndarray, freqs [F] np.ndarray, iclabel_probs
+    [Qu, 7] np.ndarray or None — per-stamp ICLabel class distribution
+    (viz.iclabel.ICLABEL_CLASSES order; None when mne-icalabel is unavailable or the
+    pipeline fails, see viz/iclabel.py's caveat on interpreting these)).
     """
-    used_ids, importance, fp, amp_topo = _used_flat_stamps(
+    used_ids, importance, fp, amp_topo, sel = _used_flat_stamps(
         model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=max_stamps)
     psd_ch_x = amp_topo.permute(1, 0).cpu().numpy()  # [C, Qu] signed
 
@@ -469,7 +477,32 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     psd_x = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
 
-    return used_ids.cpu().numpy(), importance, psd_ch_x, psd_x, freqs
+    # --- ICLabel pseudo-IC classification (see viz/iclabel.py, incl. the caveat) ---
+    # activity per used stamp: at every patch that selected it, the stamp's decoded
+    # waveform at its strongest valid channel's gain pair (the cleanest single-channel
+    # view of the source's own time course), stitched at patch slots, zeros elsewhere.
+    from viz.iclabel import stamp_iclabel_probs
+    D_all, H_all = model.stamps._template_tables()          # [n_stamps, L]
+    N, K = sel.idx.shape
+    L = D_all.shape[1]
+    C = x.shape[1]
+    vc = valid_channels[0].bool() if valid_channels is not None \
+        else torch.ones(C, dtype=torch.bool, device=x.device)
+    mag = sel.amp.pow(2).sum(-1)                            # [N, C, K]
+    mag = mag.masked_fill(~vc.view(1, C, 1), 0.0)
+    acts = torch.zeros(len(used_ids), N * L)
+    for qi, sid in enumerate(used_ids.tolist()):
+        hit = sel.idx == sid                                # [N, K] — <=1 slot per patch
+        for n in hit.any(dim=1).nonzero(as_tuple=True)[0].tolist():
+            k = int(hit[n].float().argmax())
+            c = int(mag[n, :, k].argmax())
+            a, b = sel.amp[n, c, k, 0], sel.amp[n, c, k, 1]
+            acts[qi, n * L:(n + 1) * L] = (a * D_all[sid] + b * H_all[sid]).cpu()
+    mixing = amp_topo[:, vc.cpu()].permute(1, 0).cpu().numpy()   # [Cv, Qu] signed
+    ch_pos = coords[0, vc].cpu().numpy()                          # [Cv, 3]
+    iclabel_probs = stamp_iclabel_probs(ch_pos, fs or 1.0, mixing, acts.numpy())
+
+    return used_ids.cpu().numpy(), importance, psd_ch_x, psd_x, freqs, iclabel_probs
 
 
 @torch.no_grad()
