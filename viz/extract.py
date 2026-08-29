@@ -357,7 +357,8 @@ def extract_filter_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
 
 @torch.no_grad()
 def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
-    """(used_ids [Qu], importance [Qu], fp [Qu, C, patch_len]) — grouped-StampBank
+    """(used_ids [Qu], importance [Qu], fp [Qu, C, patch_len], amp_topo [Qu, C] SIGNED
+    trial-mean per-channel amp — the mixing/topomap column) — grouped-StampBank
     analog of _used_stamps. Selection is per PATCH POSITION now (shared by all C
     channels, see MeSAEFlat_modules.StampBank class docstring), so importance is the
     accumulated selection confidence h over the patches that picked each used stamp,
@@ -397,8 +398,16 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
     buf.index_add_(0, idx.reshape(-1), contribution.permute(0, 2, 1, 3).reshape(N * K, C, patch_len))
     fp_full = buf / N  # unselected patches dilute toward 0
 
-    fp = fp_full[used_ids]  # [Qu, C, patch_len]
-    return used_ids, importance, fp
+    # SIGNED per-channel mean amp per stamp — the trial-averaged mixing/topomap column
+    # (amp*rms, signed: polarity IS the dipole structure, see plot panels' RdBu cells).
+    # fp.norm would lose the sign; this keeps it.
+    buf_amp = out.amp.new_zeros(n_stamps, C)
+    buf_amp.index_add_(0, idx.reshape(-1), out.amp.permute(0, 2, 1).reshape(N * K, C))
+    amp_topo_full = buf_amp / N
+
+    fp = fp_full[used_ids]           # [Qu, C, patch_len]
+    amp_topo = amp_topo_full[used_ids]  # [Qu, C] signed
+    return used_ids, importance, fp, amp_topo
 
 
 @torch.no_grad()
@@ -414,7 +423,7 @@ def extract_flat_stamp_psd(model, x: torch.Tensor, coords: torch.Tensor,
     norms/affinity — same formulas as extract_filter_psd, off the same fp.
     importance — [Qu] accumulated selection strength (sum over channels AND patches).
     """
-    used_ids, stamp_importance, fp = _used_flat_stamps(
+    used_ids, stamp_importance, fp, _amp_topo = _used_flat_stamps(
         model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=100)
     flat = fp.reshape(fp.shape[0], -1)
 
@@ -439,11 +448,13 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     this is a bespoke one-off panel, not the generic per-model dispatch path.
 
     Returns (used_ids [Qu] np.ndarray, importance [Qu] np.ndarray, psd_ch_x [C, Qu]
-    np.ndarray, psd_x [Qu, C, F] np.ndarray, freqs [F] np.ndarray).
+    np.ndarray — SIGNED trial-mean amp per channel (the mixing/topomap column,
+    rendered as a diverging RdBu topo by plot_stamp_gallery — polarity is the dipole
+    structure), psd_x [Qu, C, F] np.ndarray, freqs [F] np.ndarray).
     """
-    used_ids, importance, fp = _used_flat_stamps(
+    used_ids, importance, fp, amp_topo = _used_flat_stamps(
         model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=max_stamps)
-    psd_ch_x = fp.norm(dim=-1).permute(1, 0).cpu().numpy()  # [C, Qu]
+    psd_ch_x = amp_topo.permute(1, 0).cpu().numpy()  # [C, Qu] signed
 
     patch_len = fp.shape[-1]
     n_fft = patch_len
@@ -507,7 +518,11 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
     fft_c = _demean_hann_rfft(grid_contrib.float(), n_fft)  # [P, Kd, C, F]
     psd = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
-    topo = grid_contrib.norm(dim=-1).cpu().numpy()  # [P, Kd, C] — |amp*rms| per channel
+    # SIGNED amp*rms per channel, not the contribution norm: with unit D_hat they're
+    # equal in magnitude, but the sign carries the dipole polarity (a source arriving
+    # 180-degrees flipped at some channels is the defining visual of a mixing column) —
+    # rendered as a diverging RdBu topo by plot_topo_psd_by_patch's stamp cells.
+    topo = out.amp[sel][:, :, :Kd].permute(0, 2, 1).cpu().numpy()  # [P, Kd, C] signed
 
     # Real per-patch, per-channel full reconstruction — ALL K slots summed (StampBank.
     # forward's recon for this patch), not just the Kd displayed ones.

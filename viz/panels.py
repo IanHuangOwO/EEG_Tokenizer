@@ -87,10 +87,20 @@ def _log_pow(x):
     return np.log1p(np.maximum(x, 0.0))
 
 
+def _log_signed(x):
+    """Signed counterpart of _log_pow for quantities where polarity matters (a stamp's
+    per-channel amp — its mixing/topomap column): sign(x)*log1p(|x|). Odd function, 0
+    maps to exactly 0, magnitudes compress the same way _log_pow's do, sign survives —
+    so a symmetric diverging color scale centered on 0 stays meaningful after the
+    transform."""
+    return np.sign(x) * np.log1p(np.abs(x))
+
+
 def plot_topo_psd_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
                             trial_idx=None, epoch_tag='', unit_label='Stamp',
                             n_routed=None, shared_color='crimson',
-                            raw_power=None, recon_power=None, psd_raw=None, psd_recon=None):
+                            raw_power=None, recon_power=None, psd_raw=None, psd_recon=None,
+                            signed_stamps=False):
     """
     One column PER SAMPLED PATCH, topo+PSD side by side within a column (one column pair
     of subplot-columns). Row 0: each patch's own real raw input (grid.raw_topo/raw_psd).
@@ -117,6 +127,10 @@ def plot_topo_psd_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None
     shared stamps (same routed-then-shared layout StampBank.forward's idx uses, see
     PatchGridResult docstring), titled in shared_color instead of black. None disables
     the shared/routed title-color split.
+
+    signed_stamps: True when grid.topo carries SIGNED per-channel amps (MeSAEFlat's
+    grouped StampBank — the mixing/topomap column, see _cell's signed branch); False
+    (default) for unsigned norm-based topos (pooled MeSAE's extract_filter_psd_by_patch).
     """
     patch_ids, stamp_ids, topo, psd, h, freqs = (
         grid.patch_ids, grid.stamp_ids, grid.topo, grid.psd, grid.h, grid.freqs)
@@ -136,22 +150,28 @@ def plot_topo_psd_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None
 
     triang = build_triangulation(pos2d)
 
-    def _cell(row, col_pair, power, psd_cf, label, color):
-        # vmin pinned to 0 (not power.min()/psd_cf.min()) — both are nonnegative by
-        # construction (topo is an L2 norm, psd is real^2+imag^2), and 0 has a specific
-        # meaning for flat-token StampBank's zero-filled channels (see
-        # viz.extract.extract_flat_stamp_psd_by_patch): a channel that never selected
-        # this stamp is EXACTLY 0. Anchoring the colormap floor there instead of to
-        # whatever this one cell's min happens to be makes "unused" read as the same
-        # color everywhere, and keeps a fully-spread stamp (no true zero channel in this
-        # cell) from having its least-active channel painted as if it were unused.
-        # vmax stays per-cell (power.max()/psd_cf.max()) so each stamp's own peak still
-        # uses the full color range — that part already gave each stamp's channel row one
-        # shared scale, this only fixes the floor.
-        power, psd_cf = _log_pow(power), _log_pow(psd_cf)
+    def _cell(row, col_pair, power, psd_cf, label, color, signed=False):
+        # Unsigned cells (raw/recon power): vmin pinned to 0 — power is nonnegative by
+        # construction, sequential cmap, per-cell vmax so each cell's own peak uses the
+        # full range.
+        # Signed cells (stamp topo = the stamp's per-channel amp, its mixing/topomap
+        # column — see viz.extract.extract_flat_stamp_psd_by_patch): diverging RdBu_r
+        # with SYMMETRIC limits so 0 = white and polarity reads directly — a dipolar
+        # source's positive and negative lobes are the whole point of the plot; the old
+        # abs+sequential rendering made a dipole look like two disconnected same-color
+        # blobs, indistinguishable from two co-located sources. PSD stays unsigned
+        # either way (real^2+imag^2).
+        psd_cf = _log_pow(psd_cf)
         ax_topo, ax_psd = axes[row, col_pair * 2], axes[row, col_pair * 2 + 1]
-        im_t = draw_topomap(ax_topo, pos2d, power, cmap=cmap,
-                             vmin=0.0, vmax=max(power.max(), 1e-12), triang=triang)
+        if signed:
+            v = _log_signed(power)
+            vlim = max(np.abs(v).max(), 1e-12)
+            im_t = draw_topomap(ax_topo, pos2d, v, cmap='RdBu_r',
+                                 vmin=-vlim, vmax=vlim, triang=triang)
+        else:
+            v = _log_pow(power)
+            im_t = draw_topomap(ax_topo, pos2d, v, cmap=cmap,
+                                 vmin=0.0, vmax=max(v.max(), 1e-12), triang=triang)
         ax_topo.set_title(f'{label} Topo', fontsize=8, fontweight='bold', color=color)
         fig.colorbar(im_t, ax=ax_topo, fraction=0.05, pad=0.02)
 
@@ -205,7 +225,7 @@ def plot_topo_psd_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None
                 continue
             color = shared_color if n_routed is not None and sid >= n_routed else 'black'
             label = f'P{patch_ids[pi]} {unit_label[0]}{sid} (h={h[pi, ki]:.2f})'
-            _cell(krow, pi, topo[pi, ki], psd[pi, ki], label, color)
+            _cell(krow, pi, topo[pi, ki], psd[pi, ki], label, color, signed=signed_stamps)
         _blank_rest(krow, P)
 
     fig.text(0.5, 0.005, 'PSD y-axis: Channel (Iz -> Fp1) — log1p scale', ha='center', fontsize=8)
@@ -273,11 +293,22 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
                  f"({unit_label}s sorted by accumulated importance) — "
                  f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=13, fontweight='bold')
 
-    def _cell(topo_row, col, power, psd_cf, label, color):
-        power, psd_cf = _log_pow(power), _log_pow(psd_cf)
+    def _cell(topo_row, col, power, psd_cf, label, color, signed=False):
+        # signed: stamp topos are the SIGNED trial-mean per-channel amp (the mixing/
+        # topomap column, see extract_flat_stamp_gallery) — diverging RdBu_r, symmetric
+        # limits, 0 = white, so dipole polarity reads directly (same rationale as
+        # plot_topo_psd_by_patch's stamp cells). Raw/Recon header stays unsigned power.
+        psd_cf = _log_pow(psd_cf)
         ax_topo = fig.add_subplot(gs[topo_row, col])
-        im_t = draw_topomap(ax_topo, pos2d, power, cmap=cmap,
-                             vmin=0.0, vmax=max(power.max(), 1e-12), triang=triang)
+        if signed:
+            v = _log_signed(power)
+            vlim = max(np.abs(v).max(), 1e-12)
+            im_t = draw_topomap(ax_topo, pos2d, v, cmap='RdBu_r',
+                                 vmin=-vlim, vmax=vlim, triang=triang)
+        else:
+            v = _log_pow(power)
+            im_t = draw_topomap(ax_topo, pos2d, v, cmap=cmap,
+                                 vmin=0.0, vmax=max(v.max(), 1e-12), triang=triang)
         ax_topo.set_title(f'{label}\nTopo', fontsize=8, fontweight='bold', color=color)
         fig.colorbar(im_t, ax=ax_topo, fraction=0.05, pad=0.02)
 
@@ -308,7 +339,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         sid = int(display_ids[q])
         color = _stamp_color(q)
         label = f'{unit_label} {sid} ({importance[q]:.3f})'
-        _cell(topo_row, block_col, psd_ch_x[:, q], psd_x[q], label, color)
+        _cell(topo_row, block_col, psd_ch_x[:, q], psd_x[q], label, color, signed=True)
 
     for i in range(Q, n_stamp_rows * n_per_row):
         block_row, block_col = divmod(i, n_per_row)

@@ -230,6 +230,7 @@ class MeSAEFlatChecker(BaseEpochChecker):
             out_path, pos2d, grid, cmap=cmap,
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
             unit_label=self.unit_label, n_routed=model.n_routed_stamps,
+            signed_stamps=True,  # grid.topo is signed amp (mixing columns), see extract_flat_stamp_psd_by_patch
         )
         print(f"  [epoch] -> {out_path}")
 
