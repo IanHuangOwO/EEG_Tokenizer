@@ -313,21 +313,15 @@ class MeSAEFlatCodebookChecker(BaseCodebookChecker):
         section: no per-atom x per-feature F axis exists anymore, so this replaces the
         retired out.sae_hidden).
 
-        Flat-token StampBank dispatches per (channel, patch) token (see
-        MeSAEFlat_modules.StampBank), so out.dense_routed's row axis is T=C*N, channel-major
-        (row t = c*N + n, same layout viz.extract._stamp_selection uses) — every
-        downstream consumer of extract_usage (plot_patch_position_consistency in
-        particular) expects one row per patch POSITION, comparable across trials of the
-        same dataset, not C*N channel-patch pairs. Mean over channels collapses back to
-        that [N, n_stamps] shape instead of silently leaking C*N rows as if they were N
-        patch positions (that mismatch is what made patch_position_consistency panels
-        ~C times wider than real N, one column per (channel, patch) instead of per patch)."""
+        StampBank selects per patch position now (group selection, see its class
+        docstring), so out.dense_routed is already [G=N, n_routed] for a B=1 trial —
+        no channel-mean collapse needed anymore (the old per-token version averaged
+        C*N rows down to N here)."""
         B, C, N, L = x_in.shape
         out = model(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
         shared = out.dense_routed.new_full((out.dense_routed.shape[0], model.n_shared_stamps), model.shared_weight)
-        dense_full = torch.cat([out.dense_routed, shared], dim=-1)  # [T, n_stamps], T = C*N
-        per_patch = dense_full.reshape(C, N, -1).mean(dim=0)  # [N, n_stamps]
-        return per_patch.detach().cpu().numpy()
+        dense_full = torch.cat([out.dense_routed, shared], dim=-1)  # [N, n_stamps] (G = N, B=1)
+        return dense_full.detach().cpu().numpy()
 
     def decoder_fingerprint_matrix(self, model):
         """Per-stamp [patch_len] waveform template D_i (see StampBank.fingerprint —
@@ -359,20 +353,21 @@ class MeSAEFlatCodebookChecker(BaseCodebookChecker):
         samples up front."""
         B, C, N, L = x_in.shape
         z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
-        z_flat = z.reshape(B * C * N, -1)
+        z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)   # [G, C, D], G = N (B=1)
+        x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
         # rms must match the training path (see MeSAEFlatPretrain.forward) — without it
         # amp lacks its raw-amplitude factor and every panel shows systematically
         # mis-scaled contributions.
-        rms = x_in.reshape(B * C * N, L).pow(2).mean(dim=-1, keepdim=True).sqrt()
-        out = model.stamps(z_flat, x_target=None, rms=rms)
-        idx, h = out.idx, out.h
-        contribution, _z_h, _amp_r = model.stamps.decode_selected(idx, h, z_flat, rms=rms)  # [T, K, patch_len]
-        T, K, patch_len = contribution.shape
+        rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
+        vc_g = vc_in.unsqueeze(1).expand(B, N, C).reshape(B * N, C) if vc_in is not None else None
+        out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vc_g)
+        contribution = model.stamps.decode_selected(out.idx, out.amp)  # [G, C, K, patch_len]
+        G, _, K, patch_len = contribution.shape
         n_stamps = model.n_stamps
 
-        dense = contribution.new_zeros(T, n_stamps, patch_len)
-        dense.scatter_(1, idx.unsqueeze(-1).expand(-1, -1, patch_len), contribution)
-        return dense.reshape(C, N, n_stamps, patch_len).cpu().numpy()
+        dense = contribution.new_zeros(G, C, n_stamps, patch_len)
+        dense.scatter_(2, out.idx.view(G, 1, K, 1).expand(G, C, K, patch_len), contribution)
+        return dense.permute(1, 0, 2, 3).cpu().numpy()  # [C, N, n_stamps, patch_len]
 
     def _render_patch_similarity(self, trial_records, viz_dir, model, device, seed):
         """Overrides the base's usage/gating-based hierarchy panel (patch_similarity_

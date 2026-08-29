@@ -251,16 +251,17 @@ class MeSAEFlatPretrain(nn.Module):
         bool_masked_pos: [B, C, N] bool — None during the Tokenizer stage (no masking);
         pass real masks only in the Masked stage, once temporal/spatial mixing are enabled
         and the stamps are frozen (see enable_temporal/enable_spatial/freeze_stamps).
-        valid_channels: [B, C] bool, True=real (not zero-padded) channel, or None. Unused
-        by StampBank itself — there's no cross-channel pool left to mask (see
-        MeSAEFlat_modules.StampBank class docstring), a padded channel's tokens just flow
-        through and get reconstructed like any other. Carried through on the returned
-        SimpleNamespace instead so get_loss/_recon_loss can exclude padded
-        channels from the loss (see get_loss) — a zero-padded channel's "reconstruction"
-        is meaningless signal, not a real target.
-        returns SimpleNamespace(recon [B,C,N,L], h [T,Q] selection strengths,
-        dense_routed [T,n_routed_stamps] (diagnostic selection-frequency source, T =
-        B*C*N flat tokens), aux_loss scalar, ffn_lb_loss scalar (TSABlock MoEFFN routers,
+        valid_channels: [B, C] bool, True=real (not zero-padded) channel, or None. Used
+        two ways now: (1) passed into StampBank so a padded channel's encoder-bias amp
+        noise doesn't vote in the per-patch group selection score (see
+        StampBank.forward), and (2) carried through on the returned SimpleNamespace so
+        get_loss/_recon_loss can exclude padded channels from the loss (see get_loss) —
+        a zero-padded channel's "reconstruction" is meaningless signal, not a real
+        target. Padded channels still decode/reconstruct like any other.
+        returns SimpleNamespace(recon [B,C,N,L], h [G,Q] selection confidences,
+        dense_routed [G,n_routed_stamps] (diagnostic selection-frequency source, G =
+        B*N patch positions — group-level selection, see StampBank), aux_loss scalar,
+        ffn_lb_loss scalar (TSABlock MoEFFN routers,
         summed across blocks — StampBank has no load-balance loss of its own, see
         StampBank.forward). No `attn` anymore — there is no cross-channel pool left to
         produce a channel-attention map from.
@@ -268,25 +269,35 @@ class MeSAEFlatPretrain(nn.Module):
         B, C, N, L = x.shape
 
         z, ffn_lb_loss = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos)  # [B, C, N, D]
-        # B,C,N are adjacent and already in this order — merging them is a safe reshape
-        # (docs/agents/reshape-pitfalls.md), not a permute-then-merge like the retired
-        # _pool_channels/_flatten_patches this replaces.
-        z_flat = z.reshape(B * C * N, -1)      # [T, D], T = B*C*N
-        x_target = x.reshape(B * C * N, L)     # [T, L] — aux-rescue target, see StampBank.forward
+        # Channel-grouped layout for StampBank: [B, C, N, *] -> permute to [B, N, C, *]
+        # then merge (B, N) — adjacent after the permute, so the merge is a safe reshape
+        # (docs/agents/reshape-pitfalls.md; permute forces a copy, contiguity handled by
+        # reshape itself). One group = one patch position with all its channels — the
+        # unit StampBank selects stamps for (see its class docstring).
+        G = B * N
+        z_g = z.permute(0, 2, 1, 3).reshape(G, C, -1)          # [G, C, D]
+        x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)           # [G, C, L] — aux-rescue target
 
-        # Per-token raw-input RMS — the amplitude signal the LayerNorm stack erased from
-        # z (embed.norm -> per-block norm_out -> stamps.input_norm), multiplied back into
-        # every amp inside StampBank (see StampBank._decode_atoms). Masked positions get
-        # 1.0: their true patch is hidden from the encoder, so feeding its RMS would leak
-        # the target's amplitude into masked reconstruction — the encoder must predict a
-        # masked patch's loudness through z, same as it always did.
-        rms = x_target.pow(2).mean(dim=-1, keepdim=True).sqrt()  # [T, 1]
+        # Per-channel raw-input RMS — the amplitude signal the LayerNorm stack erased
+        # from z (embed.norm -> per-block norm_out -> stamps.input_norm), multiplied back
+        # into every amp inside StampBank. Masked positions get 1.0: their true patch is
+        # hidden from the encoder, so feeding its RMS would leak the target's amplitude
+        # into masked reconstruction — the encoder must predict a masked patch's loudness
+        # through z, same as it always did.
+        rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()     # [G, C, 1]
         if bool_masked_pos is not None:
-            rms = torch.where(bool_masked_pos.reshape(B * C * N, 1), torch.ones_like(rms), rms)
+            mask_g = bool_masked_pos.permute(0, 2, 1).reshape(G, C, 1)
+            rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        out = self.stamps(z_flat, x_target=x_target, rms=rms)
+        vc_g = None
+        if valid_channels is not None:
+            # [B, C] -> broadcast over N -> [G, C]; group score should only count real
+            # channels' amp energy (see StampBank.forward's valid_channels docstring).
+            vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(G, C)
 
-        recon = out.recon.reshape(B, C, N, L)
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
+
+        recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 
         return SimpleNamespace(
             recon=recon,

@@ -356,27 +356,30 @@ def extract_filter_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
 # ==========================================
 
 @torch.no_grad()
-def _used_flat_stamps(model, x, coords, time_idx=None, max_stamps=100):
-    """(used_ids [Qu], importance [Qu], fp [Qu, C, patch_len]) — flat-token StampBank
-    analog of _used_stamps. importance is the accumulated selection strength (sum of h
-    over every channel AND patch that picked each used stamp, trial-wide) — see
-    extract_flat_stamp_psd_by_patch's docstring for the same accumulation rule applied to
-    one patch instead of the whole trial. fp is built by decoding every real (channel,
-    patch) token (StampBank.decode_selected) and, per used stamp, zero-filling every
-    (channel, patch) combination that stamp was never actually selected at before
-    averaging over patches — a channel/patch a stamp never fired at contributes an
-    explicit 0, not a suppressed real decode, so fp directly reads as "how present is this
-    stamp in this channel, trial-wide" rather than "what would this stamp output here if
-    forced to fire"."""
+def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
+    """(used_ids [Qu], importance [Qu], fp [Qu, C, patch_len]) — grouped-StampBank
+    analog of _used_stamps. Selection is per PATCH POSITION now (shared by all C
+    channels, see MeSAEFlat_modules.StampBank class docstring), so importance is the
+    accumulated selection confidence h over the patches that picked each used stamp,
+    and fp is each used stamp's per-channel contribution (amp_c * rms_c * D_hat, the
+    stamp's real mixing/topomap content) averaged over ALL N patches — a patch that
+    didn't select the stamp contributes an explicit 0 (dilution toward 0, same
+    convention as before), but WITHIN a selected patch every channel now has a real
+    dense amp value: the per-channel zero-holes of the old per-token selection (a
+    channel that lost the top-k race showing 0 despite genuinely containing the
+    source) are gone by construction."""
     z, _ = model.stage_features(x, coords, time_idx=time_idx)  # [1, C, N, D]
     B, C, N, D = z.shape
-    z_flat = z.reshape(B * C * N, D)  # [T, D], T = C*N (B=1)
+    z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
+    x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)
     # rms must match the training path (see MeSAEFlatPretrain.forward) — contribution
     # is amp*rms*D_hat, so without rms every decoded panel is mis-scaled.
-    rms = x.reshape(B * C * N, -1).pow(2).mean(dim=-1, keepdim=True).sqrt()
+    rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
+    vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C) \
+        if valid_channels is not None else None
 
-    out = model.stamps(z_flat, x_target=None, rms=rms)  # eval-mode call, aux/dead-atom path never runs
-    idx, h = out.idx, out.h  # [T, K]
+    out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vc_g)  # eval-mode call
+    idx, h = out.idx, out.h  # [N, K]
     K = idx.shape[1]
     n_stamps = model.n_stamps
 
@@ -385,24 +388,16 @@ def _used_flat_stamps(model, x, coords, time_idx=None, max_stamps=100):
     used_ids = model.used_stamp_ids(out, max_stamps=max_stamps)
     importance = dense_imp[used_ids].cpu().numpy()
 
-    contribution, _z_h, _amp_r = model.stamps.decode_selected(idx, h, z_flat, rms=rms)  # [T, K, patch_len]
+    contribution = model.stamps.decode_selected(idx, out.amp)  # [N, C, K, patch_len]
     patch_len = contribution.shape[-1]
 
-    contribution = contribution.reshape(C, N, K, patch_len)
-    idx_cnk = idx.reshape(C, N, K)
-    # Fold channel into the scatter target (c*n_stamps + stamp_id) so one index_add_ does
-    # the whole per-channel zero-fill accumulation — every (c, n, k) that never hits a
-    # given (c, stamp) pair contributes nothing to that pair's sum, and dividing by N
-    # (not by hit-count) below is what turns "never hit" into "diluted toward 0" rather
-    # than "excluded from the average".
-    c_idx = torch.arange(C, device=z.device).view(C, 1, 1).expand(C, N, K).reshape(-1)
-    cs_idx = c_idx * n_stamps + idx_cnk.reshape(-1)  # [C*N*K]
+    # Accumulate per stamp over patches: group-major/slot-minor flatten of idx matches
+    # the same flatten of contribution's (N, K) axes.
+    buf = contribution.new_zeros(n_stamps, C, patch_len)
+    buf.index_add_(0, idx.reshape(-1), contribution.permute(0, 2, 1, 3).reshape(N * K, C, patch_len))
+    fp_full = buf / N  # unselected patches dilute toward 0
 
-    sum_buf = contribution.new_zeros(C * n_stamps, patch_len)
-    sum_buf.index_add_(0, cs_idx, contribution.reshape(-1, patch_len))
-    fp_full = sum_buf.reshape(C, n_stamps, patch_len) / N  # zero-filled patches dilute toward 0
-
-    fp = fp_full[:, used_ids, :].permute(1, 0, 2)  # [Qu, C, patch_len]
+    fp = fp_full[used_ids]  # [Qu, C, patch_len]
     return used_ids, importance, fp
 
 
@@ -411,16 +406,16 @@ def extract_flat_stamp_psd(model, x: torch.Tensor, coords: torch.Tensor,
                             time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None) -> PsdResult:
     """
     MeSAEFlatPretrain analog of extract_filter_psd — see the module-section docstring
-    above for why this is a separate function rather than a shared one. valid_channels is
-    accepted for call-site compatibility but unused — a zero-padded channel just decodes
-    to its own (zero-valued) token, same as training.
+    above for why this is a separate function rather than a shared one. valid_channels
+    feeds the group selection score (see StampBank.forward), matching training.
 
     psd_ch_x — [C, Qu] per-stamp per-channel trial-averaged real-response norm (zero for
       channels that stamp never fired at), restricted to stamps used this trial.
     norms/affinity — same formulas as extract_filter_psd, off the same fp.
     importance — [Qu] accumulated selection strength (sum over channels AND patches).
     """
-    used_ids, stamp_importance, fp = _used_flat_stamps(model, x, coords, time_idx=time_idx, max_stamps=100)
+    used_ids, stamp_importance, fp = _used_flat_stamps(
+        model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=100)
     flat = fp.reshape(fp.shape[0], -1)
 
     stamp_norms = flat.norm(dim=-1).cpu().numpy()
@@ -446,7 +441,8 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     Returns (used_ids [Qu] np.ndarray, importance [Qu] np.ndarray, psd_ch_x [C, Qu]
     np.ndarray, psd_x [Qu, C, F] np.ndarray, freqs [F] np.ndarray).
     """
-    used_ids, importance, fp = _used_flat_stamps(model, x, coords, time_idx=time_idx, max_stamps=max_stamps)
+    used_ids, importance, fp = _used_flat_stamps(
+        model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=max_stamps)
     psd_ch_x = fp.norm(dim=-1).permute(1, 0).cpu().numpy()  # [C, Qu]
 
     patch_len = fp.shape[-1]
@@ -466,76 +462,44 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
                                      fs: float = None, freq_resolution: float = None,
                                      patch_stride: int = 1, k_display: int = None) -> PatchGridResult:
     """
-    MeSAEFlatPretrain analog of extract_filter_psd_by_patch. Flat-token StampBank picks
-    stamps independently PER (channel, patch) — there is no single shared top-k list for a
-    patch the way pooled MeSAE has one. For each sampled patch, this instead:
-      1. takes the UNION of stamps any of that patch's C channels individually selected,
-      2. ranks that union by ACCUMULATED importance (sum of h across every channel that
-         picked it, at THIS patch — same rule _used_flat_stamps uses trial-wide) and caps
-         it at k_display (default top_k+n_shared, the old fixed per-token K — a display
-         cap now, not a real per-patch total),
-      3. for every (channel, displayed stamp) pair, uses that channel's OWN real decoded
-         content if that channel actually selected the stamp, or an explicit ZERO if it
-         didn't — never a suppressed/undisplayed real decode. With a power scale shared
-         across a stamp's channel row (a viz/panels.py plotting concern, not this
-         function's — extraction stays raw), zero vs nonzero directly shows whether a
-         stamp fired narrowly (few nonzero channels) or spread broadly (most channels
-         nonzero) at that patch.
-    Patches whose real union is smaller than k_display are zero/-1-padded up to k_display
-    so every sampled patch returns a same-shape row — stamp_ids uses -1 as the pad
-    sentinel (never a real global id); topo/psd/h are exactly 0 at padded slots.
+    MeSAEFlatPretrain analog of extract_filter_psd_by_patch. StampBank selects ONE
+    top_k+n_shared stamp set per patch position, shared by all C channels (group
+    selection, see MeSAEFlat_modules.StampBank class docstring) — so the per-patch grid
+    is direct: slot k of patch n is a real global stamp id for every channel, and its
+    [C] row of decoded content is that stamp's actual dense per-channel contribution
+    (amp_c * rms_c * D_hat — the stamp's mixing/topomap column at that patch time, no
+    zero-holes). The old per-token union/zero-fill machinery (union of C independent
+    selections, importance-ranked, -1-padded) is gone with the architecture that
+    needed it.
 
-    h field here is repurposed from the pooled version's "that slot's own real selection
-    strength" to the same ACCUMULATED-across-channels importance _used_flat_stamps uses —
-    the pooled version had one token per (patch, slot) so a bare per-slot h already was
-    that; flat has C tokens per patch, so this sums them.
+    k_display, if given, keeps only the first k_display slots (routed slots come
+    score-ordered first, shared last — so a small k_display drops shared first).
+    h is the group's selection confidence per slot (softmax over routed group scores;
+    constant shared_weight at shared slots).
     """
     z, _ = model.stage_features(x, coords, time_idx=time_idx)  # [1, C, N, D]
     B, C, N, D = z.shape
-    z_flat = z.reshape(B * C * N, D)  # [T, D], T = C*N (B=1)
+    z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
+    x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)
     # rms must match the training path (see MeSAEFlatPretrain.forward) — contribution
     # is amp*rms*D_hat, so without rms every decoded panel is mis-scaled.
-    rms = x.reshape(B * C * N, -1).pow(2).mean(dim=-1, keepdim=True).sqrt()
+    rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
+    vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C) \
+        if valid_channels is not None else None
 
-    out = model.stamps(z_flat, x_target=None, rms=rms)  # eval-mode call, aux/dead-atom path never runs
-    idx, h = out.idx, out.h  # [T, K]
+    out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vc_g)  # eval-mode call
+    idx, h = out.idx, out.h  # [N, K]
     K = idx.shape[1]
-    n_stamps = model.n_stamps
-    Kd = k_display if k_display is not None else K
+    Kd = min(k_display, K) if k_display is not None else K
 
-    contribution, _z_h, _amp_r = model.stamps.decode_selected(idx, h, z_flat, rms=rms)  # [T, K, patch_len]
+    contribution = model.stamps.decode_selected(idx, out.amp)  # [N, C, K, patch_len]
     patch_len = contribution.shape[-1]
 
-    idx_cnk = idx.reshape(C, N, K)
-    h_cnk = h.reshape(C, N, K)
-    contrib_cnk = contribution.reshape(C, N, K, patch_len)
-
     sel = list(range(0, N, patch_stride))
-    P = len(sel)
 
-    grid_ids = idx.new_full((P, Kd), -1)
-    grid_h = h.new_zeros(P, Kd)
-    grid_contrib = contribution.new_zeros(P, Kd, C, patch_len)
-
-    for p, n in enumerate(sel):
-        idx_n = idx_cnk[:, n, :]              # [C, K]
-        h_n = h_cnk[:, n, :]                  # [C, K]
-        contrib_n = contrib_cnk[:, n, :, :]   # [C, K, patch_len]
-
-        dense_imp = h.new_zeros(n_stamps)
-        dense_imp.scatter_add_(0, idx_n.reshape(-1), h_n.reshape(-1))
-        union_ids = torch.unique(idx_n)
-        union_imp = dense_imp[union_ids]
-
-        if union_ids.numel() > Kd:
-            topv, topi = union_imp.topk(Kd)
-            union_ids, union_imp = union_ids[topi], topv
-
-        U = union_ids.numel()
-        match = (idx_n.unsqueeze(-1) == union_ids.view(1, 1, -1)).float()  # [C, K, U]
-        grid_contrib[p, :U] = torch.einsum('cku,ckp->ucp', match, contrib_n)
-        grid_ids[p, :U] = union_ids
-        grid_h[p, :U] = union_imp
+    grid_ids = idx[sel, :Kd]                                        # [P, Kd]
+    grid_h = h[sel, :Kd]                                            # [P, Kd]
+    grid_contrib = contribution[sel][:, :, :Kd].permute(0, 2, 1, 3)  # [P, Kd, C, patch_len]
 
     n_fft = patch_len
     if fs and freq_resolution:
@@ -543,13 +507,11 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
     fft_c = _demean_hann_rfft(grid_contrib.float(), n_fft)  # [P, Kd, C, F]
     psd = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
-    topo = grid_contrib.norm(dim=-1).cpu().numpy()  # [P, Kd, C]
+    topo = grid_contrib.norm(dim=-1).cpu().numpy()  # [P, Kd, C] — |amp*rms| per channel
 
-    # Real per-patch, per-channel full reconstruction — that channel's own real
-    # top_k+n_shared slots summed (StampBank.forward's recon, for this one patch/channel),
-    # NOT derived from the (union-capped, zero-filled) display grid above.
-    recon_cn = contrib_cnk[:, sel, :, :].sum(dim=2)   # [C, P, patch_len]
-    recon_cn = recon_cn.permute(1, 0, 2)              # [P, C, patch_len]
+    # Real per-patch, per-channel full reconstruction — ALL K slots summed (StampBank.
+    # forward's recon for this patch), not just the Kd displayed ones.
+    recon_cn = contribution[sel].sum(dim=2)           # [P, C, patch_len]
     fft_recon = _demean_hann_rfft(recon_cn.float(), n_fft)
     recon_psd = (fft_recon.real.pow(2) + fft_recon.imag.pow(2)).cpu().numpy()
     recon_topo = recon_cn.norm(dim=-1).cpu().numpy()
