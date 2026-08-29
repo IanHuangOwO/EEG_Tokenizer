@@ -560,61 +560,20 @@ class StampBank(nn.Module):
         accidentally decode with different selection/scale than training produced."""
         return amp.unsqueeze(-1) * self._templates(idx).unsqueeze(1)
 
-    def decorrelation_loss(self):
-        """Pairwise cosine sim of each routed atom's own W_down direction (flattened
-        [dim, hidden_width] -> [dim*hidden_width]), off-diagonal — decorrelates each
-        atom's INPUT direction now that there's no spatial topography `u` to decorrelate
-        (see class docstring: every atom reads the identical token z, so the only
-        per-atom diversity left lives in W_down/W_out). Same off-diagonal-mean formula as
-        the retired spatial version."""
-        if self.n_routed < 2:
-            return self.W_down_routed.new_zeros(())
-        w = F.normalize(self.W_down_routed.reshape(self.n_routed, -1), dim=-1)
-        sim = w @ w.t()
-        off_diag = ~torch.eye(self.n_routed, dtype=torch.bool, device=sim.device)
-        return sim[off_diag].pow(2).mean()
-
-    def independence_loss(self, D_sel_routed):
-        """D_sel_routed: [G, top_k, patch_len], the unit-normalized templates of the
-        top_k ROUTED atoms actually selected for each group (patch position) — NOT
-        shared (shared atoms are fixed/always-on, not part of the router's
-        competition, so not the redundancy this loss targets). Penalizes the SELECTED
-        SET collectively collapsing onto a lower-dimensional subspace (two+ atoms
-        carrying near-identical shapes for the same patch, wasting the fixed top_k
-        budget reconstructing the same information twice) — distinct from
-        decorrelation_loss, which decorrelates W_down_routed globally/statically,
-        regardless of what's actually co-selected on any given patch.
-
-        Operates on the templates directly (not per-channel contributions): every
-        channel's contribution is amp * D_hat with the same D_hat per slot, so a
-        unit-normalized contribution row is +/-D_hat — the Gram matrix's eigenvalues
-        are identical for every channel of the group (sign flips are a similarity
-        transform of the Gram), making the per-channel version redundant compute for
-        the exact same loss value. Since the unit-D commit this was already
-        implicitly template-only.
-
-        True mutual independence (statistical) isn't cheaply estimable during
-        training; this is the tractable proxy — spectral entropy of the selected
-        set's Gram matrix. entropy=log(top_k) means the top_k templates spread
-        across top_k orthogonal directions (maximally independent under this proxy);
-        entropy=0 means all parallel (total redundancy). Returns the entropy DEFICIT
-        log(top_k) - entropy — minimizing it pushes entropy up toward its max, same
-        sign convention as every other loss term here (lower is better)."""
-        G, K, _ = D_sel_routed.shape
-        if K < 2:
-            return D_sel_routed.new_zeros(())
-        # autocast(enabled=False): torch.linalg.eigvalsh has no CUDA fp16 kernel, and
-        # this runs inside forward() under autocast during training — autocast
-        # intercepts bmm() itself back to fp16 even when fed a .float() input, so a
-        # plain .float() on the input alone isn't enough (same fp16-under-autocast
-        # issue MoEFFN._record_health's docstring already flags for a different op).
-        with torch.autocast(device_type=D_sel_routed.device.type, enabled=False):
-            c = D_sel_routed.float()                                 # rows already unit-norm
-            gram = torch.bmm(c, c.transpose(1, 2))                   # [G, K, K], PSD, diag=1
-            eigvals = torch.linalg.eigvalsh(gram).clamp(min=0)       # [G, K]
-        p = eigvals / (eigvals.sum(dim=-1, keepdim=True) + 1e-8)
-        entropy = -(p * torch.log(p + 1e-8)).sum(dim=-1)         # [G]
-        return math.log(K) - entropy.mean()
+    # decorrelation_loss and independence_loss are GONE, deliberately, not lost:
+    # - decorrelation_loss (W_down direction repulsion) was life support for the
+    #   retired untrainable w_score router (random directions overlapping, one atom
+    #   winning everywhere). With |amp| group selection trained by recon, redundant
+    #   atoms die naturally: interchangeable -> sparsity_loss shrinks one's amp at
+    #   zero recon cost -> group score fades -> dead -> aux rescue re-aims it at the
+    #   RESIDUAL (content nobody covers). The rescue is the decorrelation engine now.
+    # - independence_loss (co-selected template Gram entropy) was blind to the real
+    #   observed collapse (same-Hz-bin phase-tiled atoms are orthogonal in time
+    #   domain -> full entropy, zero penalty), and the collapse it aimed at is an
+    #   OBJECTIVE problem, not a redundancy one: under time-domain MSE on 1/f EEG,
+    #   packing every atom into the loudest band is genuinely optimal. Fixed at the
+    #   objective instead — spectrally whitened recon loss (MeSAEFlat._recon_loss),
+    #   ICA's own mandatory whitening step — so frequency diversity pays for itself.
 
     def sparsity_loss(self, amp_routed):
         """amp_routed: [G, C, top_k], the per-channel amplitude gain (rms included)
@@ -688,9 +647,10 @@ class StampBank(nn.Module):
         time), h [G, top_k+n_shared] (selection confidence, diagnostics only),
         dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
         MeSAEFlatTrainer/MeSAEFlatCodebookChecker read for router-health/usage
-        panels, now at patch-position granularity), decorr_loss, indep_loss,
-        aux_loss, sparsity_loss. z_h is gone: it was dead weight (nothing read it in
-        either training stage, MeSAEFlatFinetune is NotImplemented on this branch).
+        panels, now at patch-position granularity), aux_loss, sparsity_loss
+        (decorr_loss/indep_loss are gone — see the comment above sparsity_loss).
+        z_h is gone too: it was dead weight (nothing read it in either training
+        stage, MeSAEFlatFinetune is NotImplemented on this branch).
 
         No load-balance loss — see class docstring. Dead-atom collapse is handled by
         fire_ema/dead_threshold/aux_loss below ("fired" now means "selected for a
@@ -737,8 +697,6 @@ class StampBank(nn.Module):
         D_sel = self._templates(idx)                       # [G, top_k+n_shared, patch_len]
         recon = torch.einsum('gck,gkl->gcl', amp, D_sel)   # sum over slots, no [G,C,K,L] materialized
 
-        decorr_loss = self.decorrelation_loss()
-        indep_loss = self.independence_loss(D_sel[:, :self.top_k, :])
         sparsity_loss = self.sparsity_loss(amp[:, :, :self.top_k])
 
         aux_loss = recon.new_zeros(())
@@ -767,8 +725,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            decorr_loss=decorr_loss, indep_loss=indep_loss, aux_loss=aux_loss,
-            sparsity_loss=sparsity_loss,
+            aux_loss=aux_loss, sparsity_loss=sparsity_loss,
         )
 
 

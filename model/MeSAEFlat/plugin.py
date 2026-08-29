@@ -80,14 +80,10 @@ class MeSAEFlatTrainer(BaseTrainer):
         # for every model type but MeSAE's loss no longer uses them — see get_loss.
         aux_weight = hparams.get('aux_weight', 0.03)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
-        decorr_weight = hparams.get('decorr_weight', 0.01)
-        indep_weight = hparams.get('indep_weight', 0.01)
         sparsity_weight = hparams.get('sparsity_weight', 0.01)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
-                               decorr_loss=out.decorr_loss, decorr_weight=decorr_weight,
-                               indep_loss=out.indep_loss, indep_weight=indep_weight,
                                sparsity_loss=out.sparsity_loss, sparsity_weight=sparsity_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels)
@@ -103,7 +99,6 @@ class MeSAEFlatTrainer(BaseTrainer):
         # instead of an epoch average like every other loss stat.
         metrics = model.get_metrics(out.dense_routed.detach())
         metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
-        metrics['indep'] = out.indep_loss.item() if hasattr(out.indep_loss, 'item') else float(out.indep_loss)
         metrics['sparsity'] = out.sparsity_loss.item() if hasattr(out.sparsity_loss, 'item') else float(out.sparsity_loss)
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
@@ -327,9 +322,10 @@ class MeSAEFlatCodebookChecker(BaseCodebookChecker):
     def decoder_fingerprint_matrix(self, model):
         """Per-stamp [patch_len] waveform template D_i (see StampBank.fingerprint —
         content-free and exact now, no probe involved: D_i never depends on any input),
-        pairwise cosine sim — this is `filter_relation.png`'s direct successor and
-        doubles as the empirical test for whether StampBank.decorrelation_loss needs a
-        temporal term added (see that method's docstring)."""
+        pairwise cosine sim — this is `filter_relation.png`'s direct successor and the
+        empirical check on template diversity (now expected to emerge from the whitened
+        recon objective + sparsity + aux rescue, not enforced by the deleted
+        decorr/indep repulsion losses — see MeSAEFlat._recon_loss's docstring)."""
         fp = model.stamps.fingerprint().cpu().numpy()  # [n_stamps, patch_len]
         flat = fp.reshape(fp.shape[0], -1)
         flat = flat / (np.linalg.norm(flat, axis=1, keepdims=True) + 1e-8)
@@ -427,11 +423,14 @@ class MeSAEFlatPlotter(BasePlotter):
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
         # group may still straddle a row edge.
         loss_panels = [
-            dict(title='Total Loss (MSE + aux*weight)', ylabel='Loss', series=[dict(key='loss', color='b')]),
-            dict(title='Masked vs Unmasked MSE\n(patch level, diagnostic only)', ylabel='Loss',
+            dict(title='Total Loss\n(whitened recon + sparsity + aux + ffn_lb, weighted)', ylabel='Loss',
+                 series=[dict(key='loss', color='b')]),
+            dict(title='Masked vs Unmasked MSE\n(plain time-domain, diagnostic only — not the trained objective)',
+                 ylabel='MSE',
                  series=[dict(key='masked', color='crimson'), dict(key='unmasked', color='steelblue')]),
-            dict(title='Recon MSE: Window vs Patch\n(mse_level_0=window avg, mse_level_1=patch — see MeSAEFlat._recon_loss)',
-                 ylabel='MSE', series=self.indexed_series('mse_level_', cmap_name='plasma', train_only=False)),
+            dict(title='Recon: Window vs Patch\n(mse_level_0=window avg time-MSE, mse_level_1=WHITENED patch '
+                       'loss — see MeSAEFlat._recon_loss)',
+                 ylabel='Loss', series=self.indexed_series('mse_level_', cmap_name='plasma', train_only=False)),
         ]
 
         stamp_health_panels = [
@@ -439,6 +438,8 @@ class MeSAEFlatPlotter(BasePlotter):
                  ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
             dict(title='Dead Feature Rate', ylabel='Fraction',
                  series=[dict(key='dead_feature_rate', color='crimson')]),
+            dict(title='Amp Sparsity (L1, selected routed)\n(falling = tokens quieting atoms they don\'t need)',
+                 ylabel='mean |amp|', series=[dict(key='sparsity', color='seagreen')]),
         ]
 
         # Stamp Router Health — see MeSAE.update_stamp_router_metrics for what each number

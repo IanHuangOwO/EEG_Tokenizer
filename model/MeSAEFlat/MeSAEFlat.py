@@ -104,6 +104,13 @@ class MeSAEFlatPretrain(nn.Module):
         self.register_buffer('ema_stamp_router_load_std', torch.tensor(0.0))
         self.register_buffer('ema_stamp_gate_entropy',    torch.tensor(0.0))
 
+        # Dataset mean PSD per rFFT bin of the patch axis, EMA-tracked over training
+        # batches (ones at init = uniform weights = plain MSE until warm). Source of
+        # _recon_loss's spectral whitening weights — see its docstring. A buffer, so
+        # the Pretrain stage inherits the Tokenizer stage's converged estimate through
+        # the checkpoint instead of re-warming from scratch.
+        self.register_buffer('ema_bin_psd', torch.ones(patch_len // 2 + 1))
+
         # Same 3 EMA metrics, but for the FFN MoE routers (MoEFFN/FFNRouter, one per
         # TSABlock, averaged across blocks by TSAEncoder.forward) — a distinct MoE from the
         # stamp router above, see docs/adr/0008-moe-ffn-for-mesae.md and
@@ -308,30 +315,35 @@ class MeSAEFlatPretrain(nn.Module):
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
-            decorr_loss=out.decorr_loss,
-            indep_loss=out.indep_loss,
             sparsity_loss=out.sparsity_loss,
             valid_channels=valid_channels,
         )
 
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None):
-        """Two-level recon MSE: patch-level (finest, every patch its own term) + window-
-        level (coarsest, whole-trial average patch shape, N patches averaged into one).
-        Middle ground between the retired 5-level pyramid (the 3 intermediate levels were
-        mostly redundant gradient — a coarser level's lower MSE was largely an artifact of
-        averaging shrinking the target's variance ~1/N, and a model fitting the finest
-        level already fits every coarser deterministic-average level too) and dropping the
-        window-level term entirely (loses any explicit supervision on the trial's overall
-        shape, only implicit via the patch term). Both terms unweighted, summed, then
-        scaled together by hierarchical_mse_weight in get_loss. masked/unmasked are NOT
-        weighted into the loss (no masked_mse_weight/unmasked_mse_weight) and come from
-        the patch (finest) level only — the split is a diagnostic, plays no part in
-        `total`.
+        """Two-level recon loss: SPECTRALLY WHITENED patch-level (finest, every patch
+        its own term, computed in rFFT domain with per-bin weights ~ 1/(dataset mean
+        PSD)) + plain time-domain window-level (coarsest, whole-trial average patch
+        shape).
 
-        valid_channels: [B, C] bool, True=real channel, or None. Padded channels are
-        excluded from both terms and the masked/unmasked split — a zero-padded channel's
-        "reconstruction" is meaningless signal (target is always exactly 0), not a real
-        target.
+        Why whitened: time-domain MSE weights every frequency by its raw power, and
+        EEG's 1/f spectrum hands nearly all gradient to the lowest bins — under that
+        objective, packing every stamp into the one loudest band (as phase-shifted
+        copies) is genuinely OPTIMAL, which is exactly the observed template collapse.
+        Whitening is ICA's own mandatory first step for the same reason. With per-bin
+        error weighted by inverse dataset power, covering distinct bands pays in loss,
+        and stamp frequency diversity becomes emergent (together with sparsity_loss
+        starving redundant atoms and the aux rescue re-aiming dead ones at the
+        residual) instead of enforced by the repulsion terms this replaced
+        (decorr_loss/indep_loss — see the comment above StampBank.sparsity_loss).
+
+        Weights come from ema_bin_psd (see __init__): EMA of the valid tokens' mean
+        target PSD, updated each training batch, floored at 1% of its own mean so
+        near-empty bins (outside the bandpass) can't blow up to infinite weight, then
+        normalized to mean 1 so the loss scale stays comparable to plain MSE.
+
+        masked/unmasked stay a plain time-domain DIAGNOSTIC split (not in `total`).
+        valid_channels: [B, C] bool — padded channels are excluded from all terms and
+        from the PSD estimate (their target is exactly 0, not a real spectrum).
         """
         def _vmask_like(t):
             if valid_channels is None:
@@ -345,7 +357,36 @@ class MeSAEFlatPretrain(nn.Module):
                 return F.mse_loss(r, t)
             return F.mse_loss(r[vmask].float(), t[vmask].float()) if vmask.any() else r.new_zeros(())
 
-        patch_loss = _masked_mse(recon, x)
+        B, C, N, L = x.shape
+        # Flatten to valid tokens [T, L]. The boolean index selects whole channels
+        # (mask constant over N and L), so reshape(-1, L) regroups exact tokens —
+        # not an axis-scrambling reshape (docs/agents/reshape-pitfalls.md).
+        if valid_channels is not None:
+            vm = valid_channels.view(B, C, 1, 1).expand_as(x)
+            err_t = (recon.float() - x.float())[vm].reshape(-1, L)
+            x_t = x.float()[vm].reshape(-1, L)
+        else:
+            err_t = (recon.float() - x.float()).reshape(-1, L)
+            x_t = x.float().reshape(-1, L)
+
+        if err_t.shape[0] == 0:
+            patch_loss = recon.new_zeros(())
+        else:
+            # autocast(enabled=False): keep the FFT + weighting in fp32 (rfft of a
+            # pre-cast .float() input can still be intercepted under autocast — same
+            # convention as the other fp32-only blocks in this codebase).
+            with torch.autocast(device_type=err_t.device.type, enabled=False):
+                E = torch.fft.rfft(err_t, dim=-1, norm='ortho')
+                perr = E.real.pow(2) + E.imag.pow(2)                   # [T, F]
+                if self.training:
+                    with torch.no_grad():
+                        X = torch.fft.rfft(x_t, dim=-1, norm='ortho')
+                        px = (X.real.pow(2) + X.imag.pow(2)).mean(dim=0)  # [F]
+                        if torch.isfinite(px).all():
+                            self.ema_bin_psd.mul_(0.99).add_(px, alpha=0.01)
+                w = 1.0 / (self.ema_bin_psd + 0.01 * self.ema_bin_psd.mean())
+                w = w / w.mean()                                       # mean-1, loss scale ~ plain MSE
+                patch_loss = (perr * w).mean()
 
         # Average the patch axis N into one — recon/x are already [B,C,N,L], mean doesn't
         # need contiguity so no reshape needed even though recon arrives non-contiguous
@@ -375,16 +416,15 @@ class MeSAEFlatPretrain(nn.Module):
         return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
-                 decorr_loss=None, decorr_weight=0.01,
-                 indep_loss=None, indep_weight=0.01,
                  sparsity_loss=None, sparsity_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
         """
         Returns (total, l_masked, l_unmasked).
 
-        Reconstruction term is plain per-patch MSE (see _recon_loss — no longer a
-        multi-scale pyramid, kept the hierarchical_mse_weight name/config key to avoid
-        churning every config that sets it), scaled by hierarchical_mse_weight.
+        Reconstruction term is _recon_loss's two-level objective (SPECTRALLY WHITENED
+        patch level + plain window level — see its docstring; kept the
+        hierarchical_mse_weight name/config key to avoid churning every config that
+        sets it), scaled by hierarchical_mse_weight.
 
         Tokenizer stage (bool_masked_pos=None): plain full reconstruction, l_masked=1.0
         placeholder (nothing masked yet), aux_loss included so StampBank's dead-atom
@@ -395,22 +435,16 @@ class MeSAEFlatPretrain(nn.Module):
         frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
         freeze_stamps().
 
-        decorr_loss (StampBank's spatial-pattern decorrelation) is dropped the same way and
-        for the same reason once frozen — freeze_stamps() locks the whole StampBank, so a
-        frozen spatial pattern can't act on the gradient either (see docs/adr/0007,
-        docs/adr/0009). indep_loss (StampBank.independence_loss — penalizes the top_k
-        routed selection collapsing onto redundant shapes for a given token) is dropped
-        the same way too: even though it still has a live gradient path into z/the
-        encoder after freeze_stamps() (unlike decorr_loss, which is purely a function of
-        W_down and goes fully inert once frozen), its purpose is shaping StampBank's own
-        dictionary structure during the Tokenizer stage, not steering the encoder during
-        masked reconstruction — kept scoped to match decorr_loss rather than carved out
-        as a special case. sparsity_loss (StampBank.sparsity_loss — L1 on selected
-        routed atoms' amp, the actual differentiable "does this token need this atom"
-        pressure) is scoped the same way too: its only purpose is letting the Tokenizer
-        stage's dictionary learn which atoms a token can drop, dropping it once frozen
-        for the same reason as decorr_loss/indep_loss. StampBank has no load-balance
-        loss of its own — dropped deliberately, see StampBank.forward docstring.
+        sparsity_loss (StampBank.sparsity_loss — L1 on selected routed atoms' amp, the
+        differentiable "does this token need this atom" pressure) is scoped the same
+        way: its only purpose is shaping the Tokenizer stage's dictionary, dropped once
+        frozen. It is the ONE auxiliary dictionary term left — decorr_loss/indep_loss
+        were deleted (their purpose is now met structurally/emergently: see the comment
+        above StampBank.sparsity_loss and _recon_loss's whitening docstring; L1 is
+        different in kind — parsimony can never emerge from a least-squares objective,
+        which always prefers spreading small coefficients over every available slot).
+        StampBank has no load-balance loss of its own — dropped deliberately, see
+        StampBank.forward docstring.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
@@ -423,10 +457,6 @@ class MeSAEFlatPretrain(nn.Module):
 
         if bool_masked_pos is None or not self.stamps_frozen:
             total = total + aux_weight * aux_loss
-            if decorr_loss is not None:
-                total = total + decorr_weight * decorr_loss
-            if indep_loss is not None:
-                total = total + indep_weight * indep_loss
             if sparsity_loss is not None:
                 total = total + sparsity_weight * sparsity_loss
         if ffn_lb_loss is not None:

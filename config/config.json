@@ -186,8 +186,6 @@
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
-          "decorr_weight": 0.01,
-          "indep_weight": 0.01,
           "sparsity_weight": 0.01,
           "aux_weight": 0.01
         }
@@ -220,8 +218,6 @@
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
-          "decorr_weight": 0.01,
-          "indep_weight": 0.01,
           "sparsity_weight": 0.01,
           "aux_weight": 0.01
         }
