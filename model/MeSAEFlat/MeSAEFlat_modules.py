@@ -719,6 +719,18 @@ class StampBank(nn.Module):
         stamps differ: force every column flat and stamps can only differ by waveform,
         so most become redundant and die.
 
+        DEFAULT OFF (smooth_weight 0.0 in config) — measured as unnecessary, and the
+        history is worth keeping. v10 (90 routed, top_k 18, no smoothness) settles at
+        R ~0.40 on its own, i.e. already AT the physical reference (BETA_4s raw =
+        0.396), and it produced the best reconstruction of any run to date (val
+        whitened 0.0712 vs 0.083/0.086/0.096 for v8/v4/v6). With nothing to correct,
+        a hinge at target=0.30 only pushes the field ~25% BELOW physics — that target
+        was mis-set on the same "too smooth" side as the unbounded version it
+        replaced. Keep the term available (smooth_R is logged unconditionally, so a
+        genuinely rough run is still visible) but leave the weight at 0 unless
+        smooth_R is measured well above the physical band, and then set target at or
+        above ~0.40 rather than below it.
+
         target=0.30 is empirical, not a guess. Measured R of REAL EEG spatial patterns
         (same Rayleigh quotient, u_c = that channel's raw patch waveform): EEGMMIdb
         0.254 (62/64 real channels), BETA_4s 0.396 (58/64), Dial 0.206 (8/64, least
