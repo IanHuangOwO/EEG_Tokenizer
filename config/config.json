@@ -232,7 +232,7 @@
     "MeSAEFlat": {
       "tokenizer": {
         "patch_len": 100,
-        "embed_dim": 50,
+        "embed_dim": 100,
         "enc_depth": 4,
         "spatial_heads": 5,
         "dropout": 0.3,
@@ -250,9 +250,9 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 96,
-          "n_shared_stamps": 6,
-          "stamp_top_k": 18,
+          "n_stamps": 64,
+          "n_shared_stamps": 4,
+          "stamp_top_k": 12,
           "stamp_hidden_width": 8,
           "stamp_shared_hidden_width": 16,
           "shared_weight": 0.1,
