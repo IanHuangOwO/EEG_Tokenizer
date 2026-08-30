@@ -71,6 +71,7 @@ def build_model(bp, num_channels):
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
         ffn_expert_hidden=moe_ffn.get('expert_hidden'),
+        coord_embed_tokenizer=bp.get('coord_embed_tokenizer', False),
     )
 
 
@@ -114,8 +115,16 @@ class MeSAEFlatTrainer(BaseTrainer):
         the transformer is the only thing left learning from cross-channel context."""
         if hasattr(model, 'enable_temporal'):
             model.enable_temporal()
+        coords_on = getattr(model, 'coord_embed_tokenizer', False)
+        if coords_on:
+            # Position embedding only — no cross-channel content mixing, so stamps stay
+            # single-channel. See MeSAEFlatPretrain.enable_coord_embed for why the two
+            # halves of the old combined flag are separable and what this is testing.
+            model.enable_coord_embed()
         if logger:
-            logger.info("  [Tokenizer] temporal enabled, spatial OFF (stamps stay single-channel)")
+            logger.info(f"  [Tokenizer] temporal enabled, coord embedding "
+                        f"{'ON' if coords_on else 'OFF'}, cross-channel attention OFF "
+                        f"(stamps stay single-channel)")
 
     def on_pretrain_start(self, model, logger=None):
         """freeze_stamps() first, then enable_spatial(): StampBank must already be

@@ -67,6 +67,7 @@ class MeSAEFlatPretrain(nn.Module):
         n_shared_ffn_experts=1,
         ffn_top_k=2,
         ffn_expert_hidden=None,
+        coord_embed_tokenizer=False,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -97,6 +98,9 @@ class MeSAEFlatPretrain(nn.Module):
         self.n_shared_stamps = self.stamps.n_shared
         self.shared_weight = self.stamps.shared_weight
         self.stamps_frozen = False
+        # Whether the Tokenizer stage gets the coordinate embedding (position only) —
+        # see enable_coord_embed and MeSAEFlatTrainer.on_tokenizer_start.
+        self.coord_embed_tokenizer = coord_embed_tokenizer
 
         # EMA router-health buffers — same 3 metrics as MeFSQ's Router
         # (ema_stamp_router_entropy/ema_stamp_router_load_std/ema_stamp_gate_entropy), see
@@ -119,6 +123,26 @@ class MeSAEFlatPretrain(nn.Module):
         self.register_buffer('ema_ffn_router_entropy',  torch.tensor(0.0))
         self.register_buffer('ema_ffn_router_load_std', torch.tensor(0.0))
         self.register_buffer('ema_ffn_gate_entropy',    torch.tensor(0.0))
+
+    def enable_coord_embed(self):
+        """Coordinate embedding ONLY — each channel's token learns WHERE it is, with no
+        cross-channel content mixing (that is enable_spatial's MHA half, below).
+
+        These two were welded to one flag historically, but they leak very differently.
+        The coord embedding is per-channel: z_c gains a function of channel c's own
+        position, so a channel still never sees another channel's signal, and the
+        single-channel purity the flat-token design exists to protect is intact.
+        Cross-channel attention does mix content and would make a "stamp" encode a
+        blended vector again (see MeSAEFlatTrainer.on_tokenizer_start).
+
+        Why it may matter for stamp structure: without coords, two channels carrying
+        identical content produce identical z_c, hence identical amp — the bank
+        literally cannot represent "alpha at Oz" differently from "alpha at Fz", so a
+        mixing column can only vary where the raw content varies. Feeding position lets
+        amp_i(z_c) become position-aware, i.e. lets dipole-like topography be LEARNED
+        rather than imposed by a penalty (which is what the retired smoothness loss
+        tried to do from the outside, see the note above StampBank.fingerprint)."""
+        self.embed.enable_spatial()
 
     def enable_spatial(self):
         self.embed.enable_spatial()
