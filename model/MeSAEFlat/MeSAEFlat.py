@@ -1,3 +1,4 @@
+import math
 from types import SimpleNamespace
 
 import torch
@@ -514,6 +515,18 @@ smooth_loss (StampBank.smoothness_loss — HINGED spatial prior on the mixing
         # Stamp router health — see update_stamp_router_metrics above for what each number
         # means.
         metrics['stamp_router_entropy']  = self.ema_stamp_router_entropy.item()
+        # Same number as a FRACTION OF ITS OWN MAXIMUM, log(n_routed_stamps). The raw
+        # entropy above is in nats and its ceiling moves with the pool size (4.79 at 120
+        # routed vs 5.70 at 298), so raw values are not comparable across runs — 4.53 and
+        # 3.32 look far apart but are 0.80 and 0.81 of max, i.e. equally healthy.
+        # Measured reference band from real runs: 0.73-0.81 is healthy (v4/v5/v6, alive
+        # 0.54-0.97), while v8's pool collapse read 0.53 (alive 0.19). A hinged entropy
+        # FLOOR at ~0.70 is the documented safe shape if prevention is ever needed
+        # (see StampBank's note on why plain load-balancing is not: since |amp|
+        # self-selection the score IS the reconstruction coefficient, so pushing the
+        # load uniform pushes reconstruction amplitudes uniform).
+        metrics['stamp_router_entropy_frac'] = (
+            self.ema_stamp_router_entropy.item() / math.log(max(self.n_routed_stamps, 2)))
         metrics['stamp_router_load_std'] = self.ema_stamp_router_load_std.item()
         metrics['stamp_gate_entropy']    = self.ema_stamp_gate_entropy.item()
 

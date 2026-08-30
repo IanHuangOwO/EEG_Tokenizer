@@ -465,6 +465,13 @@ class MeSAEFlatPlotter(BasePlotter):
             dict(title='Stamp Router Health\n(entropy rising = healthy spread; falling = collapse)',
                  ylabel='Entropy (higher=balanced)', series=stamp_router_series,
                  twin=dict(ylabel='Load std / LB loss', series=stamp_twin_series) if stamp_twin_series else None),
+            # Pool-size-independent version of the same signal — the raw entropy's ceiling
+            # is log(n_routed), so only this one is comparable across runs/configs. Bands
+            # measured on real runs: 0.73-0.81 healthy (alive 0.54-0.97), 0.53 = the v8
+            # pool collapse (alive 0.19). See MeSAEFlatPretrain.get_metrics.
+            dict(title='Stamp Load Entropy, normalized\n(frac of log(n_routed): ~0.75 healthy, <0.6 = pool collapsing)',
+                 ylabel='H / log(n_routed)',
+                 series=[dict(key='stamp_router_entropy_frac', color='teal')]),
             dict(title='FFN Router Health\n(entropy rising = healthy spread; falling = collapse)',
                  ylabel='Entropy (higher=balanced)', series=ffn_router_series,
                  twin=dict(ylabel='Load std / LB loss', series=ffn_twin_series) if ffn_twin_series else None),

@@ -412,11 +412,31 @@ class StampBank(nn.Module):
     training decoders the ranking would never pick); group aggregation keeps that
     property since amp is trained by recon MSE at every channel. h_routed = softmax
     over the selected group scores (a within-group selection confidence for
-    diagnostics only, never touches recon). No load-balance loss: unlike MoEFFN
-    (compute-all-then-mask, needs traffic spread for compute balance), this module
-    has no compute-balance problem, and forcing uniform routing would fight the
-    legitimate power-law usage a content-addressed dictionary should have. Collapse
-    is instead guarded by fire_ema/dead_threshold/aux_loss below.
+    diagnostics only, never touches recon).
+
+    No load-balance loss, for a reason that got STRONGER after |amp| self-selection:
+    the routing score IS the reconstruction coefficient now, so pushing the load
+    distribution toward uniform is pushing reconstruction amplitudes toward uniform —
+    unlike MoEFFN, whose gate is a free parameter with no other job, where uniformity
+    costs only routing preference. A plain LB term here would be another auxiliary
+    loss whose optimum ("every atom contributes equal energy on every patch") recon
+    cannot veto, the exact failure pattern catalogued in the note above
+    _spatial_weights. It would also fight legitimate power-law usage: measured load
+    entropy on healthy runs is 0.73-0.81 of its maximum (v4/v5/v6, alive 0.54-0.97) —
+    deliberately non-uniform, as a content-addressed dictionary should be, since real
+    source prevalence is unequal (alpha everywhere, a rare artifact rarely).
+    (An earlier version of this note also argued "sparse dispatch, no compute-balance
+    problem" — that leg is now obsolete: _amp_dense computes every routed atom densely
+    for group scoring. The statistical argument above is the load-bearing one.)
+    Collapse is instead guarded by fire_ema/dead_threshold/aux_loss below, which are
+    curative and content-AWARE (a revived atom is aimed at the residual, i.e. at
+    content nothing else covers) where LB would be preventive and content-blind. If
+    prevention is ever genuinely needed — group selection makes each atom's selection
+    opportunities C times scarcer than the retired per-(channel,patch) routing did, so
+    death is structurally likelier now — the safe shape is a HINGED entropy FLOOR
+    (relu(0.70 - H/log(n_routed)), inactive across the healthy band, fires only on a
+    real collapse like v8's 0.53), not a push toward uniform. That fraction is logged
+    as stamp_router_entropy_frac.
 
     phi_i(z_c) = rms_c * (a_i(z_c) * D_hat_i + b_i(z_c) * Hilbert(D_hat_i)): a fixed
     per-atom waveform TEMPLATE D_i (nn.Parameter [patch_len], no z dependence, used
