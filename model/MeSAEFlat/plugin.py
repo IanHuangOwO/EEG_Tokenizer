@@ -415,9 +415,14 @@ class MeSAEFlatCodebookChecker(BaseCodebookChecker):
         from viz.codebook import plot_stamp_identity_consistency
         from viz.iclabel import ICLABEL_CLASSES
 
+        # Keyed by (dataset, stamp id): channel-validity differs per dataset (e.g. Dial
+        # maps 8 of 64 channels, BETA_4s 58), so mixing columns from different datasets
+        # have different lengths AND live in different channel subspaces — comparing
+        # them would be meaningless even if the shapes matched. Statistics are computed
+        # within each dataset and pooled.
         cols, labels = defaultdict(list), defaultdict(list)
-        fs = None
         for t in trial_records:
+            ds_name = t.get('dataset', '_')
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
             B, C, N, L = x_in.shape
             z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
@@ -430,14 +435,14 @@ class MeSAEFlatCodebookChecker(BaseCodebookChecker):
             m = vc_in[0].bool()
             for g in range(mag.shape[0]):
                 for k in range(o.idx.shape[1]):
-                    cols[int(o.idx[g, k])].append(mag[g, m, k].detach().cpu().numpy())
+                    cols[(ds_name, int(o.idx[g, k]))].append(mag[g, m, k].detach().cpu().numpy())
             gal = extract_flat_stamp_gallery(model, x_in, c_in, time_idx=t_in,
                                               valid_channels=vc_in, fs=200, freq_resolution=0.2)
             uids, probs = gal[0], gal[-1]
             if probs is not None:
                 for qi, sid in enumerate(uids.tolist()):
                     if np.all(np.isfinite(probs[qi])):
-                        labels[int(sid)].append(int(probs[qi].argmax()))
+                        labels[int(sid)].append(int(probs[qi].argmax()))  # class is dataset-agnostic
 
         def prep(a):
             # center across channels then unit-norm: raw magnitude columns are
@@ -446,24 +451,29 @@ class MeSAEFlatCodebookChecker(BaseCodebookChecker):
             a = a - a.mean(-1, keepdims=True)
             return a / (np.linalg.norm(a, axis=-1, keepdims=True) + 1e-9)
 
-        ids = [s_ for s_, c in cols.items() if len(c) >= 6]
-        if len(ids) < 2:
+        keys = [k for k, c in cols.items() if len(c) >= 6]
+        by_ds = defaultdict(list)
+        for ds_name, sid in keys:
+            by_ds[ds_name].append(sid)
+        if not any(len(v) >= 2 for v in by_ds.values()):
             print('  [codebook] identity consistency skipped (too few repeated stamps)')
             return
-        P = {s_: prep(np.stack(cols[s_])) for s_ in ids}
-        within, per_stamp = [], []
-        for s_ in ids:
-            U = P[s_]; S = U @ U.T; n = len(U)
-            v = float((S.sum() - n) / (n * (n - 1)))
-            within.append(v); per_stamp.append(v)
+        P = {k: prep(np.stack(cols[k])) for k in keys}
         rng = np.random.default_rng(0)
-        # between-id pairs drawn between INDIVIDUAL occurrences, same footing as within
-        between = []
-        for _ in range(4000):
-            a, b = rng.choice(len(ids), 2, replace=False)
-            ua = P[ids[a]][rng.integers(len(P[ids[a]]))]
-            ub = P[ids[b]][rng.integers(len(P[ids[b]]))]
-            between.append(float(ua @ ub))
+        within, between, per_stamp, ids = [], [], [], []
+        for ds_name, sids in by_ds.items():
+            if len(sids) < 2:
+                continue
+            for sid in sids:
+                U = P[(ds_name, sid)]; S = U @ U.T; n = len(U)
+                v = float((S.sum() - n) / (n * (n - 1)))
+                within.append(v); per_stamp.append(v); ids.append(sid)
+            # between-id pairs drawn WITHIN this dataset, between INDIVIDUAL occurrences
+            # (same footing as within — averaged columns would look falsely self-similar)
+            for _ in range(4000 // max(1, len(by_ds))):
+                a, b = rng.choice(len(sids), 2, replace=False)
+                Ua, Ub = P[(ds_name, sids[a])], P[(ds_name, sids[b])]
+                between.append(float(Ua[rng.integers(len(Ua))] @ Ub[rng.integers(len(Ub))]))
         agree = {s_: float(np.bincount(ls).max() / len(ls))
                  for s_, ls in labels.items() if len(ls) >= 3}
         plot_stamp_identity_consistency(
