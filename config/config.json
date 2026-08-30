@@ -250,11 +250,11 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 128,
-          "n_shared_stamps": 8,
-          "stamp_top_k": 16,
-          "stamp_hidden_width": 4,
-          "stamp_shared_hidden_width": 4,
+          "n_stamps": 90,
+          "n_shared_stamps": 6,
+          "stamp_top_k": 12,
+          "stamp_hidden_width": 8,
+          "stamp_shared_hidden_width": 16,
           "shared_weight": 0.1,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
@@ -264,7 +264,8 @@
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
           "sparsity_weight": 0.05,
-          "aux_weight": 0.01
+          "aux_weight": 0.01,
+          "smooth_weight": 0.05
         }
       },
       "pretrain": {
@@ -287,11 +288,11 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 128,
-          "n_shared_stamps": 8,
+          "n_stamps": 90,
+          "n_shared_stamps": 6,
           "stamp_top_k": 16,
-          "stamp_hidden_width": 4,
-          "stamp_shared_hidden_width": 4,
+          "stamp_hidden_width": 8,
+          "stamp_shared_hidden_width": 16,
           "shared_weight": 0.1,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
@@ -301,7 +302,8 @@
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
           "sparsity_weight": 0.05,
-          "aux_weight": 0.01
+          "aux_weight": 0.01,
+          "smooth_weight": 0.05
         }
       },
       "finetune": {
@@ -314,7 +316,7 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_tokenizer_v4",
+      "model_name": "mesaeflat_tokenizer_v7",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -326,8 +328,8 @@
     },
     "pretrain": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_pretrain_v4",
-      "tokenizer_checkpoint": "output/mesaeflat_tokenizer_v4/tokenizer/best_tokenizer.pth",
+      "model_name": "mesaeflat_pretrain_v7",
+      "tokenizer_checkpoint": "output/mesaeflat_tokenizer_v7/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -339,8 +341,8 @@
     },
     "finetune": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_finetune_v4",
-      "pretrained_checkpoint": "output/mesaeflat_pretrain_v4/pretrain/best_pretrain.pth",
+      "model_name": "mesaeflat_finetune_v7",
+      "pretrained_checkpoint": "output/mesaeflat_pretrain_v7/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.01,

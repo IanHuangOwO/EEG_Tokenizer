@@ -302,7 +302,12 @@ class MeSAEFlatPretrain(nn.Module):
             # channels' amp energy (see StampBank.forward's valid_channels docstring).
             vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(G, C)
 
-        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
+        # coords[0]: channels are unified onto one canonical montage upstream (see
+        # IO/dataset.py's channel mapping), so every batch item carries the same
+        # [C, 3] positions — one row is the montage. Per-item validity differences are
+        # handled by vc_g, not by the coordinates.
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g,
+                          coords=coords[0] if coords is not None else None)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 
@@ -316,6 +321,7 @@ class MeSAEFlatPretrain(nn.Module):
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
             sparsity_loss=out.sparsity_loss,
+            smooth_loss=out.smooth_loss,
             k_eff=out.k_eff,
             valid_channels=valid_channels,
         )
@@ -418,6 +424,7 @@ class MeSAEFlatPretrain(nn.Module):
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
                  sparsity_loss=None, sparsity_weight=0.01,
+                 smooth_loss=None, smooth_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
         """
         Returns (total, l_masked, l_unmasked).
@@ -436,16 +443,19 @@ class MeSAEFlatPretrain(nn.Module):
         frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
         freeze_stamps().
 
-        sparsity_loss (StampBank.sparsity_loss — L1 on selected routed atoms' amp, the
-        differentiable "does this token need this atom" pressure) is scoped the same
-        way: its only purpose is shaping the Tokenizer stage's dictionary, dropped once
-        frozen. It is the ONE auxiliary dictionary term left — decorr_loss/indep_loss
-        were deleted (their purpose is now met structurally/emergently: see the comment
-        above StampBank.sparsity_loss and _recon_loss's whitening docstring; L1 is
-        different in kind — parsimony can never emerge from a least-squares objective,
-        which always prefers spreading small coefficients over every available slot).
-        StampBank has no load-balance loss of its own — dropped deliberately, see
-        StampBank.forward docstring.
+        sparsity_loss (StampBank.hoyer_loss — 1 - Hoyer sparsity of the selected
+        routed amps) and smooth_loss (StampBank.smoothness_loss — graph Rayleigh
+        quotient of each stamp's mixing column over the electrode graph) are scoped
+        the same way: both shape the Tokenizer stage's dictionary only, dropped once
+        frozen. They are deliberately the two SCALE-INVARIANT structure terms — one
+        per axis of the [C, K] amp matrix (sparsity across stamps, smoothness across
+        channels) — replacing the retired L1 sparsity_loss, which measurably produced
+        shrinkage without selection (see hoyer_loss's docstring for the alpha=1.27 /
+        k_eff=23-of-30 evidence). Scale invariance is the point: amplitudes stay free
+        to match the signal, only the code's shape is constrained. decorr_loss/
+        indep_loss were deleted earlier (purpose met by the whitened objective, see
+        _recon_loss). StampBank has no load-balance loss of its own — dropped
+        deliberately, see StampBank.forward docstring.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
@@ -460,6 +470,8 @@ class MeSAEFlatPretrain(nn.Module):
             total = total + aux_weight * aux_loss
             if sparsity_loss is not None:
                 total = total + sparsity_weight * sparsity_loss
+            if smooth_loss is not None:
+                total = total + smooth_weight * smooth_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
         return total, l_masked, l_unmasked

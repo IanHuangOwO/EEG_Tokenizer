@@ -606,44 +606,124 @@ class StampBank(nn.Module):
     #   objective instead — spectrally whitened recon loss (MeSAEFlat._recon_loss),
     #   ICA's own mandatory whitening step — so frequency diversity pays for itself.
 
-    def sparsity_loss(self, amp_routed, x_target=None, valid_channels=None):
-        """amp_routed: [G, C, top_k], the per-channel amplitude gain (rms included)
-        each selected ROUTED atom produced; x_target: [G, C, patch_len] or None.
-        L1 penalty on |amp|, NORMALIZED per token by the target's own L2 norm when
-        x_target is available: sum_k |amp_k| / (||x|| + eps), token-averaged.
+    def hoyer_loss(self, amp_mag_routed, valid_channels=None):
+        """amp_mag_routed: [G, C, top_k] per-channel amplitude MAGNITUDES
+        sqrt(a^2+b^2) of the selected routed atoms. Returns 1 - Hoyer sparsity,
+        averaged over valid (group, channel) tokens.
 
-        Why normalized: reconstruction sets a hard floor on raw L1 mass — with unit
-        D_hat, contributions amp*D_hat must sum to the patch, so sum|amp| >= ||x||
-        (~sqrt(patch_len) on z-scored data) no matter how parsimonious the code is.
-        A raw mean|amp| loss therefore plateaus at a data-loudness-dependent floor
-        the weight knob can't push past (it just starts trading away recon), and the
-        logged value conflates "how loud is the data" with "how many atoms used".
-        Dividing by ||x|| makes the penalty the amplitude OVERHEAD relative to the
-        signal (1.0 = the one-perfectly-aligned-atom ideal; higher = redundancy or
-        cancellation) — scale-free, so sparsity_weight tuning stops fighting the
-        floor. Falls back to raw mean|amp| when x_target is None (diagnostic-only
-        eval calls from viz).
+            hoyer(a) = (sqrt(K) - L1/L2) / (sqrt(K) - 1)   in [0, 1]
+            1 = maximally sparse (one atom carries everything)
+            0 = perfectly flat (all K atoms equal)
 
-        L1 itself stays essential: parsimony can never emerge from a least-squares
-        objective (see the comment above about the deleted repulsion losses); the
-        unit-norm D_hat constraint is what keeps it un-gameable (no shrinking amp
-        into ||D||, see the D_routed init comment). With group selection it prunes
-        BOTH directions: a stamp unneeded at one channel goes quiet there (soft
-        topomap support), one unneeded at the whole patch goes quiet everywhere.
-        Shared atoms excluded (always-on by design, not part of this budget).
+        Replaces the retired L1 sparsity_loss, which measurably paid L1's cost
+        without delivering its benefit: on the v6 checkpoint the optimal global
+        rescale of recon was alpha=1.27 (recon systematically 27% too small =
+        textbook LASSO shrinkage) while k_eff sat at ~23 of 30 slots (no actual
+        sparsity). Root cause: classic sparse coding gets exact zeros from a
+        proximal/soft-threshold step (ISTA); here amp is a smooth linear function of
+        the bottleneck trained by plain SGD, so the L1 subgradient never zeroes
+        anything — it just applies uniform downward pressure on every coefficient.
+        Shrinkage without selection.
 
-        valid_channels: [G, C] bool or None — zero-padded channels are EXCLUDED from
-        the normalized mean (their ||x|| is exactly 0, so the ratio would explode on
-        whatever bias-driven amp noise the encoder emits there; their "sparsity" is
-        meaningless anyway)."""
-        if x_target is None:
-            return amp_routed.abs().mean()
-        l1 = amp_routed.abs().sum(dim=-1)                       # [G, C]
-        x_norm = x_target.norm(dim=-1)                          # [G, C]
-        ratio = l1 / (x_norm + 1e-3)
+        Hoyer is SCALE-INVARIANT (a -> c*a leaves it unchanged), so it exerts zero
+        pressure on amplitude and pure pressure on the distribution's SHAPE — the
+        magnitudes stay free to match the signal (no shrinkage bias) while the code
+        is pushed toward using fewer atoms. Directly tied to the logged diagnostic:
+        k_eff = (L1/L2)^2, so hoyer = (sqrt(K) - sqrt(k_eff)) / (sqrt(K) - 1) —
+        this loss IS the k_eff metric, in a normalized form. Shared atoms excluded
+        (always-on by design, not part of this budget)."""
+        K = amp_mag_routed.shape[-1]
+        if K < 2:
+            return amp_mag_routed.new_zeros(())
+        rootK = math.sqrt(K)
+        l1 = amp_mag_routed.sum(dim=-1)
+        l2 = amp_mag_routed.pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
+        hoyer = (rootK - l1 / l2) / (rootK - 1.0)          # [G, C]
+        loss = 1.0 - hoyer
         if valid_channels is not None:
-            return ratio[valid_channels].mean() if valid_channels.any() else ratio.new_zeros(())
-        return ratio.mean()
+            return loss[valid_channels].mean() if valid_channels.any() else loss.new_zeros(())
+        return loss.mean()
+
+    @staticmethod
+    def _spatial_weights(coords, sigma_scale=1.5):
+        """coords: [C, 3] electrode positions -> W [C, C] gaussian spatial affinity,
+        zero diagonal. sigma is set from the median nearest-neighbour distance times
+        sigma_scale, so the kernel adapts to whatever montage/scale the caller uses
+        (canonical 10-10 coords here) instead of a hard-coded length.
+
+        Nearest-neighbour distances are taken over POSITIVE distances only, and only
+        among channels with a real position: zero-padded channels all carry coords
+        exactly (0, 0, 0) (see IO/dataset.py's channel mapping), so a plain
+        median-nearest-neighbour collapses to 0 the moment a montage has more padded
+        than mapped channels — which drives sigma to its clamp and produces a
+        degenerate all-zero kernel (observed as a NaN smoothness loss on a
+        2-subject Dial run: 56 of 64 channels padded)."""
+        d = torch.cdist(coords, coords)                              # [C, C]
+        real = coords.norm(dim=-1) > 1e-8                            # padded channels sit at the origin
+        if real.sum() >= 2:
+            dr = d[real][:, real]
+            big = dr + torch.eye(dr.shape[0], device=d.device, dtype=d.dtype) * 1e9
+            nn_d = big.min(dim=-1).values
+        else:
+            nn_d = d.flatten()
+        pos = nn_d[nn_d > 1e-8]
+        sigma = (pos.median() if pos.numel() else d.max().clamp(min=1e-3)) * sigma_scale
+        W = torch.exp(-d.pow(2) / (2 * sigma.pow(2).clamp(min=1e-12)))
+        return W - torch.diag(torch.diag(W))                         # no self-loops
+
+    def smoothness_loss(self, amp_routed, coords, valid_channels=None):
+        """amp_routed: [G, C, top_k, 2] the selected routed atoms' per-channel
+        QUADRATURE pairs (the mixing columns), coords: [C, 3] electrode positions,
+        valid_channels: [G, C] bool or None. Returns the energy-weighted graph
+        Rayleigh quotient of each stamp's mixing column over the electrode graph,
+        averaged over groups.
+
+        Physical motivation: volume conduction makes a real dipolar source's scalp
+        field spatially LOW-PASS — neighbouring electrodes see nearly the same
+        thing. Nothing in this architecture enforces that: every channel's amp is
+        estimated independently from its own token, so a stamp's mixing column is
+        free to come out salt-and-pepper, which no physical source produces (a
+        suspected cause of ICLabel classifying many stamps 'Other' — its clean
+        classes are trained on real, smooth dipolar topographies).
+
+        Both quadrature components are smoothed together: a zero-lag dipole has
+        BOTH smooth amplitude and smooth phase across the scalp.
+
+            R = u^T (D - W) u / u^T D u    per (group, slot), u = [C, 2] column
+
+        SCALE-INVARIANT by construction (a Rayleigh quotient), the same design rule
+        as hoyer_loss above: it constrains the mixing column's SHAPE, never its
+        magnitude, so it adds no shrinkage bias. Bounded in [0, 2]: 0 = perfectly
+        flat field, high = rapid channel-to-channel sign/amplitude flips.
+
+        Slots are weighted by their DETACHED relative energy share — a near-silent
+        slot's direction is numerically meaningless, and detaching keeps the whole
+        term pure-shape (no gradient path that could push magnitudes around)."""
+        G, C, K, _ = amp_routed.shape
+        if C < 3 or K < 1:
+            return amp_routed.new_zeros(())
+        # fp32: the [G,C,C]x[G,C,K,2] contraction below sums C^2*K*2 terms per group
+        # and overflows fp16 under autocast (inf - inf = NaN), same convention as the
+        # other numerically sensitive blocks in this file.
+        with torch.autocast(device_type=amp_routed.device.type, enabled=False):
+            u = amp_routed.float()
+            W = self._spatial_weights(coords.float())                # [C, C]
+            if valid_channels is not None:
+                m = valid_channels.float()                           # [G, C]
+                Wm = W.unsqueeze(0) * m.unsqueeze(1) * m.unsqueeze(2)  # [G, C, C]
+            else:
+                Wm = W.unsqueeze(0).expand(G, C, C)
+            deg = Wm.sum(dim=-1)                                     # [G, C]
+
+            e = u.pow(2).sum(dim=-1)                                 # [G, C, K] per-channel energy
+            den = torch.einsum('gc,gck->gk', deg, e)                 # u^T D u
+            # u^T W u, summed over the 2 quadrature components
+            cross = torch.einsum('gcd,gckp,gdkp->gk', Wm, u, u)
+            R = (den - cross) / (den + 1e-8)                         # [G, K] in [0, 2]
+
+            with torch.no_grad():
+                share = den / (den.sum(dim=-1, keepdim=True) + 1e-8)  # detached energy weights
+            return (R * share).sum(dim=-1).mean()
 
     @torch.no_grad()
     def fingerprint(self):
@@ -682,7 +762,7 @@ class StampBank(nn.Module):
         return (amp[..., 0].unsqueeze(-1) * D_all.view(1, 1, self.n_stamps, -1)
                 + amp[..., 1].unsqueeze(-1) * H_all.view(1, 1, self.n_stamps, -1))
 
-    def forward(self, z, x_target=None, rms=None, valid_channels=None):
+    def forward(self, z, x_target=None, rms=None, valid_channels=None, coords=None):
         """
         z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions, all C
         channels of one patch time per group — see class docstring), x_target:
@@ -693,7 +773,9 @@ class StampBank(nn.Module):
         or None — used ONLY for the group selection score (a zero-padded channel's amp
         is encoder-bias noise that shouldn't vote on which sources this patch
         contains); padded channels still decode/reconstruct like any other, and the
-        loss-side exclusion stays get_loss's job.
+        loss-side exclusion stays get_loss's job. coords: [C, 3] electrode positions
+        or None — needed only by smoothness_loss (None returns a zero for that term,
+        e.g. diagnostic eval calls that don't care about it).
 
         Returns recon [G, C, patch_len], idx [G, top_k+n_shared] (GLOBAL stamp ids,
         routed then shared — ONE selection per patch position, shared by all C
@@ -704,8 +786,9 @@ class StampBank(nn.Module):
         diagnostics only),
         dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
         MeSAEFlatTrainer/MeSAEFlatCodebookChecker read for router-health/usage
-        panels, now at patch-position granularity), aux_loss, sparsity_loss
-        (decorr_loss/indep_loss are gone — see the comment above sparsity_loss).
+        panels, now at patch-position granularity), aux_loss, sparsity_loss (Hoyer,
+        see hoyer_loss), smooth_loss (spatial, see smoothness_loss), k_eff
+        (decorr_loss/indep_loss are gone — see the comment above hoyer_loss).
         z_h is gone too: it was dead weight (nothing read it in either training
         stage, MeSAEFlatFinetune is NotImplemented on this branch).
 
@@ -762,9 +845,16 @@ class StampBank(nn.Module):
         # Magnitude sqrt(a^2+b^2) per selected routed slot — the phase-invariant
         # amplitude, what sparsity/k_eff should see (penalize/count loudness, never
         # phase).
-        amp_mag_routed = amp[:, :, :self.top_k, :].pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
-        sparsity_loss = self.sparsity_loss(amp_mag_routed, x_target=x_target,
-                                           valid_channels=valid_channels)
+        amp_routed_sel = amp[:, :, :self.top_k, :]
+        amp_mag_routed = amp_routed_sel.pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
+        # Both dictionary-shaping terms are SCALE-INVARIANT by design (see their
+        # docstrings): they constrain the amp matrix's SHAPE along its two axes —
+        # hoyer across stamps (how many atoms a channel uses), smoothness across
+        # channels (how one stamp's mixing column varies over the scalp) — and never
+        # its magnitude, so neither reintroduces the L1 shrinkage bias they replaced.
+        sparsity_loss = self.hoyer_loss(amp_mag_routed, valid_channels=valid_channels)
+        smooth_loss = (self.smoothness_loss(amp_routed_sel, coords, valid_channels=valid_channels)
+                       if coords is not None else amp.new_zeros(()))
 
         # Scale-invariant parsimony diagnostic: effective atom count per token,
         # k_eff = (sum|a|)^2 / sum(a^2) — 1.0 when one atom carries everything,
@@ -811,7 +901,8 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, sparsity_loss=sparsity_loss, k_eff=k_eff,
+            aux_loss=aux_loss, sparsity_loss=sparsity_loss, smooth_loss=smooth_loss,
+            k_eff=k_eff,
         )
 
 
