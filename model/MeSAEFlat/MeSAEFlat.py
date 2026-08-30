@@ -252,7 +252,8 @@ class MeSAEFlatPretrain(nn.Module):
             "Finetune's channel-collapsing head needs a redesign first (see plan)."
         )
 
-    def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
+    def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None,
+                smooth_target=0.30):
         """
         x: [B, C, N, L], coords: [B, C, 3]
         bool_masked_pos: [B, C, N] bool — None during the Tokenizer stage (no masking);
@@ -302,7 +303,12 @@ class MeSAEFlatPretrain(nn.Module):
             # channels' amp energy (see StampBank.forward's valid_channels docstring).
             vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(G, C)
 
-        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
+        # coords[0]: channels are unified onto one canonical montage upstream (see
+        # IO/dataset.py's channel mapping), so every batch item carries the same
+        # [C, 3] positions. Per-item validity differences are handled by vc_g.
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g,
+                          coords=coords[0] if coords is not None else None,
+                          smooth_target=smooth_target)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 
@@ -315,6 +321,8 @@ class MeSAEFlatPretrain(nn.Module):
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
+            smooth_loss=out.smooth_loss,
+            smooth_R=out.smooth_R,
             k_eff=out.k_eff,
             valid_channels=valid_channels,
         )
@@ -415,6 +423,7 @@ class MeSAEFlatPretrain(nn.Module):
         return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
+                 smooth_loss=None, smooth_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
         """
         Returns (total, l_masked, l_unmasked).
@@ -433,11 +442,14 @@ class MeSAEFlatPretrain(nn.Module):
         frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
         freeze_stamps().
 
-No auxiliary dictionary-shaping term remains: decorr, indep, L1 sparsity,
-        Hoyer sparsity and spatial smoothness were each tried and retired with
-        measured evidence (see the note above StampBank.fingerprint). aux_loss is the
-        anti-collapse mechanism, top_k the sparsity budget, and the whitened recon
-        objective the diversity mechanism. StampBank has no load-balance loss of its
+smooth_loss (StampBank.smoothness_loss — HINGED spatial prior on the mixing
+        columns) is scoped the same way: Tokenizer-stage dictionary shaping only,
+        dropped once frozen. It is the only auxiliary term left; decorr, indep, L1 and
+        Hoyer sparsity were each tried and retired with measured evidence (see the
+        note above StampBank._spatial_weights), and the smoothness term itself had to
+        be re-shaped as a hinge after an unbounded version collapsed the pool. top_k
+        remains the sparsity budget and the whitened recon objective the diversity
+        mechanism. StampBank has no load-balance loss of its
         own — dropped deliberately, see StampBank.forward docstring.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
@@ -451,6 +463,8 @@ No auxiliary dictionary-shaping term remains: decorr, indep, L1 sparsity,
 
         if bool_masked_pos is None or not self.stamps_frozen:
             total = total + aux_weight * aux_loss
+            if smooth_loss is not None:
+                total = total + smooth_weight * smooth_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
         return total, l_masked, l_unmasked
