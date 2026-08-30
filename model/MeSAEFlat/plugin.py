@@ -16,7 +16,8 @@ from model.base_plugin import BasePlugin
 from viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch,
                           extract_flat_stamp_gallery, extract_filter_spectra)
 from viz.panels import plot_attn_topo as render_attn_topo, plot_topo_psd_by_patch, plot_stamp_gallery
-from viz.codebook import plot_stamp_similarity, plot_patch_position_consistency
+from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
+                           plot_stamp_identity_consistency)
 
 
 @torch.no_grad()
@@ -398,6 +399,77 @@ class MeSAEFlatCodebookChecker(BaseCodebookChecker):
         plot_stamp_similarity(
             os.path.join(viz_dir, 'stamp_similarity.png'), content_records,
             unit_label=self.unit_label, seed=seed)
+
+        self._render_identity_consistency(sample, viz_dir, model, device)
+
+    @torch.no_grad()
+    def _render_identity_consistency(self, trial_records, viz_dir, model, device):
+        """Does one stamp id mean one thing across patches/trials? The waveform half is
+        trivially yes (D_i is a fixed parameter), so this measures the TOPOGRAPHY: every
+        occurrence's mixing column, compared within-id vs between-id. Nothing in the
+        architecture ties a stamp across patches — group selection binds channels within
+        a patch only — so this is a real open question, not a formality. See
+        viz.codebook.plot_stamp_identity_consistency for the metric's construction (and
+        the two biases it has to avoid)."""
+        from collections import defaultdict
+        from viz.codebook import plot_stamp_identity_consistency
+        from viz.iclabel import ICLABEL_CLASSES
+
+        cols, labels = defaultdict(list), defaultdict(list)
+        fs = None
+        for t in trial_records:
+            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
+            B, C, N, L = x_in.shape
+            z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
+            z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
+            x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
+            rms = x_g.pow(2).mean(-1, keepdim=True).sqrt()
+            vg = vc_in.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
+            o = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vg)
+            mag = o.amp.pow(2).sum(-1).sqrt()                      # [G, C, K]
+            m = vc_in[0].bool()
+            for g in range(mag.shape[0]):
+                for k in range(o.idx.shape[1]):
+                    cols[int(o.idx[g, k])].append(mag[g, m, k].detach().cpu().numpy())
+            gal = extract_flat_stamp_gallery(model, x_in, c_in, time_idx=t_in,
+                                              valid_channels=vc_in, fs=200, freq_resolution=0.2)
+            uids, probs = gal[0], gal[-1]
+            if probs is not None:
+                for qi, sid in enumerate(uids.tolist()):
+                    if np.all(np.isfinite(probs[qi])):
+                        labels[int(sid)].append(int(probs[qi].argmax()))
+
+        def prep(a):
+            # center across channels then unit-norm: raw magnitude columns are
+            # non-negative, so their cosines sit near 1 regardless of structure
+            a = np.asarray(a, dtype=float)
+            a = a - a.mean(-1, keepdims=True)
+            return a / (np.linalg.norm(a, axis=-1, keepdims=True) + 1e-9)
+
+        ids = [s_ for s_, c in cols.items() if len(c) >= 6]
+        if len(ids) < 2:
+            print('  [codebook] identity consistency skipped (too few repeated stamps)')
+            return
+        P = {s_: prep(np.stack(cols[s_])) for s_ in ids}
+        within, per_stamp = [], []
+        for s_ in ids:
+            U = P[s_]; S = U @ U.T; n = len(U)
+            v = float((S.sum() - n) / (n * (n - 1)))
+            within.append(v); per_stamp.append(v)
+        rng = np.random.default_rng(0)
+        # between-id pairs drawn between INDIVIDUAL occurrences, same footing as within
+        between = []
+        for _ in range(4000):
+            a, b = rng.choice(len(ids), 2, replace=False)
+            ua = P[ids[a]][rng.integers(len(P[ids[a]]))]
+            ub = P[ids[b]][rng.integers(len(P[ids[b]]))]
+            between.append(float(ua @ ub))
+        agree = {s_: float(np.bincount(ls).max() / len(ls))
+                 for s_, ls in labels.items() if len(ls) >= 3}
+        plot_stamp_identity_consistency(
+            os.path.join(viz_dir, 'stamp_identity_consistency.png'),
+            np.asarray(within), np.asarray(between), ids, per_stamp,
+            label_agree=agree or None, unit_label=self.unit_label)
 
     def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed):
         """Overrides the base's usage/gating-based panel with a content-based one (real

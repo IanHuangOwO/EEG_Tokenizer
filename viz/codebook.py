@@ -953,3 +953,72 @@ def plot_dataset_relation(out_path, usage_by_dataset, unit_label='Filter'):
     fig.savefig(out_path, dpi=120, bbox_inches='tight')
     plt.close(fig)
     print(f"  [codebook] -> {out_path}")
+
+
+def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, per_stamp_within,
+                                     label_agree=None, unit_label='Stamp'):
+    """Does a stamp id mean the same thing every time it fires?
+
+    The waveform half of that question is trivially yes — a stamp's template D_i is a
+    fixed parameter, so its temporal shape is identical at every occurrence up to
+    amplitude and phase. The open half is the TOPOGRAPHY: the mixing column is
+    recomputed per (channel, patch) from the data, and nothing in the architecture ties
+    one occurrence to the next (group selection binds channels WITHIN a patch, not
+    across patches). If stamp identity carries topographic meaning, two occurrences of
+    the same id should be more alike than two occurrences of different ids.
+
+    within/between: 1-D arrays of cosine similarities between per-occurrence mixing
+    columns — same id vs different ids. Both must be computed the same way (columns
+    centered across channels, then unit-normalized, and BOTH sides comparing individual
+    occurrences): raw magnitude columns are non-negative so their cosines are pushed
+    toward 1 regardless of structure, and comparing individual columns against averaged
+    ones makes the averaged side look artificially self-similar. The separation
+    (within - between) is the real readout: ~0 means the id predicts nothing about
+    topography, i.e. the stamp is a waveform type rather than a source.
+
+    per_stamp_ids/per_stamp_within: per-id mean within-consistency, for the bar panel.
+    label_agree: optional dict id -> modal-ICLabel-class agreement across trials.
+    """
+    import numpy as np
+    ncol = 3 if label_agree else 2
+    fig, axes = plt.subplots(1, ncol, figsize=(5.4 * ncol, 4.2), squeeze=False)
+    ax = axes[0, 0]
+    bins = np.linspace(-1, 1, 60)
+    ax.hist(between, bins=bins, alpha=0.6, label=f'different {unit_label.lower()}s', color='gray', density=True)
+    ax.hist(within, bins=bins, alpha=0.6, label=f'same {unit_label.lower()}', color='seagreen', density=True)
+    sep = float(np.mean(within) - np.mean(between))
+    ax.axvline(np.mean(between), color='gray', ls='--', lw=1)
+    ax.axvline(np.mean(within), color='seagreen', ls='--', lw=1)
+    ax.set_title(f'Mixing-column similarity\nwithin {np.mean(within):.3f} vs between '
+                 f'{np.mean(between):.3f}  (sep {sep:+.3f})', fontsize=10, fontweight='bold')
+    ax.set_xlabel('cosine (centered columns)'); ax.set_ylabel('density'); ax.legend(fontsize=8)
+
+    ax = axes[0, 1]
+    order = np.argsort(-np.asarray(per_stamp_within))
+    ax.bar(range(len(order)), np.asarray(per_stamp_within)[order], color='steelblue')
+    ax.axhline(np.mean(between), color='gray', ls='--', lw=1, label='between-stamp mean')
+    ax.set_xticks(range(len(order)))
+    ax.set_xticklabels([str(per_stamp_ids[i]) for i in order], fontsize=5, rotation=90)
+    ax.set_title('Per-stamp topographic self-consistency\n(above dashed line = id carries '
+                 'topographic meaning)', fontsize=10, fontweight='bold')
+    ax.set_xlabel(f'{unit_label} id'); ax.set_ylabel('mean within-id cosine'); ax.legend(fontsize=8)
+
+    if label_agree:
+        ax = axes[0, 2]
+        vals = np.asarray(list(label_agree.values()))
+        ax.hist(vals, bins=np.linspace(0, 1, 21), color='darkorange')
+        ax.axvline(vals.mean(), color='k', ls='--', lw=1)
+        ax.set_title(f'ICLabel class stability per {unit_label.lower()}\n'
+                     f'mean modal agreement {vals.mean():.2f}, always-same '
+                     f'{np.mean(vals == 1.0):.2f}', fontsize=10, fontweight='bold')
+        ax.set_xlabel('modal-class agreement across trials'); ax.set_ylabel(f'# {unit_label.lower()}s')
+
+    fig.suptitle(f'{unit_label} Identity Consistency — does one id mean one thing?',
+                 fontsize=13, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  [codebook] -> {out_path}")
+    print(f"    within-id {np.mean(within):.3f} | between-id {np.mean(between):.3f} | "
+          f"separation {sep:+.3f}"
+          + (f" | ICLabel modal agreement {np.mean(list(label_agree.values())):.3f}" if label_agree else ""))
