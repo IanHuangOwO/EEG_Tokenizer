@@ -320,7 +320,6 @@ class MeSAEFlatPretrain(nn.Module):
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
-            sparsity_loss=out.sparsity_loss,
             smooth_loss=out.smooth_loss,
             k_eff=out.k_eff,
             valid_channels=valid_channels,
@@ -338,10 +337,9 @@ class MeSAEFlatPretrain(nn.Module):
         copies) is genuinely OPTIMAL, which is exactly the observed template collapse.
         Whitening is ICA's own mandatory first step for the same reason. With per-bin
         error weighted by inverse dataset power, covering distinct bands pays in loss,
-        and stamp frequency diversity becomes emergent (together with sparsity_loss
-        starving redundant atoms and the aux rescue re-aiming dead ones at the
-        residual) instead of enforced by the repulsion terms this replaced
-        (decorr_loss/indep_loss — see the comment above StampBank.sparsity_loss).
+        and stamp frequency diversity becomes emergent (together with the aux rescue
+        re-aiming dead atoms at the residual) instead of enforced by the repulsion terms this replaced
+        (decorr_loss/indep_loss — see the note above StampBank._spatial_weights).
 
         Weights come from ema_bin_psd (see __init__): EMA of the valid tokens' mean
         target PSD, updated each training batch, floored at 1% of its own mean so
@@ -423,7 +421,6 @@ class MeSAEFlatPretrain(nn.Module):
         return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
-                 sparsity_loss=None, sparsity_weight=0.01,
                  smooth_loss=None, smooth_weight=0.01,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
         """
@@ -443,19 +440,15 @@ class MeSAEFlatPretrain(nn.Module):
         frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
         freeze_stamps().
 
-        sparsity_loss (StampBank.hoyer_loss — 1 - Hoyer sparsity of the selected
-        routed amps) and smooth_loss (StampBank.smoothness_loss — graph Rayleigh
-        quotient of each stamp's mixing column over the electrode graph) are scoped
-        the same way: both shape the Tokenizer stage's dictionary only, dropped once
-        frozen. They are deliberately the two SCALE-INVARIANT structure terms — one
-        per axis of the [C, K] amp matrix (sparsity across stamps, smoothness across
-        channels) — replacing the retired L1 sparsity_loss, which measurably produced
-        shrinkage without selection (see hoyer_loss's docstring for the alpha=1.27 /
-        k_eff=23-of-30 evidence). Scale invariance is the point: amplitudes stay free
-        to match the signal, only the code's shape is constrained. decorr_loss/
-        indep_loss were deleted earlier (purpose met by the whitened objective, see
-        _recon_loss). StampBank has no load-balance loss of its own — dropped
-        deliberately, see StampBank.forward docstring.
+        smooth_loss (StampBank.smoothness_loss — graph Rayleigh quotient of each
+        stamp's mixing column over the electrode graph) is scoped the same way: it
+        shapes the Tokenizer stage's dictionary only, dropped once frozen. It is now
+        the ONLY auxiliary dictionary term. Every other one has been retired with
+        evidence: decorr/indep to the whitened objective (see _recon_loss), and both
+        sparsity attempts — L1 (shrinkage without selection) and Hoyer (collapsed the
+        router to one atom) — to the note above StampBank._spatial_weights. top_k is
+        the real sparsity budget. StampBank has no load-balance loss of its own —
+        dropped deliberately, see StampBank.forward docstring.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
@@ -468,8 +461,6 @@ class MeSAEFlatPretrain(nn.Module):
 
         if bool_masked_pos is None or not self.stamps_frozen:
             total = total + aux_weight * aux_loss
-            if sparsity_loss is not None:
-                total = total + sparsity_weight * sparsity_loss
             if smooth_loss is not None:
                 total = total + smooth_weight * smooth_loss
         if ffn_lb_loss is not None:

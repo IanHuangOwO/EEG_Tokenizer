@@ -80,12 +80,10 @@ class MeSAEFlatTrainer(BaseTrainer):
         # for every model type but MeSAE's loss no longer uses them — see get_loss.
         aux_weight = hparams.get('aux_weight', 0.03)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
-        sparsity_weight = hparams.get('sparsity_weight', 0.01)
         smooth_weight = hparams.get('smooth_weight', 0.01)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
-                               sparsity_loss=out.sparsity_loss, sparsity_weight=sparsity_weight,
                                smooth_loss=out.smooth_loss, smooth_weight=smooth_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels)
@@ -101,7 +99,6 @@ class MeSAEFlatTrainer(BaseTrainer):
         # instead of an epoch average like every other loss stat.
         metrics = model.get_metrics(out.dense_routed.detach())
         metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
-        metrics['sparsity'] = out.sparsity_loss.item() if hasattr(out.sparsity_loss, 'item') else float(out.sparsity_loss)
         metrics['smooth'] = out.smooth_loss.item() if hasattr(out.smooth_loss, 'item') else float(out.smooth_loss)
         metrics['k_eff'] = out.k_eff.item() if hasattr(out.k_eff, 'item') else float(out.k_eff)
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
@@ -443,8 +440,6 @@ class MeSAEFlatPlotter(BasePlotter):
                  ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
             dict(title='Dead Feature Rate', ylabel='Fraction',
                  series=[dict(key='dead_feature_rate', color='crimson')]),
-            dict(title='Amp Sparsity (1 - Hoyer, scale-invariant)\n(0 = one atom carries all, 1 = all top_k equal)',
-                 ylabel='1 - hoyer', series=[dict(key='sparsity', color='seagreen')]),
             dict(title='Mixing-Column Smoothness (graph Rayleigh)\n(0 = spatially flat field, high = salt-and-pepper '
                        'topography)',
                  ylabel='R', series=[dict(key='smooth', color='steelblue')]),

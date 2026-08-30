@@ -606,43 +606,26 @@ class StampBank(nn.Module):
     #   objective instead — spectrally whitened recon loss (MeSAEFlat._recon_loss),
     #   ICA's own mandatory whitening step — so frequency diversity pays for itself.
 
-    def hoyer_loss(self, amp_mag_routed, valid_channels=None):
-        """amp_mag_routed: [G, C, top_k] per-channel amplitude MAGNITUDES
-        sqrt(a^2+b^2) of the selected routed atoms. Returns 1 - Hoyer sparsity,
-        averaged over valid (group, channel) tokens.
-
-            hoyer(a) = (sqrt(K) - L1/L2) / (sqrt(K) - 1)   in [0, 1]
-            1 = maximally sparse (one atom carries everything)
-            0 = perfectly flat (all K atoms equal)
-
-        Replaces the retired L1 sparsity_loss, which measurably paid L1's cost
-        without delivering its benefit: on the v6 checkpoint the optimal global
-        rescale of recon was alpha=1.27 (recon systematically 27% too small =
-        textbook LASSO shrinkage) while k_eff sat at ~23 of 30 slots (no actual
-        sparsity). Root cause: classic sparse coding gets exact zeros from a
-        proximal/soft-threshold step (ISTA); here amp is a smooth linear function of
-        the bottleneck trained by plain SGD, so the L1 subgradient never zeroes
-        anything — it just applies uniform downward pressure on every coefficient.
-        Shrinkage without selection.
-
-        Hoyer is SCALE-INVARIANT (a -> c*a leaves it unchanged), so it exerts zero
-        pressure on amplitude and pure pressure on the distribution's SHAPE — the
-        magnitudes stay free to match the signal (no shrinkage bias) while the code
-        is pushed toward using fewer atoms. Directly tied to the logged diagnostic:
-        k_eff = (L1/L2)^2, so hoyer = (sqrt(K) - sqrt(k_eff)) / (sqrt(K) - 1) —
-        this loss IS the k_eff metric, in a normalized form. Shared atoms excluded
-        (always-on by design, not part of this budget)."""
-        K = amp_mag_routed.shape[-1]
-        if K < 2:
-            return amp_mag_routed.new_zeros(())
-        rootK = math.sqrt(K)
-        l1 = amp_mag_routed.sum(dim=-1)
-        l2 = amp_mag_routed.pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
-        hoyer = (rootK - l1 / l2) / (rootK - 1.0)          # [G, C]
-        loss = 1.0 - hoyer
-        if valid_channels is not None:
-            return loss[valid_channels].mean() if valid_channels.any() else loss.new_zeros(())
-        return loss.mean()
+    # No sparsity term at all, deliberately — two failed attempts, both instructive:
+    #  - L1 (raw, then signal-normalized): amp is a SMOOTH linear function of the
+    #    bottleneck trained by plain SGD, with no proximal/soft-threshold step, so the
+    #    subgradient never zeroed anything. Measured on v6: optimal global rescale of
+    #    recon alpha=1.27 (recon 27% too small — textbook LASSO shrinkage) while k_eff
+    #    stayed ~23 of 30. Shrinkage without selection; raising the weight bought only
+    #    more bias.
+    #  - Hoyer (1 - (sqrt(K) - L1/L2)/(sqrt(K) - 1)): fixed the shrinkage (scale-
+    #    invariant, zero amplitude pressure) but scale invariance also removed the
+    #    reconstruction floor that had bounded L1 — its global optimum is literally
+    #    "one atom carries everything, rest exactly zero", reachable without the recon
+    #    term being able to object. It got there: v7 collapsed monotonically from
+    #    epoch 1 (k_eff 26.3 -> 5.2 -> 2.3 -> 1.7, router_entropy 0.00,
+    #    dead_feature_rate 0.99), the aux rescue losing at aux_weight 0.01.
+    # The useful negative result: v5/v6 ran k_eff ~8 with an L1 we had already proven
+    # inert, i.e. ~8 is where this model sits with NO sparsity pressure. top_k is the
+    # real budget; parsimony below it is not load-bearing. k_eff stays as a logged
+    # diagnostic (see forward) so drift is visible — a hinged variant penalizing only
+    # k_eff above a target would be the principled way back if a large pool ever needs
+    # it (the 300-stamp run reached k_eff 23), but nothing needs it today.
 
     @staticmethod
     def _spatial_weights(coords, sigma_scale=1.5):
@@ -692,7 +675,7 @@ class StampBank(nn.Module):
             R = u^T (D - W) u / u^T D u    per (group, slot), u = [C, 2] column
 
         SCALE-INVARIANT by construction (a Rayleigh quotient), the same design rule
-        as hoyer_loss above: it constrains the mixing column's SHAPE, never its
+        as the retired Hoyer term: it constrains the mixing column's SHAPE, never its
         magnitude, so it adds no shrinkage bias. Bounded in [0, 2]: 0 = perfectly
         flat field, high = rapid channel-to-channel sign/amplitude flips.
 
@@ -786,9 +769,10 @@ class StampBank(nn.Module):
         diagnostics only),
         dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
         MeSAEFlatTrainer/MeSAEFlatCodebookChecker read for router-health/usage
-        panels, now at patch-position granularity), aux_loss, sparsity_loss (Hoyer,
-        see hoyer_loss), smooth_loss (spatial, see smoothness_loss), k_eff
-        (decorr_loss/indep_loss are gone — see the comment above hoyer_loss).
+        panels, now at patch-position granularity), aux_loss, smooth_loss (spatial,
+        see smoothness_loss — the only dictionary-shaping term left), k_eff
+        (diagnostic only; decorr/indep/sparsity terms are all gone, see the note
+        above _spatial_weights).
         z_h is gone too: it was dead weight (nothing read it in either training
         stage, MeSAEFlatFinetune is NotImplemented on this branch).
 
@@ -847,12 +831,12 @@ class StampBank(nn.Module):
         # phase).
         amp_routed_sel = amp[:, :, :self.top_k, :]
         amp_mag_routed = amp_routed_sel.pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
-        # Both dictionary-shaping terms are SCALE-INVARIANT by design (see their
-        # docstrings): they constrain the amp matrix's SHAPE along its two axes —
-        # hoyer across stamps (how many atoms a channel uses), smoothness across
-        # channels (how one stamp's mixing column varies over the scalp) — and never
-        # its magnitude, so neither reintroduces the L1 shrinkage bias they replaced.
-        sparsity_loss = self.hoyer_loss(amp_mag_routed, valid_channels=valid_channels)
+        # smoothness is the ONLY dictionary-shaping term left (see the note above
+        # _spatial_weights for why both sparsity attempts were retired). It's
+        # scale-invariant — a Rayleigh quotient — so it constrains the mixing
+        # column's shape across channels and never its magnitude, and unlike Hoyer
+        # it has no degenerate optimum to run away to: a perfectly smooth field is
+        # still a full, informative field.
         smooth_loss = (self.smoothness_loss(amp_routed_sel, coords, valid_channels=valid_channels)
                        if coords is not None else amp.new_zeros(()))
 
@@ -901,8 +885,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, sparsity_loss=sparsity_loss, smooth_loss=smooth_loss,
-            k_eff=k_eff,
+            aux_loss=aux_loss, smooth_loss=smooth_loss, k_eff=k_eff,
         )
 
 
