@@ -626,10 +626,11 @@ class StampBank(nn.Module):
     #   objective instead — spectrally whitened recon loss (MeSAEFlat._recon_loss),
     #   ICA's own mandatory whitening step — so frequency diversity pays for itself.
 
-    # Four auxiliary dictionary-shaping losses were tried and RETIRED, each with
-    # measured evidence — recorded so they don't get reinvented. The surviving one
-    # (hinged spatial smoothness, below) is the only one shaped so it cannot reach its
-    # own degenerate optimum:
+    # FIVE auxiliary dictionary-shaping losses were tried and RETIRED, each with
+    # measured evidence — recorded so they don't get reinvented. NONE remain; the
+    # mechanisms that actually work here are structural, not penalty-based (top_k is
+    # the sparsity budget, the whitened recon objective the diversity mechanism, the
+    # aux rescue the anti-collapse mechanism):
     #  - decorr (W_down direction repulsion): life support for the retired untrainable
     #    w_score router. With |amp| group selection trained by recon, redundant atoms
     #    die on their own (interchangeable -> dead -> aux rescue re-aims them at the
@@ -648,134 +649,26 @@ class StampBank(nn.Module):
     #    also removed the reconstruction floor that had bounded L1, leaving a reachable
     #    degenerate optimum ("one atom carries everything"). v7 went there monotonically
     #    from epoch 1: k_eff 26.3 -> 5.2 -> 2.3 -> 1.7, router_entropy 0.00, dead 0.99.
+    #  - spatial smoothness (graph Rayleigh quotient on the mixing columns), in two
+    #    forms. UNBOUNDED (v8, weight 0.05): a uniform field scores R=0, a reachable
+    #    degenerate optimum, and it went there — R driven to 0.018 vs ~0.5 untouched,
+    #    per-channel contrast crushed 1.0 -> 0.11 (uniformly bright topomaps), pool
+    #    collapsed (alive 16/84, template spectral entropy 0.35 -> 0.47) because
+    #    spatial pattern is a main axis along which stamps differ. HINGED at 0.30
+    #    (relu(R - target), which does fix the degenerate optimum): still measured
+    #    unnecessary and mildly harmful — v10 with the weight at 0 settles at R ~0.40
+    #    unaided, already AT the physical reference (raw EEG spatial R: EEGMMIdb 0.254,
+    #    BETA_4s 0.396), and gave the best reconstruction of any run (val whitened
+    #    0.0712 vs 0.083/0.086/0.096 for v8/v4/v6). With nothing to correct, a 0.30
+    #    hinge only pushes ~25% below physics — the target was mis-set toward the
+    #    SMOOTH end of the 0.25-0.40 band twice over.
     # The common pattern: every failure had a degenerate optimum the recon term could
-    # not veto, and each collapsed a different axis — Hoyer the PER-TOKEN code (k_eff),
-    # unbounded smoothness the POOL (alive fraction). A HINGED penalty (act only above
-    # a target, zero pressure below) is the one safe shape, which is why the smoothness
-    # term below is written that way. top_k remains the real sparsity budget, whitening
-    # the real diversity mechanism, the aux rescue the real anti-collapse mechanism;
-    # k_eff stays a logged diagnostic so drift is visible.
-
-    @staticmethod
-    def _spatial_weights(coords, sigma_scale=1.5):
-        """coords: [C, 3] electrode positions -> W [C, C] gaussian spatial affinity,
-        zero diagonal. sigma is set from the median nearest-neighbour distance times
-        sigma_scale, so the kernel adapts to whatever montage/scale the caller uses
-        (canonical 10-10 coords here) instead of a hard-coded length.
-
-        Nearest-neighbour distances are taken over POSITIVE distances only, and only
-        among channels with a real position: zero-padded channels all carry coords
-        exactly (0, 0, 0) (see IO/dataset.py's channel mapping), so a plain
-        median-nearest-neighbour collapses to 0 the moment a montage has more padded
-        than mapped channels — which drives sigma to its clamp and produces a
-        degenerate all-zero kernel (observed as a NaN smoothness loss on a
-        2-subject Dial run: 56 of 64 channels padded)."""
-        d = torch.cdist(coords, coords)                              # [C, C]
-        real = coords.norm(dim=-1) > 1e-8                            # padded channels sit at the origin
-        if real.sum() >= 2:
-            dr = d[real][:, real]
-            big = dr + torch.eye(dr.shape[0], device=d.device, dtype=d.dtype) * 1e9
-            nn_d = big.min(dim=-1).values
-        else:
-            nn_d = d.flatten()
-        pos = nn_d[nn_d > 1e-8]
-        sigma = (pos.median() if pos.numel() else d.max().clamp(min=1e-3)) * sigma_scale
-        W = torch.exp(-d.pow(2) / (2 * sigma.pow(2).clamp(min=1e-12)))
-        return W - torch.diag(torch.diag(W))                         # no self-loops
-
-    def smoothness_loss(self, amp_routed, coords, valid_channels=None, target=0.30):
-        """amp_routed: [G, C, top_k, 2] the selected routed atoms' per-channel
-        QUADRATURE pairs (the mixing columns), coords: [C, 3] electrode positions,
-        valid_channels: [G, C] bool or None. Returns the energy-weighted graph
-        Rayleigh quotient of each stamp's mixing column over the electrode graph,
-        averaged over groups.
-
-        Physical motivation: volume conduction makes a real dipolar source's scalp
-        field spatially LOW-PASS — neighbouring electrodes see nearly the same
-        thing. Nothing in this architecture enforces that: every channel's amp is
-        estimated independently from its own token, so a stamp's mixing column is
-        free to come out salt-and-pepper, which no physical source produces (a
-        suspected cause of ICLabel classifying many stamps 'Other' — its clean
-        classes are trained on real, smooth dipolar topographies).
-
-        Both quadrature components are smoothed together: a zero-lag dipole has
-        BOTH smooth amplitude and smooth phase across the scalp.
-
-            R = u^T (D - W) u / u^T D u    per (group, slot), u = [C, 2] column
-
-        SCALE-INVARIANT by construction (a Rayleigh quotient): it constrains the
-        mixing column's SHAPE, never its magnitude, so it adds no shrinkage bias.
-        Bounded in [0, 2]: 0 = perfectly flat field, ~1 = a random/uncorrelated
-        field, high = rapid channel-to-channel sign/amplitude flips.
-
-        HINGED at `target` — the loss is relu(R - target), i.e. exactly zero gradient
-        once the field is already as smooth as physics calls for. This is the whole
-        difference between this version and the unbounded one that had to be reverted:
-        R=0 (a perfectly UNIFORM field) is a degenerate optimum, and an unbounded
-        penalty goes straight to it. v8 did exactly that at weight 0.05 — R driven to
-        0.018, per-channel contrast crushed from ~1.0 to 0.11 (uniformly bright
-        topomaps), and the codebook collapsed with it (alive 16/84, template spectral
-        entropy 0.35 -> 0.47) because spatial pattern is a main axis along which two
-        stamps differ: force every column flat and stamps can only differ by waveform,
-        so most become redundant and die.
-
-        DEFAULT OFF (smooth_weight 0.0 in config) — measured as unnecessary, and the
-        history is worth keeping. v10 (90 routed, top_k 18, no smoothness) settles at
-        R ~0.40 on its own, i.e. already AT the physical reference (BETA_4s raw =
-        0.396), and it produced the best reconstruction of any run to date (val
-        whitened 0.0712 vs 0.083/0.086/0.096 for v8/v4/v6). With nothing to correct,
-        a hinge at target=0.30 only pushes the field ~25% BELOW physics — that target
-        was mis-set on the same "too smooth" side as the unbounded version it
-        replaced. Keep the term available (smooth_R is logged unconditionally, so a
-        genuinely rough run is still visible) but leave the weight at 0 unless
-        smooth_R is measured well above the physical band, and then set target at or
-        above ~0.40 rather than below it.
-
-        target=0.30 is empirical, not a guess. Measured R of REAL EEG spatial patterns
-        (same Rayleigh quotient, u_c = that channel's raw patch waveform): EEGMMIdb
-        0.254 (62/64 real channels), BETA_4s 0.396 (58/64), Dial 0.206 (8/64, least
-        reliable). Untouched model runs sit at R 0.44-0.58 (v4/v5/v6, pools 60-298) —
-        genuinely ~1.5-2x rougher than physical fields, which is what justifies the
-        prior at all, but nowhere near the salt-and-pepper (~1.0) this was originally
-        assumed to be fixing. 0.30 sits in the measured band, deliberately toward the
-        rougher end so the term under-corrects rather than over-corrects.
-
-        Slots are weighted by their DETACHED relative energy share — a near-silent
-        slot's direction is numerically meaningless, and detaching keeps the whole
-        term pure-shape (no gradient path that could push magnitudes around)."""
-        G, C, K, _ = amp_routed.shape
-        if C < 3 or K < 1:
-            return amp_routed.new_zeros(())
-        # fp32: the [G,C,C]x[G,C,K,2] contraction below sums C^2*K*2 terms per group
-        # and overflows fp16 under autocast (inf - inf = NaN), same convention as the
-        # other numerically sensitive blocks in this file.
-        with torch.autocast(device_type=amp_routed.device.type, enabled=False):
-            u = amp_routed.float()
-            W = self._spatial_weights(coords.float())                # [C, C]
-            if valid_channels is not None:
-                m = valid_channels.float()                           # [G, C]
-                Wm = W.unsqueeze(0) * m.unsqueeze(1) * m.unsqueeze(2)  # [G, C, C]
-            else:
-                Wm = W.unsqueeze(0).expand(G, C, C)
-            deg = Wm.sum(dim=-1)                                     # [G, C]
-
-            e = u.pow(2).sum(dim=-1)                                 # [G, C, K] per-channel energy
-            den = torch.einsum('gc,gck->gk', deg, e)                 # u^T D u
-            # u^T W u, summed over the 2 quadrature components
-            cross = torch.einsum('gcd,gckp,gdkp->gk', Wm, u, u)
-            R = (den - cross) / (den + 1e-8)                         # [G, K] in [0, 2]
-
-            with torch.no_grad():
-                share = den / (den.sum(dim=-1, keepdim=True) + 1e-8)  # detached energy weights
-                # Raw (un-hinged) R, stashed for logging — once the hinge is satisfied
-                # the loss itself is identically 0 and would hide where R actually sits
-                # (0.29 and 0.02 both read as 0). Same self-attribute convention as
-                # MoEFFN._record_health. Compare against the measured physical band in
-                # the docstring: ~0.25-0.40 is EEG-like, ~1.0 is random, ~0 is degenerate.
-                self.last_smooth_R = (R * share).sum(dim=-1).mean()
-            # hinge per (group, slot): no pressure on columns already at/below target
-            excess = (R - target).clamp(min=0.0)
-            return (excess * share).sum(dim=-1).mean()
+    # not veto, and each collapsed a different axis — Hoyer the PER-TOKEN code (k_eff
+    # 26 -> 1.7), unbounded smoothness the POOL (alive 0.19 vs 0.54-0.97). If any of
+    # this is ever genuinely needed, the one safe shape is HINGED (act only past a
+    # target measured against physical data, zero pressure inside it) — and check first
+    # that the quantity is actually out of range, which for smoothness it never was.
+    # k_eff and stamp_router_entropy_frac stay logged so drift is visible.
 
     @torch.no_grad()
     def fingerprint(self):
@@ -814,8 +707,7 @@ class StampBank(nn.Module):
         return (amp[..., 0].unsqueeze(-1) * D_all.view(1, 1, self.n_stamps, -1)
                 + amp[..., 1].unsqueeze(-1) * H_all.view(1, 1, self.n_stamps, -1))
 
-    def forward(self, z, x_target=None, rms=None, valid_channels=None, coords=None,
-                smooth_target=0.30):
+    def forward(self, z, x_target=None, rms=None, valid_channels=None):
         """
         z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions, all C
         channels of one patch time per group — see class docstring), x_target:
@@ -826,9 +718,7 @@ class StampBank(nn.Module):
         or None — used ONLY for the group selection score (a zero-padded channel's amp
         is encoder-bias noise that shouldn't vote on which sources this patch
         contains); padded channels still decode/reconstruct like any other, and the
-        loss-side exclusion stays get_loss's job. coords: [C, 3] electrode positions
-        or None (None skips smoothness_loss, e.g. probes that don't need it);
-        smooth_target: the hinge point for that loss, see smoothness_loss.
+        loss-side exclusion stays get_loss's job.
 
         Returns recon [G, C, patch_len], idx [G, top_k+n_shared] (GLOBAL stamp ids,
         routed then shared — ONE selection per patch position, shared by all C
@@ -839,9 +729,9 @@ class StampBank(nn.Module):
         diagnostics only),
         dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
         MeSAEFlatTrainer/MeSAEFlatCodebookChecker read for router-health/usage
-        panels, now at patch-position granularity), aux_loss, smooth_loss (hinged
-        spatial prior, see smoothness_loss), smooth_R (its raw un-hinged value, for
-        logging), k_eff (diagnostic only).
+        panels, now at patch-position granularity), aux_loss, k_eff (diagnostic
+        only — no auxiliary dictionary-shaping loss remains, see the note above
+        fingerprint()).
         z_h is gone too: it was dead weight (nothing read it in either training
         stage, MeSAEFlatFinetune is NotImplemented on this branch).
 
@@ -900,16 +790,6 @@ class StampBank(nn.Module):
         # phase).
         amp_routed_sel = amp[:, :, :self.top_k, :]
         amp_mag_routed = amp_routed_sel.pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
-        # The one surviving auxiliary term, and the only one shaped so it CANNOT run to
-        # its own degenerate optimum (hinged — see smoothness_loss and the note above
-        # _spatial_weights for the four that could, and did).
-        if coords is not None:
-            smooth_loss = self.smoothness_loss(amp_routed_sel, coords,
-                                               valid_channels=valid_channels, target=smooth_target)
-            smooth_R = self.last_smooth_R
-        else:
-            smooth_loss = amp.new_zeros(())
-            smooth_R = amp.new_zeros(())
 
         # Scale-invariant parsimony diagnostic: effective atom count per token,
         # k_eff = (sum|a|)^2 / sum(a^2) — 1.0 when one atom carries everything,
@@ -956,7 +836,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, smooth_loss=smooth_loss, smooth_R=smooth_R, k_eff=k_eff,
+            aux_loss=aux_loss, k_eff=k_eff,
         )
 
 
