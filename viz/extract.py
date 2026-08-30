@@ -478,29 +478,44 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
 
     # --- ICLabel pseudo-IC classification (see viz/iclabel.py, incl. the caveat) ---
-    # activity per used stamp: at every patch that selected it, the stamp's decoded
+    # Activation per used stamp: at every patch that selected it, the stamp's decoded
     # waveform at its strongest valid channel's gain pair (the cleanest single-channel
-    # view of the source's own time course), stitched at patch slots, zeros elsewhere.
+    # view of the source's own time course) — ONLY the patches it actually fired on,
+    # concatenated. Deliberately NOT stitched to a common length with zeros at unfired
+    # patches: _eeg_rpsd medians over windows and any all-zero window makes the whole
+    # feature NaN (measured at 25% and 12.5% nonzero, not just 0%), which is what used
+    # to leave most stamps unclassified. Those zeros were never part of the source
+    # anyway. Lengths therefore differ per stamp, which viz.iclabel handles by
+    # extracting features one stamp at a time.
     from viz.iclabel import stamp_iclabel_probs
     D_all, H_all = model.stamps._template_tables()          # [n_stamps, L]
     N, K = sel.idx.shape
     L = D_all.shape[1]
     C = x.shape[1]
-    vc = valid_channels[0].bool() if valid_channels is not None \
-        else torch.ones(C, dtype=torch.bool, device=x.device)
+    vc = valid_channels[0].bool() if valid_channels is not None         else torch.ones(C, dtype=torch.bool, device=x.device)
     mag = sel.amp.pow(2).sum(-1)                            # [N, C, K]
     mag = mag.masked_fill(~vc.view(1, C, 1), 0.0)
-    acts = torch.zeros(len(used_ids), N * L)
-    for qi, sid in enumerate(used_ids.tolist()):
+    acts = []
+    for sid in used_ids.tolist():
         hit = sel.idx == sid                                # [N, K] — <=1 slot per patch
+        segs = []
         for n in hit.any(dim=1).nonzero(as_tuple=True)[0].tolist():
             k = int(hit[n].float().argmax())
             c = int(mag[n, :, k].argmax())
             a, b = sel.amp[n, c, k, 0], sel.amp[n, c, k, 1]
-            acts[qi, n * L:(n + 1) * L] = (a * D_all[sid] + b * H_all[sid]).cpu()
+            segs.append((a * D_all[sid] + b * H_all[sid]).detach().cpu())
+        sig = torch.cat(segs).numpy() if segs else np.zeros(L, dtype=np.float32)
+        # TILE the fired content up to the full trial length rather than zero-padding:
+        # _eeg_rpsd emits its fixed 100-bin feature only for signals of at least ~sfreq
+        # samples (a 1-patch stamp otherwise yields 99 bins and fails to stack), and
+        # zero-padding is what poisoned the median in the first place. Repeating the
+        # stamp's own content keeps every window occupied by real signal and leaves its
+        # spectrum essentially unchanged.
+        reps = int(np.ceil((N * L) / max(len(sig), 1)))
+        acts.append(np.tile(sig, reps)[:N * L])
     mixing = amp_topo[:, vc.cpu()].permute(1, 0).cpu().numpy()   # [Cv, Qu] signed
     ch_pos = coords[0, vc].cpu().numpy()                          # [Cv, 3]
-    iclabel_probs = stamp_iclabel_probs(ch_pos, fs or 1.0, mixing, acts.numpy())
+    iclabel_probs = stamp_iclabel_probs(ch_pos, fs or 1.0, mixing, acts)
 
     return used_ids.cpu().numpy(), importance, psd_ch_x, psd_x, freqs, iclabel_probs
 
