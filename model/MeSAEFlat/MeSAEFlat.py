@@ -523,6 +523,19 @@ No auxiliary dictionary-shaping term remains. Five were tried and retired
             for i, (bn, bin_) in enumerate(zip(block_norms, block_input_norms)):
                 metrics[f'block_relnorm_{i}'] = bn / (bin_ + 1e-8)
 
+        # Largest branch output magnitude anywhere in the encoder, measured BEFORE
+        # LayerScale shrinks it (see TSABlock._watch). The norms bound each branch's input
+        # and each block's output; nothing bounds the middle, and LayerScale hides it from
+        # block_norm. Early warning: this climbs for epochs before a float ceiling is
+        # actually crossed, while every other diagnostic still looks healthy — v13 died
+        # that way. Judge it against the training dtype's ceiling (65504 for fp16); order
+        # 1-10 is normal, hundreds means the next run dies whatever the loss curve says.
+        # No separate headroom fraction: it is this number over a constant, and it rounds
+        # to 0.0000 in the log across the entire healthy range.
+        branch_max = getattr(self.encoder, 'last_branch_max', None)
+        if branch_max is not None:
+            metrics['branch_max'] = branch_max.item()
+
         # Stamp router health — see update_stamp_router_metrics above for what each number
         # means.
         metrics['stamp_router_entropy']  = self.ema_stamp_router_entropy.item()

@@ -236,6 +236,7 @@ class TSABlock(nn.Module):
         # instead of shocking a checkpoint that never saw either term active.
         self.temporal_active = False
         self.spatial_active = False
+        self.last_branch_max = None  # see _watch
         nn.init.zeros_(self.temporal_attn.out_proj.weight)
         nn.init.zeros_(self.temporal_attn.out_proj.bias)
         nn.init.zeros_(self.spatial_attn.out_proj.weight)
@@ -247,23 +248,49 @@ class TSABlock(nn.Module):
     def enable_spatial(self):
         self.spatial_active = True
 
+    def _watch(self, t):
+        """Track the largest magnitude any branch produces BEFORE LayerScale shrinks it.
+
+        This is the blind spot that cost a tokenizer run. norm_time/norm_space/norm_ffn
+        bound each branch's INPUT and norm_out bounds the block's OUTPUT, but nothing
+        bounds what happens between them — and scale_t/scale_s/scale_ffn (init 1e-4)
+        multiply the branch output on its way to the residual add, so an enormous
+        interior arrives at the stream as a whisper. block_norm measures the post-scale
+        contribution, i.e. the wrong side of that multiplication: it stayed tame right up
+        to the NaN while ConvolutionalAdditiveAttention's interior triple product was
+        crossing fp16's 65504 ceiling (see git 3679aab / e022843).
+
+        Deliberately NOT gated on `not self.training`, unlike last_block_norms: the
+        overflow happened in TRAIN mode (eval on the same weights was finite), so an
+        eval-only probe cannot see this class of failure at all. Cost is one amax
+        reduction per branch — negligible against the block's matmuls — and it stays a
+        tensor here so no per-step GPU sync happens; the single .item() is paid once per
+        epoch in get_metrics.
+        """
+        m = t.detach().abs().amax()
+        self.last_branch_max = m if self.last_branch_max is None else torch.maximum(self.last_branch_max, m)
+
     def forward(self, x):
         B, C, N, D = x.shape
         x_flat = x.view(B * C, N, D)
+        self.last_branch_max = None
 
         if self.temporal_active:
             x_norm_t = self.norm_time(x_flat)
             attn_out_t, _ = self.temporal_attn(x_norm_t, x_norm_t, x_norm_t)
+            self._watch(attn_out_t)
             x_flat = x_flat + self.drop_t(self.scale_t * attn_out_t)
 
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
         if self.spatial_active:
             x_norm = self.norm_space(x_space)
             attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm)
+            self._watch(attn_out)
             x_space = x_space + self.drop_s(self.scale_s * attn_out)
         x_flat = x_space.view(B, N, C, D).permute(0, 2, 1, 3).reshape(B * C, N, D)
 
         ffn_out, ffn_lb_loss = self.ffn(self.norm_ffn(x_flat))
+        self._watch(ffn_out)
         x_flat = x_flat + self.scale_ffn * ffn_out
         x_flat = self.norm_out(x_flat)
         return x_flat.view(B, C, N, D), ffn_lb_loss
@@ -368,6 +395,11 @@ class TSAEncoder(nn.Module):
             self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in self.blocks]).mean()
             self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in self.blocks]).mean()
             self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in self.blocks]).mean()
+            # Worst interior branch magnitude anywhere in the stack (see TSABlock._watch).
+            # Max, not mean: one block crossing the float ceiling takes out the whole run,
+            # so an average across 12 blocks would bury exactly the signal this exists for.
+            watched = [b.last_branch_max for b in self.blocks if b.last_branch_max is not None]
+            self.last_branch_max = torch.stack(watched).max() if watched else None
 
         return x, ffn_lb_loss
 
