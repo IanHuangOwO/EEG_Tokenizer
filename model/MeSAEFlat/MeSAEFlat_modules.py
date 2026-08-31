@@ -59,41 +59,6 @@ class SpatialTemporalEmbeddings(nn.Module):
 # TSA Encoder
 # ==========================================
 
-class ConvolutionalAdditiveAttention(nn.Module):
-    def __init__(self, dim, kernel_size=3):
-        super().__init__()
-        self.qkv_conv = nn.Conv1d(dim, dim * 3, kernel_size=kernel_size, padding=kernel_size // 2)
-        self.attn_weight = nn.Linear(dim, 1)
-        self.proj = nn.Linear(dim, dim)
-
-    def forward(self, x):
-        """ x: [B*C, N, D]
-
-        fp32 island (autocast off): `q * global_context * v` is a TRIPLE product of
-        three unnormalized activations, so its magnitude is the product of three
-        magnitudes and overflows fp16's 65504 ceiling long before any single tensor
-        looks large. That killed the v13 tokenizer run: block 1 grew loud
-        (block_norm_1 12.9 against its own input 6.95) until the product crossed the
-        ceiling — first on a handful of batches, then all of them
-        (5/607 -> 16 -> 115 -> 178 -> 537 -> 607 non-finite over six epochs), inf out
-        of self.proj turning into NaN one op later. Probe evidence: the same weights on
-        the same batch reconstruct fine in fp32 (max|recon| 12.3) and NaN in fp16, with
-        `temporal_attn.proj` the first non-finite module every time.
-
-        The cast is cheap — this tensor is [B*C, N, D], under a million elements — and
-        changes no math, so trained weights keep their meaning. Normalizing q/k/v to
-        shrink the product would also work but would alter the function the encoder has
-        already learned.
-        """
-        with torch.autocast(device_type=x.device.type, enabled=False):
-            x = x.float()
-            qkv = self.qkv_conv(x.transpose(1, 2)).transpose(1, 2)
-            q, k, v = qkv.chunk(3, dim=-1)
-            attn = F.softmax(self.attn_weight(q), dim=1)
-            global_context = torch.sum(attn * k, dim=1, keepdim=True)
-            return self.proj(q * global_context * v)
-
-
 class FFN(nn.Module):
     def __init__(self, dim, hidden_dim, dropout=0.0):
         super().__init__()
@@ -215,7 +180,17 @@ class TSABlock(nn.Module):
                  n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2, ffn_expert_hidden=None):
         super().__init__()
         self.norm_time = nn.LayerNorm(dim)
-        self.temporal_attn = ConvolutionalAdditiveAttention(dim, kernel_size=3)
+        # Same nn.MultiheadAttention as spatial_attn below, over the PATCH axis N
+        # instead of the channel axis C — so temporal mixing goes through PyTorch's
+        # fused SDPA/flash kernels too. Replaces ConvolutionalAdditiveAttention, whose
+        # `proj(q * global_context * v)` was an unnormalized TRIPLE product: its
+        # magnitude was the product of three magnitudes, it overflowed fp16 once block
+        # 1 grew loud, and it took out a tokenizer run (see git 3679aab). Softmax
+        # attention is a convex combination of v, so its output is bounded by v's own
+        # range — the failure mode is gone by construction, not by a wider float.
+        # Position comes from SpatialTemporalEmbeddings' sinusoidal time embedding,
+        # which MHA needs and the conv provided implicitly.
+        self.temporal_attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
         self.drop_t = nn.Dropout(dropout)
 
         self.norm_space = nn.LayerNorm(dim)
@@ -261,8 +236,8 @@ class TSABlock(nn.Module):
         # instead of shocking a checkpoint that never saw either term active.
         self.temporal_active = False
         self.spatial_active = False
-        nn.init.zeros_(self.temporal_attn.proj.weight)
-        nn.init.zeros_(self.temporal_attn.proj.bias)
+        nn.init.zeros_(self.temporal_attn.out_proj.weight)
+        nn.init.zeros_(self.temporal_attn.out_proj.bias)
         nn.init.zeros_(self.spatial_attn.out_proj.weight)
         nn.init.zeros_(self.spatial_attn.out_proj.bias)
 
@@ -278,7 +253,7 @@ class TSABlock(nn.Module):
 
         if self.temporal_active:
             x_norm_t = self.norm_time(x_flat)
-            attn_out_t = self.temporal_attn(x_norm_t)
+            attn_out_t, _ = self.temporal_attn(x_norm_t, x_norm_t, x_norm_t)
             x_flat = x_flat + self.drop_t(self.scale_t * attn_out_t)
 
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
