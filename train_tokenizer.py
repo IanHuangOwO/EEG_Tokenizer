@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from IO.dataset import build_dataset_from_config
+from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
 from viz import pick_trial
 
@@ -59,6 +60,7 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
 
     totals = {"loss": 0.0, "masked": 0.0, "unmasked": 0.0}
+    skipped = 0
 
     for batch_idx, batch in enumerate(pbar):
         x, coords, time_idx, _, valid_channels = _unpack_batch(batch, device)
@@ -68,6 +70,18 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
             out = model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
             l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, None, masked_mse_weight,
                                                                   unmasked_mse_weight, True, **loss_hparams)
+        # A non-finite loss must never reach backward: GradScaler skips a step whose
+        # GRADIENTS are non-finite, but a poisoned forward backwarded through can leave
+        # NaN parameters, and nothing recovers from that (see nonfinite_step_report).
+        # update_diagnostics is skipped too — it folds `out` into EMA buffers.
+        report = nonfinite_step_report(l_total, model, out)
+        if report is not None:
+            skipped += 1
+            if skipped <= 3:
+                logging.warning(f"epoch {epoch} batch {batch_idx} skipped: {report}")
+            optimizer.zero_grad(set_to_none=True)
+            continue
+
         trainer.update_diagnostics(model, out)
 
         scaler.scale(l_total).backward()
@@ -93,9 +107,12 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
                 'vis': f"{totals['unmasked'] / n:.4f}",
             })
 
-    n = batch_idx + 1
+    n = max(batch_idx + 1 - skipped, 1)
     epoch_metrics = {k: v / n for k, v in totals.items()}
     epoch_metrics.update(trainer.epoch_metrics(model, out))
+    if skipped:
+        logging.warning(f"epoch {epoch}: skipped {skipped}/{batch_idx + 1} non-finite batches")
+        epoch_metrics['skipped_batches'] = skipped
 
     return epoch_metrics
 

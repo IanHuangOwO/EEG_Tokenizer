@@ -43,3 +43,40 @@ class BaseTrainer:
         component is (VQ+decoder for MeFSQ, SAE for MeSAE) so only the main
         transformer keeps learning through masked reconstruction."""
         raise NotImplementedError
+
+
+def nonfinite_step_report(l_total, model, out=None):
+    """Returns None when `l_total` is finite (the normal path), else a short string
+    naming WHERE the non-finiteness lives, for the caller to log before skipping the
+    step.
+
+    Exists because a single NaN loss used to be terminal: v13's tokenizer run went NaN
+    at epoch 8 and every later epoch reported nan for every metric (topk on NaN scores
+    returns the leading indices, so router entropy also read a fake ~0 collapse). The
+    caller must skip backward/step on a non-finite loss — AMP's GradScaler skips a step
+    whose GRADIENTS are non-finite, but nothing stops a poisoned forward from being
+    backwarded through, and nothing un-poisons parameters once they are NaN.
+
+    The report distinguishes the two causes that need different fixes:
+      - 'params' non-finite  -> the weights are already dead; skipping cannot save the
+        run, the instability is upstream (lower LR / stronger clipping / fp32 island).
+      - params fine, forward tensor non-finite -> a per-batch fp16 overflow; skipping
+        that batch IS the fix.
+    """
+    import torch
+
+    if torch.isfinite(l_total):
+        return None
+
+    bad_params = [n for n, p in model.named_parameters() if not torch.isfinite(p).all()]
+    bad_bufs = [n for n, b in model.named_buffers()
+                if b.is_floating_point() and not torch.isfinite(b).all()]
+    bad_out = []
+    for name in ('recon', 'aux_loss', 'ffn_lb_loss', 'h', 'dense_routed', 'k_eff'):
+        t = getattr(out, name, None) if out is not None else None
+        if torch.is_tensor(t) and t.is_floating_point() and not torch.isfinite(t).all():
+            bad_out.append(name)
+
+    return (f"non-finite loss ({l_total.item()}): "
+            f"params={bad_params[:5] or 'ok'} buffers={bad_bufs[:5] or 'ok'} "
+            f"out={bad_out or 'ok'}")

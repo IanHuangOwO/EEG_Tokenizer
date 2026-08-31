@@ -67,12 +67,31 @@ class ConvolutionalAdditiveAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
 
     def forward(self, x):
-        """ x: [B*C, N, D] """
-        qkv = self.qkv_conv(x.transpose(1, 2)).transpose(1, 2)
-        q, k, v = qkv.chunk(3, dim=-1)
-        attn = F.softmax(self.attn_weight(q), dim=1)
-        global_context = torch.sum(attn * k, dim=1, keepdim=True)
-        return self.proj(q * global_context * v)
+        """ x: [B*C, N, D]
+
+        fp32 island (autocast off): `q * global_context * v` is a TRIPLE product of
+        three unnormalized activations, so its magnitude is the product of three
+        magnitudes and overflows fp16's 65504 ceiling long before any single tensor
+        looks large. That killed the v13 tokenizer run: block 1 grew loud
+        (block_norm_1 12.9 against its own input 6.95) until the product crossed the
+        ceiling — first on a handful of batches, then all of them
+        (5/607 -> 16 -> 115 -> 178 -> 537 -> 607 non-finite over six epochs), inf out
+        of self.proj turning into NaN one op later. Probe evidence: the same weights on
+        the same batch reconstruct fine in fp32 (max|recon| 12.3) and NaN in fp16, with
+        `temporal_attn.proj` the first non-finite module every time.
+
+        The cast is cheap — this tensor is [B*C, N, D], under a million elements — and
+        changes no math, so trained weights keep their meaning. Normalizing q/k/v to
+        shrink the product would also work but would alter the function the encoder has
+        already learned.
+        """
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            x = x.float()
+            qkv = self.qkv_conv(x.transpose(1, 2)).transpose(1, 2)
+            q, k, v = qkv.chunk(3, dim=-1)
+            attn = F.softmax(self.attn_weight(q), dim=1)
+            global_context = torch.sum(attn * k, dim=1, keepdim=True)
+            return self.proj(q * global_context * v)
 
 
 class FFN(nn.Module):

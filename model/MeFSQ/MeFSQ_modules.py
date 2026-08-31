@@ -65,12 +65,21 @@ class ConvolutionalAdditiveAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
 
     def forward(self, x):
-        """ x: [B*C, N, D] """
-        qkv = self.qkv_conv(x.transpose(1, 2)).transpose(1, 2)
-        q, k, v = qkv.chunk(3, dim=-1)
-        attn = F.softmax(self.attn_weight(q), dim=1)
-        global_context = torch.sum(attn * k, dim=1, keepdim=True)
-        return self.proj(q * global_context * v)
+        """ x: [B*C, N, D]
+
+        fp32 island: `q * global_context * v` is a triple product of three
+        unnormalized activations, so it overflows fp16 well before any single tensor
+        looks large. See model/MeSAEFlat/MeSAEFlat_modules.py's copy of this class for
+        the measured failure (it took out a whole tokenizer run) — this class is
+        duplicated per model package by convention, so the guard is duplicated too.
+        """
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            x = x.float()
+            qkv = self.qkv_conv(x.transpose(1, 2)).transpose(1, 2)
+            q, k, v = qkv.chunk(3, dim=-1)
+            attn = F.softmax(self.attn_weight(q), dim=1)
+            global_context = torch.sum(attn * k, dim=1, keepdim=True)
+            return self.proj(q * global_context * v)
 
 
 class FFN(nn.Module):
