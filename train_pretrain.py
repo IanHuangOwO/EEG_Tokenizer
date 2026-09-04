@@ -15,30 +15,12 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from IO.dataset import build_dataset_from_config
-from IO.masking import RandomMaskingStrategy, ComplementaryMaskingStrategy, RandomToComplementaryMaskingStrategy
+from IO.masking import build_masking_strategy_from_config
 from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
 from viz import pick_trial
 
 torch.set_float32_matmul_precision('high')
-
-
-def build_masking_strategy(strat_name, pp):
-    """Constructs the configured masking strategy once, up front. Only
-    'random_to_complementary' varies per epoch afterward (via its own
-    set_epoch(); see IO/masking.py) — 'random'/'complementary' are constant
-    for the whole run, same as before curriculum existed."""
-    if strat_name == 'random_to_complementary':
-        curriculum = pp.get('random_to_complementary', {})
-        return RandomToComplementaryMaskingStrategy(
-            target_ratio=ComplementaryMaskingStrategy.MASK_RATIO,
-            start_ratio=curriculum.get('start_ratio', 0.1),
-            ramp_epochs=curriculum.get('ramp_epochs', 25),
-            step_every=curriculum.get('step_every', 5),
-        )
-    if strat_name == 'complementary':
-        return ComplementaryMaskingStrategy()
-    return RandomMaskingStrategy()
 
 
 def setup_logger(output_dir):
@@ -365,7 +347,7 @@ def main():
     loss_hparams = {k: v for k, v in loss_params.items() if k not in ('masked_mse_weight', 'unmasked_mse_weight')}
     logger.info(f"model_type={model_type}  mask_ratio={mask_ratio}  masked_mse_weight={masked_mse_weight:.4f}  "
                 f"unmasked_mse_weight={unmasked_mse_weight:.4f}  loss_hparams={loss_hparams}")
-    mask_strategy = build_masking_strategy(strat_name, pp)
+    mask_strategy = build_masking_strategy_from_config(strat_name, pp)
     if strat_name == 'random_to_complementary':
         logger.info(f"  [mask curriculum] ramping random-mask ratio {mask_strategy.start_ratio} -> "
                     f"{mask_strategy.target_ratio} over {mask_strategy.ramp_epochs} epochs "

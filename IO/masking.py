@@ -112,3 +112,21 @@ class RandomToComplementaryMaskingStrategy(BaseMaskingStrategy):
         if not self._in_ramp():
             return self._complementary.resolve(masks, index, n)
         return index, masks[index]
+
+
+def build_masking_strategy_from_config(strat_name, pp):
+    """Constructs the configured masking strategy once, up front, from
+    preprocess_params.mask (`pp`). Only 'random_to_complementary' varies per epoch
+    afterward (via its own set_epoch()) — 'random'/'complementary' are constant for the
+    whole run, same as before curriculum existed."""
+    if strat_name == 'random_to_complementary':
+        curriculum = pp.get('random_to_complementary', {})
+        return RandomToComplementaryMaskingStrategy(
+            target_ratio=ComplementaryMaskingStrategy.MASK_RATIO,
+            start_ratio=curriculum.get('start_ratio', 0.1),
+            ramp_epochs=curriculum.get('ramp_epochs', 25),
+            step_every=curriculum.get('step_every', 5),
+        )
+    if strat_name == 'complementary':
+        return ComplementaryMaskingStrategy()
+    return RandomMaskingStrategy()
