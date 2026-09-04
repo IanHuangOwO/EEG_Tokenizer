@@ -250,9 +250,9 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 64,
+          "n_stamps": 128,
           "n_shared_stamps": 4,
-          "stamp_top_k": 12,
+          "stamp_top_k": 32,
           "stamp_hidden_width": 8,
           "stamp_shared_hidden_width": 16,
           "shared_weight": 0.1,
@@ -269,7 +269,7 @@
       },
       "pretrain": {
         "patch_len": 100,
-        "embed_dim": 50,
+        "embed_dim": 100,
         "enc_depth": 12,
         "spatial_heads": 5,
         "dropout": 0.3,
@@ -287,9 +287,9 @@
           "expert_hidden": null
         },
         "stamp_bank": {
-          "n_stamps": 90,
-          "n_shared_stamps": 6,
-          "stamp_top_k": 16,
+          "n_stamps": 128,
+          "n_shared_stamps": 4,
+          "stamp_top_k": 32,
           "stamp_hidden_width": 8,
           "stamp_shared_hidden_width": 16,
           "shared_weight": 0.1,
@@ -314,7 +314,7 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_tokenizer_v12",
+      "model_name": "mesaeflat_tokenizer_v13",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -326,8 +326,8 @@
     },
     "pretrain": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_pretrain_v12",
-      "tokenizer_checkpoint": "output/mesaeflat_tokenizer_v12/tokenizer/best_tokenizer.pth",
+      "model_name": "mesaeflat_pretrain_v13",
+      "tokenizer_checkpoint": "output/mesaeflat_tokenizer_v13/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -339,8 +339,8 @@
     },
     "finetune": {
       "model_type": "MeSAEFlat",
-      "model_name": "mesaeflat_finetune_v12",
-      "pretrained_checkpoint": "output/mesaeflat_pretrain_v12/pretrain/best_pretrain.pth",
+      "model_name": "mesaeflat_finetune_v13",
+      "pretrained_checkpoint": "output/mesaeflat_pretrain_v13/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.01,

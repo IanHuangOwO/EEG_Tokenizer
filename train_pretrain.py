@@ -306,6 +306,29 @@ def main():
                if k in own_state and own_state[k].shape == v.shape
                and not k.startswith('encoder.') and k != 'mask_token'}
     skipped = [k for k in ckpt_state if k not in to_load]
+    # A key the Pretrain model HAS but at a different shape is a config mismatch, not an
+    # architecture difference — the same parameter sized two ways — so it must be fatal.
+    # strict=False would otherwise drop it silently and on_pretrain_start would go on to
+    # FREEZE the randomly-initialized replacement, leaving the transformer to train for
+    # 50 epochs against a frozen random projection. Real instance: pretrain.embed_dim 50
+    # against a tokenizer trained at 100 dropped stamps.W_down_{routed,shared} and
+    # stamps.input_norm.* — the whole z->amp path — while every template loaded fine, so
+    # nothing downstream looked wrong. Keys MISSING from own_state entirely stay
+    # non-fatal: that is the intended cross-stage architecture freedom (depth,
+    # pool_after_blocks), which is also why encoder.*/mask_token are excluded above.
+    shape_mismatch = {k: (tuple(own_state[k].shape), tuple(v.shape)) for k, v in ckpt_state.items()
+                      if k in own_state and own_state[k].shape != v.shape
+                      and not k.startswith('encoder.') and k != 'mask_token'}
+    if shape_mismatch:
+        detail = "\n".join(f"    {k}: this model {a}, checkpoint {b}"
+                           for k, (a, b) in sorted(shape_mismatch.items()))
+        raise SystemExit(
+            f"Tokenizer checkpoint does not match this Pretrain architecture — "
+            f"{len(shape_mismatch)} tensor(s) differ in shape:\n{detail}\n"
+            f"  checkpoint: {tokenizer_ckpt}\n"
+            f"Make model_params.<model_type>.pretrain match the tokenizer stage that "
+            f"produced it (embed_dim above all — the frozen VQ/SAE apparatus consumes z "
+            f"of that width). enc_depth/pool_after_blocks may differ freely.")
     missing, unexpected = model.load_state_dict(to_load, strict=False)
     logger.info(f"Loaded Tokenizer-stage checkpoint from {tokenizer_ckpt} "
                 f"({len(to_load)} tensors loaded, {len(skipped)} skipped on shape/name mismatch: {skipped})")
