@@ -1,6 +1,6 @@
 """
 Shared epoch-snapshot panels (topo_psd_filter, attn_topo) reused by
-BaseEpochChecker._render_snapshot (MeFSQ Experts or MeSAE Filters — viz/extract.py's
+BaseEpochChecker._render_snapshot (MeFSQ Experts or MeSAE stamps — viz/extract.py's
 extract_head_*/extract_filter_* already return the shared PsdResult/SpectraResult
 dataclasses). Keeps the two training-phase methods producing the exact same panel format
 instead of drifting — see model/base_checker.py and docs/adr/0004-model-plugin-base-classes.md.
@@ -115,7 +115,7 @@ def plot_topo_psd_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None
     raw_power/recon_power/psd_raw/psd_recon: optional whole-trial (not per-patch) Raw/
     Full-Recon topo+PSD, rendered as an extra header row above the per-patch grid when all
     four are given — omit (None, the default) to skip it, e.g. when that whole-trial view
-    is rendered separately instead (see plot_stamp_gallery, MeSAEFlat's split panel).
+    is rendered separately instead (see plot_stamp_gallery, MeSAE's split panel).
 
     Every topo/PSD cell is log1p-scaled (see _log_pow) before display — power/PSD values
     span orders of magnitude (a few strongly-selected channels/bins next to many
@@ -128,9 +128,9 @@ def plot_topo_psd_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None
     PatchGridResult docstring), titled in shared_color instead of black. None disables
     the shared/routed title-color split.
 
-    signed_stamps: True when grid.topo carries SIGNED per-channel amps (MeSAEFlat's
+    signed_stamps: True when grid.topo carries SIGNED per-channel amps (MeSAE's
     grouped StampBank — the mixing/topomap column, see _cell's signed branch); False
-    (default) for unsigned norm-based topos (pooled MeSAE's extract_filter_psd_by_patch).
+    (default) for unsigned norm-based topos (a pooled model's per-unit PSD extractor).
     """
     patch_ids, stamp_ids, topo, psd, h, freqs = (
         grid.patch_ids, grid.stamp_ids, grid.topo, grid.psd, grid.h, grid.freqs)
@@ -244,7 +244,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     actually used SOMEWHERE in this trial (not per-patch) get their own dedicated figure,
     same layout family as plot_stamp_panel but without an attn column (flat-token
     StampBank has no cross-channel pool to read a channel-attention map from — see
-    MeSAEFlat_modules.StampBank class docstring).
+    MeSAE_modules.StampBank class docstring).
 
     Header row: Raw and Full-Recon (whole trial) topo + PSD, one block each. Below: a
     grid of `n_per_row` (topo, PSD) blocks per row, one block per USED stamp (see
@@ -539,7 +539,7 @@ def plot_attn_topo(out_path, pos2d, attn, importance, channel_names, valid_chann
     (heatmap_transpose=False) but still wants a vertical bar chart (bar_vertical=True).
     valid_channels: [C] bool or None — padded/invalid channels hidden from the topomaps only.
     unit_colors: optional [Q] list of title/tick-label colors (e.g. MeSAE routed-gating:
-    red = shared Filter, orange = routed Filter that actually fired for this trial) — None
+    red = shared stamp, orange = routed stamp that actually fired for this trial) — None
     means no color override (default black).
     """
     Q, C = attn.shape

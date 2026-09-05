@@ -1,10 +1,10 @@
 """
-Per-unit (MeFSQ Expert / MeSAE Filter) feature extraction: activation norms, affinity,
+Per-unit (MeFSQ Expert / MeSAE stamp) feature extraction: activation norms, affinity,
 routing/importance scores, and PSD — read by each model's plugin.py and fed into
 viz/panels.py. Model-coupled (runs a partial/full forward pass), unlike viz/topomap.py.
 
 extract_head_*/extract_filter_* return the shared PsdResult/SpectraResult dataclasses —
-same shape for MeFSQ Experts and MeSAE Filters (the "Unit" abstraction model/base_checker.py
+same shape for MeFSQ Experts and MeSAE stamps (the "Unit" abstraction model/base_checker.py
 and model/base_plotter.py already use for exactly this reason), so BaseEpochChecker never
 needs to know which model it's plotting. The four functions share their FFT/norm/affinity
 math (_psd_per_channel/_spectra_per_channel/_cosine_affinity below) — only where each
@@ -24,7 +24,7 @@ import torch.nn.functional as F
 
 def _split_channel_major(flat, C, P):
     """[..., C*P] channel-major (C outer, P inner) -> [..., C, P]. Every decoder this
-    file reads from (MeFSQ's MultiHeadDecoder, MeSAE's TopKSAE decoder) is C-major.
+    file reads from (MeFSQ's MultiHeadDecoder, MeSAE's StampBank decode) is C-major.
     See docs/agents/reshape-pitfalls.md."""
     assert flat.shape[-1] == C * P, (
         f"_split_channel_major: last dim {flat.shape[-1]} != C*P ({C}*{P}={C * P})")
@@ -347,8 +347,8 @@ def extract_filter_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
 
 
 # ==========================================
-# MeSAEFlat (flat per-(channel,patch) StampBank) — no channel-attention pool exists to
-# read a "real response" from (see MeSAEFlat_modules.StampBank class docstring), so these
+# MeSAE (flat per-(channel,patch) StampBank) — no channel-attention pool exists to
+# read a "real response" from (see MeSAE_modules.StampBank class docstring), so these
 # decode every (channel, patch) token directly and ZERO-FILL (channel, {patch|stamp})
 # combinations that were never actually selected, instead of reading a pooled view —
 # separate functions from extract_filter_psd/extract_filter_psd_by_patch above (which stay
@@ -361,7 +361,7 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
     """(used_ids [Qu], importance [Qu], fp [Qu, C, patch_len], amp_topo [Qu, C] SIGNED
     trial-mean per-channel amp — the mixing/topomap column) — grouped-StampBank
     analog of _used_stamps. Selection is per PATCH POSITION now (shared by all C
-    channels, see MeSAEFlat_modules.StampBank class docstring), so importance is the
+    channels, see MeSAE_modules.StampBank class docstring), so importance is the
     accumulated selection confidence h over the patches that picked each used stamp,
     and fp is each used stamp's per-channel contribution (amp_c * rms_c * D_hat, the
     stamp's real mixing/topomap content) averaged over ALL N patches — a patch that
@@ -374,7 +374,7 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
     B, C, N, D = z.shape
     z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
     x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)
-    # rms must match the training path (see MeSAEFlatPretrain.forward) — contribution
+    # rms must match the training path (see MeSAEPretrain.forward) — contribution
     # is amp*rms*D_hat, so without rms every decoded panel is mis-scaled.
     rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
     vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C) \
@@ -424,7 +424,7 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
 def extract_flat_stamp_psd(model, x: torch.Tensor, coords: torch.Tensor,
                             time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None) -> PsdResult:
     """
-    MeSAEFlatPretrain analog of extract_filter_psd — see the module-section docstring
+    MeSAEPretrain analog of extract_filter_psd — see the module-section docstring
     above for why this is a separate function rather than a shared one. valid_channels
     feeds the group selection score (see StampBank.forward), matching training.
 
@@ -449,7 +449,7 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
                                 time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
                                 fs: float = None, freq_resolution: float = None, max_stamps: int = 100):
     """
-    Everything MeSAEFlatChecker's standalone whole-trial stamp gallery panel
+    Everything MeSAEChecker's standalone whole-trial stamp gallery panel
     (viz.panels.plot_stamp_gallery) needs, off ONE _used_flat_stamps call — avoids calling
     extract_flat_stamp_psd AND a separate spectra extraction, each independently
     re-running decode_selected/StampBank.forward for the same trial, when both just read
@@ -526,9 +526,9 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
                                      fs: float = None, freq_resolution: float = None,
                                      patch_stride: int = 1, k_display: int = None) -> PatchGridResult:
     """
-    MeSAEFlatPretrain analog of extract_filter_psd_by_patch. StampBank selects ONE
+    MeSAEPretrain analog of extract_filter_psd_by_patch. StampBank selects ONE
     top_k+n_shared stamp set per patch position, shared by all C channels (group
-    selection, see MeSAEFlat_modules.StampBank class docstring) — so the per-patch grid
+    selection, see MeSAE_modules.StampBank class docstring) — so the per-patch grid
     is direct: slot k of patch n is a real global stamp id for every channel, and its
     [C] row of decoded content is that stamp's actual dense per-channel contribution
     (amp_c * rms_c * D_hat — the stamp's mixing/topomap column at that patch time, no
@@ -545,7 +545,7 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
     B, C, N, D = z.shape
     z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
     x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)
-    # rms must match the training path (see MeSAEFlatPretrain.forward) — contribution
+    # rms must match the training path (see MeSAEPretrain.forward) — contribution
     # is amp*rms*D_hat, so without rms every decoded panel is mis-scaled.
     rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
     vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C) \

@@ -54,15 +54,15 @@ class SnapshotBundle:
 class BaseEpochChecker:
     """unit_label: 'Expert' | 'Filter' | ... — used in panel titles/axis labels.
     has_attn_topo: False for models with no cross-channel attention to show (e.g.
-    MeSAEFlat's flat per-(channel,patch) StampBank has no pooled View to read attn from,
-    see MeSAEFlatChecker) — check_pretrain skips computing/plotting attn_topo entirely
+    MeSAE's flat per-(channel,patch) StampBank has no pooled View to read attn from,
+    see MeSAEChecker) — check_pretrain skips computing/plotting attn_topo entirely
     rather than erroring on a missing out.attn."""
     unit_label = 'Unit'
     has_attn_topo = True
 
     def compute_unit_colors(self, model, out):
         """Optional per-unit title/label color override for topo_psd_filter/attn_topo
-        (e.g. MeSAE's routed-gating: red = shared Filter, orange = routed Filter that
+        (e.g. MeSAE's routed-gating: red = shared stamp, orange = routed stamp that
         actually fired for this trial, see MeSAEChecker). Returns (unit_colors, used_ids):
         used_ids is None by default (show every unit, the historical/MeFSQ behavior) or a
         LongTensor of which global unit ids are actually being displayed (e.g. MeSAE's

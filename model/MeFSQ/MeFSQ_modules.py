@@ -69,7 +69,7 @@ class ConvolutionalAdditiveAttention(nn.Module):
 
         fp32 island: `q * global_context * v` is a triple product of three
         unnormalized activations, so it overflows fp16 well before any single tensor
-        looks large. See model/MeSAEFlat/MeSAEFlat_modules.py's copy of this class for
+        looks large. See model/MeSAE/MeSAE_modules.py's copy of this class for
         the measured failure (it took out a whole tokenizer run) — this class is
         duplicated per model package by convention, so the guard is duplicated too.
         """

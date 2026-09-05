@@ -51,16 +51,22 @@ Per-Expert, per-channel signal read AFTER quantization: each Expert's own decode
 
 ## Sparse tokenization (MeSAE)
 
-A parallel, non-discrete tokenizer approach (`model/MeSAE/`) — goal is explainable per-patch sparse features (ICA-style linear sum of independent Filter contributions), not a discrete Code vocabulary. Different unit ("Filter" pooled via `ExpertChannelPool`, not "Expert"/"Router"); see `model/MeSAE/MeSAE.py` docstring.
+A parallel, non-discrete tokenizer approach (`model/MeSAE/`) — goal is explainable per-patch sparse features (ICA-style linear sum of independent source contributions), not a discrete Code vocabulary. The unit is a **Stamp**, not an Expert/Code; see `model/MeSAE/MeSAE.py` and `StampBank` in `MeSAE_modules.py`.
+
+**Stamp**: A learned unit-norm temporal template `D` of length `patch_len`, plus its derived Hilbert quadrature partner `H` (rFFT, every positive-frequency bin rotated -90 degrees, DC/Nyquist zeroed, renormalized). A stamp contributes `a*D + b*H` to a channel, so amplitude is `sqrt(a^2+b^2)` and phase `atan2(b, a)` — the template presents at any arrival phase without its shape morphing, because the partner is derived rather than learned.
+
+**Mixing column**: A stamp's `[C]` vector of signed per-channel gains at one patch position — the ICA-style topography of that stamp's contribution at that instant.
+
+**Group selection**: `StampBank` takes channel-grouped input `[G, C, D]` (G = B*N patch positions) and picks ONE top-k stamp set per patch position, shared by all C channels; each channel then decodes that same set with its own gains. This is what makes a stamp's `[C]` column a mixing vector instead of C unrelated per-channel choices.
 
 **Tokenizer stage**:
-MeSAE's first training phase: the encoder (kept shallow/local, see `docs/adr/0003-mesae-two-stage-masked-training.md`) and `TopKSAE` train jointly, unmasked, full reconstruction only. No masked-patch pretext task at this stage — that's deferred to the Masked stage.
+MeSAE's first training phase: the encoder (kept shallow/local, see `docs/adr/0003-mesae-two-stage-masked-training.md`) and the StampBank train jointly, unmasked, full reconstruction only. No masked-patch pretext task at this stage — that's deferred to the Masked stage.
 
 **Masked stage**:
-MeSAE's second training phase: the Tokenizer-stage SAE is frozen (weights fixed; its `aux_loss`/sparsity term is dropped entirely, not just zero-weighted, since rescuing a frozen SAE's dead features is meaningless) and only the backbone trains, on masked input, to reconstruct via the frozen SAE's targets. Mirrors MeFSQ's `freeze_vq_and_decoder()` split but two-stage/sequential rather than joint-warmup-then-freeze — deliberate, to keep the frozen target local rather than already-contextualized (see ADR 0003).
+MeSAE's second training phase: the Tokenizer-stage StampBank is frozen (weights fixed) and only the backbone trains, on masked input, to reconstruct through it. Mirrors MeFSQ's `freeze_vq_and_decoder()` split but two-stage/sequential rather than joint-warmup-then-freeze — deliberate, to keep the frozen target local rather than already-contextualized (see ADR 0003). `embed_dim` must match the tokenizer stage that produced the checkpoint (the StampBank and patch embedding both consume `z` of that width); `enc_depth`/`pool_after_blocks` may differ freely, and `train_pretrain.py` fails loudly on any other mismatch.
 
 ## Model plugin architecture
 
-**Unit**: Umbrella term for whatever a model quantizes per patch position — an Expert (MeFSQ) or a Filter (MeSAE). Used in shared code (`model/base_checker.py`, `model/base_plotter.py`) that doesn't know which model it's plotting.
+**Unit**: Umbrella term for whatever a model quantizes per patch position — an Expert (MeFSQ) or a Stamp (MeSAE). Used in shared code (`model/base_checker.py`, `model/base_plotter.py`) that doesn't know which model it's plotting.
 
 Each model (MeFSQ, MeSAE, or a future one) plugs into shared training/viz infrastructure via a `model/<Name>/plugin.py` bundling a `Trainer`/`Checker`/`Plotter` into one `BasePlugin`, registered in `model/factory.py`'s `MODEL_REGISTRY`. See `docs/adr/0004-model-plugin-base-classes.md` and `docs/agents/adding-a-model.md` for the full contract.

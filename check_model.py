@@ -38,16 +38,9 @@ def _safe_name(s):
 
 
 def _detect_model_type(probe):
-    """MeFSQ/MeSAE/MeSAEFlat resolved from the live model instance. MeSAEFlat must be
-    checked before the generic "no n_routed_experts -> MeSAE" fallback: it doesn't have
-    n_routed_experts either (that's an MeFSQ-only attribute) and would otherwise
-    misdetect as plain MeSAE, picking the wrong checker (MeSAEChecker expects attn/
-    _pool_channels MeSAEFlat's forward doesn't produce — see model/MeSAEFlat/plugin.py)."""
-    if hasattr(probe, 'n_routed_experts'):
-        return 'MeFSQ'
-    if type(probe).__name__.startswith('MeSAEFlat'):
-        return 'MeSAEFlat'
-    return 'MeSAE'
+    """MeFSQ/MeSAE resolved from the live model instance: n_routed_experts is MeFSQ-only
+    (MeSAE's routed pool lives on its StampBank, not the top-level model)."""
+    return 'MeFSQ' if hasattr(probe, 'n_routed_experts') else 'MeSAE'
 
 
 def _predict_all(model, dataset, patch_len, device):

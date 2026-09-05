@@ -22,9 +22,9 @@ stage owns, then trains masked.
 Answer these — they shape steps 2-3 below:
 
 - Does the model need a **Tokenizer-stage-only component to freeze** before masked
-  training (VQ+decoder for MeFSQ, SAE for MeSAE)? If not, `on_pretrain_start` can be a
+  training (VQ+decoder for MeFSQ, StampBank for MeSAE)? If not, `on_pretrain_start` can be a
   no-op.
-- What per-Expert/Filter/Unit **health metrics** does it need on the dashboard? List them
+- What per-Expert/Stamp/Unit **health metrics** does it need on the dashboard? List them
   now — they become `MeXXXPlotter`'s panel specs in step 3.
 - What per-step **loss hyperparameters** does it need beyond `masked_mse_weight`/
   `unmasked_mse_weight` (which every model gets for free)? These become keys under
@@ -49,7 +49,7 @@ def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels
              per Unit) — the extraction hooks in step 2 and BaseEpochChecker's attn_topo
              panel both read this
     Plus whatever extra fields get_loss/get_metrics/extract_psd need (MeFSQ carries
-    v_q_routed/v_q_shared/gate_mask_routed/lb_loss; MeSAE carries sae_hidden/aux_loss).
+    v_q_routed/v_q_shared/gate_mask_routed/lb_loss; MeSAE carries dense_routed/aux_loss/k_eff).
     """
 
 def get_loss(self, x, recon, bool_masked_pos, masked_mse_weight=1.0, unmasked_mse_weight=1.0, **extra):

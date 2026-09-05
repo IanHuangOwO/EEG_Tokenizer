@@ -26,7 +26,7 @@ class BaseCodebookChecker:
     unit_label = 'Unit'
 
     # True only for subclasses whose _render_patch_similarity override needs a fresh
-    # forward pass per trial (e.g. MeSAEFlatCodebookChecker's dense per-token decoder
+    # forward pass per trial (e.g. MeSAECodebookChecker's dense per-token decoder
     # content — too expensive to compute for every sampled trial up front, see
     # extract_stamp_content) — check_codebook stashes each trial's (cpu-side, cheap) input
     # tensors in trial_records only when this is set, so the default (usage-only) path
@@ -55,7 +55,7 @@ class BaseCodebookChecker:
     def _render_patch_similarity(self, trial_records, viz_dir, model, device, seed):
         """Default: plot_patch_similarity_hierarchy off the already-computed (cheap,
         gating-strength) usage in trial_records -> patch_similarity_hierarchy.png.
-        Override (e.g. MeSAEFlatCodebookChecker) to render a different question/basis
+        Override (e.g. MeSAECodebookChecker) to render a different question/basis
         instead -- model/device are passed through only for overrides that need a fresh
         forward pass per trial (see needs_raw_tensors), unused by this default."""
         plot_patch_similarity_hierarchy(
@@ -65,7 +65,7 @@ class BaseCodebookChecker:
     def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed):
         """Default: plot_patch_position_consistency off the already-computed (cheap,
         gating-strength) usage in ds_trials -> patch_position_consistency_<ds_name>.png.
-        Override (e.g. MeSAEFlatCodebookChecker) to render a different question/basis
+        Override (e.g. MeSAECodebookChecker) to render a different question/basis
         instead -- model/device are passed through only for overrides that need a fresh
         forward pass per trial (see needs_raw_tensors), unused by this default."""
         plot_patch_position_consistency(

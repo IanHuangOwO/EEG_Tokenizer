@@ -559,7 +559,7 @@ def plot_stamp_similarity(out_path, trial_records, unit_label='Stamp',
     trial_records: list of {content: [C, N, n_stamps, patch_len] np.ndarray, dataset,
     subject} (one entry per sampled trial) — REAL DECODED CONTENT per (channel, patch,
     stamp), zero-filled at stamps that (channel, patch) token didn't select (see
-    model/MeSAEFlat/plugin.py's extract_stamp_content), not the scalar gating strength `h`
+    model/MeSAE/plugin.py's extract_stamp_content), not the scalar gating strength `h`
     plot_patch_similarity_hierarchy's `usage` used. Cosine here therefore measures whether
     the same stamp produces similar real signal when reused, not just whether it was
     selected with a similar confidence — h is bounded (softmax over top_k / a fixed
@@ -567,8 +567,8 @@ def plot_stamp_similarity(out_path, trial_records, unit_label='Stamp',
     how different the underlying content actually was.
 
     Intra-Patch (channels, same patch, same trial): NEW grouping this flat design enables
-    — pooled MeSAE has one token per patch (no channel axis to compare within a patch);
-    flat has C independent tokens per patch, so "do neighboring channels pick similar
+    — a pooled design has one token per patch (no channel axis to compare within a patch);
+    this one has C independent tokens per patch, so "do neighboring channels pick similar
     stamps/content at the same instant" is now a real, answerable question. High here
     means stamp selection is spread near-uniformly across channels at that patch; low
     means it's spatially localized (see the amplitude/localization discussion this
@@ -698,7 +698,7 @@ def plot_patch_position_consistency(out_path, trial_records, unit_label='Filter'
     -- patch position n therefore means the same thing, e.g. time-since-trial-onset, in
     every trial; mixing datasets here would compare unrelated timelines). `usage` is
     basis-agnostic (gating strength like extract_usage's, or real decoder content like
-    MeSAEFlatCodebookChecker.extract_stamp_content's channel-collapsed version) -- pass a
+    MeSAECodebookChecker.extract_stamp_content's channel-collapsed version) -- pass a
     matching code_label ('activation vector' default, e.g. 'decoder output') so the Cosine
     panel's title says which. Two Trial x
     Patch grids side by side, cell (t, n) = trial t's code at patch n vs every OTHER

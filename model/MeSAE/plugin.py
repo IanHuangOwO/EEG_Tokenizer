@@ -2,6 +2,7 @@
 model/base_checker.py, model/base_plotter.py)."""
 
 import os
+import random
 
 import numpy as np
 import torch
@@ -12,8 +13,11 @@ from model.base_checker import BaseEpochChecker
 from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
-from viz.extract import extract_filter_psd, extract_filter_spectra, extract_filter_psd_by_patch
-from viz.panels import plot_attn_topo as render_attn_topo, plot_topo_psd_by_patch
+from viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch,
+                          extract_flat_stamp_gallery, extract_filter_spectra)
+from viz.panels import plot_attn_topo as render_attn_topo, plot_topo_psd_by_patch, plot_stamp_gallery
+from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
+                           plot_stamp_identity_consistency)
 
 
 @torch.no_grad()
@@ -60,12 +64,14 @@ def build_model(bp, num_channels):
         stamp_top_k=sb.get('stamp_top_k', 32),
         stamp_hidden_width=sb.get('stamp_hidden_width', 8),
         stamp_shared_hidden_width=sb.get('stamp_shared_hidden_width', 16),
+        stamp_shared_weight=sb.get('shared_weight', 0.2),
         dead_threshold_frac=sb.get('dead_threshold_frac', 0.1),
         aux_k_cap_frac=sb.get('aux_k_cap_frac', 0.04),
         stamp_ema_decay=sb.get('sae_ema_decay', 0.999),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
+        coord_embed_tokenizer=bp.get('coord_embed_tokenizer', False),
     )
 
 
@@ -75,12 +81,11 @@ class MeSAETrainer(BaseTrainer):
         # for every model type but MeSAE's loss no longer uses them — see get_loss.
         aux_weight = hparams.get('aux_weight', 0.03)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
-        decorr_weight = hparams.get('decorr_weight', 0.01)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
-                               decorr_loss=out.decorr_loss, decorr_weight=decorr_weight,
-                               ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight)
+                               ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
+                               valid_channels=out.valid_channels)
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)
@@ -93,17 +98,52 @@ class MeSAETrainer(BaseTrainer):
         # instead of an epoch average like every other loss stat.
         metrics = model.get_metrics(out.dense_routed.detach())
         metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
+        metrics['k_eff'] = out.k_eff.item() if hasattr(out.k_eff, 'item') else float(out.k_eff)
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
 
-    def on_pretrain_start(self, model, logger=None):
-        model.freeze_stamps()
+    def on_tokenizer_start(self, model, logger=None):
+        """Override BaseTrainer's generic hook (which enables spatial+temporal
+        together): MeSAE's Tokenizer stage must train StampBank on patch-local,
+        SINGLE-CHANNEL content only. Enabling spatial mixing here would let the
+        encoder leak cross-channel signal into each (channel, patch) token before
+        StampBank ever sees it, defeating the point of per-channel stamps -- a "stamp"
+        would then just encode a mixed vector again, same failure mode flat tokens
+        were built to avoid. enable_temporal only (cross-patch, same-channel context
+        stays -- needed for the UNet pool/upsample low-frequency reconstruction path);
+        enable_spatial deferred to on_pretrain_start, once StampBank is frozen and
+        the transformer is the only thing left learning from cross-channel context."""
+        if hasattr(model, 'enable_temporal'):
+            model.enable_temporal()
+        coords_on = getattr(model, 'coord_embed_tokenizer', False)
+        if coords_on:
+            # Position embedding only — no cross-channel content mixing, so stamps stay
+            # single-channel. See MeSAEPretrain.enable_coord_embed for why the two
+            # halves of the old combined flag are separable and what this is testing.
+            model.enable_coord_embed()
         if logger:
-            logger.info("  [Pretrain] StampBank frozen, only main transformer trains from here")
+            logger.info(f"  [Tokenizer] temporal enabled, coord embedding "
+                        f"{'ON' if coords_on else 'OFF'}, cross-channel attention OFF "
+                        f"(stamps stay single-channel)")
+
+    def on_pretrain_start(self, model, logger=None):
+        """freeze_stamps() first, then enable_spatial(): StampBank must already be
+        locked before cross-channel signal ever reaches it, so the frozen dictionary
+        never trains on (and can't be re-opened by) mixed content -- only the
+        transformer's masked-reconstruction prediction gets to use cross-channel
+        context from here on, not the stamps themselves."""
+        model.freeze_stamps()
+        model.enable_spatial()
+        if logger:
+            logger.info("  [Pretrain] StampBank frozen, spatial enabled (transformer now sees cross-channel context)")
 
 
 class MeSAEChecker(BaseEpochChecker):
     unit_label = 'Stamp'
+    # Flat-token StampBank has no cross-channel pool left to produce a channel-attention
+    # map from (see MeSAE_modules.StampBank class docstring) — the topo_psd_by_stamp panel
+    # (_render_topo_psd override below) now covers per-stamp channel topography instead.
+    has_attn_topo = False
 
     def compute_unit_colors(self, model, out):
         """red = shared stamp (always-on, structural). black = routed stamp. Restricted to
@@ -117,9 +157,14 @@ class MeSAEChecker(BaseEpochChecker):
         return colors, used_ids
 
     def extract_psd(self, model, x_in, c_in, t_in, vc_in):
-        return extract_filter_psd(model, x_in, c_in, t_in, vc_in)
+        return extract_flat_stamp_psd(model, x_in, c_in, t_in, vc_in)
 
     def extract_spectra(self, model, x_in, c_in, t_in, vc_in, fs, freq_resolution):
+        # Unreachable while has_attn_topo=False (its only caller, _render_stamp_panel, is
+        # gated off in base_checker.py) — still points at MeSAE's pooled-channel version,
+        # which would hit the same missing-_pool_channels crash extract_psd used to if
+        # this ever gets called. Needs the same flat-token treatment before has_attn_topo
+        # could safely flip back on.
         return extract_filter_spectra(model, x_in, c_in, t_in, vc_in, fs=fs, freq_resolution=freq_resolution)
 
     def run_reconstruction(self, model, dataset, trial_idx, device):
@@ -128,13 +173,26 @@ class MeSAEChecker(BaseEpochChecker):
     def _render_topo_psd(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
                           tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
                           fft_resolution=0.2):
-        """Overrides BaseEpochChecker's default (per-unit dedup, trial-averaged) with a real
-        per-patch grid (every patch_stride-th patch's own actual top_k+n_shared selection
-        and decoded content — see viz.extract.extract_filter_psd_by_patch) — StampBank's
-        hard top-k dispatch means a trial-wide dedup can't tell "fired on 1 patch" from
-        "fired on all 40" apart, this can."""
+        """Overrides BaseEpochChecker's default (per-stamp trial-wide dedup, topo_psd_filter.png)
+        with two panels instead of the base's one:
+        - topo_psd_by_patch.png — the real per-patch grid (every patch_stride-th patch's
+          own union of stamps its C channels individually selected, zero-filled per
+          channel that didn't pick a given displayed stamp — see
+          viz.extract.extract_flat_stamp_psd_by_patch). The trial-wide dedup can't tell
+          "this stamp fired on 1 patch" from "fired on every patch" apart; the per-patch
+          grid can.
+        - stamp_gallery.png — the whole-trial Raw/Full-Recon view plus every stamp used
+          SOMEWHERE in this trial (trial-wide dedup, see
+          viz.extract.extract_flat_stamp_gallery), the piece the base default's
+          topo_psd_filter.png would have covered — split into its own file rather than
+          folded into topo_psd_by_patch's header, since it's a different (trial-wide, not
+          per-patch) view. psd_ch_x/importance (from extract_psd, via _render_snapshot)
+          are still computed upstream since _render_snapshot uses that call to gate
+          whether to attempt this panel at all, but this method recomputes its own
+          (used_ids-carrying) copy via extract_flat_stamp_gallery rather than reusing
+          those — see that function's docstring for why."""
         model = bundle.psd_model
-        grid = extract_filter_psd_by_patch(
+        grid = extract_flat_stamp_psd_by_patch(
             model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
             fs=fs, freq_resolution=fft_resolution)
 
@@ -154,9 +212,10 @@ class MeSAEChecker(BaseEpochChecker):
         psd_raw   = fft_raw.real**2   + fft_raw.imag**2
         psd_recon = fft_recon.real**2 + fft_recon.imag**2
 
-        # grid.freqs and raw/recon's freqs share the same n_fft target (fft_resolution
-        # drives both, see extract_filter_psd_by_patch), so one shared band-crop applies.
+        # grid.freqs and raw/recon's freqs share the same n_fft target (freq_resolution=0.2
+        # drives both, see extract_flat_stamp_psd_by_patch), so one shared band-crop applies.
         freqs = grid.freqs
+        band = None
         if l_freq is not None and h_freq is not None:
             band = (freqs >= l_freq) & (freqs <= h_freq)
             grid.freqs = freqs[band]
@@ -173,9 +232,26 @@ class MeSAEChecker(BaseEpochChecker):
             out_path, pos2d, grid, cmap=cmap,
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
             unit_label=self.unit_label, n_routed=model.n_routed_stamps,
-            raw_power=raw_power, recon_power=recon_power, psd_raw=psd_raw, psd_recon=psd_recon,
+            signed_stamps=True,  # grid.topo is signed amp (mixing columns), see extract_flat_stamp_psd_by_patch
         )
         print(f"  [epoch] -> {out_path}")
+
+        used_ids, gal_importance, psd_ch_x_g, psd_x_g, gal_freqs, iclabel_probs = extract_flat_stamp_gallery(
+            model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
+            fs=fs, freq_resolution=fft_resolution)
+        if band is not None:
+            gal_freqs = gal_freqs[band]
+            psd_x_g = psd_x_g[:, :, band]
+
+        gallery_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_stamp_gallery.png")
+        plot_stamp_gallery(
+            gallery_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
+            psd_ch_x_g, psd_x_g, gal_freqs, gal_importance, cmap=cmap,
+            subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
+            unit_label=self.unit_label, unit_ids=used_ids, n_routed=model.n_routed_stamps,
+            iclabel_probs=iclabel_probs,
+        )
+        print(f"  [epoch] -> {gallery_path}")
 
     def render_finetune_attn(self, model, x_in, c_in, t_in, vc_in, valid_channels, valid_length,
                               P, patch_len, viz_dir, epoch_tag, subject_id, trial_idx,
@@ -219,7 +295,7 @@ class MeSAEChecker(BaseEpochChecker):
             out_path, pos2d, chan_attn, importance, channel_names,
             valid_channels=valid_channels.numpy(),
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=f'{epoch_tag} [finetune]',
-            unit_label=self.unit_label, unit_colors=colors, unit_ids=used_ids.cpu().numpy(),
+            unit_label=self.unit_label, unit_colors=colors,
             heatmap_attn=patch_filter_attn, heatmap_ylabels=list(range(patch_filter_attn.shape[1])),
             heatmap_ylabel='Patch (time)', heatmap_title=f'Patch x {self.unit_label} Attention',
             heatmap_transpose=False,
@@ -229,32 +305,204 @@ class MeSAEChecker(BaseEpochChecker):
 
 class MeSAECodebookChecker(BaseCodebookChecker):
     unit_label = 'Stamp'
+    needs_raw_tensors = True  # _render_patch_similarity needs a fresh forward pass per
+    # trial (extract_stamp_content) — too expensive for check_codebook's full trial set,
+    # see needs_raw_tensors' docstring on the base class.
 
     @torch.no_grad()
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
-        """[M, n_stamps] dense usage — routed axis real per-patch strength (zeros at
-        unselected), shared axis the fixed constant weight every shared stamp always
-        fires at (see docs/adr/0009's Monitoring impact section: no per-atom x
-        per-feature F axis exists anymore, so this replaces the retired out.sae_hidden)."""
+        """[N, n_stamps] dense usage, one row per PATCH POSITION — routed axis real
+        selection strength (zeros at unselected), shared axis the fixed constant weight
+        every shared stamp always fires at (see docs/adr/0009's Monitoring impact
+        section: no per-atom x per-feature F axis exists anymore, so this replaces the
+        retired out.sae_hidden).
+
+        StampBank selects per patch position now (group selection, see its class
+        docstring), so out.dense_routed is already [G=N, n_routed] for a B=1 trial —
+        no channel-mean collapse needed anymore (the old per-token version averaged
+        C*N rows down to N here)."""
+        B, C, N, L = x_in.shape
         out = model(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
-        M = out.dense_routed.shape[0]
-        shared = out.dense_routed.new_full((M, model.n_shared_stamps), model.shared_weight)
-        return torch.cat([out.dense_routed, shared], dim=-1).detach().cpu().numpy()  # [M, n_stamps]
+        shared = out.dense_routed.new_full((out.dense_routed.shape[0], model.n_shared_stamps), model.shared_weight)
+        dense_full = torch.cat([out.dense_routed, shared], dim=-1)  # [N, n_stamps] (G = N, B=1)
+        return dense_full.detach().cpu().numpy()
 
     def decoder_fingerprint_matrix(self, model):
-        """Per-stamp [C, patch_len] fingerprint at the zero-probe default (see
-        StampBank.fingerprint docstring — no true content-free fingerprint exists anymore
-        now that generation is content-conditioned on pooled_i, so this reduces to each
-        atom's own bias terms), pairwise cosine sim — this is `filter_relation.png`'s direct
-        successor and doubles as the empirical test for whether StampBank.decorrelation_loss
-        needs a temporal term added (see that method's docstring)."""
-        fp = model.stamps.fingerprint().cpu().numpy()  # [n_stamps, C, patch_len]
+        """Per-stamp [patch_len] waveform template D_i (see StampBank.fingerprint —
+        content-free and exact now, no probe involved: D_i never depends on any input),
+        pairwise cosine sim — this is `filter_relation.png`'s direct successor and the
+        empirical check on template diversity (now expected to emerge from the whitened
+        recon objective + sparsity + aux rescue, not enforced by the deleted
+        decorr/indep repulsion losses — see MeSAE._recon_loss's docstring)."""
+        fp = model.stamps.fingerprint().cpu().numpy()  # [n_stamps, patch_len]
         flat = fp.reshape(fp.shape[0], -1)
         flat = flat / (np.linalg.norm(flat, axis=1, keepdims=True) + 1e-8)
         return flat @ flat.T
 
     def rank_ceiling(self, model):
         return min(model.stamps.top_k, model.head_dim)
+
+    @torch.no_grad()
+    def extract_stamp_content(self, model, x_in, c_in, t_in, vc_in):
+        """Dense per-(channel,patch) DECODED CONTENT [C, N, n_stamps, patch_len],
+        zero-filled at stamps that (channel, patch) token didn't select — real content
+        where selected, exact 0 elsewhere (same zero-fill convention as viz.extract's
+        flat-token panels, e.g. extract_flat_stamp_psd_by_patch). Unlike extract_usage (a
+        scalar gating strength h per stamp), this is the actual decoder output — used only
+        by _render_patch_similarity (viz.codebook.plot_stamp_similarity), which needs real
+        content to compare, not just selection confidence.
+
+        Expensive: T=C*N tokens x n_stamps x patch_len dense per trial (e.g. 64*16*120*50
+        ~= 6M floats, ~25MB). _render_patch_similarity only calls this for a small
+        subsample of trials (see needs_raw_tensors), not every trial check_codebook
+        samples up front."""
+        B, C, N, L = x_in.shape
+        z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
+        z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)   # [G, C, D], G = N (B=1)
+        x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
+        # rms must match the training path (see MeSAEPretrain.forward) — without it
+        # amp lacks its raw-amplitude factor and every panel shows systematically
+        # mis-scaled contributions.
+        rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
+        vc_g = vc_in.unsqueeze(1).expand(B, N, C).reshape(B * N, C) if vc_in is not None else None
+        out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vc_g)
+        contribution = model.stamps.decode_selected(out.idx, out.amp)  # [G, C, K, patch_len]
+        G, _, K, patch_len = contribution.shape
+        n_stamps = model.n_stamps
+
+        dense = contribution.new_zeros(G, C, n_stamps, patch_len)
+        dense.scatter_(2, out.idx.view(G, 1, K, 1).expand(G, C, K, patch_len), contribution)
+        return dense.permute(1, 0, 2, 3).cpu().numpy()  # [C, N, n_stamps, patch_len]
+
+    def _render_patch_similarity(self, trial_records, viz_dir, model, device, seed):
+        """Overrides the base's usage/gating-based hierarchy panel (patch_similarity_
+        hierarchy.png, cosine over selection strength h) with a content-based one
+        (stamp_similarity.png, cosine over real decoder output — see extract_stamp_content
+        and viz.codebook.plot_stamp_similarity, including its new Intra-Patch grouping).
+        Dense per-token decoder content is too expensive to compute for every trial
+        check_codebook samples (see needs_raw_tensors), so this re-runs a fresh forward
+        pass on only a small trial subsample — same max_trials_per_group cap
+        plot_stamp_similarity itself would otherwise apply internally, just applied before
+        the (expensive) extraction instead of after."""
+        max_trials_per_group = 60
+        rng = random.Random(seed)
+        sample = trial_records if len(trial_records) <= max_trials_per_group else \
+            rng.sample(trial_records, max_trials_per_group)
+
+        content_records = []
+        for t in sample:
+            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
+            content = self.extract_stamp_content(model, x_in, c_in, t_in, vc_in)
+            content_records.append(dict(content=content, dataset=t['dataset'], subject=t['subject']))
+
+        plot_stamp_similarity(
+            os.path.join(viz_dir, 'stamp_similarity.png'), content_records,
+            unit_label=self.unit_label, seed=seed)
+
+        self._render_identity_consistency(sample, viz_dir, model, device)
+
+    @torch.no_grad()
+    def _render_identity_consistency(self, trial_records, viz_dir, model, device):
+        """Does one stamp id mean one thing across patches/trials? The waveform half is
+        trivially yes (D_i is a fixed parameter), so this measures the TOPOGRAPHY: every
+        occurrence's mixing column, compared within-id vs between-id. Nothing in the
+        architecture ties a stamp across patches — group selection binds channels within
+        a patch only — so this is a real open question, not a formality. See
+        viz.codebook.plot_stamp_identity_consistency for the metric's construction (and
+        the two biases it has to avoid)."""
+        from collections import defaultdict
+        from viz.codebook import plot_stamp_identity_consistency
+        from viz.iclabel import ICLABEL_CLASSES
+
+        # Keyed by (dataset, stamp id): channel-validity differs per dataset (e.g. Dial
+        # maps 8 of 64 channels, BETA_4s 58), so mixing columns from different datasets
+        # have different lengths AND live in different channel subspaces — comparing
+        # them would be meaningless even if the shapes matched. Statistics are computed
+        # within each dataset and pooled.
+        cols, labels = defaultdict(list), defaultdict(list)
+        for t in trial_records:
+            ds_name = t.get('dataset', '_')
+            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
+            B, C, N, L = x_in.shape
+            z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
+            z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
+            x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
+            rms = x_g.pow(2).mean(-1, keepdim=True).sqrt()
+            vg = vc_in.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
+            o = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vg)
+            mag = o.amp.pow(2).sum(-1).sqrt()                      # [G, C, K]
+            m = vc_in[0].bool()
+            for g in range(mag.shape[0]):
+                for k in range(o.idx.shape[1]):
+                    cols[(ds_name, int(o.idx[g, k]))].append(mag[g, m, k].detach().cpu().numpy())
+            gal = extract_flat_stamp_gallery(model, x_in, c_in, time_idx=t_in,
+                                              valid_channels=vc_in, fs=200, freq_resolution=0.2)
+            uids, probs = gal[0], gal[-1]
+            if probs is not None:
+                for qi, sid in enumerate(uids.tolist()):
+                    if np.all(np.isfinite(probs[qi])):
+                        labels[int(sid)].append(int(probs[qi].argmax()))  # class is dataset-agnostic
+
+        def prep(a):
+            # center across channels then unit-norm: raw magnitude columns are
+            # non-negative, so their cosines sit near 1 regardless of structure
+            a = np.asarray(a, dtype=float)
+            a = a - a.mean(-1, keepdims=True)
+            return a / (np.linalg.norm(a, axis=-1, keepdims=True) + 1e-9)
+
+        keys = [k for k, c in cols.items() if len(c) >= 6]
+        by_ds = defaultdict(list)
+        for ds_name, sid in keys:
+            by_ds[ds_name].append(sid)
+        if not any(len(v) >= 2 for v in by_ds.values()):
+            print('  [codebook] identity consistency skipped (too few repeated stamps)')
+            return
+        P = {k: prep(np.stack(cols[k])) for k in keys}
+        rng = np.random.default_rng(0)
+        within, between, per_stamp, ids = [], [], [], []
+        for ds_name, sids in by_ds.items():
+            if len(sids) < 2:
+                continue
+            for sid in sids:
+                U = P[(ds_name, sid)]; S = U @ U.T; n = len(U)
+                v = float((S.sum() - n) / (n * (n - 1)))
+                within.append(v); per_stamp.append(v); ids.append(sid)
+            # between-id pairs drawn WITHIN this dataset, between INDIVIDUAL occurrences
+            # (same footing as within — averaged columns would look falsely self-similar)
+            for _ in range(4000 // max(1, len(by_ds))):
+                a, b = rng.choice(len(sids), 2, replace=False)
+                Ua, Ub = P[(ds_name, sids[a])], P[(ds_name, sids[b])]
+                between.append(float(Ua[rng.integers(len(Ua))] @ Ub[rng.integers(len(Ub))]))
+        agree = {s_: float(np.bincount(ls).max() / len(ls))
+                 for s_, ls in labels.items() if len(ls) >= 3}
+        plot_stamp_identity_consistency(
+            os.path.join(viz_dir, 'stamp_identity_consistency.png'),
+            np.asarray(within), np.asarray(between), ids, per_stamp,
+            label_agree=agree or None, unit_label=self.unit_label)
+
+    def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed):
+        """Overrides the base's usage/gating-based panel with a content-based one (real
+        decoder output, channel-collapsed to stay a [N, D] per-trial code like the base's
+        `usage` — see extract_stamp_content and plot_patch_position_consistency's
+        code_label). Same expensive-dense-decode-on-a-subsample tradeoff as
+        _render_patch_similarity (see needs_raw_tensors): re-runs a fresh forward pass on
+        only a small subsample of this dataset's trials, not every trial check_codebook
+        sampled for it."""
+        max_trials_per_group = 60
+        rng = random.Random(seed)
+        sample = ds_trials if len(ds_trials) <= max_trials_per_group else \
+            rng.sample(ds_trials, max_trials_per_group)
+
+        content_records = []
+        for t in sample:
+            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
+            content = self.extract_stamp_content(model, x_in, c_in, t_in, vc_in)  # [C, N, n_stamps, patch_len]
+            collapsed = content.mean(axis=0).reshape(content.shape[1], -1)  # [N, n_stamps*patch_len]
+            content_records.append(dict(usage=collapsed, dataset=t['dataset'], subject=t['subject']))
+
+        plot_patch_position_consistency(
+            os.path.join(viz_dir, f'patch_position_consistency_{ds_name}.png'), content_records,
+            unit_label=self.unit_label, seed=seed, code_label='decoder output')
 
 
 class MeSAEPlotter(BasePlotter):
@@ -264,11 +512,14 @@ class MeSAEPlotter(BasePlotter):
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
         # group may still straddle a row edge.
         loss_panels = [
-            dict(title='Total Loss (MSE + aux*weight)', ylabel='Loss', series=[dict(key='loss', color='b')]),
-            dict(title='Masked vs Unmasked MSE\n(finest pyramid level, diagnostic only)', ylabel='Loss',
+            dict(title='Total Loss\n(whitened recon + sparsity + aux + ffn_lb, weighted)', ylabel='Loss',
+                 series=[dict(key='loss', color='b')]),
+            dict(title='Masked vs Unmasked MSE\n(plain time-domain, diagnostic only — not the trained objective)',
+                 ylabel='MSE',
                  series=[dict(key='masked', color='crimson'), dict(key='unmasked', color='steelblue')]),
-            dict(title='Hierarchical MSE Pyramid\n(coarse=whole-trial avg patch shape -> fine=per-patch)',
-                 ylabel='MSE', series=self.indexed_series('mse_level_', cmap_name='plasma', train_only=False)),
+            dict(title='Recon: Window vs Patch\n(mse_level_0=window avg time-MSE, mse_level_1=WHITENED patch '
+                       'loss — see MeSAE._recon_loss)',
+                 ylabel='Loss', series=self.indexed_series('mse_level_', cmap_name='plasma', train_only=False)),
         ]
 
         stamp_health_panels = [
@@ -276,6 +527,9 @@ class MeSAEPlotter(BasePlotter):
                  ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
             dict(title='Dead Feature Rate', ylabel='Fraction',
                  series=[dict(key='dead_feature_rate', color='crimson')]),
+            dict(title='Effective Atoms per Token\n(k_eff = (sum|a|)^2 / sum(a^2) — 1 = one atom carries all, '
+                       'top_k = all equal)',
+                 ylabel='k_eff', series=[dict(key='k_eff', color='darkorchid')]),
         ]
 
         # Stamp Router Health — see MeSAE.update_stamp_router_metrics for what each number
@@ -297,6 +551,13 @@ class MeSAEPlotter(BasePlotter):
             dict(title='Stamp Router Health\n(entropy rising = healthy spread; falling = collapse)',
                  ylabel='Entropy (higher=balanced)', series=stamp_router_series,
                  twin=dict(ylabel='Load std / LB loss', series=stamp_twin_series) if stamp_twin_series else None),
+            # Pool-size-independent version of the same signal — the raw entropy's ceiling
+            # is log(n_routed), so only this one is comparable across runs/configs. Bands
+            # measured on real runs: 0.73-0.81 healthy (alive 0.54-0.97), 0.53 = the v8
+            # pool collapse (alive 0.19). See MeSAEPretrain.get_metrics.
+            dict(title='Stamp Load Entropy, normalized\n(frac of log(n_routed): ~0.75 healthy, <0.6 = pool collapsing)',
+                 ylabel='H / log(n_routed)',
+                 series=[dict(key='stamp_router_entropy_frac', color='teal')]),
             dict(title='FFN Router Health\n(entropy rising = healthy spread; falling = collapse)',
                  ylabel='Entropy (higher=balanced)', series=ffn_router_series,
                  twin=dict(ylabel='Load std / LB loss', series=ffn_twin_series) if ffn_twin_series else None),

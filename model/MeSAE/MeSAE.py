@@ -1,3 +1,4 @@
+import math
 from types import SimpleNamespace
 
 import torch
@@ -58,12 +59,14 @@ class MeSAEPretrain(nn.Module):
         stamp_top_k=32,
         stamp_hidden_width=8,
         stamp_shared_hidden_width=16,
+        stamp_shared_weight=0.2,
         dead_threshold_frac=0.1,
         aux_k_cap_frac=0.04,
         stamp_ema_decay=0.999,
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
+        coord_embed_tokenizer=False,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -79,9 +82,10 @@ class MeSAEPretrain(nn.Module):
         nn.init.normal_(self.mask_token, std=0.02)
 
         self.stamps = StampBank(
-            embed_dim, num_channels, patch_len,
+            embed_dim, patch_len,
             n_stamps=n_stamps, n_shared_stamps=n_shared_stamps, top_k=stamp_top_k,
             hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
+            shared_weight=stamp_shared_weight,
             dead_threshold_frac=dead_threshold_frac,
             aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
         )
@@ -93,6 +97,9 @@ class MeSAEPretrain(nn.Module):
         self.n_shared_stamps = self.stamps.n_shared
         self.shared_weight = self.stamps.shared_weight
         self.stamps_frozen = False
+        # Whether the Tokenizer stage gets the coordinate embedding (position only) —
+        # see enable_coord_embed and MeSAETrainer.on_tokenizer_start.
+        self.coord_embed_tokenizer = coord_embed_tokenizer
 
         # EMA router-health buffers — same 3 metrics as MeFSQ's Router
         # (ema_stamp_router_entropy/ema_stamp_router_load_std/ema_stamp_gate_entropy), see
@@ -101,6 +108,13 @@ class MeSAEPretrain(nn.Module):
         self.register_buffer('ema_stamp_router_load_std', torch.tensor(0.0))
         self.register_buffer('ema_stamp_gate_entropy',    torch.tensor(0.0))
 
+        # Dataset mean PSD per rFFT bin of the patch axis, EMA-tracked over training
+        # batches (ones at init = uniform weights = plain MSE until warm). Source of
+        # _recon_loss's spectral whitening weights — see its docstring. A buffer, so
+        # the Pretrain stage inherits the Tokenizer stage's converged estimate through
+        # the checkpoint instead of re-warming from scratch.
+        self.register_buffer('ema_bin_psd', torch.ones(patch_len // 2 + 1))
+
         # Same 3 EMA metrics, but for the FFN MoE routers (MoEFFN/FFNRouter, one per
         # TSABlock, averaged across blocks by TSAEncoder.forward) — a distinct MoE from the
         # stamp router above, see docs/adr/0008-moe-ffn-for-mesae.md and
@@ -108,6 +122,26 @@ class MeSAEPretrain(nn.Module):
         self.register_buffer('ema_ffn_router_entropy',  torch.tensor(0.0))
         self.register_buffer('ema_ffn_router_load_std', torch.tensor(0.0))
         self.register_buffer('ema_ffn_gate_entropy',    torch.tensor(0.0))
+
+    def enable_coord_embed(self):
+        """Coordinate embedding ONLY — each channel's token learns WHERE it is, with no
+        cross-channel content mixing (that is enable_spatial's MHA half, below).
+
+        These two were welded to one flag historically, but they leak very differently.
+        The coord embedding is per-channel: z_c gains a function of channel c's own
+        position, so a channel still never sees another channel's signal, and the
+        single-channel purity the flat-token design exists to protect is intact.
+        Cross-channel attention does mix content and would make a "stamp" encode a
+        blended vector again (see MeSAETrainer.on_tokenizer_start).
+
+        Why it may matter for stamp structure: without coords, two channels carrying
+        identical content produce identical z_c, hence identical amp — the bank
+        literally cannot represent "alpha at Oz" differently from "alpha at Fz", so a
+        mixing column can only vary where the raw content varies. Feeding position lets
+        amp_i(z_c) become position-aware, i.e. lets dipole-like topography be LEARNED
+        rather than imposed by a penalty (which is what the retired smoothness loss
+        tried to do from the outside, see the note above StampBank.fingerprint)."""
+        self.embed.enable_spatial()
 
     def enable_spatial(self):
         self.embed.enable_spatial()
@@ -191,51 +225,28 @@ class MeSAEPretrain(nn.Module):
             z = z * (1.0 - mask) + self.mask_token * mask
         return self.encoder(z)  # [B, C, N, D], ffn_lb_loss
 
-    def _pool_channels(self, z, valid_channels=None):
-        """z: [B, C, N, D] -> z_bnc [M, C, D] (M=B*N), valid_mask [M, C] or None."""
-        B, C, N, D = z.shape
-        z_bnc = z.permute(0, 2, 1, 3).reshape(B * N, C, D)
-        valid_mask = None
-        if valid_channels is not None:
-            valid_mask = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
-        return z_bnc, valid_mask
-
-    @staticmethod
-    def _flatten_patches(x):
-        """x: [B, C, N, L] -> x_mcl [M, C, L] (M=B*N) — same M ordering as _pool_channels,
-        needed as StampBank's aux-rescue reconstruction target (see StampBank.forward)."""
-        B, C, N, L = x.shape
-        return x.permute(0, 2, 1, 3).reshape(B * N, C, L)
+    # -- Finetune-only entry points, NOT used by the Tokenizer/Pretrain forward() path
+    # below. Left structurally in place but currently broken: StampBank no longer has a
+    # channel-attention pool or `valid_mask`/`attn` to read (see MeSAE_modules.StampBank
+    # class docstring), so these calls will error if actually invoked. Finetune's channel
+    # handling is an explicit follow-up, not fixed on this branch — see the
+    # FlatStampBank plan (docs/agents/ or the plan file this branch was built from).
 
     def encode_post_stamp_expert(self, x, coords, time_idx=None, valid_channels=None, return_chan_attn=False):
-        """
-        Per-stamp code BEFORE generation — channels are already collapsed into each
-        selected stamp's own channel-attention View by StampBank's spatial pool, so there
-        is no channel dim here. Use this when a downstream head only needs
-        stamp-differentiated signal and would otherwise have to re-pool the channel dim the
-        backbone already collapsed. Mirrors MeFSQPretrain.encode_post_vq_expert.
-        valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional).
-        return_chan_attn: also return each selected stamp's own channel-attention weights
-        (the real per-channel importance, for diagnostics — e.g. attn-topo panels).
-        Returns z_h [B, N, Q, D] (Q = top_k+n_shared, 36 by default), or (z_h, chan_attn
-        [B, N, Q, C]) if return_chan_attn. Unselected routed stamps never appear here at
-        all (hard top-k, not a zeroed-out dense slot) — the finetune head only ever sees
-        the stamps actually selected for a given patch.
-        """
-        B, C, N, L = x.shape
+        """BROKEN on this branch — see the module-level note above `_pool_channels`'s old
+        location. Kept only so MeSAEFinetune still has something to call; do not use until
+        Finetune's channel handling is redesigned for flat (channel,patch) tokens."""
+        raise NotImplementedError(
+            "encode_post_stamp_expert is not supported by the flat-token StampBank — "
+            "Finetune's channel-collapsing head needs a redesign first (see plan)."
+        )
 
-        z, _ = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, D]
-        z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
-
-        out = self.stamps(z_bnc, valid_mask=valid_mask)
-        z_h = out.z_h.reshape(B, N, -1, self.head_dim)  # [B, N, Q, D]
-        if not return_chan_attn:
-            return z_h
-
-        # gather the selected stamps' channel-attention rows out of the dense [M,n_stamps,C]
-        # table StampBank.forward already computed, same idx it used to build z_h.
-        chan_attn = out.attn.gather(1, out.idx.unsqueeze(-1).expand(-1, -1, C))  # [M, Q, C]
-        return z_h, chan_attn.reshape(B, N, -1, C)
+    def encode_used_stamps(self, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
+        """BROKEN on this branch — see encode_post_stamp_expert's docstring."""
+        raise NotImplementedError(
+            "encode_used_stamps is not supported by the flat-token StampBank — "
+            "Finetune's channel-collapsing head needs a redesign first (see plan)."
+        )
 
     def used_stamp_ids(self, out, max_stamps=100):
         """Global stamp ids actually selected SOMEWHERE across this batch (a batch built
@@ -259,30 +270,11 @@ class MeSAEPretrain(nn.Module):
         return torch.cat([shared_ids, routed_ids[:budget]])
 
     def encode_used_stamps(self, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
-        """Trial-wide, stable-identity counterpart to encode_post_stamp_expert — instead of
-        each patch's own (patch-locally-indexed) top-k picks, returns a single FIXED set of
-        <=max_stamps global stamp ids (see used_stamp_ids) and every patch's real strength
-        for exactly those ids (0 where that patch's own top-k didn't select a given id —
-        reconstructed from StampBank's dense per-patch usage, not re-selected). Used by
-        MeSAEChecker.render_finetune_attn for a trial-wide attn-topo panel; NOT used by
-        MeSAEFinetune.forward itself, which still needs the real per-patch top-k path
-        (encode_post_stamp_expert) since that's what the model was actually trained on.
-        Returns (z_h [B,N,Qu,D], chan_attn [B,N,Qu,C], used_ids [Qu]).
-        """
-        B, C, N, L = x.shape
-
-        z, _ = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=None)  # [B, C, N, D]
-        z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
-
-        out = self.stamps(z_bnc, valid_mask=valid_mask)
-        used_ids = self.used_stamp_ids(out, max_stamps=max_stamps)  # [Qu]
-
-        shared = out.dense_routed.new_full((out.dense_routed.shape[0], self.n_shared_stamps), self.shared_weight)
-        full_dense = torch.cat([out.dense_routed, shared], dim=-1)  # [M, n_stamps]
-
-        z_h = out.pooled[:, used_ids, :] * full_dense[:, used_ids].unsqueeze(-1)  # [M, Qu, D]
-        chan_attn = out.attn[:, used_ids, :]                                       # [M, Qu, C]
-        return z_h.reshape(B, N, -1, self.head_dim), chan_attn.reshape(B, N, -1, C), used_ids
+        """BROKEN on this branch — see encode_post_stamp_expert's docstring."""
+        raise NotImplementedError(
+            "encode_used_stamps is not supported by the flat-token StampBank — "
+            "Finetune's channel-collapsing head needs a redesign first (see plan)."
+        )
 
     def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """
@@ -290,26 +282,56 @@ class MeSAEPretrain(nn.Module):
         bool_masked_pos: [B, C, N] bool — None during the Tokenizer stage (no masking);
         pass real masks only in the Masked stage, once temporal/spatial mixing are enabled
         and the stamps are frozen (see enable_temporal/enable_spatial/freeze_stamps).
-        valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional).
-        returns SimpleNamespace(recon [B,C,N,L], attn [B,N,n_stamps,C] (per-stamp
-        topography), h [M,Q] selection strengths, dense_routed [M,n_routed_stamps]
-        (diagnostic selection-frequency source), aux_loss scalar, ffn_lb_loss scalar
-        (TSABlock MoEFFN routers, summed across blocks — StampBank has no load-balance
-        loss of its own, see StampBank.forward).
+        valid_channels: [B, C] bool, True=real (not zero-padded) channel, or None. Used
+        two ways now: (1) passed into StampBank so a padded channel's encoder-bias amp
+        noise doesn't vote in the per-patch group selection score (see
+        StampBank.forward), and (2) carried through on the returned SimpleNamespace so
+        get_loss/_recon_loss can exclude padded channels from the loss (see get_loss) —
+        a zero-padded channel's "reconstruction" is meaningless signal, not a real
+        target. Padded channels still decode/reconstruct like any other.
+        returns SimpleNamespace(recon [B,C,N,L], h [G,Q] selection confidences,
+        dense_routed [G,n_routed_stamps] (diagnostic selection-frequency source, G =
+        B*N patch positions — group-level selection, see StampBank), aux_loss scalar,
+        ffn_lb_loss scalar (TSABlock MoEFFN routers,
+        summed across blocks — StampBank has no load-balance loss of its own, see
+        StampBank.forward). No `attn` anymore — there is no cross-channel pool left to
+        produce a channel-attention map from.
         """
         B, C, N, L = x.shape
 
         z, ffn_lb_loss = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos)  # [B, C, N, D]
-        z_bnc, valid_mask = self._pool_channels(z, valid_channels)  # [M, C, D]
-        x_target = self._flatten_patches(x)  # [M, C, L] — aux-rescue target, see StampBank.forward
+        # Channel-grouped layout for StampBank: [B, C, N, *] -> permute to [B, N, C, *]
+        # then merge (B, N) — adjacent after the permute, so the merge is a safe reshape
+        # (docs/agents/reshape-pitfalls.md; permute forces a copy, contiguity handled by
+        # reshape itself). One group = one patch position with all its channels — the
+        # unit StampBank selects stamps for (see its class docstring).
+        G = B * N
+        z_g = z.permute(0, 2, 1, 3).reshape(G, C, -1)          # [G, C, D]
+        x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)           # [G, C, L] — aux-rescue target
 
-        out = self.stamps(z_bnc, x_target=x_target, valid_mask=valid_mask)
+        # Per-channel raw-input RMS — the amplitude signal the LayerNorm stack erased
+        # from z (embed.norm -> per-block norm_out -> stamps.input_norm), multiplied back
+        # into every amp inside StampBank. Masked positions get 1.0: their true patch is
+        # hidden from the encoder, so feeding its RMS would leak the target's amplitude
+        # into masked reconstruction — the encoder must predict a masked patch's loudness
+        # through z, same as it always did.
+        rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()     # [G, C, 1]
+        if bool_masked_pos is not None:
+            mask_g = bool_masked_pos.permute(0, 2, 1).reshape(G, C, 1)
+            rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # [B, C, N, L]
+        vc_g = None
+        if valid_channels is not None:
+            # [B, C] -> broadcast over N -> [G, C]; group score should only count real
+            # channels' amp energy (see StampBank.forward's valid_channels docstring).
+            vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(G, C)
+
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
+
+        recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 
         return SimpleNamespace(
             recon=recon,
-            attn=out.attn.reshape(B, N, self.n_stamps, C),
             h=out.h,
             dense_routed=out.dense_routed,
             aux_loss=out.aux_loss,
@@ -317,71 +339,114 @@ class MeSAEPretrain(nn.Module):
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
-            decorr_loss=out.decorr_loss,
+            k_eff=out.k_eff,
+            valid_channels=valid_channels,
         )
 
-    @staticmethod
-    def _patch_pyramid_levels(recon, x):
-        """Pool the patch axis N by successive halving, keeping the within-patch axis L
-        intact: level 0 = 1 group of N patches averaged together (-> [B,C,1,L], the
-        trial's average patch shape), ..., last level = win=1 (every patch its own group,
-        L untouched) which is numerically identical to the raw (recon, x) pair. Returns
-        list of (recon_level, x_level) coarsest-first, finest ([recon, x] themselves) last.
+    def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None):
+        """Two-level recon loss: SPECTRALLY WHITENED patch-level (finest, every patch
+        its own term, computed in rFFT domain with per-bin weights ~ 1/(dataset mean
+        PSD)) + plain time-domain window-level (coarsest, whole-trial average patch
+        shape).
+
+        Why whitened: time-domain MSE weights every frequency by its raw power, and
+        EEG's 1/f spectrum hands nearly all gradient to the lowest bins — under that
+        objective, packing every stamp into the one loudest band (as phase-shifted
+        copies) is genuinely OPTIMAL, which is exactly the observed template collapse.
+        Whitening is ICA's own mandatory first step for the same reason. With per-bin
+        error weighted by inverse dataset power, covering distinct bands pays in loss,
+        and stamp frequency diversity becomes emergent (together with the aux rescue
+        re-aiming dead atoms at the residual) instead of enforced by the repulsion terms this replaced
+        (decorr_loss/indep_loss — see the note above StampBank._spatial_weights).
+
+        Weights come from ema_bin_psd (see __init__): EMA of the valid tokens' mean
+        target PSD, updated each training batch, floored at 1% of its own mean so
+        near-empty bins (outside the bandpass) can't blow up to infinite weight, then
+        normalized to mean 1 so the loss scale stays comparable to plain MSE.
+
+        masked/unmasked stay a plain time-domain DIAGNOSTIC split (not in `total`).
+        valid_channels: [B, C] bool — padded channels are excluded from all terms and
+        from the PSD estimate (their target is exactly 0, not a real spectrum).
         """
+        def _vmask_like(t):
+            if valid_channels is None:
+                return None
+            B, C = valid_channels.shape
+            return valid_channels.view(B, C, *([1] * (t.dim() - 2))).expand_as(t)
+
+        def _masked_mse(r, t):
+            vmask = _vmask_like(t)
+            if vmask is None:
+                return F.mse_loss(r, t)
+            return F.mse_loss(r[vmask].float(), t[vmask].float()) if vmask.any() else r.new_zeros(())
+
         B, C, N, L = x.shape
-        # Merge B,C (adjacent, safe) — the one unavoidable copy, since recon arrives
-        # already permuted upstream (non-contiguous). Everything below then only ever
-        # SPLITS the N axis in place (never merges/transposes non-adjacent axes), so each
-        # pyramid level is a free reshape + a cheap mean — no per-level permute/avg_pool1d.
-        # Must stay .reshape, not .view — recon arrives non-contiguous (permuted upstream).
-        # Swapping to .view for a "perf win" hard-crashes here (good); pre-calling
-        # .contiguous() on the wrong intermediate shape would silently scramble instead.
-        r = recon.reshape(B * C, N, L).float()
-        t = x.reshape(B * C, N, L).float()
-        levels = []
-        win = N
-        while True:
-            n_groups = N // win
-            n_keep = n_groups * win  # avg_pool1d-equivalent: drop a non-dividing remainder
-            rp = r[:, :n_keep, :].reshape(B * C, n_groups, win, L).mean(dim=2)
-            tp = t[:, :n_keep, :].reshape(B * C, n_groups, win, L).mean(dim=2)
-            levels.append((rp.reshape(B, C, n_groups, L), tp.reshape(B, C, n_groups, L)))
-            if win == 1:
-                break
-            win = max(1, win // 2)
-        return levels
+        # Flatten to valid tokens [T, L]. The boolean index selects whole channels
+        # (mask constant over N and L), so reshape(-1, L) regroups exact tokens —
+        # not an axis-scrambling reshape (docs/agents/reshape-pitfalls.md).
+        if valid_channels is not None:
+            vm = valid_channels.view(B, C, 1, 1).expand_as(x)
+            err_t = (recon.float() - x.float())[vm].reshape(-1, L)
+            x_t = x.float()[vm].reshape(-1, L)
+        else:
+            err_t = (recon.float() - x.float()).reshape(-1, L)
+            x_t = x.float().reshape(-1, L)
 
-    def _hierarchical_recon_loss(self, recon, x, bool_masked_pos):
-        """Multi-scale MSE pyramid over the patch axis (see _patch_pyramid_levels): every
-        level — coarsest trial-average-shape down to the finest per-patch/per-element
-        level — is plain unweighted MSE, then summed across levels. masked/unmasked are
-        NOT weighted into the loss (no masked_mse_weight/unmasked_mse_weight anymore); the
-        finest level's masked-vs-unmasked split is still computed and returned, purely as
-        a diagnostic (see MeSAETrainer/logging) — it plays no part in `total`.
-        """
-        levels = self._patch_pyramid_levels(recon, x)
-        losses = [F.mse_loss(r, t) for r, t in levels]
+        if err_t.shape[0] == 0:
+            patch_loss = recon.new_zeros(())
+        else:
+            # autocast(enabled=False): keep the FFT + weighting in fp32 (rfft of a
+            # pre-cast .float() input can still be intercepted under autocast — same
+            # convention as the other fp32-only blocks in this codebase).
+            with torch.autocast(device_type=err_t.device.type, enabled=False):
+                E = torch.fft.rfft(err_t, dim=-1, norm='ortho')
+                perr = E.real.pow(2) + E.imag.pow(2)                   # [T, F]
+                if self.training:
+                    with torch.no_grad():
+                        X = torch.fft.rfft(x_t, dim=-1, norm='ortho')
+                        px = (X.real.pow(2) + X.imag.pow(2)).mean(dim=0)  # [F]
+                        if torch.isfinite(px).all():
+                            self.ema_bin_psd.mul_(0.99).add_(px, alpha=0.01)
+                w = 1.0 / (self.ema_bin_psd + 0.01 * self.ema_bin_psd.mean())
+                w = w / w.mean()                                       # mean-1, loss scale ~ plain MSE
+                patch_loss = (perr * w).mean()
 
-        l_masked, l_unmasked = 1.0, losses[-1]
+        # Average the patch axis N into one — recon/x are already [B,C,N,L], mean doesn't
+        # need contiguity so no reshape needed even though recon arrives non-contiguous
+        # (permuted upstream, see docs/agents/reshape-pitfalls.md).
+        window_recon = recon.float().mean(dim=2, keepdim=True)  # [B, C, 1, L]
+        window_x = x.float().mean(dim=2, keepdim=True)
+        window_loss = _masked_mse(window_recon, window_x)
+
+        total = patch_loss + window_loss
+
+        l_masked, l_unmasked = 1.0, patch_loss
         if bool_masked_pos is not None:
-            r, t = levels[-1]
-            mask4    = bool_masked_pos.unsqueeze(-1).expand_as(t)
-            unmasked = ~mask4
-            l_masked   = F.mse_loss(r[mask4].float(),    t[mask4].float())    if mask4.any()    else r.new_zeros(1).squeeze()
-            l_unmasked = F.mse_loss(r[unmasked].float(), t[unmasked].float()) if unmasked.any() else r.new_zeros(1).squeeze()
+            mask4 = bool_masked_pos.unsqueeze(-1).expand_as(x)
+            vmask = _vmask_like(x)
+            if vmask is not None:
+                unmasked = (~bool_masked_pos.unsqueeze(-1).expand_as(x)) & vmask
+                mask4 = mask4 & vmask
+            else:
+                unmasked = ~mask4
+            l_masked   = F.mse_loss(recon[mask4].float(),    x[mask4].float())    if mask4.any()    else recon.new_zeros(1).squeeze()
+            l_unmasked = F.mse_loss(recon[unmasked].float(), x[unmasked].float()) if unmasked.any() else recon.new_zeros(1).squeeze()
 
-        # coarsest -> finest, for the plotter (see MeSAETrainer.epoch_metrics)
-        self._last_pyramid_levels = [lv.detach().item() for lv in losses]
-        return torch.stack(losses).sum(), l_masked, l_unmasked
+        # coarsest -> finest (window, patch) — mse_level_0/mse_level_1 on the plotter, see
+        # MeSAETrainer.epoch_metrics / train_tokenizer.py/train_pretrain.py's
+        # getattr(model, '_last_pyramid_levels', ...).
+        self._last_pyramid_levels = [window_loss.detach().item(), patch_loss.detach().item()]
+        return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
-                 decorr_loss=None, decorr_weight=0.01,
-                 ffn_lb_loss=None, ffn_lb_weight=0.01):
+                 ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
         """
         Returns (total, l_masked, l_unmasked).
 
-        Reconstruction term is the hierarchical patch-pyramid MSE (see
-        _hierarchical_recon_loss), scaled by hierarchical_mse_weight.
+        Reconstruction term is _recon_loss's two-level objective (SPECTRALLY WHITENED
+        patch level + plain window level — see its docstring; kept the
+        hierarchical_mse_weight name/config key to avoid churning every config that
+        sets it), scaled by hierarchical_mse_weight.
 
         Tokenizer stage (bool_masked_pos=None): plain full reconstruction, l_masked=1.0
         placeholder (nothing masked yet), aux_loss included so StampBank's dead-atom
@@ -392,24 +457,25 @@ class MeSAEPretrain(nn.Module):
         frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
         freeze_stamps().
 
-        decorr_loss (StampBank's spatial-pattern decorrelation) is dropped the same way and
-        for the same reason once frozen — freeze_stamps() locks the whole StampBank, so a
-        frozen spatial pattern can't act on the gradient either (see docs/adr/0007,
-        docs/adr/0009). StampBank has no load-balance loss of its own — dropped deliberately,
-        see StampBank.forward docstring.
+No auxiliary dictionary-shaping term remains. Five were tried and retired
+        with measured evidence — decorr, indep, L1 sparsity, Hoyer sparsity and
+        spatial smoothness (both unbounded and hinged) — see the note above
+        StampBank.fingerprint. What actually works here is structural: top_k is the
+        sparsity budget, the whitened recon objective the diversity mechanism, and
+        aux_loss the anti-collapse mechanism. StampBank has no load-balance loss of its
+        own — dropped deliberately, see StampBank.forward docstring.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
         from the encoder, which keeps training through the Masked stage (freeze_stamps()
         never locks the encoder).
         """
-        recon_loss, l_masked, l_unmasked = self._hierarchical_recon_loss(recon, x, bool_masked_pos)
+        recon_loss, l_masked, l_unmasked = self._recon_loss(
+            recon, x, bool_masked_pos, valid_channels=valid_channels)
         total = hierarchical_mse_weight * recon_loss
 
         if bool_masked_pos is None or not self.stamps_frozen:
             total = total + aux_weight * aux_loss
-            if decorr_loss is not None:
-                total = total + decorr_weight * decorr_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
         return total, l_masked, l_unmasked
@@ -456,9 +522,34 @@ class MeSAEPretrain(nn.Module):
             for i, (bn, bin_) in enumerate(zip(block_norms, block_input_norms)):
                 metrics[f'block_relnorm_{i}'] = bn / (bin_ + 1e-8)
 
+        # Largest branch output magnitude anywhere in the encoder, measured BEFORE
+        # LayerScale shrinks it (see TSABlock._watch). The norms bound each branch's input
+        # and each block's output; nothing bounds the middle, and LayerScale hides it from
+        # block_norm. Early warning: this climbs for epochs before a float ceiling is
+        # actually crossed, while every other diagnostic still looks healthy — v13 died
+        # that way. Judge it against the training dtype's ceiling (65504 for fp16); order
+        # 1-10 is normal, hundreds means the next run dies whatever the loss curve says.
+        # No separate headroom fraction: it is this number over a constant, and it rounds
+        # to 0.0000 in the log across the entire healthy range.
+        branch_max = getattr(self.encoder, 'last_branch_max', None)
+        if branch_max is not None:
+            metrics['branch_max'] = branch_max.item()
+
         # Stamp router health — see update_stamp_router_metrics above for what each number
         # means.
         metrics['stamp_router_entropy']  = self.ema_stamp_router_entropy.item()
+        # Same number as a FRACTION OF ITS OWN MAXIMUM, log(n_routed_stamps). The raw
+        # entropy above is in nats and its ceiling moves with the pool size (4.79 at 120
+        # routed vs 5.70 at 298), so raw values are not comparable across runs — 4.53 and
+        # 3.32 look far apart but are 0.80 and 0.81 of max, i.e. equally healthy.
+        # Measured reference band from real runs: 0.73-0.81 is healthy (v4/v5/v6, alive
+        # 0.54-0.97), while v8's pool collapse read 0.53 (alive 0.19). A hinged entropy
+        # FLOOR at ~0.70 is the documented safe shape if prevention is ever needed
+        # (see StampBank's note on why plain load-balancing is not: since |amp|
+        # self-selection the score IS the reconstruction coefficient, so pushing the
+        # load uniform pushes reconstruction amplitudes uniform).
+        metrics['stamp_router_entropy_frac'] = (
+            self.ema_stamp_router_entropy.item() / math.log(max(self.n_routed_stamps, 2)))
         metrics['stamp_router_load_std'] = self.ema_stamp_router_load_std.item()
         metrics['stamp_gate_entropy']    = self.ema_stamp_gate_entropy.item()
 

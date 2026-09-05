@@ -73,7 +73,7 @@ class BasePlotter:
         Filter, FFN, ...): router_entropy + gate_entropy on the main axis, router_load_std
         + lb_loss on a twin axis. History keys are unprefixed for the bare 'router' (MeFSQ's
         Expert router: 'router_entropy', 'lb_loss', ...) or f'{prefix}_<key>' otherwise
-        (MeSAE's 'filter'/'ffn' routers: 'filter_router_entropy', 'filter_lb_loss', ...).
+        (MeSAE's 'stamp'/'ffn' routers: 'stamp_router_entropy', 'ffn_lb_loss', ...).
         Returns (main_series, twin_series) — pass twin_series into a panel's twin dict
         only if non-empty, same guard every call site already used by hand."""
         def k(key):
