@@ -312,18 +312,21 @@ class MeSAECodebookChecker(BaseCodebookChecker):
     @torch.no_grad()
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
         """[N, n_stamps] dense usage, one row per PATCH POSITION — routed axis real
-        selection strength (zeros at unselected), shared axis the fixed constant weight
-        every shared stamp always fires at (see docs/adr/0009's Monitoring impact
-        section: no per-atom x per-feature F axis exists anymore, so this replaces the
-        retired out.sae_hidden).
+        selection strength (zeros at unselected), shared axis each shared stamp's real
+        post-rms amp magnitude (see StampBank.forward's h; no longer a flat constant
+        now that h isn't a softmax — see docs/adr/0009's Monitoring impact section:
+        no per-atom x per-feature F axis exists anymore, so this replaces the retired
+        out.sae_hidden).
 
         StampBank selects per patch position now (group selection, see its class
         docstring), so out.dense_routed is already [G=N, n_routed] for a B=1 trial —
         no channel-mean collapse needed anymore (the old per-token version averaged
-        C*N rows down to N here)."""
+        C*N rows down to N here). Shared stamps sit at fixed positions top_k: in out.h
+        (idx's routed-then-shared layout, see StampBank.forward), so no need for the
+        model to expose idx separately here."""
         B, C, N, L = x_in.shape
         out = model(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
-        shared = out.dense_routed.new_full((out.dense_routed.shape[0], model.n_shared_stamps), model.shared_weight)
+        shared = out.h[:, model.stamps.top_k:]                       # [N, n_shared]
         dense_full = torch.cat([out.dense_routed, shared], dim=-1)  # [N, n_stamps] (G = N, B=1)
         return dense_full.detach().cpu().numpy()
 
@@ -566,11 +569,9 @@ class MeSAEPlotter(BasePlotter):
         architecture_panels = [
             dict(title='Residual-Add Skip Gates\n(0=drop skip, 1=plain add)',
                  ylabel='sigmoid(gate)', series=self.indexed_series('skip_gate_')),
-            dict(title='Per-Block Contribution Norm\n(flat near-zero = block not used)',
+            dict(title='Per-Block Contribution Norm\n(flat near-zero = block not used; pool-boundary blocks '
+                       'already have their skip gate folded in)',
                  ylabel='Mean |delta| per block', series=self.indexed_series('block_norm_', cmap_name='viridis')),
-            dict(title='Per-Block Contribution Norm, Relative\n(delta / incoming x norm — isolates real '
-                       'reshaping from norm_out gain artifacts)',
-                 ylabel='block_norm / x_in norm', series=self.indexed_series('block_relnorm_', cmap_name='viridis')),
         ]
 
         panels = loss_panels + stamp_health_panels + routing_panels + architecture_panels

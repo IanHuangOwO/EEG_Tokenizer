@@ -361,25 +361,30 @@ class TSAEncoder(nn.Module):
         # re-injected on top" with "deep processing did nothing"; this measures the
         # deep processing directly). Eval-only (no_grad, .item() sync) — same convention
         # as the other diagnostics in this codebase (fingerprint stats, codebook health).
+        #
+        # A block immediately before a pool point (i in pool_after_blocks) has its raw
+        # delta counted twice downstream: once propagated through the pooled/bottleneck
+        # path, and again as a direct gated re-add at the very end (see the skip loop
+        # below) — the raw delta alone doesn't reflect that second, gate-weighted path.
+        # Folded in here by scaling those blocks' recorded delta by sigmoid(gate), so
+        # block_norm_i reads as this block's actual surviving contribution, not just
+        # what it computed before the gate ever touches it.
         record_norms = not self.training
         if record_norms:
             self.last_block_norms = []
-            # Incoming residual-stream norm BEFORE each block's own norm_out — separates
-            # "this block genuinely rewrote a lot" from "norm_out yanked an already-drifted
-            # x back to unit scale, showing up as a large delta regardless of this block's
-            # own contribution" (see TSABlock.norm_out's docstring on compounding growth).
-            self.last_block_input_norms = []
+            sorted_pool = sorted(self.pool_after_blocks)
+            gate_for_block = dict(zip(sorted_pool, self.skip_gates))
         ffn_lb_loss = x.new_zeros(())
         for i, block in enumerate(self.blocks):
             x_in = x
-            if record_norms:
-                with torch.no_grad():
-                    self.last_block_input_norms.append(x_in.norm(dim=-1).mean().item())
             x, blk_ffn_lb = block(x)
             ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
                 with torch.no_grad():
-                    self.last_block_norms.append((x - x_in).norm(dim=-1).mean().item())
+                    delta = (x - x_in).norm(dim=-1).mean()
+                    if i in gate_for_block:
+                        delta = delta * torch.sigmoid(gate_for_block[i])
+                    self.last_block_norms.append(delta.item())
             if i in self.pool_after_blocks:
                 skips.append(x)
                 x = self._pool(x)
@@ -439,9 +444,14 @@ class StampBank(nn.Module):
     selection already established why (the retired w_score scorer had ZERO gradient
     from recon, ranking frozen at init, dead_feature_rate locked ~0.7, aux rescue
     training decoders the ranking would never pick); group aggregation keeps that
-    property since amp is trained by recon MSE at every channel. h_routed = softmax
-    over the selected group scores (a within-group selection confidence for
-    diagnostics only, never touches recon).
+    property since amp is trained by recon MSE at every channel. h (both h_routed and
+    h_shared) is the post-rms amp magnitude sqrt(a^2+b^2) averaged over channels —
+    diagnostics/viz-ranking only, never touches recon. (An earlier version stored a
+    softmax-of-topk-scores here instead; removed — its value never fed recon, loss,
+    or dead-atom detection (fire_ema only ever checked >0), and a shared stamp's
+    always-on selection meant h_shared was a flat constant regardless of how much a
+    shared stamp actually contributed, actively misleading any importance ranking
+    built from it.)
 
     No load-balance loss, for a reason that got STRONGER after |amp| self-selection:
     the routing score IS the reconstruction coefficient now, so pushing the load
@@ -754,8 +764,9 @@ class StampBank(nn.Module):
         channels), amp [G, C, top_k+n_shared, 2] (per-channel quadrature gain pairs
         (a, b), rms included — a slot's [C] magnitude column sqrt(a^2+b^2) is that
         stamp's phase-invariant mixing/topomap vector at this patch time, atan2(b, a)
-        its per-channel phase), h [G, top_k+n_shared] (selection confidence,
-        diagnostics only),
+        its per-channel phase), h [G, top_k+n_shared] (that slot's post-rms amp
+        magnitude averaged over channels — real reconstruction-energy importance,
+        diagnostics/viz-ranking only, still never touches recon),
         dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
         MeSAETrainer/MeSAECodebookChecker read for router-health/usage
         panels, now at patch-position granularity), aux_loss, k_eff (diagnostic
@@ -790,16 +801,12 @@ class StampBank(nn.Module):
         else:
             group_score = a2.mean(dim=1)                            # [G, n_routed]
 
-        topk_val, topk_idx = group_score.topk(self.top_k, dim=-1)   # [G, top_k]
-        h_routed = torch.softmax(topk_val, dim=-1)  # [G, top_k] — within-group selection confidence
-        dense_routed = torch.zeros_like(group_score).scatter_(-1, topk_idx, h_routed)  # [G, n_routed]
+        _, topk_idx = group_score.topk(self.top_k, dim=-1)   # [G, top_k]
 
         shared_idx = torch.arange(self.n_routed, self.n_stamps, device=z.device)
         shared_idx = shared_idx.unsqueeze(0).expand(G, -1)               # [G, n_shared]
-        h_shared = group_score.new_full((G, self.n_shared), self.shared_weight)
 
         idx = torch.cat([topk_idx, shared_idx], dim=-1)   # [G, top_k+n_shared]
-        h   = torch.cat([h_routed, h_shared], dim=-1)
 
         # Per-channel gains for the group's selected set: every channel decodes the
         # SAME stamps with its OWN amp — the [C] column per slot is the mixing vector.
@@ -808,6 +815,20 @@ class StampBank(nn.Module):
         amp = torch.cat([amp_sel_r, amp_s_dense], dim=2)  # [G, C, top_k+n_shared, 2]
         if rms is not None:
             amp = amp * rms.unsqueeze(-1)  # [G, C, 1, 1] broadcast — restores raw amplitude
+
+        # h = post-rms amp magnitude sqrt(a^2+b^2) averaged over (valid) channels —
+        # the real reconstruction-energy importance of each selected slot, replacing
+        # the old within-group softmax (see class docstring for why: that value never
+        # fed recon/loss/dead-atom detection, and gave every shared stamp the same
+        # flat constant regardless of its real contribution).
+        slot_energy = amp.pow(2).sum(dim=-1)                             # [G, C, K]
+        if valid_channels is not None:
+            vc = valid_channels.unsqueeze(-1).to(slot_energy.dtype)      # [G, C, 1]
+            slot_mag = (slot_energy * vc).sum(dim=1) / vc.sum(dim=1).clamp(min=1.0)
+        else:
+            slot_mag = slot_energy.mean(dim=1)                           # [G, K]
+        h = slot_mag.clamp(min=0).sqrt()                                 # [G, K]
+        dense_routed = torch.zeros_like(group_score).scatter_(-1, topk_idx, h[:, :self.top_k])  # [G, n_routed]
 
         D_sel, H_sel = (t[idx] for t in self._template_tables())  # each [G, top_k+n_shared, patch_len]
         # a*D_hat + b*Hilbert(D_hat) summed over slots — no [G,C,K,L] materialized

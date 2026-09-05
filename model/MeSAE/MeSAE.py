@@ -168,9 +168,9 @@ class MeSAEPretrain(nn.Module):
         """
         EMA router-health monitoring, called once per step (see
         MeSAETrainer.update_diagnostics) — logic ported from MeFSQ's
-        MeFSQ.update_head_metrics, adapted for StampBank's raw (not softmax-normalized)
-        selection strengths. h_routed_dense: [M, n_routed_stamps] (StampBank's
-        `dense_routed`, zeros at unselected).
+        MeFSQ.update_head_metrics, adapted for StampBank's raw selection strengths:
+        post-rms amp magnitude, not a softmax (see StampBank.forward). h_routed_dense:
+        [M, n_routed_stamps] (StampBank's `dense_routed`, zeros at unselected).
 
         stamp_router_entropy: entropy of the routed pool's LOAD distribution (how evenly,
         across this batch's patches, selection is spread over the n_routed_stamps routed
@@ -316,15 +316,27 @@ class MeSAEPretrain(nn.Module):
         # into masked reconstruction — the encoder must predict a masked patch's loudness
         # through z, same as it always did.
         rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()     # [G, C, 1]
-        if bool_masked_pos is not None:
-            mask_g = bool_masked_pos.permute(0, 2, 1).reshape(G, C, 1)
-            rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
         vc_g = None
         if valid_channels is not None:
             # [B, C] -> broadcast over N -> [G, C]; group score should only count real
             # channels' amp energy (see StampBank.forward's valid_channels docstring).
             vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(G, C)
+
+        if bool_masked_pos is not None:
+            mask_g = bool_masked_pos.permute(0, 2, 1).reshape(G, C, 1)
+            # Masking is generated channel-agnostic (IO/masking.py never sees
+            # valid_channels), so a padded channel's patch can land inside the mask —
+            # gate the override on valid-AND-masked, not masked alone, or a padded
+            # channel's rms gets force-set to 1.0 here, fabricating a nonzero amp/recon
+            # for a channel that's always exactly 0. get_loss already excludes padded
+            # channels from the main loss, but the dead-atom aux rescue
+            # (StampBank.forward's aux_loss) has no valid_channels masking at all, so
+            # that fabricated signal would otherwise leak straight into a revived
+            # atom's decoder weights — shared across every channel, real ones included.
+            if vc_g is not None:
+                mask_g = mask_g & vc_g.unsqueeze(-1)
+            rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
         out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
 
@@ -481,13 +493,15 @@ No auxiliary dictionary-shaping term remains. Five were tried and retired
         return total, l_masked, l_unmasked
 
     def get_metrics(self, dense_routed=None):
-        # dense_routed's h_i=softmax(topk router logits) sums to exactly 1 within each
-        # patch's top_k picks, so a batch-wide mean-of-selected is mathematically pinned
-        # at 1/top_k regardless of training progress — not a real diagnostic (the old
-        # h=exp(-self-recon-mse) had no such normalization constraint, so its mean/std
-        # genuinely varied; this doesn't survive the switch to a plain linear scorer, see
-        # StampBank.forward). Selection-sharpness is still covered properly by
-        # stamp_gate_entropy below (entropy of the distribution shape, not its mean).
+        # dense_routed param is currently unused here (kept for call-site symmetry with
+        # MeFSQ's get_metrics) — its old rationale doesn't apply anymore either: it used
+        # to be h_i=softmax(topk router logits), pinned to sum to 1 within each patch's
+        # top_k picks (so a batch-wide mean-of-selected was mathematically stuck at
+        # 1/top_k, not a real diagnostic). h is now raw post-rms amp magnitude (see
+        # StampBank.forward) with no such constraint, so a real mean/std would be
+        # meaningful again if this ever gets wired up. Selection-sharpness is covered
+        # properly by stamp_gate_entropy below regardless (entropy of the distribution
+        # shape, not its mean).
         metrics = {}
         metrics['dead_feature_rate'] = (self.stamps.fire_ema < self.stamps.dead_threshold).float().mean().item()
 
@@ -499,28 +513,16 @@ No auxiliary dictionary-shaping term remains. Five were tried and retired
 
         # Per-block contribution norm — direct measure of how much each encoder block
         # actually changes its input (not the skip-gate proxy above, which conflates
-        # "shallow skip re-injected" with "deep processing did nothing"). Only populated
-        # after an eval-mode forward pass (validate_one_epoch), same convention as the
-        # other diagnostics that gate on `not self.training`.
+        # "shallow skip re-injected" with "deep processing did nothing"). For a block
+        # right before a pool point, this already has that block's own gate folded in
+        # (see TSAEncoder.forward) — its real surviving contribution, not just its raw
+        # pre-gate delta. Only populated after an eval-mode forward pass
+        # (validate_one_epoch), same convention as the other diagnostics that gate on
+        # `not self.training`.
         block_norms = getattr(self.encoder, 'last_block_norms', None)
         if block_norms:
             for i, v in enumerate(block_norms):
                 metrics[f'block_norm_{i}'] = v
-
-        block_input_norms = getattr(self.encoder, 'last_block_input_norms', None)
-        if block_input_norms:
-            for i, v in enumerate(block_input_norms):
-                metrics[f'block_input_norm_{i}'] = v
-            # Relative change (block_norm / incoming x norm) — raw block_norm conflates a
-            # block's own contribution with norm_out's per-block learned gain difference
-            # from whatever scale x drifted to upstream (see TSABlock.norm_out's
-            # docstring), so a block can show a huge raw delta while its LayerScale params
-            # stay near-zero. The ratio isolates "how much this block reshaped its input
-            # relative to that input's own scale", not a renorm-gain artifact.
-            # NOT prefixed block_norm_* -- indexed_series('block_norm_', ...) would swallow
-            # these into the raw-delta panel above via startswith prefix matching.
-            for i, (bn, bin_) in enumerate(zip(block_norms, block_input_norms)):
-                metrics[f'block_relnorm_{i}'] = bn / (bin_ + 1e-8)
 
         # Largest branch output magnitude anywhere in the encoder, measured BEFORE
         # LayerScale shrinks it (see TSABlock._watch). The norms bound each branch's input

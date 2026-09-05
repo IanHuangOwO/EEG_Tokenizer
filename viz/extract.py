@@ -362,8 +362,10 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
     trial-mean per-channel amp — the mixing/topomap column) — grouped-StampBank
     analog of _used_stamps. Selection is per PATCH POSITION now (shared by all C
     channels, see MeSAE_modules.StampBank class docstring), so importance is the
-    accumulated selection confidence h over the patches that picked each used stamp,
-    and fp is each used stamp's per-channel contribution (amp_c * rms_c * D_hat, the
+    accumulated post-rms amp magnitude h (sqrt(a^2+b^2) averaged over channels, see
+    StampBank.forward) over the patches that picked each used stamp — real
+    reconstruction energy, not a selection-frequency proxy — and fp is each used
+    stamp's per-channel contribution (amp_c * rms_c * D_hat, the
     stamp's real mixing/topomap content) averaged over ALL N patches — a patch that
     didn't select the stamp contributes an explicit 0 (dilution toward 0, same
     convention as before), but WITHIN a selected patch every channel now has a real
@@ -538,8 +540,9 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
 
     k_display, if given, keeps only the first k_display slots (routed slots come
     score-ordered first, shared last — so a small k_display drops shared first).
-    h is the group's selection confidence per slot (softmax over routed group scores;
-    constant shared_weight at shared slots).
+    h is each slot's post-rms amp magnitude (sqrt(a^2+b^2) averaged over channels,
+    see StampBank.forward) — real reconstruction energy for both routed and shared
+    slots, not a selection-frequency proxy.
     """
     z, _ = model.stage_features(x, coords, time_idx=time_idx)  # [1, C, N, D]
     B, C, N, D = z.shape
