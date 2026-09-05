@@ -66,7 +66,6 @@ class MeSAEFlatPretrain(nn.Module):
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
-        ffn_expert_hidden=None,
         coord_embed_tokenizer=False,
     ):
         super().__init__()
@@ -78,7 +77,7 @@ class MeSAEFlatPretrain(nn.Module):
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
                                    dropout=dropout, pool_after_blocks=pool_after_blocks,
                                    n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
-                                   ffn_top_k=ffn_top_k, ffn_expert_hidden=ffn_expert_hidden)
+                                   ffn_top_k=ffn_top_k)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
 

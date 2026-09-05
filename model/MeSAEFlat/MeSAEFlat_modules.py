@@ -110,9 +110,12 @@ class MoEFFN(nn.Module):
     shared Experts aren't down-weighted). Replaces the single dense FFN sub-layer in
     TSABlock. See docs/adr/0008-moe-ffn-for-mesae.md.
 
-    expert_hidden defaults to a fraction of the original dense FFN's hidden_dim so total
-    *active* per-token compute (n_shared + top_k experts firing) stays roughly at parity
-    with the old single dense FFN — standard DeepSeekMoE fine-grained-expert sizing.
+    Each expert's inner width is a fraction of the dense FFN's hidden_dim (dim * mlp_ratio)
+    so total *active* per-token compute (n_shared + top_k experts firing) stays roughly at
+    parity with the old single dense FFN — standard DeepSeekMoE fine-grained-expert sizing.
+    mlp_ratio is the single knob for it: there was an expert_hidden override too, but it
+    silenced mlp_ratio entirely (hidden_dim fed nothing else) while never being set to
+    anything but null, so it was a footgun with no users.
 
     # ponytail: dense routed-expert compute (every routed Expert runs on every token, then
     # masked by the gate — same "compute all, mask by gate" convention FilterRouter/
@@ -120,11 +123,11 @@ class MoEFFN(nn.Module):
     # expert count; switch to grouped/sparse dispatch if expert count or throughput ever
     # makes this the bottleneck.
     """
-    def __init__(self, dim, hidden_dim, n_routed, n_shared, top_k, expert_hidden=None, dropout=0.0):
+    def __init__(self, dim, hidden_dim, n_routed, n_shared, top_k, dropout=0.0):
         super().__init__()
         self.n_routed = n_routed
         self.n_shared = n_shared
-        expert_hidden = expert_hidden or max(8, hidden_dim // (n_shared + top_k))
+        expert_hidden = max(8, hidden_dim // (n_shared + top_k))
 
         self.routed_experts = nn.ModuleList([
             FFN(dim, expert_hidden, dropout=dropout) for _ in range(n_routed)
@@ -177,7 +180,7 @@ class MoEFFN(nn.Module):
 
 class TSABlock(nn.Module):
     def __init__(self, dim, num_heads=8, mlp_ratio=4., dropout=0.0,
-                 n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2, ffn_expert_hidden=None):
+                 n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2):
         super().__init__()
         self.norm_time = nn.LayerNorm(dim)
         # Same nn.MultiheadAttention as spatial_attn below, over the PATCH axis N
@@ -203,7 +206,7 @@ class TSABlock(nn.Module):
         self.norm_ffn = nn.LayerNorm(dim)
         self.ffn = MoEFFN(dim, hidden_dim=int(dim * mlp_ratio), n_routed=n_routed_ffn_experts,
                            n_shared=n_shared_ffn_experts, top_k=ffn_top_k,
-                           expert_hidden=ffn_expert_hidden, dropout=dropout)
+                           dropout=dropout)
 
         # norm_time/norm_space/norm_ffn are pre-norm (normalize the input to each
         # sub-layer) — nothing caps the residual stream x itself after three unbounded
@@ -299,12 +302,12 @@ class TSABlock(nn.Module):
 class TSAEncoder(nn.Module):
     def __init__(self, dim, depth=12, num_heads=8, mlp_ratio=4., dropout=0.0,
                  pool_after_blocks=(),
-                 n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2, ffn_expert_hidden=None):
+                 n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2):
         super().__init__()
         self.blocks = nn.ModuleList([
             TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout,
                      n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
-                     ffn_top_k=ffn_top_k, ffn_expert_hidden=ffn_expert_hidden)
+                     ffn_top_k=ffn_top_k)
             for _ in range(depth)
         ])
         # UNet-style temporal down/up: triangular-kernel-filtered pool N in half after each

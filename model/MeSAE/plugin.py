@@ -66,7 +66,6 @@ def build_model(bp, num_channels):
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
-        ffn_expert_hidden=moe_ffn.get('expert_hidden'),
     )
 
 
