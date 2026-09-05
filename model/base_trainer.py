@@ -50,10 +50,10 @@ def nonfinite_step_report(l_total, model, out=None):
     naming WHERE the non-finiteness lives, for the caller to log before skipping the
     step.
 
-    Exists because a single NaN loss used to be terminal: v13's tokenizer run went NaN
-    at epoch 8 and every later epoch reported nan for every metric (topk on NaN scores
-    returns the leading indices, so router entropy also read a fake ~0 collapse). The
-    caller must skip backward/step on a non-finite loss — AMP's GradScaler skips a step
+    A single NaN loss is otherwise terminal for every later epoch's diagnostics too:
+    topk on NaN scores returns the leading indices regardless, so router entropy would
+    keep reading a fake ~0 collapse instead of NaN. The caller must skip backward/step
+    on a non-finite loss — AMP's GradScaler skips a step
     whose GRADIENTS are non-finite, but nothing stops a poisoned forward from being
     backwarded through, and nothing un-poisons parameters once they are NaN.
 

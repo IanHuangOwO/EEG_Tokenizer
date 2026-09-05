@@ -52,7 +52,7 @@ class SnapshotBundle:
 
 
 class BaseEpochChecker:
-    """unit_label: 'Expert' | 'Filter' | ... — used in panel titles/axis labels.
+    """unit_label: 'Expert' | 'Stamp' | ... — used in panel titles/axis labels.
     has_attn_topo: False for models with no cross-channel attention to show (e.g.
     MeSAE's flat per-(channel,patch) StampBank has no pooled View to read attn from,
     see MeSAEChecker) — check_pretrain skips computing/plotting attn_topo entirely
@@ -328,7 +328,7 @@ class BaseEpochChecker:
         forward output with a channel dim in attn_h/attn_c) — renders the old Channel x
         Unit attn-topo panel. Both current models (MeFSQChecker, MeSAEChecker) override
         this: their heads no longer have a channel dim (already collapsed by the backbone's
-        own per-Expert/per-Filter channel-attention pool), so they plot Patch x Unit
+        own per-Expert/per-Stamp channel-attention pool), so they plot Patch x Unit
         attention instead. Kept as the base-class default for any future model whose head
         still does its own channel pooling."""
         pad_mask = self._build_pad_mask_time(valid_length, P, patch_len).to(x_in.device)

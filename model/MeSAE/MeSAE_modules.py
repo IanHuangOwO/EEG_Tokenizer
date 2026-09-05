@@ -112,10 +112,8 @@ class MoEFFN(nn.Module):
 
     Each expert's inner width is a fraction of the dense FFN's hidden_dim (dim * mlp_ratio)
     so total *active* per-token compute (n_shared + top_k experts firing) stays roughly at
-    parity with the old single dense FFN — standard DeepSeekMoE fine-grained-expert sizing.
-    mlp_ratio is the single knob for it: there was an expert_hidden override too, but it
-    silenced mlp_ratio entirely (hidden_dim fed nothing else) while never being set to
-    anything but null, so it was a footgun with no users.
+    parity with a single dense FFN of that hidden_dim — standard DeepSeekMoE
+    fine-grained-expert sizing. mlp_ratio is the single knob controlling expert width.
 
     # ponytail: dense routed-expert compute (every routed Expert runs on every token, then
     # masked by the gate — same "compute all, mask by gate" convention FilterRouter/
@@ -185,14 +183,10 @@ class TSABlock(nn.Module):
         self.norm_time = nn.LayerNorm(dim)
         # Same nn.MultiheadAttention as spatial_attn below, over the PATCH axis N
         # instead of the channel axis C — so temporal mixing goes through PyTorch's
-        # fused SDPA/flash kernels too. Replaces ConvolutionalAdditiveAttention, whose
-        # `proj(q * global_context * v)` was an unnormalized TRIPLE product: its
-        # magnitude was the product of three magnitudes, it overflowed fp16 once block
-        # 1 grew loud, and it took out a tokenizer run (see git 3679aab). Softmax
-        # attention is a convex combination of v, so its output is bounded by v's own
-        # range — the failure mode is gone by construction, not by a wider float.
-        # Position comes from SpatialTemporalEmbeddings' sinusoidal time embedding,
-        # which MHA needs and the conv provided implicitly.
+        # fused SDPA/flash kernels too. Softmax attention is a convex combination of v,
+        # so its output is bounded by v's own range regardless of block depth or scale
+        # drift. Position comes from SpatialTemporalEmbeddings' sinusoidal time
+        # embedding, which MHA needs.
         self.temporal_attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
         self.drop_t = nn.Dropout(dropout)
 
@@ -259,9 +253,8 @@ class TSABlock(nn.Module):
         bounds what happens between them — and scale_t/scale_s/scale_ffn (init 1e-4)
         multiply the branch output on its way to the residual add, so an enormous
         interior arrives at the stream as a whisper. block_norm measures the post-scale
-        contribution, i.e. the wrong side of that multiplication: it stayed tame right up
-        to the NaN while ConvolutionalAdditiveAttention's interior triple product was
-        crossing fp16's 65504 ceiling (see git 3679aab / e022843).
+        contribution, i.e. the wrong side of that multiplication: it can stay tame right
+        up to the moment a branch's interior crosses fp16's 65504 ceiling.
 
         Deliberately NOT gated on `not self.training`, unlike last_block_norms: the
         overflow happened in TRAIN mode (eval on the same weights was finite), so an
@@ -314,9 +307,8 @@ class TSAEncoder(nn.Module):
         # listed block, then (once, after the last block) nearest-repeat upsample + gated
         # skip-add back through the same points in reverse, restoring the original N.
         # Parameter-free pooling (fixed [1,2,1]/4 kernel + repeat), so downstream
-        # (SAE/decoder/loss) never sees a shape change. The gated residual add on the way
-        # back up is always on now (was an optional `upsample_residual_add` flag; validated
-        # on, simplified to permanent).
+        # (SAE/decoder/loss) never sees a shape change. The gated residual add on the
+        # way back up always runs.
         self.pool_after_blocks = set(pool_after_blocks)
         # per-skip learned gate on the residual add, sigmoid init ~0.95 (near plain add);
         # ordered ascending by block index to match `skips` build order in forward()
@@ -426,56 +418,36 @@ class StampBank(nn.Module):
     [C] vector of per-channel amps for a selected stamp IS that source's mixing
     column (its topomap at that patch time), dense across channels by construction.
 
-    The prior design selected top-k independently PER (channel, patch) token — which
-    router-thresholded the topomap: a channel where the source arrived weakly lost the
-    top-k race to whatever was louder there, its mixing coefficient became a hard 0,
-    and the residue got absorbed by different stamps per channel, smearing one
-    physical source across several channel-dependent stamps. Group selection is what
-    binds one source to ONE stamp across the whole scalp.
+    Group selection binds one source to ONE stamp across the whole scalp.
 
-    n_stamps splits into n_routed (compete via score + top-k, `docs/adr/0007`'s
-    routed/shared split carried over from the Filter level) and n_shared (always
+    n_stamps splits into n_routed (compete via score + top-k) and n_shared (always
     included, fixed constant `shared_weight`).
 
     Selection is TopK-SAE style, aggregated over channels: per-atom group score =
     mean over VALID channels of amp_i(z_c)^2 (matched-filter energy summed over the
     scalp — an atom strong on a few channels or moderate on many both rank fairly),
-    one top-k per group. The coefficient IS the score — the earlier per-token |amp|
-    selection already established why (the retired w_score scorer had ZERO gradient
-    from recon, ranking frozen at init, dead_feature_rate locked ~0.7, aux rescue
-    training decoders the ranking would never pick); group aggregation keeps that
-    property since amp is trained by recon MSE at every channel. h (both h_routed and
-    h_shared) is the post-rms amp magnitude sqrt(a^2+b^2) averaged over channels —
-    diagnostics/viz-ranking only, never touches recon. (An earlier version stored a
-    softmax-of-topk-scores here instead; removed — its value never fed recon, loss,
-    or dead-atom detection (fire_ema only ever checked >0), and a shared stamp's
-    always-on selection meant h_shared was a flat constant regardless of how much a
-    shared stamp actually contributed, actively misleading any importance ranking
-    built from it.)
+    one top-k per group. The coefficient IS the score: amp is trained by recon MSE at
+    every channel, so ranking directly off it gives every atom a real, continuously
+    updated selection signal. h (both h_routed and h_shared) is the post-rms amp
+    magnitude sqrt(a^2+b^2) averaged over channels — diagnostics/viz-ranking only,
+    never touches recon.
 
-    No load-balance loss, for a reason that got STRONGER after |amp| self-selection:
-    the routing score IS the reconstruction coefficient now, so pushing the load
-    distribution toward uniform is pushing reconstruction amplitudes toward uniform —
-    unlike MoEFFN, whose gate is a free parameter with no other job, where uniformity
-    costs only routing preference. A plain LB term here would be another auxiliary
-    loss whose optimum ("every atom contributes equal energy on every patch") recon
-    cannot veto, the exact failure pattern catalogued in the note above
-    _spatial_weights. It would also fight legitimate power-law usage: measured load
-    entropy on healthy runs is 0.73-0.81 of its maximum (v4/v5/v6, alive 0.54-0.97) —
+    No load-balance loss: the routing score IS the reconstruction coefficient, so
+    pushing the load distribution toward uniform is pushing reconstruction amplitudes
+    toward uniform — unlike MoEFFN, whose gate is a free parameter with no other job,
+    where uniformity costs only routing preference. A plain LB term here would be
+    another auxiliary loss whose optimum ("every atom contributes equal energy on
+    every patch") recon cannot veto. It would also fight legitimate power-law usage: measured
+    load entropy on healthy runs is 0.73-0.81 of its maximum (alive 0.54-0.97) —
     deliberately non-uniform, as a content-addressed dictionary should be, since real
-    source prevalence is unequal (alpha everywhere, a rare artifact rarely).
-    (An earlier version of this note also argued "sparse dispatch, no compute-balance
-    problem" — that leg is now obsolete: _amp_dense computes every routed atom densely
-    for group scoring. The statistical argument above is the load-bearing one.)
-    Collapse is instead guarded by fire_ema/dead_threshold/aux_loss below, which are
-    curative and content-AWARE (a revived atom is aimed at the residual, i.e. at
-    content nothing else covers) where LB would be preventive and content-blind. If
-    prevention is ever genuinely needed — group selection makes each atom's selection
-    opportunities C times scarcer than the retired per-(channel,patch) routing did, so
-    death is structurally likelier now — the safe shape is a HINGED entropy FLOOR
-    (relu(0.70 - H/log(n_routed)), inactive across the healthy band, fires only on a
-    real collapse like v8's 0.53), not a push toward uniform. That fraction is logged
-    as stamp_router_entropy_frac.
+    source prevalence is unequal (alpha everywhere, a rare artifact rarely). Collapse
+    is instead guarded by fire_ema/dead_threshold/aux_loss below, which are curative
+    and content-AWARE (a revived atom is aimed at the residual, i.e. at content
+    nothing else covers) where LB would be preventive and content-blind. If prevention
+    is ever genuinely needed, the safe shape is a HINGED entropy FLOOR (relu(0.70 -
+    H/log(n_routed)), inactive across the healthy band, fires only on a real
+    collapse), not a push toward uniform. That fraction is logged as
+    stamp_router_entropy_frac.
 
     phi_i(z_c) = rms_c * (a_i(z_c) * D_hat_i + b_i(z_c) * Hilbert(D_hat_i)): a fixed
     per-atom waveform TEMPLATE D_i (nn.Parameter [patch_len], no z dependence, used
@@ -536,11 +508,8 @@ class StampBank(nn.Module):
         self.shared_hidden_width = shared_hidden_width
 
         # No selection scorer params — selection is |amp_i(z)| directly (see class
-        # docstring and forward()): the retired w_score/b_score never received gradient
-        # from recon (h_routed only ever fed z_h), so ranking stayed at random init all
-        # run; |amp| is trained by recon MSE and completes the earlier "self-relevance"
-        # direction (scoring off the atom's own bottleneck) to its logical end — the
-        # score IS what the atom would contribute.
+        # docstring and forward()): amp is trained by recon MSE, so scoring off the
+        # atom's own bottleneck output IS what the atom would contribute.
 
         # phi: bottleneck generator, per-atom W_down/b_down (down-project + GELU) decoding
         # through a per-ATOM W_out/b_out straight to [patch_len] — every atom gets its own
@@ -650,76 +619,21 @@ class StampBank(nn.Module):
         return (amp[..., 0].unsqueeze(-1) * D_all[idx].unsqueeze(1)
                 + amp[..., 1].unsqueeze(-1) * H_all[idx].unsqueeze(1))
 
-    # decorrelation_loss and independence_loss are GONE, deliberately, not lost:
-    # - decorrelation_loss (W_down direction repulsion) was life support for the
-    #   retired untrainable w_score router (random directions overlapping, one atom
-    #   winning everywhere). With |amp| group selection trained by recon, redundant
-    #   atoms die naturally: interchangeable -> sparsity_loss shrinks one's amp at
-    #   zero recon cost -> group score fades -> dead -> aux rescue re-aims it at the
-    #   RESIDUAL (content nobody covers). The rescue is the decorrelation engine now.
-    # - independence_loss (co-selected template Gram entropy) was blind to the real
-    #   observed collapse (same-Hz-bin phase-tiled atoms are orthogonal in time
-    #   domain -> full entropy, zero penalty), and the collapse it aimed at is an
-    #   OBJECTIVE problem, not a redundancy one: under time-domain MSE on 1/f EEG,
-    #   packing every atom into the loudest band is genuinely optimal. Fixed at the
-    #   objective instead — spectrally whitened recon loss (MeSAE._recon_loss),
-    #   ICA's own mandatory whitening step — so frequency diversity pays for itself.
-
-    # FIVE auxiliary dictionary-shaping losses were tried and RETIRED, each with
-    # measured evidence — recorded so they don't get reinvented. NONE remain; the
-    # mechanisms that actually work here are structural, not penalty-based (top_k is
-    # the sparsity budget, the whitened recon objective the diversity mechanism, the
-    # aux rescue the anti-collapse mechanism):
-    #  - decorr (W_down direction repulsion): life support for the retired untrainable
-    #    w_score router. With |amp| group selection trained by recon, redundant atoms
-    #    die on their own (interchangeable -> dead -> aux rescue re-aims them at the
-    #    residual), a stronger mechanism than geometric repulsion.
-    #  - indep (co-selected template Gram entropy): structurally blind to the collapse
-    #    it targeted (same-Hz-bin phase-tiled atoms are orthogonal in time domain), and
-    #    that collapse was an OBJECTIVE problem anyway — under time-domain MSE on 1/f
-    #    EEG, packing every atom into the loudest band is optimal. Fixed properly by
-    #    the spectrally whitened recon loss (MeSAE._recon_loss).
-    #  - L1 sparsity (raw, then signal-normalized): amp is a SMOOTH linear function of
-    #    the bottleneck trained by plain SGD, with no proximal/soft-threshold step, so
-    #    the subgradient never zeroed anything. v6: optimal global rescale alpha=1.27
-    #    (recon 27% too small — LASSO shrinkage) with k_eff stuck ~23 of 30. Shrinkage
-    #    without selection.
-    #  - Hoyer sparsity: fixed the shrinkage (scale-invariant) but scale invariance
-    #    also removed the reconstruction floor that had bounded L1, leaving a reachable
-    #    degenerate optimum ("one atom carries everything"). v7 went there monotonically
-    #    from epoch 1: k_eff 26.3 -> 5.2 -> 2.3 -> 1.7, router_entropy 0.00, dead 0.99.
-    #  - spatial smoothness (graph Rayleigh quotient on the mixing columns), in two
-    #    forms. UNBOUNDED (v8, weight 0.05): a uniform field scores R=0, a reachable
-    #    degenerate optimum, and it went there — R driven to 0.018 vs ~0.5 untouched,
-    #    per-channel contrast crushed 1.0 -> 0.11 (uniformly bright topomaps), pool
-    #    collapsed (alive 16/84, template spectral entropy 0.35 -> 0.47) because
-    #    spatial pattern is a main axis along which stamps differ. HINGED at 0.30
-    #    (relu(R - target), which does fix the degenerate optimum): still measured
-    #    unnecessary and mildly harmful — v10 with the weight at 0 settles at R ~0.40
-    #    unaided, already AT the physical reference (raw EEG spatial R: EEGMMIdb 0.254,
-    #    BETA_4s 0.396), and gave the best reconstruction of any run (val whitened
-    #    0.0712 vs 0.083/0.086/0.096 for v8/v4/v6). With nothing to correct, a 0.30
-    #    hinge only pushes ~25% below physics — the target was mis-set toward the
-    #    SMOOTH end of the 0.25-0.40 band twice over.
-    # The common pattern: every failure had a degenerate optimum the recon term could
-    # not veto, and each collapsed a different axis — Hoyer the PER-TOKEN code (k_eff
-    # 26 -> 1.7), unbounded smoothness the POOL (alive 0.19 vs 0.54-0.97). If any of
-    # this is ever genuinely needed, the one safe shape is HINGED (act only past a
-    # target measured against physical data, zero pressure inside it) — and check first
-    # that the quantity is actually out of range, which for smoothness it never was.
-    # k_eff and stamp_router_entropy_frac stay logged so drift is visible.
+    # No auxiliary dictionary-shaping loss remains. Redundant/degenerate atoms are
+    # handled structurally: interchangeable atoms die naturally (sparsity_loss shrinks
+    # one's amp at zero recon cost -> group score fades -> dead -> aux rescue re-aims
+    # it at the residual — content nobody else covers), and frequency diversity comes
+    # from the spectrally whitened recon objective (MeSAE._recon_loss) rather than an
+    # explicit penalty. k_eff and stamp_router_entropy_frac stay logged so drift is
+    # visible if that ever stops holding.
 
     @torch.no_grad()
     def fingerprint(self):
         """Every stamp's raw waveform template D_i, concatenated routed-then-shared.
-        Unlike the old generator-based design (phi_i(z) = hidden_i @ W_out_i + b_out_i,
-        an actual function of some probe z), D_i now has NO z dependence at all — it IS
-        the shape, unconditionally, no fabricated probe needed and no "which probe do
-        we use" question to answer (the old zero-probe default reduced the bottleneck
-        to its bias terms only, understating diversity early in training — see git
-        history for dense_probe's original docstring on that problem). amp_i(z) never
-        touches shape, only overall scale/sign — see class docstring — so D_i alone is
-        the complete, correct answer to "what does this atom look like". Returned
+        D_i has NO z dependence at all — it IS the shape, unconditionally, so there's no
+        probe or input needed to read it. amp_i(z) never touches shape, only overall
+        scale/sign — see class docstring — so D_i alone is the complete, correct
+        answer to "what does this atom look like". Returned
         unit-normalized, matching what the decode path actually uses (see the D_routed
         init comment — the raw parameter's norm is dead weight, never consumed). Dense
         over all n_stamps. Returns [n_stamps, patch_len]."""
@@ -769,11 +683,8 @@ class StampBank(nn.Module):
         diagnostics/viz-ranking only, still never touches recon),
         dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
         MeSAETrainer/MeSAECodebookChecker read for router-health/usage
-        panels, now at patch-position granularity), aux_loss, k_eff (diagnostic
-        only — no auxiliary dictionary-shaping loss remains, see the note above
-        fingerprint()).
-        z_h is gone too: it was dead weight (nothing read it in either training
-        stage, MeSAEFinetune is NotImplemented on this branch).
+        panels, at patch-position granularity), aux_loss, k_eff (diagnostic only — no
+        auxiliary dictionary-shaping loss remains).
 
         No load-balance loss — see class docstring. Dead-atom collapse is handled by
         fire_ema/dead_threshold/aux_loss below ("fired" now means "selected for a
@@ -899,24 +810,17 @@ class PerChannelHeadAttn(nn.Module):
     works unchanged whether H indexes MeFSQ Experts or MeSAE stamps.
 
     The channel dim is collapsed by the backbone itself (each Filter's own
-    channel-attention View, see MeSAEPretrain.encode_post_sae_expert) before this head ever
-    sees the signal, so there's no channel stage here to re-pool.
+    channel-attention View, see MeSAEPretrain.encode_post_sae_expert) before this head
+    ever sees the signal, so there's no channel stage here to re-pool (see
+    docs/agents/ / CONTEXT.md finetune val-chance bug for the overparameterization a
+    channel-concat classifier caused).
 
     Stage 1 (temporal): a plain linear scorer over N patches, softmax-normalized.
     Stage 2 (unit): a plain linear scorer over the H units, softmax-normalized, pooling to
-    a single [B, d] vector fed into cls.
-
-    Both stages used to be a learnable-query dot-product ("key" Linear(d,hidden) dotted
-    with a fixed learned "query" vector). That's algebraically just a single linear scalar
-    function of z — composing two linear maps with no nonlinearity between them adds no
-    expressiveness over one Linear(d,1), since the query is a fixed parameter, not
-    content-derived. Collapsed to Linear(d,1): same capacity, fewer params.
-
-    (Earlier version had a 3rd stage pooling over channels, fed a per-channel-decoded
-    signal from encode_post_sae — retired for the same reason as the channel-concat
-    classifier it replaced: redundant given the backbone already collapses channels into
-    the Filter View before the SAE. See docs/agents/ / CONTEXT.md finetune val-chance bug
-    for the original overparameterization this design avoids.)
+    a single [B, d] vector fed into cls. Linear(d,1) at each stage: with a fixed
+    (non-content-derived) query, a learnable-query dot-product scorer is just a
+    composition of two linear maps with no nonlinearity between them, so it adds no
+    expressiveness over a single Linear(d,1) — same capacity, fewer params.
     """
     def __init__(self, head_dim, num_classes, dropout=0.1):
         super().__init__()

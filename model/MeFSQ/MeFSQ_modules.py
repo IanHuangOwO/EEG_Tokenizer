@@ -238,11 +238,10 @@ class MultiHeadDecoder(nn.Module):
 
 class ExpertChannelPool(nn.Module):
     """
-    Per-Expert content-based channel-attention pooling — replaces the concatenated Token
-    (see CONTEXT.md: Token, retired / Expert View). Each Expert gets its own learnable
-    query attending over the C per-channel embeddings (keys), so different Experts can
-    weight channels differently for the same patch, instead of every Expert reading an
-    identical C*D concatenation.
+    Per-Expert content-based channel-attention pooling (see CONTEXT.md: Expert View).
+    Each Expert gets its own learnable query attending over the C per-channel embeddings
+    (keys), so different Experts can weight channels differently for the same patch,
+    instead of every Expert reading an identical C*D concatenation.
 
     Content-based (keys are the actual per-channel vectors, not a fixed per-channel-index
     weight) so channel count/order can vary across datasets without corrupting the pooled
@@ -404,20 +403,11 @@ class PerChannelHeadAttn(nn.Module):
     instead of being averaged away.
 
     Stage 2 (head): a plain linear scorer over the H Experts, softmax-normalized, pooling
-    to a single [B, d] vector fed into cls.
-
-    Both stages used to be a learnable-query dot-product ("key" Linear(d,hidden) dotted
-    with a fixed learned "query" vector). That's algebraically just a single linear scalar
-    function of z — composing two linear maps with no nonlinearity between them adds no
-    expressiveness over one Linear(d,1), since the query is a fixed parameter, not
-    content-derived (real cross-attention would need the query itself computed from
-    content for the extra layer to matter). Collapsed to Linear(d,1) here: same capacity,
-    fewer params, one matmul instead of two.
-
-    (Earlier version had a 3rd stage pooling over channels, fed a per-channel-decoded
-    signal from encode_post_vq. That's retired: the per-channel decode/re-pool was
-    redundant given the backbone already collapses channels into the Expert View before
-    VQ — see encode_post_vq_expert.)
+    to a single [B, d] vector fed into cls. Linear(d,1) at each stage: with a fixed
+    (non-content-derived) query, a learnable-query dot-product scorer is just a
+    composition of two linear maps with no nonlinearity between them, so it adds no
+    expressiveness over a single Linear(d,1) — same capacity, fewer params, one matmul
+    instead of two.
     """
     def __init__(self, head_dim, num_classes, dropout=0.1):
         super().__init__()

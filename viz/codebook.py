@@ -414,11 +414,10 @@ def _pairwise_stats(vecs, max_n, rng):
     every unique pair. Shared by all grouping levels in plot_patch_similarity_hierarchy/
     plot_stamp_similarity -- only what rows get handed in differs.
 
-    Weighted, not the plain binary (>0 mask) Jaccard this used to be: a stamp picked once
-    with weak strength and one picked repeatedly/strongly no longer count as equally
-    "present" just because both are nonzero -- Ruzicka reduces to classic binary Jaccard
-    exactly when vecs is itself binary, so this is a strict generalization, not a
-    different metric."""
+    Weighted (Ruzicka), not plain binary (>0 mask) Jaccard: a stamp picked once with weak
+    strength and one picked repeatedly/strongly don't count as equally "present" just
+    because both are nonzero -- Ruzicka reduces to classic binary Jaccard exactly when
+    vecs is itself binary, so this is a strict generalization, not a different metric."""
     n = vecs.shape[0]
     if n > max_n:
         vecs = vecs[rng.choice(n, max_n, replace=False)]

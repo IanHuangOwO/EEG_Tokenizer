@@ -14,14 +14,14 @@ model objects:
   the real channel montage is sufficient and keeps all of ICLabel's own
   normalization).
 
-An earlier version stitched each activation to trial length with ZEROS at the patches
-a stamp skipped. That produced NaN features for most stamps: _eeg_rpsd takes a median
-over windows and ANY all-zero window poisons it — measured NaN at 25% and 12.5%
-nonzero, not only at 0%. The caller now concatenates only the fired patches and tiles
-that content up to a common length (viz.extract.extract_flat_stamp_gallery), so every
-window holds real signal and every stamp gets classified no matter how rarely it
-fires. Tiling rather than zero-padding also keeps the fixed 100-bin rpsd feature
-well-defined, which a sub-second activation does not satisfy on its own.
+Each activation concatenates ONLY the patches where a stamp actually fired, then tiles
+that content up to a common length (viz.extract.extract_flat_stamp_gallery) — never
+zero-stitched across the patches it skipped. Zero-padding breaks _eeg_rpsd's per-window
+median (an all-zero window poisons it — NaN even at 12.5%/25% nonzero, not just 0%), so
+concatenating only real content keeps every window carrying signal and lets every stamp
+get classified no matter how rarely it fires. Tiling rather than zero-padding also keeps
+the fixed 100-bin rpsd feature well-defined, which a sub-second activation does not
+satisfy on its own.
 
 CAVEAT: ICLabel was trained on ICA components of continuous (>= seconds), 1-100 Hz,
 CAR-referenced EEG. A stamp is a 0.5 s dictionary template with a sparse stitched

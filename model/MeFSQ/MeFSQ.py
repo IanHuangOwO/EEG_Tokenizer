@@ -69,9 +69,9 @@ class MeFSQPretrain(nn.Module):
 
         # Each Expert (routed + shared) pools the patch's C per-channel D-vectors through
         # its own content-based channel-attention query into one D-wide Expert View,
-        # instead of every Expert reading an identical C*D concatenation (retired Token,
-        # see CONTEXT.md / docs/adr/0002-per-expert-channel-attention.md). The Router
-        # below scores each routed expert against that expert's own View.
+        # instead of every Expert reading an identical C*D concatenation (see CONTEXT.md
+        # / docs/adr/0002-per-expert-channel-attention.md). The Router below scores each
+        # routed expert against that expert's own View.
         self.pool_routed = ExpertChannelPool(embed_dim, n_routed_experts, hidden=pool_hidden)
         self.pool_shared = ExpertChannelPool(embed_dim, n_shared_experts, hidden=pool_hidden)
         self.router = Router(embed_dim, n_routed_experts, top_k)
@@ -477,13 +477,12 @@ class MeFSQFinetune(nn.Module):
     is already collapsed by the backbone's own per-Expert channel-attention pool
     (pool_routed/pool_shared), so the head only needs to pool over patches and Experts, not
     channels — pooling channels again here would just redo work the backbone already did.
-    encode_pre_vq (broadcast, pre-quantization) was tried first but carries no per-Expert
-    signal at all — every Expert sees the identical vector, so the classifier's per-Expert
-    attention pooling had nothing to differentiate and collapsed to uniform (see finetune
-    head-attention heatmap: flat color across heads). Post-VQ trades that for real
-    per-Expert signal; if this regresses val accuracy, that's the same "VQ destroys fine
-    detail" tradeoff previously documented — worth re-checking against actual numbers here
-    rather than assuming.
+    encode_pre_vq (broadcast, pre-quantization) carries no per-Expert signal at all —
+    every Expert sees the identical vector, so the classifier's per-Expert attention
+    pooling would have nothing to differentiate and would collapse to uniform (visible
+    on the finetune head-attention heatmap as flat color across heads). Post-VQ carries
+    real per-Expert signal instead; if this regresses val accuracy, check whether VQ is
+    destroying fine detail the classifier needs rather than assuming it.
     """
     def __init__(self, backbone: MeFSQPretrain, num_channels, num_classes, hidden=128, freeze_backbone=False,
                  dropout=0.1):

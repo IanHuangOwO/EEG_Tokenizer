@@ -103,10 +103,10 @@ class MeFSQChecker(BaseEpochChecker):
         """MeFSQFinetune's head has no channel dim (already collapsed into each Expert's
         View by the backbone's own channel-attention pool) — so the topomaps read that
         real channel attention straight from the backbone (encode_post_vq_expert's
-        return_chan_attn) as-is; scaling it by each Expert's filter-attention score
-        (attn_h) was tried to make Experts "visually comparable" but with many
-        low-importance Experts sharing one color scale, it just crushes most topomaps
-        toward the scale's dark end instead. Topo values are averaged uniformly over
+        return_chan_attn) as-is, not scaled by each Expert's own routing-attention score:
+        with many low-importance Experts sharing one color scale, that scaling crushes
+        most topomaps toward the scale's dark end instead of making them "visually
+        comparable". Topo values are averaged uniformly over
         patches — NOT weighted by the head's temporal attention (attn_n) — since a
         topomap has no time axis to justify a time-weighted average. The big heatmap
         instead shows attn_n (Patch x Filter), replacing the base class's Channel x Unit

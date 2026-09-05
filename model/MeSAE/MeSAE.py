@@ -27,12 +27,12 @@ class MeSAEPretrain(nn.Module):
     length-invariant (each patch keeps its own embedding, for temporal localization of
     events within a trial).
 
-    Pipeline: encoder -> StampBank (dictionary of rank-1 spatiotemporal atoms — static
-    per-stamp channel topography x a small per-stamp generator MLP conditioned on that
-    stamp's own selection strength) -> reconstruction, summed directly in patch space (no
-    separate decoder stage). See docs/adr/0009-spatiotemporal-stamp-dictionary-for-mesae.md
-    for the full derivation and docs/adr/0007-routed-filter-gating-for-mesae.md for the
-    routed/shared split StampBank carries over from the retired per-Filter design.
+    Pipeline: encoder -> StampBank (dictionary of fixed per-atom waveform templates, each
+    presented at a per-channel, per-atom amplitude/phase read off that atom's own
+    bottleneck) -> reconstruction, summed directly in patch space (no separate decoder
+    stage). See docs/adr/0009-spatiotemporal-stamp-dictionary-for-mesae.md for the full
+    derivation and docs/adr/0007-routed-filter-gating-for-mesae.md for the routed/shared
+    split.
 
     Trains in two sequential stages (see docs/adr/0003-mesae-two-stage-masked-training.md
     and CONTEXT.md: Tokenizer stage / Masked stage):
@@ -90,8 +90,7 @@ class MeSAEPretrain(nn.Module):
             aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
         )
         # convenience aliases — viz/checker code reads these off the model directly
-        # (e.g. base_checker.py compute_unit_colors), same convention the retired
-        # n_filters/n_routed_filters/n_shared_filters attrs used.
+        # (e.g. base_checker.py compute_unit_colors).
         self.n_stamps = self.stamps.n_stamps
         self.n_routed_stamps = self.stamps.n_routed
         self.n_shared_stamps = self.stamps.n_shared
@@ -139,8 +138,7 @@ class MeSAEPretrain(nn.Module):
         literally cannot represent "alpha at Oz" differently from "alpha at Fz", so a
         mixing column can only vary where the raw content varies. Feeding position lets
         amp_i(z_c) become position-aware, i.e. lets dipole-like topography be LEARNED
-        rather than imposed by a penalty (which is what the retired smoothness loss
-        tried to do from the outside, see the note above StampBank.fingerprint)."""
+        from content rather than imposed by an external penalty."""
         self.embed.enable_spatial()
 
     def enable_spatial(self):
@@ -180,11 +178,11 @@ class MeSAEPretrain(nn.Module):
         collapse (a couple of stamps absorbing everything, see docs/adr/0007).
 
         stamp_gate_entropy: entropy of the WITHIN-patch selection strengths (not across
-        patches). Unlike the retired FilterRouter's softmax gate, `h_routed_dense` is raw
-        and unbounded — not a probability distribution — so it's renormalized per-row
-        (`/ sum`) here purely for this diagnostic, never touching the actual reconstruction
-        path. 0 = one selected stamp dominates that patch's strength (confident/peaked
-        selection), log(top_k) = the k selected stamps split strength near-uniformly.
+        patches). `h_routed_dense` is raw and unbounded — not a probability distribution
+        — so it's renormalized per-row (`/ sum`) here purely for this diagnostic, never
+        touching the actual reconstruction path. 0 = one selected stamp dominates that
+        patch's strength (confident/peaked selection), log(top_k) = the k selected
+        stamps split strength near-uniformly.
 
         stamp_router_load_std: std of the load distribution across routed stamps —
         companion to stamp_router_entropy in raw (non-normalized) units; rising = load
@@ -233,9 +231,9 @@ class MeSAEPretrain(nn.Module):
     # FlatStampBank plan (docs/agents/ or the plan file this branch was built from).
 
     def encode_post_stamp_expert(self, x, coords, time_idx=None, valid_channels=None, return_chan_attn=False):
-        """BROKEN on this branch — see the module-level note above `_pool_channels`'s old
-        location. Kept only so MeSAEFinetune still has something to call; do not use until
-        Finetune's channel handling is redesigned for flat (channel,patch) tokens."""
+        """BROKEN on this branch — see the module-level note above. Kept only so
+        MeSAEFinetune still has something to call; do not use until Finetune's channel
+        handling is redesigned for flat (channel,patch) tokens."""
         raise NotImplementedError(
             "encode_post_stamp_expert is not supported by the flat-token StampBank — "
             "Finetune's channel-collapsing head needs a redesign first (see plan)."
@@ -368,8 +366,7 @@ class MeSAEPretrain(nn.Module):
         Whitening is ICA's own mandatory first step for the same reason. With per-bin
         error weighted by inverse dataset power, covering distinct bands pays in loss,
         and stamp frequency diversity becomes emergent (together with the aux rescue
-        re-aiming dead atoms at the residual) instead of enforced by the repulsion terms this replaced
-        (decorr_loss/indep_loss — see the note above StampBank._spatial_weights).
+        re-aiming dead atoms at the residual) instead of needing an explicit penalty.
 
         Weights come from ema_bin_psd (see __init__): EMA of the valid tokens' mean
         target PSD, updated each training batch, floored at 1% of its own mean so
@@ -469,13 +466,10 @@ class MeSAEPretrain(nn.Module):
         frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
         freeze_stamps().
 
-No auxiliary dictionary-shaping term remains. Five were tried and retired
-        with measured evidence — decorr, indep, L1 sparsity, Hoyer sparsity and
-        spatial smoothness (both unbounded and hinged) — see the note above
-        StampBank.fingerprint. What actually works here is structural: top_k is the
-        sparsity budget, the whitened recon objective the diversity mechanism, and
-        aux_loss the anti-collapse mechanism. StampBank has no load-balance loss of its
-        own — dropped deliberately, see StampBank.forward docstring.
+        No auxiliary dictionary-shaping term remains — the mechanisms that work here are
+        structural: top_k is the sparsity budget, the whitened recon objective the
+        diversity mechanism, and aux_loss the anti-collapse mechanism. StampBank has no
+        load-balance loss of its own — see StampBank.forward docstring.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes

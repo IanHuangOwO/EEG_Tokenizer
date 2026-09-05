@@ -258,10 +258,10 @@ class MeSAEChecker(BaseEpochChecker):
                               pos2d, channel_names, unit_colors):
         """MeSAEFinetune's head has no channel dim (already collapsed into each stamp's
         View by the backbone's own channel-attention pool) — so the topomaps read that real
-        channel attention straight from the backbone as-is; scaling it by each stamp's
-        stamp-attention score (attn_h) was tried to make stamps "visually comparable" but
-        with many low-importance stamps sharing one color scale, it just crushes most
-        topomaps toward the scale's dark end instead. Topo values are averaged uniformly
+        channel attention straight from the backbone as-is, not scaled by each stamp's
+        own stamp-attention score: with many low-importance stamps sharing one color
+        scale, that scaling crushes most topomaps toward the scale's dark end instead of
+        making them "visually comparable". Topo values are averaged uniformly
         over patches — NOT weighted by the head's temporal attention (attn_n) — since a
         topomap has no time axis to justify a time-weighted average. The big heatmap
         instead shows attn_n (Patch x Stamp), replacing the base class's Channel x Unit
@@ -313,17 +313,14 @@ class MeSAECodebookChecker(BaseCodebookChecker):
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
         """[N, n_stamps] dense usage, one row per PATCH POSITION — routed axis real
         selection strength (zeros at unselected), shared axis each shared stamp's real
-        post-rms amp magnitude (see StampBank.forward's h; no longer a flat constant
-        now that h isn't a softmax — see docs/adr/0009's Monitoring impact section:
-        no per-atom x per-feature F axis exists anymore, so this replaces the retired
-        out.sae_hidden).
+        post-rms amp magnitude (see StampBank.forward's h; see docs/adr/0009's
+        Monitoring impact section).
 
-        StampBank selects per patch position now (group selection, see its class
-        docstring), so out.dense_routed is already [G=N, n_routed] for a B=1 trial —
-        no channel-mean collapse needed anymore (the old per-token version averaged
-        C*N rows down to N here). Shared stamps sit at fixed positions top_k: in out.h
-        (idx's routed-then-shared layout, see StampBank.forward), so no need for the
-        model to expose idx separately here."""
+        StampBank selects per patch position (group selection, see its class
+        docstring), so out.dense_routed is already [G=N, n_routed] for a B=1 trial.
+        Shared stamps sit at fixed positions top_k: in out.h (idx's routed-then-shared
+        layout, see StampBank.forward), so no need for the model to expose idx
+        separately here."""
         B, C, N, L = x_in.shape
         out = model(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
         shared = out.h[:, model.stamps.top_k:]                       # [N, n_shared]
@@ -510,7 +507,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
 class MeSAEPlotter(BasePlotter):
     def plot_pretrain(self, filename='training_dashboard.png'):
-        # Grouped: loss/reconstruction -> SAE health -> routing (Filter/FFN side by side,
+        # Grouped: loss/reconstruction -> SAE health -> routing (Stamp/FFN side by side,
         # directly comparable) -> architecture diagnostics. Order is the only grouping lever
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
         # group may still straddle a row edge.

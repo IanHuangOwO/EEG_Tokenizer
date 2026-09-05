@@ -261,9 +261,9 @@ def extract_filter_psd(model, x: torch.Tensor, coords: torch.Tensor,
     """
     MeSAEPretrain analog of extract_head_psd, adapted for StampBank (see
     docs/adr/0009-spatiotemporal-stamp-dictionary-for-mesae.md's Monitoring impact
-    section). Unlike the retired per-Filter decode, a stamp's rank-1 pattern here is built
-    from its REAL response to this trial's actual patches (StampBank.dense_probe, mean
-    over patches — see `_used_stamps`), not a content-independent fingerprint.
+    section). A stamp's rank-1 pattern here is built from its REAL response to this
+    trial's actual patches (StampBank.dense_probe, mean over patches — see
+    `_used_stamps`), not a content-independent fingerprint.
 
     psd_ch_x — [C, Qu] per-stamp per-channel real-response norm, restricted to stamps used
       this trial (Qu = len(used_ids) <= 100).
