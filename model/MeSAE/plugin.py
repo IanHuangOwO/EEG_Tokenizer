@@ -267,13 +267,12 @@ class MeSAEChecker(BaseEpochChecker):
         instead shows attn_n (Patch x Stamp), replacing the base class's Channel x Unit
         heatmap.
 
-        Uses encode_used_stamps, NOT encode_post_stamp_expert: hard top-k means a
-        per-patch Q axis has no stable identity across patches (patch A's slot 0 and patch
-        B's slot 0 can be different physical stamps), so it can't be fed into a trial-wide
-        panel directly. encode_used_stamps instead returns a single fixed set of <=100
-        global stamp ids actually used somewhere in this trial (see
-        MeSAEPretrain.used_stamp_ids) with each patch's real strength for exactly those
-        ids. The `unit_colors` param (from check_finetune's own, separate `backbone(...)`
+        Uses encode_used_stamps, NOT encode_post_stamp_expert directly: both return a
+        stable per-stamp axis, but encode_post_stamp_expert's is the full n_stamps
+        (dense, no top-k) — rendering every one regardless of relevance would swamp the
+        panels. encode_used_stamps caps that to the <=100 stamps with the largest
+        trial-summed View magnitude (see its docstring). The `unit_colors` param (from
+        check_finetune's own, separate `backbone(...)`
         forward pass) is ignored — colors are recomputed here from THIS call's own
         used_ids so they're guaranteed to match, rather than trusting two independent
         forward passes to agree on ranking/order."""

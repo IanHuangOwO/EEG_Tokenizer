@@ -224,27 +224,55 @@ class MeSAEPretrain(nn.Module):
         return self.encoder(z)  # [B, C, N, D], ffn_lb_loss
 
     # -- Finetune-only entry points, NOT used by the Tokenizer/Pretrain forward() path
-    # below. Left structurally in place but currently broken: StampBank no longer has a
-    # channel-attention pool or `valid_mask`/`attn` to read (see MeSAE_modules.StampBank
-    # class docstring), so these calls will error if actually invoked. Finetune's channel
-    # handling is an explicit follow-up, not fixed on this branch — see the
-    # FlatStampBank plan (docs/agents/ or the plan file this branch was built from).
+    # below.
 
     def encode_post_stamp_expert(self, x, coords, time_idx=None, valid_channels=None, return_chan_attn=False):
-        """BROKEN on this branch — see the module-level note above. Kept only so
-        MeSAEFinetune still has something to call; do not use until Finetune's channel
-        handling is redesigned for flat (channel,patch) tokens."""
-        raise NotImplementedError(
-            "encode_post_stamp_expert is not supported by the flat-token StampBank — "
-            "Finetune's channel-collapsing head needs a redesign first (see plan)."
-        )
+        """Per-stamp channel View for MeSAEFinetune: unlike MeFSQ's Experts (already
+        channel-free via ExpertChannelPool before quantization), a StampBank stamp's
+        response is inherently per-channel — its amp IS a topomap. Collapse channels
+        here the same way, but for free: pool z's C channels for stamp i weighted by
+        that stamp's OWN per-channel amp magnitude (softmax over C), instead of a
+        learned query. Zero new params, and the weight is the physically meaningful
+        quantity already (a stamp's mixing/topomap column) rather than something a
+        classifier head would have to learn from scratch and risk overfitting on (see
+        docs/agents/ / CONTEXT.md finetune val-chance bug).
 
-    def encode_used_stamps(self, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
-        """BROKEN on this branch — see encode_post_stamp_expert's docstring."""
-        raise NotImplementedError(
-            "encode_used_stamps is not supported by the flat-token StampBank — "
-            "Finetune's channel-collapsing head needs a redesign first (see plan)."
-        )
+        Uses dense_amp (every atom, no top-k) rather than the reconstruction path's
+        selected top_k+n_shared: reconstruction sparsity optimizes what's needed to
+        rebuild the signal, not what's discriminative for classification, and a dense
+        axis gives every stamp a stable identity across patches for free (no
+        zero-dilution bookkeeping needed).
+
+        Returns z_per_head [B, N, n_stamps, D] (feed straight into PerChannelHeadAttn),
+        plus chan_attn [B, N, n_stamps, C] (the pooling weights, i.e. each stamp's
+        per-patch topomap) if return_chan_attn=True.
+        """
+        z, _ = self.stage_features(x, coords, time_idx=time_idx)  # [B, C, N, D]
+        B, C, N, D = z.shape
+        G = B * N
+        z_g = z.permute(0, 2, 1, 3).reshape(G, C, D)   # [G, C, D]
+        x_g = x.permute(0, 2, 1, 3).reshape(G, C, -1)  # [G, C, L]
+        rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()  # [G, C, 1]
+
+        amp = self.stamps.dense_amp(z_g, rms=rms)      # [G, C, n_stamps, 2]
+        mag = amp.pow(2).sum(dim=-1).sqrt()            # [G, C, n_stamps]
+
+        if valid_channels is not None:
+            vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(G, C)
+            mag = mag.masked_fill(~vc_g.unsqueeze(-1), float('-inf'))
+
+        chan_attn = torch.softmax(mag, dim=1)          # [G, C, n_stamps] — softmax over C, per stamp
+        chan_attn = torch.nan_to_num(chan_attn)        # guards an all-padded channel set, shouldn't occur in practice
+        z_per_head = torch.einsum('gcn,gcd->gnd', chan_attn, z_g)  # [G, n_stamps, D]
+        z_per_head = z_per_head.view(B, N, self.n_stamps, D)
+
+        if return_chan_attn:
+            # chan_attn is [G, C, n_stamps] — permute to [G, n_stamps, C] before
+            # splitting G, or view() silently swaps C and n_stamps instead of
+            # transposing them (docs/agents/reshape-pitfalls.md).
+            chan_attn = chan_attn.permute(0, 2, 1).reshape(B, N, self.n_stamps, C)
+            return z_per_head, chan_attn
+        return z_per_head
 
     def used_stamp_ids(self, out, max_stamps=100):
         """Global stamp ids actually selected SOMEWHERE across this batch (a batch built
@@ -254,9 +282,12 @@ class MeSAEPretrain(nn.Module):
         that field works). Shared stamps always included first (constant weight, always
         selected every patch, so cheap to guarantee) — remaining budget filled by the
         highest-usage routed stamps, dropping ones that never fired at all this batch. This
-        exists because hard top-k selection means a per-patch Q axis (see
-        encode_post_stamp_expert) has NO stable cross-patch identity — a trial-wide view
-        needs a fixed, shared set of global ids instead.
+        exists because hard top-k selection means `forward()`'s per-patch idx/dense_routed
+        axis has NO stable cross-patch identity (patch A's slot 0 and patch B's slot 0 can
+        be different physical stamps) — a trial-wide view needs a fixed, shared set of
+        global ids instead. (Finetune's encode_used_stamps solves the same display-size
+        problem a different way — see its docstring — since it has no top-k axis to
+        begin with.)
         """
         device = out.dense_routed.device
         shared_ids = torch.arange(self.n_routed_stamps, self.n_stamps, device=device)
@@ -268,11 +299,19 @@ class MeSAEPretrain(nn.Module):
         return torch.cat([shared_ids, routed_ids[:budget]])
 
     def encode_used_stamps(self, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
-        """BROKEN on this branch — see encode_post_stamp_expert's docstring."""
-        raise NotImplementedError(
-            "encode_used_stamps is not supported by the flat-token StampBank — "
-            "Finetune's channel-collapsing head needs a redesign first (see plan)."
-        )
+        """Viz-only convenience over encode_post_stamp_expert: same z_per_head/chan_attn,
+        capped to the max_stamps stamps with the largest trial-summed View magnitude —
+        at n_stamps up to a few hundred, rendering every one regardless of relevance
+        would swamp the panels (see render_finetune_attn). Ranked by real magnitude
+        here, not selection frequency: unlike the Tokenizer/Pretrain path, nothing here
+        goes through top-k, so there's no "selected" notion to rank by in the first
+        place. Returns (z_per_head [B, N, Qu, D], chan_attn [B, N, Qu, C],
+        used_ids [Qu])."""
+        z_per_head, chan_attn = self.encode_post_stamp_expert(
+            x, coords, time_idx=time_idx, valid_channels=valid_channels, return_chan_attn=True)
+        importance = z_per_head.norm(dim=-1).sum(dim=(0, 1))  # [n_stamps] — ranking only
+        used_ids = torch.argsort(importance, descending=True)[:max_stamps]
+        return z_per_head[:, :, used_ids, :], chan_attn[:, :, used_ids, :], used_ids
 
     def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """
@@ -562,11 +601,11 @@ class MeSAEFinetune(nn.Module):
     """
     Wraps a pretrained MeSAEPretrain backbone (unmodified) with a temporal+stamp
     attention classification head (PerChannelHeadAttn) — same shape/rationale as
-    MeFSQFinetune (model/MeFSQ/MeFSQ.py). Reads backbone.encode_post_stamp_expert: the
-    pre-generator D-dim view for each selected stamp (`h_i * pooled_i`, BEFORE that
-    stamp's own generator MLP ever runs — see docs/adr/0009). The channel dim is already
-    collapsed by the backbone's own per-stamp channel-attention pool, so the head only
-    pools over patches and stamps, not channels.
+    MeFSQFinetune (model/MeFSQ/MeFSQ.py). Reads backbone.encode_post_stamp_expert: a
+    D-dim View per stamp per patch, every stamp densely (no top-k), channels collapsed
+    by pooling z with that stamp's own per-channel amp magnitude as the weight — see
+    encode_post_stamp_expert's docstring. The channel dim is already gone by the time
+    the head sees it, so the head only pools over patches and stamps.
     """
     def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, hidden=128, freeze_backbone=False,
                  dropout=0.1):

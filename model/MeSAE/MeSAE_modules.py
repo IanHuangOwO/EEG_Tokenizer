@@ -641,6 +641,22 @@ class StampBank(nn.Module):
                           F.normalize(self.D_shared, dim=-1)], dim=0)
 
     @torch.no_grad()
+    def dense_amp(self, z, rms=None):
+        """z: [G, C, D] channel-grouped embeddings (same input StampBank.forward takes)
+        -> amp [G, C, n_stamps, 2], dense over EVERY atom (routed+shared, no top-k),
+        input_norm'd and rms-scaled the same way forward() is. Every atom's own
+        matched-filter response to real content, whether or not it would win the top-k
+        race — used where a stable, always-populated per-stamp axis matters more than
+        reconstruction sparsity (MeSAEFinetune.encode_post_stamp_expert's per-stamp
+        channel pool). Shared by dense_probe below, which decodes this further into
+        waveform space."""
+        z = self.input_norm(z)
+        amp_r, amp_s = self._amp_dense(z)  # [G, C, n_routed, 2], [G, C, n_shared, 2]
+        amp = torch.cat([amp_r, amp_s], dim=2)  # [G, C, n_stamps, 2]
+        if rms is not None:
+            amp = amp * rms.unsqueeze(-1)
+        return amp
+
     def dense_probe(self, z, rms=None):
         """The real per-channel, per-atom CONTRIBUTION each stamp would produce if it
         had fired — amp_i(z_c) * rms_c * D_hat_i, dense over all n_stamps
@@ -651,11 +667,7 @@ class StampBank(nn.Module):
         z: [G, C, D] channel-grouped embeddings (same input StampBank.forward takes),
         rms: [G, C, 1] or None -> contribution [G, C, n_stamps, patch_len].
         """
-        z = self.input_norm(z)
-        amp_r, amp_s = self._amp_dense(z)  # [G, C, n_routed, 2], [G, C, n_shared, 2]
-        amp = torch.cat([amp_r, amp_s], dim=2)  # [G, C, n_stamps, 2]
-        if rms is not None:
-            amp = amp * rms.unsqueeze(-1)
+        amp = self.dense_amp(z, rms=rms)  # [G, C, n_stamps, 2]
         D_all, H_all = self._template_tables()  # each [n_stamps, L]
         return (amp[..., 0].unsqueeze(-1) * D_all.view(1, 1, self.n_stamps, -1)
                 + amp[..., 1].unsqueeze(-1) * H_all.view(1, 1, self.n_stamps, -1))
