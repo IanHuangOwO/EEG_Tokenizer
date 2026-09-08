@@ -90,7 +90,7 @@
     "patch_stride": 90,
     "sample_freq": 200,
     "bandpass_filter": {
-      "l_freq": 0.5,
+      "l_freq": 1.0,
       "h_freq": 100.0
     },
     "normalization_type": "zscore",
@@ -172,10 +172,9 @@
         "stamp_bank": {
           "n_stamps": 128,
           "n_shared_stamps": 8,
-          "stamp_top_k": 16,
+          "stamp_top_k": 12,
           "stamp_hidden_width": 8,
           "stamp_shared_hidden_width": 16,
-          "shared_weight": 0.1,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
           "sae_ema_decay": 0.99
@@ -183,7 +182,7 @@
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
-          "aux_weight": 0.01
+          "aux_weight": 0.05
         },
         "coord_embed_tokenizer": true
       },
@@ -211,7 +210,6 @@
           "stamp_top_k": 16,
           "stamp_hidden_width": 8,
           "stamp_shared_hidden_width": 16,
-          "shared_weight": 0.1,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
           "sae_ema_decay": 0.99
@@ -233,7 +231,7 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAE",
-      "model_name": "mesaeflat_tokenizer_v13",
+      "model_name": "mesae_tokenizer_v1",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -245,8 +243,8 @@
     },
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesaeflat_pretrain_v13",
-      "tokenizer_checkpoint": "output/mesaeflat_tokenizer_v13/tokenizer/best_tokenizer.pth",
+      "model_name": "mesae_pretrain_v1",
+      "tokenizer_checkpoint": "output/mesae_tokenizer_v1/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -258,8 +256,8 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesaeflat_finetune_v13",
-      "pretrained_checkpoint": "output/mesaeflat_pretrain_v13/pretrain/best_pretrain.pth",
+      "model_name": "mesae_finetune_v1",
+      "pretrained_checkpoint": "output/mesae_pretrain_v1/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.01,

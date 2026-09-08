@@ -59,7 +59,6 @@ class MeSAEPretrain(nn.Module):
         stamp_top_k=32,
         stamp_hidden_width=8,
         stamp_shared_hidden_width=16,
-        stamp_shared_weight=0.2,
         dead_threshold_frac=0.1,
         aux_k_cap_frac=0.04,
         stamp_ema_decay=0.999,
@@ -85,7 +84,6 @@ class MeSAEPretrain(nn.Module):
             embed_dim, patch_len,
             n_stamps=n_stamps, n_shared_stamps=n_shared_stamps, top_k=stamp_top_k,
             hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
-            shared_weight=stamp_shared_weight,
             dead_threshold_frac=dead_threshold_frac,
             aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
         )
@@ -94,7 +92,6 @@ class MeSAEPretrain(nn.Module):
         self.n_stamps = self.stamps.n_stamps
         self.n_routed_stamps = self.stamps.n_routed
         self.n_shared_stamps = self.stamps.n_shared
-        self.shared_weight = self.stamps.shared_weight
         self.stamps_frozen = False
         # Whether the Tokenizer stage gets the coordinate embedding (position only) —
         # see enable_coord_embed and MeSAETrainer.on_tokenizer_start.

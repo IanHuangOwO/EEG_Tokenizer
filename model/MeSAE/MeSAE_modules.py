@@ -421,7 +421,13 @@ class StampBank(nn.Module):
     Group selection binds one source to ONE stamp across the whole scalp.
 
     n_stamps splits into n_routed (compete via score + top-k) and n_shared (always
-    included, fixed constant `shared_weight`).
+    included, every group, no top-k). No fixed down-weight on the shared pool's
+    recon contribution: a scalar multiplier on amp is not a real regularizer here —
+    amp is a free, unconstrained linear gain, so the optimizer just inflates it to
+    cancel any fixed scale back out at convergence. Whatever separates shared from
+    routed has to come from a real structural difference (always-on vs. gated,
+    wider bottleneck) — see shared_hidden_width — not a multiplier gradient descent
+    can undo for free.
 
     Selection is TopK-SAE style, aggregated over channels: per-atom group score =
     mean over VALID channels of amp_i(z_c)^2 (matched-filter energy summed over the
@@ -485,14 +491,13 @@ class StampBank(nn.Module):
     generator whose shape depended on its input (see both methods below).
     """
     def __init__(self, dim, patch_len, n_stamps=800, n_shared_stamps=4,
-                 top_k=32, hidden_width=8, shared_hidden_width=16, shared_weight=0.2,
+                 top_k=32, hidden_width=8, shared_hidden_width=16,
                  dead_threshold_frac=0.1, aux_k_cap_frac=0.04, ema_decay=0.999):
         super().__init__()
         self.n_stamps = n_stamps
         self.n_shared = n_shared_stamps
         self.n_routed = n_stamps - n_shared_stamps
         self.top_k = min(top_k, self.n_routed)
-        self.shared_weight = shared_weight
         # Normalizes z before it's used for anything (scoring, the bottleneck's
         # generator input, z_h) — z inherits whatever scale the encoder currently
         # drifts to (documented block_norm growth across blocks/epochs elsewhere in this
@@ -571,10 +576,17 @@ class StampBank(nn.Module):
         convention MoEFFN uses (see its ponytail note): with amp needed dense for group
         scoring anyway, there is no sparse decode path left to save — the old
         per-selected-atom gather einsums (_decode_atoms/_generate_routed) collapsed
-        into this one dense computation plus a cheap gather in forward()."""
-        hidden_r = torch.einsum('gcd,hdk->gchk', z, self.W_down_routed) + self.b_down_routed
+        into this one dense computation plus a cheap gather in forward().
+
+        GELU sits between W_down and w_amp: without it, hidden is affine-in-affine (two
+        linear maps back to back), which collapses algebraically into one linear map
+        z -> amp of rank <= min(hidden_width, 2) — since amp is only 2-dim, hidden_width
+        past 2 bought zero extra capacity, just wasted params. The GELU makes hidden_width
+        a real nonlinear bottleneck (an actual per-atom small MLP) instead of a disguised
+        linear readout."""
+        hidden_r = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down_routed) + self.b_down_routed)
         amp_r = torch.einsum('gchk,hkp->gchp', hidden_r, self.w_amp_routed) + self.b_amp_routed
-        hidden_s = torch.einsum('gcd,hdk->gchk', z, self.W_down_shared) + self.b_down_shared
+        hidden_s = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down_shared) + self.b_down_shared)
         amp_s = torch.einsum('gchk,hkp->gchp', hidden_s, self.w_amp_shared) + self.b_amp_shared
         return amp_r, amp_s
 

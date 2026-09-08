@@ -245,7 +245,9 @@ def _used_stamps(model, x, coords, time_idx=None, valid_channels=None, max_stamp
     out = model.stamps(z_bnc, valid_mask=valid_mask)  # eval-mode call, aux/dead-atom path never runs
     used_ids = model.used_stamp_ids(out, max_stamps=max_stamps)  # [Qu]
 
-    shared = out.dense_routed.new_full((out.dense_routed.shape[0], model.n_shared_stamps), model.shared_weight)
+    # Shared slots have no fixed down-weight (see StampBank.__init__ docstring) — use their
+    # real per-group energy (out.h's last n_shared columns) instead of a constant fill.
+    shared = out.h[:, -model.n_shared_stamps:]
     dense_full = torch.cat([out.dense_routed, shared], dim=-1)  # [M, n_stamps]
     importance = dense_full[:, used_ids].sum(dim=0).cpu().numpy()  # [Qu]
 

@@ -2,7 +2,7 @@
   "compile_params": {
     "_comment": "sample_freq/bandpass_filter here MUST match config.json's preprocess_params — that's how the compiled cache filename is derived on both the write side (this script) and the read side (IO/dataset.py). A mismatch just misses the cache with a clear FileNotFoundError, never silently reads stale data.",
     "sample_freq": 200,
-    "bandpass_filter": { "l_freq": 0.5, "h_freq": 100.0 },
+    "bandpass_filter": { "l_freq": 1.0, "h_freq": 100.0 },
     "datasets": {
       "Dial": { "dataset_path": "datas/Dial" },
       "BETA_4s": { "dataset_path": "datas/BETA_4s" },
