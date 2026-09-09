@@ -235,7 +235,8 @@ class MeSAEChecker(BaseEpochChecker):
         )
         print(f"  [epoch] -> {out_path}")
 
-        used_ids, gal_importance, psd_ch_x_g, psd_x_g, gal_freqs, iclabel_probs = extract_flat_stamp_gallery(
+        (used_ids, gal_importance, psd_ch_x_g, psd_x_g, gal_freqs, phase_ch_x_g,
+         waveforms_g, iclabel_probs) = extract_flat_stamp_gallery(
             model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
             fs=fs, freq_resolution=fft_resolution)
         if band is not None:
@@ -246,6 +247,7 @@ class MeSAEChecker(BaseEpochChecker):
         plot_stamp_gallery(
             gallery_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
             psd_ch_x_g, psd_x_g, gal_freqs, gal_importance, cmap=cmap,
+            phase_ch_x=phase_ch_x_g, waveforms=waveforms_g,
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
             unit_label=self.unit_label, unit_ids=used_ids, n_routed=model.n_routed_stamps,
             iclabel_probs=iclabel_probs,

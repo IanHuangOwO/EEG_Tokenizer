@@ -361,19 +361,24 @@ def extract_filter_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
 @torch.no_grad()
 def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
     """(used_ids [Qu], importance [Qu], fp [Qu, C, patch_len], amp_topo [Qu, C] SIGNED
-    trial-mean per-channel amp — the mixing/topomap column) — grouped-StampBank
-    analog of _used_stamps. Selection is per PATCH POSITION now (shared by all C
-    channels, see MeSAE_modules.StampBank class docstring), so importance is the
-    accumulated post-rms amp magnitude h (sqrt(a^2+b^2) averaged over channels, see
+    trial-mean per-channel amp — the mixing/topomap column, phase_topo [Qu, C] RAW
+    per-channel phase in radians) — grouped-StampBank analog of _used_stamps.
+    Selection is per PATCH POSITION now (shared by all C channels, see
+    MeSAE_modules.StampBank class docstring), so importance is the accumulated
+    post-rms amp magnitude h (sqrt(a^2+b^2) averaged over channels, see
     StampBank.forward) over the patches that picked each used stamp — real
     reconstruction energy, not a selection-frequency proxy — and fp is each used
-    stamp's per-channel contribution (amp_c * rms_c * D_hat, the
-    stamp's real mixing/topomap content) averaged over ALL N patches — a patch that
-    didn't select the stamp contributes an explicit 0 (dilution toward 0, same
-    convention as before), but WITHIN a selected patch every channel now has a real
-    dense amp value: the per-channel zero-holes of the old per-token selection (a
-    channel that lost the top-k race showing 0 despite genuinely containing the
-    source) are gone by construction."""
+    stamp's per-channel contribution (amp_c * rms_c * D_hat, the stamp's real
+    mixing/topomap content) averaged over the patches that actually SELECTED it (not
+    over all N patches) — so fp is the real per-firing average, matching what
+    `importance` is a sum of; a patch that didn't select the stamp contributes nothing
+    to either the numerator or the denominator here, instead of diluting the average
+    toward 0 in proportion to how rarely a stamp fired (the earlier /N convention,
+    which made two stamps of equal importance render at very different visual power
+    purely from firing-count differences, not from anything the stamp actually did).
+    WITHIN a selected patch every channel has a real dense amp value: the per-channel
+    zero-holes of the old per-token selection (a channel that lost the top-k race
+    showing 0 despite genuinely containing the source) are gone by construction."""
     z, _ = model.stage_features(x, coords, time_idx=time_idx)  # [1, C, N, D]
     B, C, N, D = z.shape
     z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
@@ -397,31 +402,52 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
     contribution = model.stamps.decode_selected(idx, out.amp)  # [N, C, K, patch_len]
     patch_len = contribution.shape[-1]
 
+    # Hit count per stamp: how many of the N patches actually selected it (idx has at
+    # most one occurrence of a given id per patch, so this is a real per-stamp firing
+    # count, 0..N). Dividing by this instead of the constant N is what makes the
+    # DISPLAYED waveform/PSD agree with `importance` (a real accumulated sum over hit
+    # patches, see dense_imp above): dividing by N always would shrink a stamp's shown
+    # magnitude toward 0 in proportion to how RARELY it fired, on top of its real
+    # per-firing amplitude — so two stamps with the same importance (same total summed
+    # energy) but different firing counts used to render at very different visual
+    # power, purely from dilution, not from anything the stamp actually did
+    # differently. Dividing by hit count instead yields the real per-firing average
+    # amplitude, consistent with what importance is a sum OF.
+    hit_count = idx.new_zeros(n_stamps, dtype=contribution.dtype)
+    hit_count.scatter_add_(0, idx.reshape(-1), torch.ones_like(idx.reshape(-1), dtype=contribution.dtype))
+    hit_count_c = hit_count.clamp(min=1).view(n_stamps, 1, 1)
+
     # Accumulate per stamp over patches: group-major/slot-minor flatten of idx matches
     # the same flatten of contribution's (N, K) axes.
     buf = contribution.new_zeros(n_stamps, C, patch_len)
     buf.index_add_(0, idx.reshape(-1), contribution.permute(0, 2, 1, 3).reshape(N * K, C, patch_len))
-    fp_full = buf / N  # unselected patches dilute toward 0
+    fp_full = buf / hit_count_c  # real per-firing average, not diluted by non-firing patches
 
     # SIGNED per-channel mean amp per stamp — the trial-averaged mixing/topomap column.
-    # Quadrature version: accumulate the (a, b) pairs over patches (coherent average —
-    # a source arriving at random phase per patch partially cancels here, same dilution
-    # convention as fp), then project each channel onto the stamp's channel-mean phase
-    # direction for a signed scalar (A_c * cos(phi_c - phi_ref); polarity IS the dipole
-    # structure, see plot panels' RdBu cells).
+    # Quadrature version: accumulate the (a, b) pairs over the patches that actually
+    # fired (coherent average — a source arriving at random phase per patch partially
+    # cancels here, same real-per-firing-average convention as fp above, not diluted by
+    # N), then project each channel onto the stamp's channel-mean phase direction for a
+    # signed scalar (A_c * cos(phi_c - phi_ref); polarity IS the dipole structure, see
+    # plot panels' RdBu cells).
     buf_amp = out.amp.new_zeros(n_stamps, C, 2)
     buf_amp.index_add_(0, idx.reshape(-1), out.amp.permute(0, 2, 1, 3).reshape(N * K, C, 2))
-    ab = buf_amp[used_ids] / N                                     # [Qu, C, 2]
+    hit_count_sel = hit_count[used_ids].clamp(min=1).view(-1, 1, 1)
+    ab = buf_amp[used_ids] / hit_count_sel                          # [Qu, C, 2]
     ref = ab.mean(dim=1, keepdim=True)                             # [Qu, 1, 2]
     ref = ref / (ref.norm(dim=-1, keepdim=True) + 1e-8)
     amp_topo = (ab * ref).sum(dim=-1)                              # [Qu, C] signed projection
+    # Raw per-channel PHASE (not projected away like amp_topo's scalar magnitude) --
+    # atan2(b, a), radians -- lets a caller see phase differ across channels for one
+    # stamp directly (e.g. paired with the PSD panel in plot_stamp_gallery).
+    phase_topo = torch.atan2(ab[..., 1], ab[..., 0])               # [Qu, C]
 
     fp = fp_full[used_ids]           # [Qu, C, patch_len]
     # raw selection objects, for callers that need per-patch detail beyond the
     # trial-averaged fp/amp_topo (the ICLabel pseudo-activity builder in
     # extract_flat_stamp_gallery)
     sel = SimpleNamespace(idx=idx, amp=out.amp)
-    return used_ids, importance, fp, amp_topo, sel
+    return used_ids, importance, fp, amp_topo, phase_topo, sel
 
 
 @torch.no_grad()
@@ -437,7 +463,7 @@ def extract_flat_stamp_psd(model, x: torch.Tensor, coords: torch.Tensor,
     norms/affinity — same formulas as extract_filter_psd, off the same fp.
     importance — [Qu] accumulated selection strength (sum over channels AND patches).
     """
-    used_ids, stamp_importance, fp, _amp_topo, _sel = _used_flat_stamps(
+    used_ids, stamp_importance, fp, _amp_topo, _phase_topo, _sel = _used_flat_stamps(
         model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=100)
     flat = fp.reshape(fp.shape[0], -1)
 
@@ -464,14 +490,22 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     Returns (used_ids [Qu] np.ndarray, importance [Qu] np.ndarray, psd_ch_x [C, Qu]
     np.ndarray — SIGNED trial-mean amp per channel (the mixing/topomap column,
     rendered as a diverging RdBu topo by plot_stamp_gallery — polarity is the dipole
-    structure), psd_x [Qu, C, F] np.ndarray, freqs [F] np.ndarray, iclabel_probs
+    structure), psd_x [Qu, C, F] np.ndarray, freqs [F] np.ndarray, phase_ch_x [C, Qu]
+    np.ndarray — RAW per-channel phase (atan2(b,a), radians, NOT projected away like
+    psd_ch_x's signed scalar) so a caller can see phase differ across channels for one
+    stamp directly, e.g. paired with the psd_x panel, waveforms — list of Qu 1-D
+    np.ndarray, VARIABLE length per stamp (real decoded content at its own strongest
+    channel, concatenated only over the patches it actually fired on — the exact same
+    signal the ICLabel classification below is computed from, see the ICLabel section;
+    length differs per stamp, hence a list not a fixed-shape array), iclabel_probs
     [Qu, 7] np.ndarray or None — per-stamp ICLabel class distribution
     (viz.iclabel.ICLABEL_CLASSES order; None when mne-icalabel is unavailable or the
     pipeline fails, see viz/iclabel.py's caveat on interpreting these)).
     """
-    used_ids, importance, fp, amp_topo, sel = _used_flat_stamps(
+    used_ids, importance, fp, amp_topo, phase_topo, sel = _used_flat_stamps(
         model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=max_stamps)
     psd_ch_x = amp_topo.permute(1, 0).cpu().numpy()  # [C, Qu] signed
+    phase_ch_x = phase_topo.permute(1, 0).cpu().numpy()  # [C, Qu] radians
 
     patch_len = fp.shape[-1]
     n_fft = patch_len
@@ -500,6 +534,9 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     mag = sel.amp.pow(2).sum(-1)                            # [N, C, K]
     mag = mag.masked_fill(~vc.view(1, C, 1), 0.0)
     acts = []
+    waveforms = []  # untiled `sig` per stamp — the real thing ICLabel's features were built
+    # from, kept for plot_stamp_gallery's waveform panel (paired visually with that
+    # stamp's ICLabel bar right below it: "here's the actual signal, here's the call").
     for sid in used_ids.tolist():
         hit = sel.idx == sid                                # [N, K] — <=1 slot per patch
         segs = []
@@ -509,6 +546,7 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
             a, b = sel.amp[n, c, k, 0], sel.amp[n, c, k, 1]
             segs.append((a * D_all[sid] + b * H_all[sid]).detach().cpu())
         sig = torch.cat(segs).numpy() if segs else np.zeros(L, dtype=np.float32)
+        waveforms.append(sig)
         # TILE the fired content up to the full trial length rather than zero-padding:
         # _eeg_rpsd emits its fixed 100-bin feature only for signals of at least ~sfreq
         # samples (a 1-patch stamp otherwise yields 99 bins and fails to stack), and
@@ -521,7 +559,7 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     ch_pos = coords[0, vc].cpu().numpy()                          # [Cv, 3]
     iclabel_probs = stamp_iclabel_probs(ch_pos, fs or 1.0, mixing, acts)
 
-    return used_ids.cpu().numpy(), importance, psd_ch_x, psd_x, freqs, iclabel_probs
+    return used_ids.cpu().numpy(), importance, psd_ch_x, psd_x, freqs, phase_ch_x, waveforms, iclabel_probs
 
 
 @torch.no_grad()

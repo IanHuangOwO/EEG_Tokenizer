@@ -235,6 +235,7 @@ def plot_topo_psd_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None
 
 def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
                         psd_ch_x, psd_x, freqs, importance, cmap='YlOrRd',
+                        phase_ch_x=None, waveforms=None,
                         subject_id=None, trial_idx=None, epoch_tag='',
                         unit_label='Stamp', unit_colors=None, unit_ids=None, n_routed=None,
                         shared_color='crimson', n_per_row=5, iclabel_probs=None):
@@ -247,28 +248,43 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     MeSAE_modules.StampBank class docstring).
 
     Header row: Raw and Full-Recon (whole trial) topo + PSD, one block each. Below: a
-    grid of `n_per_row` (topo, PSD) blocks per row, one block per USED stamp (see
+    grid of `n_per_row` blocks per row, one block per USED stamp (see
     viz.extract.extract_flat_stamp_gallery's trial-wide dedup, same _used_flat_stamps
     helper extract_flat_stamp_psd uses), sorted by accumulated importance descending,
-    reading left-to-right then top-to-bottom — that stamp's own real trial-averaged
-    per-channel response (topo, from psd_ch_x) and PSD (channel x freq, from psd_x). A
-    single vertical bar chart at the right edge spans just the stamp grid (not the
-    Raw/Recon header), one horizontal bar per stamp in the SAME sorted order (top =
-    highest importance) — paired 1:1 with the gallery (by rank, not by grid position,
-    since the grid wraps n_per_row-wide) so "how much did this stamp's real content
-    matter" reads directly alongside "what did it actually look like".
+    reading left-to-right then top-to-bottom. Each block: topo on the LEFT (spanning
+    the block's full height), PSD (channel x freq, from psd_x) top-right, and — when
+    phase_ch_x is given — a per-channel PHASE bar chart bottom-right, directly under
+    the PSD and sharing its channel-axis orientation (see _cell) so a phase shift
+    across channels reads paired against that same channel's PSD row. A single
+    vertical bar chart at the right edge spans just the stamp grid (not the Raw/Recon
+    header), one horizontal bar per stamp in the SAME sorted order (top = highest
+    importance) — paired 1:1 with the gallery (by rank, not by grid position, since
+    the grid wraps n_per_row-wide) so "how much did this stamp's real content matter"
+    reads directly alongside "what did it actually look like".
 
-    psd_ch_x: [C, Q]. psd_x: [Q, C, F]. importance: [Q]. unit_ids: optional [Q] real
-    global stamp ids for row labels/color (see plot_stamp_panel's unit_ids doc) — falls
-    back to row position if None. All topo/PSD cells are log1p-scaled (see _log_pow),
-    same reasoning as plot_topo_psd_by_patch.
+    psd_ch_x: [C, Q]. psd_x: [Q, C, F]. phase_ch_x: [C, Q] radians or None (Raw/Recon
+    header cells never show phase — there's no stamp/quadrature structure to a raw
+    signal — and passing None here entirely skips the phase row for stamp cells too).
+    importance: [Q]. unit_ids: optional [Q] real global stamp ids for row labels/color
+    (see plot_stamp_panel's unit_ids doc) — falls back to row position if None. All
+    topo/PSD cells are log1p-scaled (see _log_pow), same reasoning as
+    plot_topo_psd_by_patch.
+
+    waveforms: optional list of Q 1-D arrays (VARIABLE length per stamp — see
+    viz.extract.extract_flat_stamp_gallery, real decoded content at that stamp's own
+    strongest channel, concatenated over only the patches it fired on), rendered as an
+    extra full-block-width row right above the ICLabel row (or the last row if
+    iclabel_probs is None) — the actual time-domain signal ICLabel's call was computed
+    from, placed so the two read as cause and effect: "here's the real waveform, here's
+    what ICLabel decided it is."
 
     iclabel_probs: optional [Q, 7] ICLabel class distribution per stamp
-    (viz.iclabel.ICLABEL_CLASSES order) — when given, each stamp block grows a third
-    row under its PSD: a small bar chart of the 7 class probabilities, best class
-    named in the bar row's title (see viz/iclabel.py, including the caveat that these
-    are interpretability hints, not calibrated probabilities). None keeps the old
-    two-row layout.
+    (viz.iclabel.ICLABEL_CLASSES order) — when given, each stamp block grows a row
+    (spanning the full block width) under its PSD/phase pair (and under the waveform
+    row, if that's also given): a small bar chart of the 7 class probabilities, best
+    class named in the bar row's title (see viz/iclabel.py, including the caveat that
+    these are interpretability hints, not calibrated probabilities). Both None keeps
+    the old two-row layout.
     """
     Q = psd_ch_x.shape[1]
     display_ids = np.arange(Q) if unit_ids is None else np.asarray(unit_ids)
@@ -278,39 +294,47 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
 
     triang = build_triangulation(pos2d)
 
-    # Same col_w/psd_h/bar_w sizing rationale as plot_stamp_panel: topo cells are square
-    # (draw_topomap sets equal aspect), so col_w has to roughly match a topo cell's own
-    # height under constrained_layout or the rest of its row goes blank trying to keep
-    # that aspect square.
-    col_w, psd_h, bar_w = 2.6, 1.7, 3.5
-    icl_h = 0.9  # ICLabel bar row height (only present when iclabel_probs given)
-    rows_per_block = 3 if iclabel_probs is not None else 2
-    block_h = col_w + psd_h + (icl_h if iclabel_probs is not None else 0)
+    # Each block is 2 grid-columns wide (topo | psd-over-phase) instead of 1 — topo
+    # spans both of the block's rows on the left, PSD/phase stack on the right, so
+    # topo_w/right_w need to roughly sum-match (psd_h+phase_h) for topo to land near
+    # square (draw_topomap forces equal aspect, same col_w-matching rationale as
+    # plot_stamp_panel).
+    topo_w, right_w, bar_w = 2.6, 2.6, 3.5
+    psd_h, phase_h = 1.4, 1.3
+    wave_h = 0.8   # waveform row height (only present when waveforms given)
+    icl_h = 0.9    # ICLabel bar row height (only present when iclabel_probs given)
+    has_wave = waveforms is not None
+    has_icl = iclabel_probs is not None
+    rows_per_block = 2 + (1 if has_wave else 0) + (1 if has_icl else 0)
+    block_h = psd_h + phase_h + (wave_h if has_wave else 0) + (icl_h if has_icl else 0)
+    n_per_row = max(2, n_per_row)  # header needs 2 blocks (Raw, Full Recon) side by side
     n_stamp_rows = math.ceil(Q / n_per_row) if Q else 0
-    n_cols = max(2, n_per_row)  # header needs 2 blocks (Raw, Full Recon)
-    header_rows = 2  # topo row, psd row
+    n_cols = n_per_row * 2
+    header_rows = 2  # psd-height row, phase-height row (topo spans both)
     total_rows = header_rows + n_stamp_rows * rows_per_block
     suptitle_in, margin_in = 1.6, 0.15
-    fig_w = col_w * n_cols + bar_w
-    fig_h = (col_w + psd_h) + block_h * n_stamp_rows + suptitle_in + margin_in
-    block_ratios = [col_w, psd_h] + ([icl_h] if iclabel_probs is not None else [])
+    fig_w = (topo_w + right_w) * n_per_row + bar_w
+    fig_h = (psd_h + phase_h) + block_h * n_stamp_rows + suptitle_in + margin_in
+    block_ratios = ([psd_h, phase_h] + ([wave_h] if has_wave else [])
+                     + ([icl_h] if has_icl else []))
     fig = plt.figure(figsize=(fig_w, fig_h))
     gs = fig.add_gridspec(total_rows, n_cols + 1,
-                           height_ratios=[col_w, psd_h] + block_ratios * n_stamp_rows,
-                           width_ratios=[col_w] * n_cols + [bar_w],
+                           height_ratios=[psd_h, phase_h] + block_ratios * n_stamp_rows,
+                           width_ratios=[topo_w, right_w] * n_per_row + [bar_w],
                            left=0.02, right=0.98, top=1 - suptitle_in / fig_h, bottom=margin_in / fig_h,
                            hspace=0.6, wspace=0.35)
     fig.suptitle(f"Whole-Trial Raw / Recon / Used-{unit_label} Gallery "
                  f"({unit_label}s sorted by accumulated importance) — "
                  f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=13, fontweight='bold')
 
-    def _cell(topo_row, col, power, psd_cf, label, color, signed=False):
+    def _cell(topo_row, block_col, power, psd_cf, phase_c, label, color, signed=False):
         # signed: stamp topos are the SIGNED trial-mean per-channel amp (the mixing/
         # topomap column, see extract_flat_stamp_gallery) — diverging RdBu_r, symmetric
         # limits, 0 = white, so dipole polarity reads directly (same rationale as
         # plot_topo_psd_by_patch's stamp cells). Raw/Recon header stays unsigned power.
+        topo_col, right_col = block_col * 2, block_col * 2 + 1
         psd_cf = _log_pow(psd_cf)
-        ax_topo = fig.add_subplot(gs[topo_row, col])
+        ax_topo = fig.add_subplot(gs[topo_row:topo_row + 2, topo_col])
         if signed:
             v = _log_signed(power)
             vlim = max(np.abs(v).max(), 1e-12)
@@ -323,7 +347,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         ax_topo.set_title(f'{label}\nTopo', fontsize=8, fontweight='bold', color=color)
         fig.colorbar(im_t, ax=ax_topo, fraction=0.05, pad=0.02)
 
-        ax_psd = fig.add_subplot(gs[topo_row + 1, col])
+        ax_psd = fig.add_subplot(gs[topo_row, right_col])
         ax_psd.imshow(psd_cf[::-1], aspect='auto', cmap=cmap, origin='lower',
                       vmin=0.0, vmax=max(psd_cf.max(), 1e-12),
                       extent=[freqs[0], freqs[-1], 0, psd_cf.shape[0]])
@@ -333,22 +357,67 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         ax_psd.set_xlabel(freq_label, fontsize=6)
         ax_psd.set_yticks([])
 
-    _cell(0, 0, raw_power, psd_raw, 'Raw', 'black')
-    _cell(0, 1, recon_power, psd_recon, 'Full Recon', 'black')
-    for c in range(2, n_cols):
-        fig.add_subplot(gs[0, c]).axis('off')
-        fig.add_subplot(gs[1, c]).axis('off')
+        ax_phase = fig.add_subplot(gs[topo_row + 1, right_col])
+        if phase_c is None:
+            ax_phase.axis('off')
+        else:
+            # Cyclic colormap (twilight) so a bar's color itself carries the phase,
+            # not just its length/direction. invert_yaxis matches the PSD imshow
+            # above it (channel 0 at TOP there too — imshow flips rows + origin=
+            # 'lower', see ax_psd), so a given row means the same channel in both
+            # panels — pairs 1:1, letting a phase shift across channels be read
+            # directly against that channel's PSD row.
+            Cc = len(phase_c)
+            bar_colors = plt.get_cmap('twilight')((np.asarray(phase_c) + np.pi) / (2 * np.pi))
+            ax_phase.barh(range(Cc), phase_c, color=bar_colors)
+            ax_phase.axvline(0, color='gray', lw=0.6)
+            ax_phase.set_xlim(-np.pi, np.pi)
+            ax_phase.invert_yaxis()
+            ax_phase.set_yticks([])
+            ax_phase.set_xticks([-np.pi, 0, np.pi])
+            ax_phase.set_xticklabels(['-π', '0', 'π'], fontsize=6)
+            ax_phase.set_xlabel('Phase (rad)', fontsize=6)
+            ax_phase.set_title(f'{label} Phase', fontsize=8, fontweight='bold', color=color)
+
+    _cell(0, 0, raw_power, psd_raw, None, 'Raw', 'black')
+    _cell(0, 1, recon_power, psd_recon, None, 'Full Recon', 'black')
+    for block_col in range(2, n_per_row):
+        topo_col, right_col = block_col * 2, block_col * 2 + 1
+        fig.add_subplot(gs[0:2, topo_col]).axis('off')
+        fig.add_subplot(gs[0, right_col]).axis('off')
+        fig.add_subplot(gs[1, right_col]).axis('off')
 
     def _stamp_color(q):
         if unit_colors:
             return unit_colors[q]
         return shared_color if n_routed is not None and int(display_ids[q]) >= n_routed else 'black'
 
-    def _iclabel_cell(row, col, probs_q):
+    def _waveform_cell(row, block_col, sig, color, label):
+        # Real decoded time-domain content at this stamp's own strongest channel,
+        # concatenated over only the patches it fired on (see
+        # viz.extract.extract_flat_stamp_gallery) — the same signal ICLabel's row right
+        # below is computed from. Spans the block's full width, same as the ICLabel row.
+        topo_col = block_col * 2
+        ax = fig.add_subplot(gs[row, topo_col:topo_col + 2])
+        if sig is None or len(sig) == 0:
+            ax.axis('off')
+            ax.set_title('Waveform: n/a (never fired)', fontsize=7, color='gray')
+            return
+        ax.plot(np.arange(len(sig)), sig, color=color, linewidth=0.6)
+        ax.axhline(0, color='gray', lw=0.4)
+        ax.set_xlim(0, len(sig) - 1)
+        ax.set_xticks([])
+        ax.tick_params(axis='y', labelsize=5)
+        ax.set_title(f'{label} Waveform (real content, concatenated over firing patches)',
+                     fontsize=7, fontweight='bold', color=color)
+
+    def _iclabel_cell(row, block_col, probs_q):
         # 7-class ICLabel distribution bar (see viz/iclabel.py, incl. its caveat) —
-        # best class named in the title, its bar highlighted.
+        # best class named in the title, its bar highlighted. Spans the block's full
+        # width (both the topo and psd/phase sub-columns).
         from viz.iclabel import ICLABEL_CLASSES
-        ax = fig.add_subplot(gs[row, col])
+        topo_col = block_col * 2
+        ax = fig.add_subplot(gs[row, topo_col:topo_col + 2])
         if probs_q is None or not np.all(np.isfinite(probs_q)):
             # a stamp selected on very few patches has a near-all-zero stitched
             # activity — autocorr/psd features degenerate to NaN there; label it
@@ -374,15 +443,28 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         sid = int(display_ids[q])
         color = _stamp_color(q)
         label = f'{unit_label} {sid} ({importance[q]:.3f})'
-        _cell(topo_row, block_col, psd_ch_x[:, q], psd_x[q], label, color, signed=True)
-        if iclabel_probs is not None:
-            _iclabel_cell(topo_row + 2, block_col, iclabel_probs[q])
+        phase_c = phase_ch_x[:, q] if phase_ch_x is not None else None
+        _cell(topo_row, block_col, psd_ch_x[:, q], psd_x[q], phase_c, label, color, signed=True)
+        next_row = topo_row + 2
+        if has_wave:
+            _waveform_cell(next_row, block_col, waveforms[q], color, label)
+            next_row += 1
+        if has_icl:
+            _iclabel_cell(next_row, block_col, iclabel_probs[q])
 
     for i in range(Q, n_stamp_rows * n_per_row):
         block_row, block_col = divmod(i, n_per_row)
         topo_row = header_rows + block_row * rows_per_block
-        for r in range(rows_per_block):
-            fig.add_subplot(gs[topo_row + r, block_col]).axis('off')
+        topo_col, right_col = block_col * 2, block_col * 2 + 1
+        fig.add_subplot(gs[topo_row:topo_row + 2, topo_col]).axis('off')
+        fig.add_subplot(gs[topo_row, right_col]).axis('off')
+        fig.add_subplot(gs[topo_row + 1, right_col]).axis('off')
+        next_row = topo_row + 2
+        if has_wave:
+            fig.add_subplot(gs[next_row, topo_col:topo_col + 2]).axis('off')
+            next_row += 1
+        if has_icl:
+            fig.add_subplot(gs[next_row, topo_col:topo_col + 2]).axis('off')
 
     if Q > 0:
         ax_bar = fig.add_subplot(gs[header_rows:, n_cols])
