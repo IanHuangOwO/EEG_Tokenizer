@@ -656,16 +656,20 @@ def plot_stamp_similarity(out_path, trial_records, unit_label='Stamp',
 
 def _patch_position_consistency_grids(codes, subjects, max_trials, rng):
     """codes: [T, N, D] (T trials, N patch positions, D=Q*F flattened code) -> two
-    [T, N] grids (weighted Jaccard, Cosine): cell (t, n) = mean similarity of trial t's
-    code at patch position n against every OTHER trial's code at that same position n.
-    Rows are sorted by subject (stable sort) so a caller can draw subject-block
-    boundaries -- lets a viewer check whether a pooled-average dip actually holds up
-    within every subject's own block instead of only appearing once everyone's trials are
-    averaged together.
+    [T, N] grids (binary Jaccard, weighted Jaccard): cell (t, n) = mean similarity of
+    trial t's code at patch position n against every OTHER trial's code at that same
+    position n. Rows are sorted by subject (stable sort) so a caller can draw
+    subject-block boundaries -- lets a viewer check whether a pooled-average dip
+    actually holds up within every subject's own block instead of only appearing once
+    everyone's trials are averaged together.
 
-    Jaccard here is weighted (Ruzicka similarity: sum(min(a,b))/sum(max(a,b)), see
-    _pairwise_stats) rather than a binary (>0 mask) set overlap -- how STRONGLY/how many
-    times a stamp fired now matters, not just whether it fired at all."""
+    Binary Jaccard (|support ∩| / |support ∪|) and weighted Jaccard (Ruzicka
+    similarity: sum(min(a,b))/sum(max(a,b))) -- same pairing as
+    _pairwise_stats_jaccard/plot_stamp_similarity: "did the same units fire" vs "fired
+    with similar relative strength", two genuinely different questions. Replaces an
+    earlier (weighted Jaccard, Cosine) version -- cosine over a mostly-zero, high-D
+    activation vector was dominated by support-mismatch noise, same problem
+    plot_stamp_similarity hit and dropped cosine for."""
     T = codes.shape[0]
     if T > max_trials:
         idx = rng.choice(T, max_trials, replace=False)
@@ -675,20 +679,21 @@ def _patch_position_consistency_grids(codes, subjects, max_trials, rng):
     codes, subjects = codes[order], subjects[order]
 
     N = codes.shape[1]
-    jac_grid = np.zeros((T, N))
-    cos_grid = np.zeros((T, N))
+    bin_grid = np.zeros((T, N))
+    w_grid = np.zeros((T, N))
     for n in range(N):
-        v = np.maximum(codes[:, n, :], 0.0)  # [T, D] -- Ruzicka needs nonnegative weights
+        v = np.maximum(codes[:, n, :], 0.0)  # [T, D] -- Ruzicka/support both need nonnegative weights
+        support = v > 0
+        inter = (support[:, None, :] & support[None, :, :]).sum(axis=-1)
+        union = (support[:, None, :] | support[None, :, :]).sum(axis=-1)
+        bin_jac = np.divide(inter, union, out=np.zeros(inter.shape), where=union > 0)
         mins = np.minimum(v[:, None, :], v[None, :, :]).sum(axis=-1)
         maxs = np.maximum(v[:, None, :], v[None, :, :]).sum(axis=-1)
-        jac = np.divide(mins, maxs, out=np.zeros_like(mins), where=maxs > 0)
-        norm = np.linalg.norm(v, axis=1, keepdims=True)
-        unit = np.divide(v, norm, out=np.zeros_like(v), where=norm > 0)
-        cos = unit @ unit.T
-        np.fill_diagonal(jac, np.nan); np.fill_diagonal(cos, np.nan)
-        jac_grid[:, n] = np.nanmean(jac, axis=1)
-        cos_grid[:, n] = np.nanmean(cos, axis=1)
-    return jac_grid, cos_grid, subjects
+        w_jac = np.divide(mins, maxs, out=np.zeros_like(mins), where=maxs > 0)
+        np.fill_diagonal(bin_jac, np.nan); np.fill_diagonal(w_jac, np.nan)
+        bin_grid[:, n] = np.nanmean(bin_jac, axis=1)
+        w_grid[:, n] = np.nanmean(w_jac, axis=1)
+    return bin_grid, w_grid, subjects
 
 
 def plot_patch_position_consistency(out_path, trial_records, unit_label='Filter',
@@ -697,78 +702,69 @@ def plot_patch_position_consistency(out_path, trial_records, unit_label='Filter'
     -- patch position n therefore means the same thing, e.g. time-since-trial-onset, in
     every trial; mixing datasets here would compare unrelated timelines). `usage` is
     basis-agnostic (gating strength like extract_usage's, or real decoder content like
-    MeSAECodebookChecker.extract_stamp_content's channel-collapsed version) -- pass a
-    matching code_label ('activation vector' default, e.g. 'decoder output') so the Cosine
-    panel's title says which. Two Trial x
-    Patch grids side by side, cell (t, n) = trial t's code at patch n vs every OTHER
-    trial's code at that same n (see _patch_position_consistency_grids):
+    MeSAECodebookChecker.extract_stamp_content's channel-collapsed version); code_label
+    is unused now (kept for call-site compat) since neither remaining metric needs a
+    content-vs-gating distinction in its label the way the dropped Cosine panel did. Two
+    Trial x Patch grids side by side, cell (t, n) = trial t's code at patch n vs every
+    OTHER trial's code at that same n (see _patch_position_consistency_grids):
 
-    - Jaccard (weighted/Ruzicka): do trials agree on WHICH Filters+atoms fire, and how strongly, at this patch position.
-    - Cosine: do trials agree on the actual activation VECTOR there.
+    - Binary Jaccard: do trials agree on WHICH Filters+atoms fire at this patch position (support only).
+    - Weighted Jaccard (Ruzicka): do trials agree on which fire AND with how much relative strength.
 
-    A patch column bright in both = a structurally consistent slot across trials
-    (baseline/ITI, before or after whatever event this trial contains). A column bright
-    in Jaccard but dark in Cosine = trials converge on the same Filter vocabulary at that
-    position but with very different activation content -- the signature of a
-    trial-informative event patch (same "which Filters", different "what they say").
+    A patch consistently high in both = a structurally consistent slot across trials
+    (baseline/ITI, before or after whatever event this trial contains). A patch high in
+    binary Jaccard but low in weighted Jaccard = trials converge on the same Filter
+    vocabulary at that position but with very different relative firing strength -- the
+    signature of a trial-informative event patch (same "which Filters", different "how
+    hard"). (An earlier version paired weighted Jaccard with Cosine over the full
+    activation vector instead of binary Jaccard -- dropped for the same reason
+    plot_stamp_similarity dropped cosine: it's dominated by support-mismatch noise over a
+    mostly-zero vector, not a real second question.)
 
-    Rows are grouped by subject (horizontal boundary lines, subject id on the y-axis)
-    instead of left in arbitrary sample order -- a dip that only shows up once every
-    subject's trials are averaged together, but doesn't hold up within any single
-    subject's own block, is a pooling artifact, not a real per-subject phenomenon.
+    Drawn as a mean±std trend line per patch position (pooled across every sampled
+    trial), not a Trial x Patch heatmap grid -- the grid required scrolling/scanning
+    individual subject/trial rows to read, and the actual signal (does the curve dip at
+    some patch, does that dip hold up across subjects) was already being collapsed into
+    exactly this mean+std shape by the console dip-detector below; this just draws that
+    same shape instead of only printing it. A thin per-subject mean-of-trials line is
+    still overlaid (up to 12 subjects, else the legend gets unreadable and the pooled
+    band alone still shows whether variance is high) so a real per-patch dip can still be
+    checked against holding up across most subjects vs. being one outlier subject dragging
+    the pooled mean down -- same check the old per-subject grid rows existed for, minus
+    the need to manually scan/select a subject or trial to see it.
     max_trials defaults higher than the other panels here (90, not ~30) specifically so
-    a multi-subject dataset still gets enough rows per subject to judge individually.
-
-    A final 'Avg' row (separated by a thicker line) appends the per-patch mean across
-    every sampled trial/subject -- the same curve the console dip/cliff detector below
-    already computes numerically, drawn here so the pooled trend is visible directly
-    against the per-subject rows above it instead of only living in printed text. Use it
-    to check whether a dip visible in the average genuinely holds up across most subject
-    blocks (real, patch-position-linked effect) or is dragged down by just one or two
-    outlier subjects while the rest stay flat (a pooling artifact the average alone would
-    hide)."""
+    a multi-subject dataset still gets enough trials per subject for its own mean line to
+    be meaningful."""
     rng = np.random.RandomState(seed)
     Ns = {t['usage'].shape[0] for t in trial_records}
     n_keep = min(Ns)
     codes = np.stack([t['usage'][:n_keep].reshape(n_keep, -1) for t in trial_records])  # [T, N, D]
     subjects = np.array([t['subject'] for t in trial_records])
 
-    jac_grid, cos_grid, subjects = _patch_position_consistency_grids(codes, subjects, max_trials, rng)
-    T, N = jac_grid.shape
+    bin_grid, w_grid, subjects = _patch_position_consistency_grids(codes, subjects, max_trials, rng)
+    T, N = bin_grid.shape
+    x = np.arange(N)
+    unique_subjects = sorted(set(subjects.tolist()))
+    show_subject_lines = len(unique_subjects) <= 12
+    cmap = plt.get_cmap('tab10')
 
-    # Append the per-patch average (across all sampled trials/subjects) as one extra row
-    # at the bottom of each grid, visually separated -- see docstring's 'Avg row' note.
-    jac_disp = np.vstack([jac_grid, np.nanmean(jac_grid, axis=0, keepdims=True)])
-    cos_disp = np.vstack([cos_grid, np.nanmean(cos_grid, axis=0, keepdims=True)])
-
-    # Fixed [0,1] color scale wastes almost the whole colormap: these values live in a
-    # narrow band (typically ~0.15-0.35), so a real dip of a few hundredths was
-    # indistinguishable by eye. Scale each panel to its OWN data range instead -- Jaccard
-    # and Cosine already get separate colorbars, so there's no shared-scale reason to keep
-    # them both pinned to [0,1].
-    boundaries = np.where(np.diff(subjects) != 0)[0] + 0.5  # row index right after each subject's last row
-    # one y-tick per subject, centered on that subject's own row block
-    block_starts = np.concatenate(([0], boundaries + 0.5))
-    block_ends = np.concatenate((boundaries + 0.5, [T]))
-    tick_pos = (block_starts + block_ends) / 2 - 0.5
-    tick_labels = [subjects[int(p)] for p in tick_pos]
-
-    fig, axes = plt.subplots(1, 2, figsize=(max(10, 0.3 * N * 2), max(5, 0.15 * (T + 1))))
-    for ax, grid, title in ((axes[0], jac_disp, 'Cross-Trial Weighted Jaccard\n(same Filters+atoms, similar strength)'),
-                             (axes[1], cos_disp, f'Cross-Trial Cosine\n(same {code_label})')):
-        im = ax.imshow(grid, aspect='auto', vmin=float(np.nanmin(grid)), vmax=float(np.nanmax(grid)), cmap='YlOrRd')
-        for b in boundaries:
-            ax.axhline(b, color='black', linewidth=0.8, alpha=0.6)
-        ax.axhline(T - 0.5, color='black', linewidth=1.6)  # separates per-subject rows from the Avg row
-        ax.set_yticks(list(tick_pos) + [T])
-        ax.set_yticklabels([f'S{s}' for s in tick_labels] + ['Avg'], fontsize=6)
-        ax.get_yticklabels()[-1].set_fontweight('bold')
+    fig, axes = plt.subplots(1, 2, figsize=(max(10, 0.25 * N * 2), 5))
+    for ax, grid, title in ((axes[0], bin_grid, 'Cross-Trial Binary Jaccard\n(same Filters+atoms fire, support only)'),
+                             (axes[1], w_grid, 'Cross-Trial Weighted Jaccard\n(Ruzicka, same Filters+atoms, similar strength)')):
+        mean = np.nanmean(grid, axis=0)
+        std = np.nanstd(grid, axis=0)
+        ax.fill_between(x, mean - std, mean + std, color='steelblue', alpha=0.2, label='±1 std (all trials)')
+        ax.plot(x, mean, color='steelblue', linewidth=2.2, label='Mean (all trials)')
+        if show_subject_lines:
+            for i, s in enumerate(unique_subjects):
+                subj_mean = np.nanmean(grid[subjects == s], axis=0)
+                ax.plot(x, subj_mean, color=cmap(i % 10), linewidth=0.8, alpha=0.6, label=f'S{s}')
         ax.set_xlabel('Patch (time within trial)', fontsize=9)
-        ax.set_ylabel('Trial (grouped by subject)', fontsize=9)
+        ax.set_ylabel('Similarity', fontsize=9)
         ax.set_title(title, fontsize=10, fontweight='bold')
-        fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+        ax.legend(fontsize=6, ncol=2, loc='best')
     fig.suptitle(f'{unit_label} Cross-Trial Consistency by Patch Position\n'
-                 '(bright both = consistent baseline; bright Jaccard + dark Cosine = same Filters, different content)',
+                 '(high both = consistent baseline; high binary + low weighted = same Filters, different strength)',
                  fontsize=11, fontweight='bold')
     fig.tight_layout()
     fig.savefig(out_path, dpi=120, bbox_inches='tight')
@@ -776,16 +772,17 @@ def plot_patch_position_consistency(out_path, trial_records, unit_label='Filter'
     print(f"  [codebook] -> {out_path}")
 
     # Per-patch-position dip detector, collapsing the Trial axis: for each of the two
-    # curves (Jaccard-by-patch, Cosine-by-patch) independently -- NOT their difference,
-    # a real event patch may dip in one curve deeper than the other -- find where that
-    # curve is lowest and how deep relative to its OWN noise floor (z = (mean-min)/std).
-    # An aggregate std-across-patches alone can't tell "flat" from "one sharp localized
-    # dip drowned in a mostly-flat baseline"; this reports the dip itself, not just
-    # whether any variance exists. A run of several adjacent low-z patches (not just one)
-    # is the "cliff" signature of a multi-patch event; a single low point is a one-patch dip.
-    jac_by_patch = np.nanmean(jac_grid, axis=0)  # [N]
-    cos_by_patch = np.nanmean(cos_grid, axis=0)  # [N]
-    for name, arr in (('Jaccard', jac_by_patch), ('Cosine', cos_by_patch)):
+    # curves (binary-Jaccard-by-patch, weighted-Jaccard-by-patch) independently -- NOT
+    # their difference, a real event patch may dip in one curve deeper than the other --
+    # find where that curve is lowest and how deep relative to its OWN noise floor
+    # (z = (mean-min)/std). An aggregate std-across-patches alone can't tell "flat" from
+    # "one sharp localized dip drowned in a mostly-flat baseline"; this reports the dip
+    # itself, not just whether any variance exists. A run of several adjacent low-z
+    # patches (not just one) is the "cliff" signature of a multi-patch event; a single
+    # low point is a one-patch dip.
+    bin_by_patch = np.nanmean(bin_grid, axis=0)  # [N]
+    w_by_patch = np.nanmean(w_grid, axis=0)  # [N]
+    for name, arr in (('Binary Jaccard', bin_by_patch), ('Weighted Jaccard', w_by_patch)):
         m, s = arr.mean(), arr.std()
         amin = int(np.argmin(arr))
         z = (m - arr[amin]) / (s + 1e-8)
