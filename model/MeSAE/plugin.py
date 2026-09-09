@@ -305,9 +305,12 @@ class MeSAEChecker(BaseEpochChecker):
 
 class MeSAECodebookChecker(BaseCodebookChecker):
     unit_label = 'Stamp'
-    needs_raw_tensors = True  # _render_patch_similarity needs a fresh forward pass per
-    # trial (extract_stamp_content) — too expensive for check_codebook's full trial set,
-    # see needs_raw_tensors' docstring on the base class.
+    needs_raw_tensors = True  # _render_patch_position_consistency and
+    # _render_identity_consistency both need a fresh forward pass per trial
+    # (extract_stamp_content / model.stamps) — too expensive for check_codebook's full
+    # trial set, see needs_raw_tensors' docstring on the base class.
+    # (_render_patch_similarity no longer needs this — it now reads the cheap `usage`
+    # already in trial_records.)
 
     @torch.no_grad()
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
@@ -349,12 +352,15 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         where selected, exact 0 elsewhere (same zero-fill convention as viz.extract's
         flat-token panels, e.g. extract_flat_stamp_psd_by_patch). Unlike extract_usage (a
         scalar gating strength h per stamp), this is the actual decoder output — used only
-        by _render_patch_similarity (viz.codebook.plot_stamp_similarity), which needs real
-        content to compare, not just selection confidence.
+        by _render_patch_position_consistency (viz.codebook.plot_patch_position_consistency),
+        which needs real content to compare, not just selection confidence.
+        (_render_patch_similarity used to read this too, for a content-based
+        stamp_similarity.png — dropped in favor of the cheaper usage/Jaccard-only version,
+        see plot_stamp_similarity's docstring.)
 
         Expensive: T=C*N tokens x n_stamps x patch_len dense per trial (e.g. 64*16*120*50
-        ~= 6M floats, ~25MB). _render_patch_similarity only calls this for a small
-        subsample of trials (see needs_raw_tensors), not every trial check_codebook
+        ~= 6M floats, ~25MB). _render_patch_position_consistency only calls this for a
+        small subsample of trials (see needs_raw_tensors), not every trial check_codebook
         samples up front."""
         B, C, N, L = x_in.shape
         z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
@@ -375,30 +381,21 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         return dense.permute(1, 0, 2, 3).cpu().numpy()  # [C, N, n_stamps, patch_len]
 
     def _render_patch_similarity(self, trial_records, viz_dir, model, device, seed):
-        """Overrides the base's usage/gating-based hierarchy panel (patch_similarity_
-        hierarchy.png, cosine over selection strength h) with a content-based one
-        (stamp_similarity.png, cosine over real decoder output — see extract_stamp_content
-        and viz.codebook.plot_stamp_similarity, including its new Intra-Patch grouping).
-        Dense per-token decoder content is too expensive to compute for every trial
-        check_codebook samples (see needs_raw_tensors), so this re-runs a fresh forward
-        pass on only a small trial subsample — same max_trials_per_group cap
-        plot_stamp_similarity itself would otherwise apply internally, just applied before
-        the (expensive) extraction instead of after."""
+        """Overrides the base's default groupings (Intra-Trial/Inter-Trial/Inter-Subject,
+        all 3) with the StampBank-specific version (viz.codebook.plot_stamp_similarity):
+        Intra-Trial/Inter-Trial only (Intra-Patch and Inter-Subject dropped — see that
+        function's docstring), binary + weighted Jaccard on `usage` instead of Jaccard +
+        cosine on decoder content. `usage` is already sitting in trial_records (cheap,
+        built by check_codebook's extract_usage pass) — no fresh forward pass needed for
+        this panel anymore, unlike the identity-consistency one below which still does."""
+        plot_stamp_similarity(
+            os.path.join(viz_dir, 'stamp_similarity.png'), trial_records,
+            unit_label=self.unit_label, seed=seed)
+
         max_trials_per_group = 60
         rng = random.Random(seed)
         sample = trial_records if len(trial_records) <= max_trials_per_group else \
             rng.sample(trial_records, max_trials_per_group)
-
-        content_records = []
-        for t in sample:
-            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
-            content = self.extract_stamp_content(model, x_in, c_in, t_in, vc_in)
-            content_records.append(dict(content=content, dataset=t['dataset'], subject=t['subject']))
-
-        plot_stamp_similarity(
-            os.path.join(viz_dir, 'stamp_similarity.png'), content_records,
-            unit_label=self.unit_label, seed=seed)
-
         self._render_identity_consistency(sample, viz_dir, model, device)
 
     @torch.no_grad()

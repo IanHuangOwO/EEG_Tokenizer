@@ -435,6 +435,52 @@ def _pairwise_stats(vecs, max_n, rng):
     return jac[iu], cos[iu]
 
 
+def _pairwise_stats_jaccard(vecs, max_n, rng):
+    """[N, D] continuous nonneg activations (e.g. per-stamp amp/h magnitude), subsampled
+    to max_n rows -> plain BINARY Jaccard (|support A ∩ support B| / |union|, ignores
+    magnitude, only "did the same stamp fire") and weighted Jaccard (Ruzicka, see
+    _pairwise_stats) per unique pair. Two genuinely different questions, unlike
+    _pairwise_stats' (weighted Jaccard, cosine) pairing where cosine over a mostly-zero
+    concatenated vector mostly just re-measures support overlap anyway — binary vs
+    weighted Jaccard actually separate "same atoms selected" from "selected with similar
+    relative strength"."""
+    n = vecs.shape[0]
+    if n > max_n:
+        vecs = vecs[rng.choice(n, max_n, replace=False)]
+        n = max_n
+    if n < 2:
+        return None
+    vecs = np.maximum(vecs, 0.0)  # guards float noise; support/Ruzicka both need nonneg
+    support = vecs > 0
+    inter = (support[:, None, :] & support[None, :, :]).sum(axis=-1)
+    union = (support[:, None, :] | support[None, :, :]).sum(axis=-1)
+    bin_jac = np.divide(inter, union, out=np.zeros(inter.shape), where=union > 0)
+    mins = np.minimum(vecs[:, None, :], vecs[None, :, :]).sum(axis=-1)
+    maxs = np.maximum(vecs[:, None, :], vecs[None, :, :]).sum(axis=-1)
+    w_jac = np.divide(mins, maxs, out=np.zeros_like(mins), where=maxs > 0)
+    iu = np.triu_indices(n, k=1)
+    return bin_jac[iu], w_jac[iu]
+
+
+def _pair_index_stats_jaccard(trial_means, pairs, cap, rng):
+    """Same (binary Jaccard, weighted Jaccard) pairing as _pairwise_stats_jaccard, but for
+    an already-restricted pair list (see _pair_index_stats, which this mirrors)."""
+    if len(pairs) > cap:
+        pairs = [pairs[k] for k in rng.choice(len(pairs), cap, replace=False)]
+    if not pairs:
+        return None
+    ia = np.array([p[0] for p in pairs]); ib = np.array([p[1] for p in pairs])
+    va, vb = np.maximum(trial_means[ia], 0.0), np.maximum(trial_means[ib], 0.0)
+    supp_a, supp_b = va > 0, vb > 0
+    inter = (supp_a & supp_b).sum(axis=1)
+    union = (supp_a | supp_b).sum(axis=1)
+    bin_jac = np.divide(inter, union, out=np.zeros(len(pairs)), where=union > 0)
+    mins = np.minimum(va, vb).sum(axis=1)
+    maxs = np.maximum(va, vb).sum(axis=1)
+    w_jac = np.divide(mins, maxs, out=np.zeros(len(pairs)), where=maxs > 0)
+    return bin_jac, w_jac
+
+
 def _pair_index_stats(trial_means, pairs, cap, rng):
     """trial_means: [T, D] one flattened code per trial. pairs: list of (i, j) index
     tuples (already restricted to one grouping, e.g. same-subject or diff-subject) --
@@ -551,107 +597,91 @@ def plot_patch_similarity_hierarchy(out_path, trial_records, unit_label='Filter'
 def plot_stamp_similarity(out_path, trial_records, unit_label='Stamp',
                            max_patches_per_trial=30, max_trials_per_group=60,
                            max_pairs=4000, seed=0):
-    """Flat-token StampBank analog of plot_patch_similarity_hierarchy — same
-    Jaccard(atom support)/cosine(content) test, same 3 of its 4 groupings, but two
-    differences the flat (channel, patch) token design makes possible/necessary:
+    """StampBank selection-similarity bars — Intra-Trial and Inter-Trial(same subject)
+    only, binary + weighted Jaccard on `usage` (per-stamp amp/h magnitude, [M, n_stamps],
+    nonneg, group-level).
 
-    trial_records: list of {content: [C, N, n_stamps, patch_len] np.ndarray, dataset,
-    subject} (one entry per sampled trial) — REAL DECODED CONTENT per (channel, patch,
-    stamp), zero-filled at stamps that (channel, patch) token didn't select (see
-    model/MeSAE/plugin.py's extract_stamp_content), not the scalar gating strength `h`
-    plot_patch_similarity_hierarchy's `usage` used. Cosine here therefore measures whether
-    the same stamp produces similar real signal when reused, not just whether it was
-    selected with a similar confidence — h is bounded (softmax over top_k / a fixed
-    constant for shared), which compresses cosine values toward each other regardless of
-    how different the underlying content actually was.
+    Two groupings dropped from an earlier version, both deliberately:
+    - Intra-Patch (channels, same patch): group selection means idx (which stamps fire)
+      is IDENTICAL across every channel in a group by construction (see
+      StampBank.forward) — any similarity metric on that comparison is trivially ~1.0
+      support overlap, not a real question. Channel-level variation only shows up in
+      per-channel amp, which is a different question (see
+      model/MeSAE/plugin.py's _render_identity_consistency).
+    - Inter-Subject (same dataset, different subject): not the question this panel is
+      for — Intra-Trial vs Inter-Trial(same subject) is enough to see whether stamp
+      usage tracks trial-specific content or just settles onto a per-subject baseline.
 
-    Intra-Patch (channels, same patch, same trial): NEW grouping this flat design enables
-    — a pooled design has one token per patch (no channel axis to compare within a patch);
-    this one has C independent tokens per patch, so "do neighboring channels pick similar
-    stamps/content at the same instant" is now a real, answerable question. High here
-    means stamp selection is spread near-uniformly across channels at that patch; low
-    means it's spatially localized (see the amplitude/localization discussion this
-    architecture was built around).
+    Cosine over decoder content dropped too (an earlier version tried it): with only
+    top_k+n_shared of n_stamps nonzero per token, cosine over the full sparse
+    n_stamps*patch_len vector was dominated by support-mismatch noise, producing
+    near-identical ~0.15-0.35 similarity across every grouping regardless of real
+    structure — no usable signal. `usage` (already nonneg, already nonzero only at
+    group-level selected stamps, cheap — no fresh forward pass needed, unlike the
+    decoder-content path) sidesteps that: binary Jaccard asks "did the same stamp(s)
+    fire" (pure support), weighted Jaccard (Ruzicka) asks "fired with similar relative
+    strength" — two genuinely different, both meaningful, questions instead of one
+    noisy one.
 
-    Intra-Trial/Inter-Trial/Inter-Subject: same definitions as
-    plot_patch_similarity_hierarchy, computed on CHANNEL-COLLAPSED (mean over C) content —
-    kept at the same granularity as before so these three stay comparable to the pooled
-    model's numbers; only Intra-Patch and the content-vs-gating cosine basis are new.
+    trial_records: list of {usage: [M, n_stamps] np.ndarray, dataset, subject} (one
+    entry per trial, from BaseCodebookChecker.check_codebook's cheap extract_usage
+    pass — no needs_raw_tensors subsampling needed for this panel specifically anymore).
     """
     rng = np.random.RandomState(seed)
 
-    sample = trial_records if len(trial_records) <= max_trials_per_group else \
-        [trial_records[i] for i in rng.choice(len(trial_records), max_trials_per_group, replace=False)]
-
-    intra_patch_jac, intra_patch_cos = [], []
-    intra_trial_jac, intra_trial_cos = [], []
-    for t in sample:
-        content = t['content']  # [C, N, n_stamps, patch_len]
-        C, N = content.shape[0], content.shape[1]
-
-        patch_idxs = np.arange(N) if N <= max_patches_per_trial else \
-            rng.choice(N, max_patches_per_trial, replace=False)
-        for n in patch_idxs:
-            stats = _pairwise_stats(content[:, n].reshape(C, -1), C, rng)  # channels @ this patch
-            if stats is not None:
-                intra_patch_jac.append(stats[0]); intra_patch_cos.append(stats[1])
-
-        collapsed = content.mean(axis=0).reshape(N, -1)  # [N, n_stamps*patch_len] -- channel-collapsed
-        stats = _pairwise_stats(collapsed, max_patches_per_trial, rng)
+    intra_bin, intra_w = [], []
+    for t in trial_records:
+        usage = t['usage']  # [M, n_stamps]
+        stats = _pairwise_stats_jaccard(usage, max_patches_per_trial, rng)
         if stats is not None:
-            intra_trial_jac.append(stats[0]); intra_trial_cos.append(stats[1])
+            intra_bin.append(stats[0]); intra_w.append(stats[1])
+    intra_bin = np.concatenate(intra_bin) if intra_bin else np.array([np.nan])
+    intra_w = np.concatenate(intra_w) if intra_w else np.array([np.nan])
 
-    intra_patch_jac = np.concatenate(intra_patch_jac) if intra_patch_jac else np.array([np.nan])
-    intra_patch_cos = np.concatenate(intra_patch_cos) if intra_patch_cos else np.array([np.nan])
-    intra_trial_jac = np.concatenate(intra_trial_jac) if intra_trial_jac else np.array([np.nan])
-    intra_trial_cos = np.concatenate(intra_trial_cos) if intra_trial_cos else np.array([np.nan])
-
-    trial_means = np.stack([t['content'].mean(axis=(0, 1)).reshape(-1) for t in trial_records])  # [T, n_stamps*patch_len]
+    trial_means = np.stack([t['usage'].mean(axis=0) for t in trial_records])  # [T, n_stamps]
     datasets = [t['dataset'] for t in trial_records]
     subjects = [t['subject'] for t in trial_records]
     T = len(trial_records)
     idx_pool = np.arange(T) if T <= max_trials_per_group * 4 else \
         rng.choice(T, max_trials_per_group * 4, replace=False)
 
-    same_subj_pairs, diff_subj_pairs = [], []
+    same_subj_pairs = []
     for a in range(len(idx_pool)):
         i = idx_pool[a]
         for j in idx_pool[a + 1:]:
             if datasets[i] != datasets[j]:
                 continue  # cross-dataset pairs excluded -- see plot_dataset_relation instead
-            (same_subj_pairs if subjects[i] == subjects[j] else diff_subj_pairs).append((i, j))
+            if subjects[i] == subjects[j]:
+                same_subj_pairs.append((i, j))
 
-    inter_trial = _pair_index_stats(trial_means, same_subj_pairs, max_pairs, rng)
-    inter_subj  = _pair_index_stats(trial_means, diff_subj_pairs, max_pairs, rng)
+    inter_trial = _pair_index_stats_jaccard(trial_means, same_subj_pairs, max_pairs, rng)
 
     groups = [
-        ('Intra-Patch\n(channels, same patch)', intra_patch_jac, intra_patch_cos),
-        ('Intra-Trial\n(patches, same trial)', intra_trial_jac, intra_trial_cos),
+        ('Intra-Trial\n(patches, same trial)', intra_bin, intra_w),
         ('Inter-Trial\n(same subject)', *(inter_trial if inter_trial else (np.array([np.nan]),) * 2)),
-        ('Inter-Subject\n(same dataset)', *(inter_subj if inter_subj else (np.array([np.nan]),) * 2)),
     ]
-    labels    = [g[0] for g in groups]
-    jac_mean  = [np.nanmean(g[1]) for g in groups]
-    jac_std   = [np.nanstd(g[1]) for g in groups]
-    cos_mean  = [np.nanmean(g[2]) for g in groups]
-    cos_std   = [np.nanstd(g[2]) for g in groups]
+    labels     = [g[0] for g in groups]
+    bin_mean   = [np.nanmean(g[1]) for g in groups]
+    bin_std    = [np.nanstd(g[1]) for g in groups]
+    w_mean     = [np.nanmean(g[2]) for g in groups]
+    w_std      = [np.nanstd(g[2]) for g in groups]
 
     x = np.arange(len(groups))
-    w = 0.35
-    fig, ax = plt.subplots(figsize=(10, 5.5))
-    ax.bar(x - w / 2, jac_mean, w, yerr=jac_std, capsize=4, color='darkorange', label='Weighted Jaccard (Ruzicka)')
-    ax.bar(x + w / 2, cos_mean, w, yerr=cos_std, capsize=4, color='steelblue', label='Cosine (decoder output)')
+    w = 0.3
+    fig, ax = plt.subplots(figsize=(7, 5.5))
+    ax.bar(x - w / 2, bin_mean, w, yerr=bin_std, capsize=4, color='seagreen', label='Binary Jaccard (support)')
+    ax.bar(x + w / 2, w_mean, w, yerr=w_std, capsize=4, color='darkorange', label='Weighted Jaccard (Ruzicka, amp)')
     ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=9)
     ax.set_ylabel('Similarity'); ax.set_ylim(0, 1)
     ax.legend(fontsize=9)
-    ax.set_title(f'{unit_label} Selection Similarity by Grouping\n(high = same code (and content) reused across that grouping)',
+    ax.set_title(f'{unit_label} Selection Similarity by Grouping\n(high = same stamp(s), similar strength, reused across that grouping)',
                  fontsize=11, fontweight='bold')
     fig.tight_layout()
     fig.savefig(out_path, dpi=120, bbox_inches='tight')
     plt.close(fig)
     print(f"  [codebook] -> {out_path}")
-    for name, jm, js, cm, cs in zip(labels, jac_mean, jac_std, cos_mean, cos_std):
-        print(f"    {name.splitlines()[0]}: jaccard={jm:.3f}+/-{js:.3f}  cosine={cm:.3f}+/-{cs:.3f}")
+    for name, bm, bs, wm, ws in zip(labels, bin_mean, bin_std, w_mean, w_std):
+        print(f"    {name.splitlines()[0]}: binary_jaccard={bm:.3f}+/-{bs:.3f}  weighted_jaccard={wm:.3f}+/-{ws:.3f}")
 
 
 def _patch_position_consistency_grids(codes, subjects, max_trials, rng):
