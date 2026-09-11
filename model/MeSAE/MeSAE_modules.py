@@ -33,6 +33,21 @@ class SpatialTemporalEmbeddings(nn.Module):
             nn.GELU(),
             _coord_out,
         )
+        # Real channel coords sit in a tiny range (head-radius units, magnitude ~0.1 —
+        # e.g. standard_1020 channels sit ~0.08-0.12 from head center). Against coord_
+        # proj[0]'s default Linear init (weight scale ~1/sqrt(3)), that's a barely-there
+        # signal: measured on a trained checkpoint, coord_proj's per-channel output was
+        # 99.1% cosine-similar across channels — 92% of its norm was a channel-independent
+        # constant (effectively just a learned bias), only ~8% actually varied with
+        # position. Recon loss never pushed back because per-channel CONTENT already
+        # differs plenty (different electrode signal), so the coord path had no pressure
+        # to earn its keep. A learnable scale multiplying coords before the MLP gives
+        # position-dependent variation more leverage relative to that constant term, no
+        # magic number tied to one montage's specific radius (adapts to whatever
+        # coordinate frame the run's channels actually live in). Init 10.0: typical
+        # coord magnitude ~0.1 -> scaled input ~O(1), a normal-sized MLP input instead of
+        # a tenth of one.
+        self.coord_scale = nn.Parameter(torch.tensor(10.0))
 
     def enable_spatial(self):
         self.spatial_active = True
@@ -49,7 +64,7 @@ class SpatialTemporalEmbeddings(nn.Module):
             z = z + self.pos_emb[:, :N, :]
 
         if coords is not None and self.spatial_active:
-            s = self.coord_proj(coords.reshape(B * C, 3)).unsqueeze(1)  # [B*C, 1, D]
+            s = self.coord_proj((coords * self.coord_scale).reshape(B * C, 3)).unsqueeze(1)  # [B*C, 1, D]
             z = z + s
 
         return self.norm(z).reshape(B, C, N, -1)
