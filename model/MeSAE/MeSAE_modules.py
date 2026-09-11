@@ -25,11 +25,18 @@ class SpatialTemporalEmbeddings(nn.Module):
         self.norm = nn.LayerNorm(dim)
         self.register_buffer('pos_emb', get_sinusoidal_pos(max_patches, dim, torch.device('cpu')))
         self.spatial_active = False
-        _coord_out = nn.Linear(dim // 4, dim)
+        # bias=False on BOTH linears: a bias on either one is a channel-INDEPENDENT
+        # constant the network can add regardless of coords — exactly the collapse
+        # coord_scale (below) only partly fixed (dropping just coord_out's bias alone
+        # isn't enough: the same constant just relocates into coord_proj[0]'s bias,
+        # GELU passes it through nearly unchanged, and coord_out still linearly maps
+        # that unchanged constant to the same output vector for every channel). With
+        # no bias anywhere in the path, coords=0 -> output=0 exactly, so real per-
+        # channel variation is the ONLY thing this path can produce, structurally.
+        _coord_out = nn.Linear(dim // 4, dim, bias=False)
         nn.init.zeros_(_coord_out.weight)
-        nn.init.zeros_(_coord_out.bias)
         self.coord_proj = nn.Sequential(
-            nn.Linear(3, dim // 4),
+            nn.Linear(3, dim // 4, bias=False),
             nn.GELU(),
             _coord_out,
         )
