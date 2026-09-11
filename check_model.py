@@ -250,9 +250,15 @@ if __name__ == '__main__':
             # (see train_pretrain.py's viz_targets) — a list of {dataset, subject, trial} triples
             # picking exactly which snapshots to render, instead of dataset_params.<mode>'s
             # one-subject-per-dataset-entry mechanism below. dataset_params.<mode> still governs
-            # what data gets loaded (all datasets/subjects it lists, combined into one dataset,
-            # same as training does); targets only selects which trials within that get plotted.
-            ds = build_dataset_from_config(cfg, mode=data_mode)
+            # what data gets loaded (all datasets/subjects it lists, combined into one dataset);
+            # targets only selects which trials within that get plotted.
+            # assemble_trials=False: one snapshot = one REAL trial, so patch count matches the
+            # trial's own length (e.g. a 260-pt Inria P300 epoch -> 2 patches) instead of an
+            # 800-pt assembled window that spans ~3 concatenated epochs, which makes the
+            # topo_psd_by_patch panel's "patch position within trial" axis meaningless for
+            # short-trial datasets. Long-trial datasets (~800pt) are unaffected. Same call the
+            # codebook path already uses. Note: trial_idx now indexes real trials, not windows.
+            ds = build_dataset_from_config(cfg, mode=data_mode, assemble_trials=False)
 
             def _first_subject(dataset_name=None):
                 sub_data = ds.base_dataset.subject_data
@@ -286,7 +292,9 @@ if __name__ == '__main__':
             for subject in subjects:
                 ds_name, subject = select_subject_dataset(cfg, subject, dataset_name=dataset_name, mode=data_mode)
                 filtered  = filter_config_to_subject(cfg, ds_name, subject, mode=data_mode)
-                ds        = build_dataset_from_config(filtered, mode=data_mode)
+                # assemble_trials=False -> one snapshot = one real trial, patch count matches
+                # the trial's own length (see the targets branch above for the full rationale).
+                ds        = build_dataset_from_config(filtered, mode=data_mode, assemble_trials=False)
                 trial_cfg = args.trial if args.trial is not None else ds_cfg.get('trial_to_use')
                 t_idx, subject_id = pick_trial(ds, subject, trial_cfg, dataset_name=ds_name)
                 out = resolve_output_dir(filtered, 'analysis', ds_name, mode=mode)
