@@ -197,11 +197,20 @@ class MeSAEChecker(BaseEpochChecker):
             model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
             fs=fs, freq_resolution=fft_resolution)
 
-        # Same raw/recon full-trial FFT as the base default, see BaseEpochChecker._render_topo_psd.
+        # Same raw/recon full-trial FFT as the base default, see BaseEpochChecker._render_topo_psd
+        # AND its _compute_spectra: n_fft here MUST equal grid.freqs' own n_fft (extract_flat_
+        # stamp_psd_by_patch's, patch_len-driven, effectively round(fs/fft_resolution) — the `band`
+        # mask below is built from grid.freqs and applied to psd_raw/psd_recon too). Previously this
+        # used max(T, round(fs/fft_resolution)) — a real (assemble_trials=False) trial longer than
+        # that target gave psd_raw/psd_recon a bigger n_fft than grid.freqs, and `psd_raw[:, band]`
+        # crashed ("boolean index did not match... size of axis is 751 but ... axis is 501"). Same
+        # bug, independently duplicated here — BaseEpochChecker's own _compute_spectra was fixed
+        # first, but MeSAEChecker overrides _render_topo_psd entirely, so that fix never covered
+        # this method. rfft's `n=` transparently zero-pads short trials, truncates long ones.
         raw_t   = bundle.raw_t[0].numpy()
         recon_t = bundle.recon_t[0].numpy()
         T = raw_t.shape[-1]
-        n_fft = max(T, int(round(fs / fft_resolution))) if fs else T
+        n_fft = int(round(fs / fft_resolution)) if fs else T
 
         def _demean_hann_rfft_np(x):
             x = x - x.mean(axis=-1, keepdims=True)
