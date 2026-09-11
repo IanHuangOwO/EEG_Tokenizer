@@ -106,6 +106,9 @@
     "cmap": "YlOrRd",
     "codebook": {
       "max_trials_per_dataset": 200
+    },
+    "event_onset_sample": {
+      "BCICIV2a": 400
     }
   }
 }

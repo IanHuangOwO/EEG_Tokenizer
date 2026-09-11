@@ -15,9 +15,11 @@ from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
 from viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch,
                           extract_flat_stamp_gallery, extract_filter_spectra)
-from viz.panels import plot_attn_topo as render_attn_topo, plot_topo_psd_by_patch, plot_stamp_gallery
+from viz.panels import (plot_attn_topo as render_attn_topo, plot_topo_psd_by_patch,
+                         plot_stamp_gallery, plot_event_stamp_dynamics)
 from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
                            plot_stamp_identity_consistency)
+from IO.preprocessing import slice_patches
 
 
 @torch.no_grad()
@@ -500,6 +502,98 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         plot_patch_position_consistency(
             os.path.join(viz_dir, f'patch_position_consistency_{ds_name}.png'), content_records,
             unit_label=self.unit_label, seed=seed, code_label='decoder output')
+
+    @torch.no_grad()
+    def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
+        """Event-locked stamp-selection / power trajectory -> event_stamp_dynamics_<ds_name>.png.
+
+        The tokenizer was trained at one patch stride; to read selection/power on a finer
+        time axis WITHOUT an out-of-distribution token spacing, this does a sliding-window
+        eval: for each sub-stride offset it re-patchifies the raw trial at the NATIVE
+        stride (every forward pass in-distribution), runs the stamp bank, and places each
+        patch's result at its true sample time. Pooled over trials x offsets -> per-time-bin
+        selection rate and power. Trials are onset-aligned (assemble_trials=False in the
+        analysis path), so a fixed time within the trial is comparable across trials.
+
+        Event onset per dataset: config['check']['event_onset_sample'] ({ds: samples} dict
+        or a scalar for all); absent -> trajectory + heatmap only, no pre/post split. Same
+        expensive-on-a-subsample tradeoff as _render_patch_position_consistency."""
+        if not ds_trials:
+            return
+        from collections import defaultdict
+        pp = config.get('preprocess_params', {})
+        fs = pp.get('sample_freq')
+        patch_len = pp.get('patch_length', 100)
+        native_stride = pp.get('patch_stride', patch_len)
+
+        eo = config.get('check', {}).get('event_onset_sample', {})
+        onset = eo.get(ds_name) if isinstance(eo, dict) else eo
+        onset_sec = (onset / fs) if (onset and fs) else (float(onset) if onset else None)
+
+        n_off = next((k for k in (5, 4, 6, 3, 2) if native_stride % k == 0), 1)
+        fine = native_stride // n_off
+        offsets = list(range(0, native_stride, fine))
+
+        # This panel pools over trials, so it benefits from more of them than the
+        # dense-content panels can afford — its own knob, defaulting higher. Still bounded
+        # by check_codebook's max_trials_per_dataset (the pool it subsamples from).
+        max_trials = config.get('check', {}).get('codebook', {}).get('event_max_trials', 200)
+        rng = random.Random(seed)
+        sample = ds_trials if len(ds_trials) <= max_trials else rng.sample(ds_trials, max_trials)
+
+        n_stamps = int(model.n_stamps)
+        sel_cnt, amp_sum = defaultdict(lambda: np.zeros(n_stamps)), defaultdict(lambda: np.zeros(n_stamps))
+        obs, pow_s, pow_sq, h_s = defaultdict(float), defaultdict(float), defaultdict(float), defaultdict(float)
+
+        for t in sample:
+            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])   # x_in [1,C,N,L] native-stride patches
+            xp = x_in[0]                                                  # [C, N, L]
+            C, N, L = xp.shape
+            take = min(native_stride, L)                                 # =native_stride when stride<=len
+            # rebuild the raw [C, T] the patches were cut from: with stride<=len the first
+            # `take` samples of each patch tile the signal with no gap, plus the last
+            # patch's full tail. Samples past the last patch's end were dropped at slice
+            # time and are unrecoverable (fine — the model never saw them either).
+            raw = x_in.new_zeros(C, (N - 1) * take + L)
+            for p in range(N - 1):
+                raw[:, p * take:(p + 1) * take] = xp[:, p, :take]
+            raw[:, (N - 1) * take:] = xp[:, N - 1, :]
+
+            for off in offsets:
+                xps, tidx = slice_patches(raw[:, off:], patch_len, native_stride)  # [C, P, L]
+                if xps.shape[1] == 0:
+                    continue
+                grid = extract_flat_stamp_psd_by_patch(
+                    model, xps.unsqueeze(0), c_in, time_idx=tidx.unsqueeze(0).to(device),
+                    valid_channels=vc_in, fs=fs, freq_resolution=None, patch_stride=1)
+                ids, hh = grid.stamp_ids, grid.h                          # [P, K]
+                re = (grid.recon_topo ** 2).mean(axis=1)                  # [P]
+                for pi in range(ids.shape[0]):
+                    c = off + pi * native_stride + patch_len // 2
+                    obs[c] += 1; pow_s[c] += re[pi]; pow_sq[c] += re[pi] ** 2; h_s[c] += hh[pi].mean()
+                    for k, sid in enumerate(ids[pi]):
+                        sel_cnt[c][sid] += 1; amp_sum[c][sid] += hh[pi, k]
+
+        centers = np.array(sorted(obs))
+        if len(centers) == 0:
+            return
+        B = len(centers)
+        sr, am = np.zeros((n_stamps, B)), np.zeros((n_stamps, B))
+        pm, ps_, hm = np.zeros(B), np.zeros(B), np.zeros(B)
+        for j, c in enumerate(centers):
+            o = obs[c]
+            sr[:, j] = sel_cnt[c] / o
+            am[:, j] = np.divide(amp_sum[c], sel_cnt[c], out=np.zeros(n_stamps), where=sel_cnt[c] > 0)
+            pm[j] = pow_s[c] / o
+            ps_[j] = np.sqrt(max(pow_sq[c] / o - pm[j] ** 2, 0.0))
+            hm[j] = h_s[c] / o
+        t_axis = centers / fs if fs else centers.astype(float)
+
+        plot_event_stamp_dynamics(
+            os.path.join(viz_dir, f'event_stamp_dynamics_{ds_name}.png'),
+            t_axis, sr, am, pm, ps_, hm, onset_sec=onset_sec, unit_label=self.unit_label,
+            title_suffix=f' — {ds_name} ({len(sample)} trials x {len(offsets)} offsets, '
+                         f'step {fine} samp)')
 
 
 class MeSAEPlotter(BasePlotter):

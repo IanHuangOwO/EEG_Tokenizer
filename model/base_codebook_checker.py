@@ -72,6 +72,15 @@ class BaseCodebookChecker:
             os.path.join(viz_dir, f'patch_position_consistency_{ds_name}.png'), ds_trials,
             unit_label=self.unit_label, seed=seed)
 
+    def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
+        """Default: no-op. Override (e.g. MeSAECodebookChecker) to render an event-locked
+        unit-selection / power trajectory -> event_stamp_dynamics_<ds_name>.png. Needs a
+        fresh sliding-window forward pass per trial, so only subclasses with
+        needs_raw_tensors can implement it. Event onset per dataset comes from
+        config['check']['event_onset_sample'] (a {dataset_name: samples} dict, or a
+        scalar applied to all); datasets absent from it still get the trajectory + heatmap
+        without the pre/post split."""
+
     @staticmethod
     def _trial_tensors(dataset, trial_idx, device):
         x_patches, coords, _mask, time_indices, label, _, valid_channels = dataset[trial_idx]
@@ -174,5 +183,6 @@ class BaseCodebookChecker:
         for ds_name in dataset_order:
             ds_trials = [t for t in trial_records if t['dataset'] == ds_name]
             self._render_patch_position_consistency(ds_trials, ds_name, viz_dir, model, device, seed)
+            self._render_event_stamp_dynamics(ds_trials, ds_name, viz_dir, model, device, seed, config)
 
         print(f"  [codebook] -> {viz_dir}")
