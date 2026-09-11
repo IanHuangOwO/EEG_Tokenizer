@@ -13,21 +13,25 @@
       "BETA_4s": {
         "dataset_path": "datas/BETA_4s",
         "subject_to_use": [
-          "16",
-          "17",
-          "18",
-          "19",
-          "20",
-          "21",
-          "22",
-          "23",
-          "24",
-          "25",
-          "26",
-          "27",
-          "28",
-          "29",
-          "30"
+          "all"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "BETA_3s": {
+        "dataset_path": "datas/BETA_3s",
+        "subject_to_use": [
+          "all"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "GraspAndLift_Train": {
+        "dataset_path": "datas/GraspAndLift_Train",
+        "subject_to_use": [
+          "all"
         ],
         "channels_to_use": [
           "all"
@@ -54,16 +58,7 @@
       "EEGMMIdb": {
         "dataset_path": "datas/EEGMMIdb",
         "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8",
-          "9",
-          "10"
+          "all"
         ],
         "channels_to_use": [
           "all"
@@ -87,7 +82,7 @@
     "window_length": 800,
     "window_pad_threshold": 0.5,
     "patch_length": 100,
-    "patch_stride": 90,
+    "patch_stride": 50,
     "sample_freq": 200,
     "bandpass_filter": {
       "l_freq": 1.0,
@@ -170,11 +165,11 @@
           "top_k": 2
         },
         "stamp_bank": {
-          "n_stamps": 128,
-          "n_shared_stamps": 8,
+          "n_stamps": 64,
+          "n_shared_stamps": 4,
           "stamp_top_k": 12,
-          "stamp_hidden_width": 8,
-          "stamp_shared_hidden_width": 16,
+          "stamp_hidden_width": 6,
+          "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
           "sae_ema_decay": 0.99
@@ -182,7 +177,7 @@
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
-          "aux_weight": 0.05
+          "aux_weight": 0.01
         },
         "coord_embed_tokenizer": true
       },
@@ -205,11 +200,11 @@
           "top_k": 2
         },
         "stamp_bank": {
-          "n_stamps": 128,
+          "n_stamps": 64,
           "n_shared_stamps": 8,
-          "stamp_top_k": 16,
-          "stamp_hidden_width": 8,
-          "stamp_shared_hidden_width": 16,
+          "stamp_top_k": 12,
+          "stamp_hidden_width": 6,
+          "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
           "sae_ema_decay": 0.99
