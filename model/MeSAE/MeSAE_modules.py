@@ -189,6 +189,12 @@ class TSABlock(nn.Module):
         # embedding, which MHA needs.
         self.temporal_attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
         self.drop_t = nn.Dropout(dropout)
+        # Bounds this branch's raw output BEFORE scale_t multiplies it (applied to
+        # attn_out_t/attn_out/ffn_out in forward(), right after _watch measures the
+        # UNbounded version) — see the LayerScale comment below for why this is needed on
+        # top of LayerScale: without it, a branch's own weights can grow arbitrarily to
+        # counteract a tiny scale_t/s/ffn init, which is exactly what branch_max measures.
+        self.norm_time_out = nn.LayerNorm(dim)
 
         self.norm_space = nn.LayerNorm(dim)
         # dropout here is on the attention WEIGHTS themselves (nn.MultiheadAttention's own
@@ -196,11 +202,13 @@ class TSABlock(nn.Module):
         # different regularization points, same shared `dropout` value.
         self.spatial_attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
         self.drop_s = nn.Dropout(dropout)
+        self.norm_space_out = nn.LayerNorm(dim)  # see norm_time_out
 
         self.norm_ffn = nn.LayerNorm(dim)
         self.ffn = MoEFFN(dim, hidden_dim=int(dim * mlp_ratio), n_routed=n_routed_ffn_experts,
                            n_shared=n_shared_ffn_experts, top_k=ffn_top_k,
                            dropout=dropout)
+        self.norm_ffn_out = nn.LayerNorm(dim)  # see norm_time_out
 
         # norm_time/norm_space/norm_ffn are pre-norm (normalize the input to each
         # sub-layer) — nothing caps the residual stream x itself after three unbounded
@@ -214,11 +222,18 @@ class TSABlock(nn.Module):
         # per-channel multiplier, init small, applied to each branch's output before the
         # residual add. Unlike the zero-init below (a one-time starting condition on two of
         # the three branches only, nothing stopping unbounded growth afterward), this stays
-        # active for the whole run and throttles each branch's net contribution to x
-        # throughout training — the actual mechanism behind the compounding-depth blowup
-        # (block_norm growing block-to-block, epoch-to-epoch, eventually NaN) is unbounded
-        # per-branch growth stacked across 12 blocks x many epochs, and this is what caps
-        # that growth at its source instead of only re-normalizing x after the fact.
+        # active for the whole run and throttles each branch's net CONTRIBUTION to x. It
+        # does NOT bound the branch's own INTERNAL magnitude, though — LayerScale only
+        # multiplies the branch's output on its way out, so gradient descent can (and does:
+        # measured branch_max ~2500 on a converged FFN branch after 50 epochs, out_proj/fc2
+        # weights growing to counteract scale_ffn's tiny init rather than the branch
+        # learning to stay small) inflate the branch's own weights to reach whatever
+        # effective magnitude it wants regardless of how small scale_t/s/ffn is. norm_*_out
+        # (added right after each branch, before its scale multiply — see norm_time_out)
+        # closes that loop: once the branch's raw output is itself normalized, scale_t/s/ffn
+        # alone controls the residual contribution, removing the incentive to grow the
+        # branch's internal weights in the first place. LayerScale still matters on top of
+        # that (controls how much of the now-bounded branch reaches the residual stream).
         layerscale_init = 1e-4
         self.scale_t   = nn.Parameter(torch.full((dim,), layerscale_init))
         self.scale_s   = nn.Parameter(torch.full((dim,), layerscale_init))
@@ -246,15 +261,19 @@ class TSABlock(nn.Module):
         self.spatial_active = True
 
     def _watch(self, t):
-        """Track the largest magnitude any branch produces BEFORE LayerScale shrinks it.
+        """Track the largest magnitude any branch produces BEFORE norm_*_out/LayerScale
+        shrink it — called on the raw attn_out_t/attn_out/ffn_out, ahead of both.
 
         This is the blind spot that cost a tokenizer run. norm_time/norm_space/norm_ffn
         bound each branch's INPUT and norm_out bounds the block's OUTPUT, but nothing
-        bounds what happens between them — and scale_t/scale_s/scale_ffn (init 1e-4)
+        bounded what happened between them — and scale_t/scale_s/scale_ffn (init 1e-4)
         multiply the branch output on its way to the residual add, so an enormous
-        interior arrives at the stream as a whisper. block_norm measures the post-scale
+        interior arrived at the stream as a whisper. block_norm measures the post-scale
         contribution, i.e. the wrong side of that multiplication: it can stay tame right
-        up to the moment a branch's interior crosses fp16's 65504 ceiling.
+        up to the moment a branch's interior crosses fp16's 65504 ceiling. norm_*_out
+        (see the LayerScale comment above) now closes that gap architecturally, but this
+        stays a raw pre-norm probe on purpose — it's the canary for the underlying matmul
+        itself, independent of whatever norm_*_out does downstream.
 
         Deliberately NOT gated on `not self.training`, unlike last_block_norms: the
         overflow happened in TRAIN mode (eval on the same weights was finite), so an
@@ -275,6 +294,7 @@ class TSABlock(nn.Module):
             x_norm_t = self.norm_time(x_flat)
             attn_out_t, _ = self.temporal_attn(x_norm_t, x_norm_t, x_norm_t)
             self._watch(attn_out_t)
+            attn_out_t = self.norm_time_out(attn_out_t)
             x_flat = x_flat + self.drop_t(self.scale_t * attn_out_t)
 
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
@@ -282,11 +302,13 @@ class TSABlock(nn.Module):
             x_norm = self.norm_space(x_space)
             attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm)
             self._watch(attn_out)
+            attn_out = self.norm_space_out(attn_out)
             x_space = x_space + self.drop_s(self.scale_s * attn_out)
         x_flat = x_space.view(B, N, C, D).permute(0, 2, 1, 3).reshape(B * C, N, D)
 
         ffn_out, ffn_lb_loss = self.ffn(self.norm_ffn(x_flat))
         self._watch(ffn_out)
+        ffn_out = self.norm_ffn_out(ffn_out)
         x_flat = x_flat + self.scale_ffn * ffn_out
         x_flat = self.norm_out(x_flat)
         return x_flat.view(B, C, N, D), ffn_lb_loss
