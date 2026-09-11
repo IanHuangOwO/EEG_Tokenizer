@@ -106,16 +106,27 @@ class BaseEpochChecker:
         # T=N*patch_len) instead of per-patch_len-then-averaged — a single 100ms
         # patch can't resolve real Delta/Theta content and a per-patch FFT leaks DC
         # /edge-discontinuity power across 0-20Hz regardless of true content (see
-        # viz/extract._demean_hann_rfft). The full trial is long enough to actually
-        # resolve down near l_freq. n_fft is driven by the same fft_resolution (Hz/bin,
-        # preprocess_params.fft_resolution) target either way, so it lands on the same
-        # value (and same freqs axis) as psd_x's patch-level FFT as long as T <= that
-        # n_fft — true for any config where the trial is a few seconds, so no
-        # downstream shape mismatch.
+        # viz/extract._demean_hann_rfft). n_fft here MUST equal psd_x's own n_fft
+        # (viz/extract._spectra_per_channel: max(patch_len, round(fs/fft_resolution)),
+        # which patch_len << the round(...) term makes just round(fs/fft_resolution)
+        # in practice) — the same `band` mask below indexes both, and plot_topo_psd_
+        # filter's docstring requires them on one shared freq axis to be comparable at
+        # all. Previously this used max(T, round(fs/fft_resolution)) instead, on the
+        # assumption T (a whole trial) never exceeds that target ("true for any config
+        # where the trial is a few seconds") — false once a real (not artificially
+        # windowed) trial can run longer, e.g. after check_model.py's snapshot switched
+        # to assemble_trials=False: T then exceeded round(fs/fft_resolution) for some
+        # datasets, giving raw/recon a LARGER n_fft (finer freq axis) than psd_x, and
+        # `psd_raw[:, band]` crashed ("boolean index did not match... size of axis is
+        # 751 but size of corresponding boolean axis is 501"). Using the same n_fft as
+        # psd_x here means rfft's own `n=` argument transparently zero-pads a short
+        # trial (as before) or TRUNCATES a long one to its first n_fft samples — a
+        # small coverage tradeoff, but the shared freq axis is the load-bearing
+        # invariant this whole panel depends on, not full-trial coverage.
         raw_t   = bundle.raw_t[0].numpy()    # [C, T]
         recon_t = bundle.recon_t[0].numpy()  # [C, T]
         T = raw_t.shape[-1]
-        n_fft = max(T, int(round(fs / fft_resolution))) if fs else T
+        n_fft = int(round(fs / fft_resolution)) if fs else T
 
         def _demean_hann_rfft_np(x):
             x = x - x.mean(axis=-1, keepdims=True)
