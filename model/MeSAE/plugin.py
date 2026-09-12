@@ -104,10 +104,10 @@ class MeSAETrainer(BaseTrainer):
         model.update_ffn_router_metrics(out.ffn_router_entropy, out.ffn_router_load_std, out.ffn_gate_entropy)
 
     def epoch_metrics(self, model, out):
-        # mse_level_* are accumulated per-batch and epoch-averaged in train_pretrain.py
-        # (train_one_epoch/validate_one_epoch), not added here — this function only ever
-        # sees the last batch's out, which would make mse_level_* a last-batch snapshot
-        # instead of an epoch average like every other loss stat.
+        # mse_patch/mse_trial are accumulated per-batch and epoch-averaged in
+        # train_pretrain.py (train_one_epoch/validate_one_epoch), not added here — this
+        # function only ever sees the last batch's out, which would make them a
+        # last-batch snapshot instead of an epoch average like every other loss stat.
         metrics = model.get_metrics(out.dense_routed.detach())
         metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
         metrics['k_eff'] = out.k_eff.item() if hasattr(out.k_eff, 'item') else float(out.k_eff)
@@ -359,9 +359,10 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         """Per-stamp [patch_len] waveform template D_i (see StampBank.fingerprint —
         content-free and exact now, no probe involved: D_i never depends on any input),
         pairwise cosine sim — this is `filter_relation.png`'s direct successor and the
-        empirical check on template diversity (now expected to emerge from the whitened
-        recon objective + sparsity + aux rescue, not enforced by the deleted
-        decorr/indep repulsion losses — see MeSAE._recon_loss's docstring)."""
+        empirical check on template diversity — no longer enforced by the deleted
+        decorr/indep repulsion losses NOR by whitening (also since removed, see
+        MeSAE._recon_loss's docstring); this panel is now the main way to catch a
+        collapse back toward duplicate waveforms, not just a sanity check on one."""
         fp = model.stamps.fingerprint().cpu().numpy()  # [n_stamps, patch_len]
         flat = fp.reshape(fp.shape[0], -1)
         flat = flat / (np.linalg.norm(flat, axis=1, keepdims=True) + 1e-8)
@@ -626,15 +627,16 @@ class MeSAEPlotter(BasePlotter):
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
         # group may still straddle a row edge.
         loss_panels = [
-            dict(title='Total Loss\n(whitened recon + sparsity + aux + ffn_lb, weighted)', ylabel='Loss',
+            dict(title='Total Loss\n(recon + sparsity + aux + ffn_lb, weighted)', ylabel='Loss',
                  series=[dict(key='loss', color='b')]),
             dict(title='Masked vs Unmasked MSE\n(plain time-domain, diagnostic only — not the trained objective)',
                  ylabel='MSE',
                  series=[dict(key='masked', color='crimson'), dict(key='unmasked', color='steelblue')]),
-            dict(title='Recon: Window vs Patch vs Trial\n(mse_level_0=window avg time-MSE, mse_level_1='
-                       'WHITENED patch loss, mse_level_2=overlap-added real-trial time-MSE — see '
-                       'MeSAE._recon_loss)',
-                 ylabel='Loss', series=self.indexed_series('mse_level_', cmap_name='plasma', train_only=False)),
+            dict(title='Recon: Patch vs Trial\n(mse_patch=plain per-patch time-MSE, mse_trial=overlap-added '
+                       'real-trial time-MSE — see MeSAE._recon_loss)',
+                 ylabel='Loss',
+                 series=[dict(key='mse_patch', color='steelblue', label='mse_patch', train_only=False),
+                         dict(key='mse_trial', color='crimson', label='mse_trial', train_only=False)]),
         ]
 
         stamp_health_panels = [

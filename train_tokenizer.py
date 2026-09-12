@@ -95,8 +95,8 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
         totals["unmasked"] += l_unmasked.item()
         if hasattr(out, 'lb_loss'):
             totals["lb_loss"] = totals.get("lb_loss", 0.0) + (out.lb_loss.item() if hasattr(out.lb_loss, 'item') else float(out.lb_loss))
-        for i, v in enumerate(getattr(model, '_last_pyramid_levels', None) or []):
-            key = f'mse_level_{i}'
+        for name, v in (getattr(model, '_last_pyramid_levels', None) or {}).items():
+            key = f'mse_{name}'
             totals[key] = totals.get(key, 0.0) + v
 
         if batch_idx % 5 == 0:
@@ -140,8 +140,8 @@ def validate_one_epoch(model, trainer, data_loader, device,
             totals["unmasked"] += l_unmasked.item()
             if hasattr(out, 'lb_loss'):
                 totals["lb_loss"] = totals.get("lb_loss", 0.0) + (out.lb_loss.item() if hasattr(out.lb_loss, 'item') else float(out.lb_loss))
-            for i, v in enumerate(getattr(model, '_last_pyramid_levels', None) or []):
-                key = f'mse_level_{i}'
+            for name, v in (getattr(model, '_last_pyramid_levels', None) or {}).items():
+                key = f'mse_{name}'
                 totals[key] = totals.get(key, 0.0) + v
 
             if batch_idx % 5 == 0:

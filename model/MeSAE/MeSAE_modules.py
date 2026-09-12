@@ -852,10 +852,12 @@ class StampBank(nn.Module):
     # No auxiliary dictionary-shaping loss remains. Redundant/degenerate atoms are
     # handled structurally: interchangeable atoms die naturally (sparsity_loss shrinks
     # one's amp at zero recon cost -> group score fades -> dead -> aux rescue re-aims
-    # it at the residual — content nobody else covers), and frequency diversity comes
-    # from the spectrally whitened recon objective (MeSAE._recon_loss) rather than an
-    # explicit penalty. k_eff and stamp_router_entropy_frac stay logged so drift is
-    # visible if that ever stops holding.
+    # it at the residual — content nobody else covers). Frequency diversity used to
+    # additionally come from the spectrally whitened recon objective (MeSAE._recon_
+    # loss) — that whitening was removed (not established to be earning its
+    # complexity over plain time-domain MSE), so diversity now rests on the dead-atom
+    # rescue alone. k_eff and stamp_router_entropy_frac stay logged so this is the
+    # first place to check for the template-collapse whitening used to guard against.
 
     @torch.no_grad()
     def fingerprint(self):
