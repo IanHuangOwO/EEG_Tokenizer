@@ -22,14 +22,59 @@ from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency
 from IO.preprocessing import slice_patches
 
 
+def _overlap_add(patches, stride):
+    """patches: [C, N, L] patch_stride-spaced, patch_len-long patches -> [C, T] the real
+    continuous signal they were sliced from, T = (N-1)*stride + L.
+
+    A plain reshape(C, N*L) (the old behavior) only gives the real signal back when
+    stride == L (non-overlapping patches) — patch_stride has been < patch_len (some
+    overlap) since before this codebase's current patch_len/stride values, so that
+    reshape has always silently stacked every patch's FULL length back to back
+    regardless of real overlap: the shared region between consecutive patches gets
+    shown TWICE in sequence (inflating the apparent trial duration, worse the more
+    overlap there is) and, for a MODEL OUTPUT like recon (unlike raw, whose duplicate
+    copies are byte-identical — it's the same real samples read twice), the two
+    patches' independently-computed reconstructions of that same shared moment
+    generally don't agree, so the naive concatenation shows a real, visible jump at
+    every patch boundary.
+
+    Fixed by linear-crossfade overlap-add instead: each patch gets a trapezoidal
+    window (ramps 0->1 over the incoming overlap it shares with the PREVIOUS patch,
+    flat 1 over its own unique hop, ramps 1->0 over the outgoing overlap it shares
+    with the NEXT one; no ramp on a side with no neighbor — the first/last patch).
+    Every sample's value is the weight-normalized sum of every patch covering it, so
+    this is a true weighted average (not dependent on the window being exactly
+    constant-overlap-add) and degrades to the old exact behavior when stride == L
+    (overlap == 0: every weight is 1, sum-of-weights is 1, nothing changes)."""
+    C, N, L = patches.shape
+    overlap = L - stride
+    T = (N - 1) * stride + L
+    out = patches.new_zeros(C, T)
+    wsum = patches.new_zeros(T)
+    ramp = torch.linspace(0, 1, overlap + 2, device=patches.device, dtype=patches.dtype)[1:-1] \
+        if overlap > 0 else None
+    for n in range(N):
+        w = torch.ones(L, device=patches.device, dtype=patches.dtype)
+        if overlap > 0:
+            if n > 0:
+                w[:overlap] = ramp
+            if n < N - 1:
+                w[-overlap:] = ramp.flip(0)
+        start = n * stride
+        out[:, start:start + L] += patches[:, n, :] * w
+        wsum[start:start + L] += w
+    return out / wsum.clamp(min=1e-8)
+
+
 @torch.no_grad()
 def _run_reconstruction_sae(model, dataset, trial_idx, device):
     """Always runs unmasked (bool_masked_pos not passed) for a clean reconstruction
     snapshot, regardless of whether the model is currently in the Masked training stage."""
     x_patches, coords, _, time_indices, _, _, valid_channels = dataset[trial_idx]
     C, N, L = x_patches.shape
-    T_total = N * L
-    fs = dataset.base_dataset.config['preprocess_params']['sample_freq']
+    pp = dataset.base_dataset.config['preprocess_params']
+    fs = pp['sample_freq']
+    stride = pp.get('patch_stride', L)
 
     x_in      = x_patches.unsqueeze(0).to(device)
     coords_in = coords.unsqueeze(0).to(device)
@@ -37,11 +82,13 @@ def _run_reconstruction_sae(model, dataset, trial_idx, device):
     vc_in     = valid_channels.unsqueeze(0).to(device)
 
     out = model(x_in, coords=coords_in, time_idx=t_in, valid_channels=vc_in)
-    recon_flat = out.recon.reshape(1, C, N * L)
+    raw_stitched   = _overlap_add(x_patches.to(device), stride)     # [C, T]
+    recon_stitched = _overlap_add(out.recon[0], stride)             # [C, T]
+    T_total = raw_stitched.shape[-1]
 
     return {
-        'raw':    x_patches.reshape(C, T_total).cpu().numpy(),
-        'recon':  recon_flat[0].cpu().numpy(),
+        'raw':    raw_stitched.cpu().numpy(),
+        'recon':  recon_stitched.cpu().numpy(),
         'coords': coords.numpy(),
         'T': T_total, 'N': N, 'L': L, 'fs': fs,
     }

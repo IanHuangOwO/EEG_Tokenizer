@@ -282,10 +282,15 @@ class BaseEpochChecker:
             data = self.run_reconstruction(model, dataset, trial_idx, device)
 
             C, N, patch_len = x_patches.shape
-            mask_np   = mask.numpy().reshape(C, N)
-            recon_cnl = data['recon'].reshape(C, N, patch_len)
+            mask_np = mask.numpy().reshape(C, N)
 
             out = model(x_in, c_in, time_idx=t_in, bool_masked_pos=None, valid_channels=vc_in)
+            # [C, N, L] straight from this forward's own (unstitched) per-patch output —
+            # NOT reshaped from data['recon'], which run_reconstruction now overlap-adds
+            # into the real continuous trial length ((N-1)*stride+L, not N*L, whenever
+            # patches overlap — see model/MeSAE/plugin.py's _overlap_add). A reshape back
+            # to (C, N, patch_len) would only be valid at the old, wrong N*L length.
+            recon_cnl = out.recon[0].detach().cpu().numpy()
             attn = out.attn[0].mean(dim=0).cpu().numpy() if self.has_attn_topo else None
 
             unit_colors, used_ids = self.compute_unit_colors(model, out)
