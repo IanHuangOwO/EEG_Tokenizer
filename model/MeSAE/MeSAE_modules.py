@@ -23,7 +23,15 @@ class SpatialTemporalEmbeddings(nn.Module):
         super().__init__()
         self.proj = nn.Linear(patch_len, dim)
         self.norm = nn.LayerNorm(dim)
-        self.register_buffer('pos_emb', get_sinusoidal_pos(max_patches, dim, torch.device('cpu')))
+        # Learnable, warm-started from the sinusoidal code (not random init) - an
+        # ablation showed the FIXED sinusoidal version was measurably inert (shuffling
+        # or zeroing time_idx changed reconstruction MSE by <0.1%, noise-level, despite
+        # carrying real magnitude comparable to the content embedding). A fixed code
+        # assumes a generic Transformer inductive bias this task never demonstrably
+        # used; starting from the same values and letting gradient move them gives it
+        # a chance to find something this task actually rewards, without losing
+        # whatever structure the sinusoidal init already provides for free.
+        self.pos_emb = nn.Parameter(get_sinusoidal_pos(max_patches, dim, torch.device('cpu')))
         self.spatial_active = False
         # bias=False on BOTH linears: a bias on either one is a channel-INDEPENDENT
         # constant the network can add regardless of coords — exactly the collapse
