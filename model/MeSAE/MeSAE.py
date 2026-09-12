@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.MeSAE.MeSAE_modules import SpatialTemporalEmbeddings, TSAEncoder, StampBank, PerChannelHeadAttn
+from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, StampBank,
+                                         PerChannelHeadAttn, overlap_add_patches)
 
 
 def _ema_update(buf, val, decay=0.99):
@@ -403,10 +404,24 @@ class MeSAEPretrain(nn.Module):
         )
 
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None):
-        """Two-level recon loss: SPECTRALLY WHITENED patch-level (finest, every patch
-        its own term, computed in rFFT domain with per-bin weights ~ 1/(dataset mean
-        PSD)) + plain time-domain window-level (coarsest, whole-trial average patch
-        shape).
+        """Three-level recon loss:
+        - patch_loss: SPECTRALLY WHITENED patch-level, every raw patch its own term,
+          computed in rFFT domain with per-bin weights ~ 1/(dataset mean PSD).
+        - window_loss: plain time-domain, the whole-trial AVERAGE patch shape (mean
+          over the N axis at each relative position — a "typical patch", not a real
+          point in time).
+        - trial_loss: plain time-domain MSE on the REAL continuous trial, patches
+          overlap-added back together (see overlap_add_patches) instead of averaged
+          away or naively concatenated. Previously this stitching only existed in the
+          (non-differentiable) diagnostic display path (model/MeSAE/plugin.py's
+          _run_reconstruction_sae) — a plain reshape(B,C,N*L) there quietly duplicated
+          every overlapped region and showed a visible seam in recon wherever two
+          patches' independent reconstructions of the same shared moment disagreed.
+          Same math here, but differentiable and inside the actual loss: gradient now
+          reaches every patch through its real position in the trial, which patch_loss
+          (patch-local) and window_loss (position-averaged, not time-stitched) never
+          gave it — this is the level a pooled/attended representation would need real
+          training pressure to serve well, not just the *capacity* to serve it.
 
         Why whitened: time-domain MSE weights every frequency by its raw power, and
         EEG's 1/f spectrum hands nearly all gradient to the lowest bins — under that
@@ -476,7 +491,14 @@ class MeSAEPretrain(nn.Module):
         window_x = x.float().mean(dim=2, keepdim=True)
         window_loss = _masked_mse(window_recon, window_x)
 
-        total = patch_loss + window_loss
+        # Real continuous trial, patches overlap-added back together (not averaged
+        # away like window_loss, not naively concatenated like the old display bug) —
+        # see this method's docstring and overlap_add_patches itself.
+        trial_recon = overlap_add_patches(recon.float(), self.patch_stride)  # [B, C, T]
+        trial_x     = overlap_add_patches(x.float(), self.patch_stride)      # [B, C, T]
+        trial_loss = _masked_mse(trial_recon, trial_x)
+
+        total = patch_loss + window_loss + trial_loss
 
         l_masked, l_unmasked = 1.0, patch_loss
         if bool_masked_pos is not None:
@@ -490,10 +512,14 @@ class MeSAEPretrain(nn.Module):
             l_masked   = F.mse_loss(recon[mask4].float(),    x[mask4].float())    if mask4.any()    else recon.new_zeros(1).squeeze()
             l_unmasked = F.mse_loss(recon[unmasked].float(), x[unmasked].float()) if unmasked.any() else recon.new_zeros(1).squeeze()
 
-        # coarsest -> finest (window, patch) — mse_level_0/mse_level_1 on the plotter, see
+        # window, patch, trial (see this method's docstring for what each level actually
+        # is — not a strict coarse->fine ordering, trial is a different KIND of view,
+        # not "finer" than patch) — mse_level_0/1/2 on the plotter, see
         # MeSAETrainer.epoch_metrics / train_tokenizer.py/train_pretrain.py's
-        # getattr(model, '_last_pyramid_levels', ...).
-        self._last_pyramid_levels = [window_loss.detach().item(), patch_loss.detach().item()]
+        # getattr(model, '_last_pyramid_levels', ...) (index-generic: appending a level
+        # here is all either script needs to start logging/plotting mse_level_2).
+        self._last_pyramid_levels = [window_loss.detach().item(), patch_loss.detach().item(),
+                                      trial_loss.detach().item()]
         return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,

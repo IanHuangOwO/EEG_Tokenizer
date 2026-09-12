@@ -6,6 +6,54 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def overlap_add_patches(patches, stride):
+    """patches: [..., N, L] patch_stride-spaced, patch_len-long patches on the last two
+    dims (any number of leading batch dims) -> [..., T] the real continuous signal they
+    were sliced from, T = (N-1)*stride + L.
+
+    A plain reshape(..., N*L) only gives the real signal back when stride == L
+    (non-overlapping patches) — patch_stride has been < patch_len (some overlap) since
+    before this codebase's current patch_len/stride values, so that reshape silently
+    stacks every patch's FULL length back to back regardless of real overlap: the
+    shared region between consecutive patches gets duplicated (inflating the apparent
+    duration) and, for a differentiable model output like recon (unlike raw, whose
+    duplicate copies are byte-identical — the same real samples read twice), the two
+    patches' independently-computed views of that same shared moment generally
+    disagree, showing a real discontinuity at every patch boundary. See
+    model/MeSAE/plugin.py's _run_reconstruction_sae for the diagnostic-display use of
+    this, and MeSAEPretrain._recon_loss for the differentiable training-loss use.
+
+    Linear-crossfade overlap-add instead: each patch gets a trapezoidal window — ramps
+    0->1 over the incoming overlap it shares with the PREVIOUS patch, flat 1 over its
+    own unique hop, ramps 1->0 over the outgoing overlap it shares with the NEXT one;
+    no ramp on a side with no neighbor (the first/last patch). Every output sample is
+    the weight-normalized sum of every patch covering it — a true weighted average, not
+    dependent on the window being exactly constant-overlap-add — so this degrades to
+    the old exact reshape behavior when stride == L (overlap == 0: every weight is 1).
+    Built via pad-then-stack-then-sum (not in-place slice accumulation) so it stays
+    autograd-safe when patches requires grad."""
+    *lead, N, L = patches.shape
+    overlap = L - stride
+    T = (N - 1) * stride + L
+    flat = patches.reshape(-1, N, L)
+    ramp = torch.linspace(0, 1, overlap + 2, device=patches.device, dtype=patches.dtype)[1:-1] \
+        if overlap > 0 else None
+    contribs, weights = [], []
+    for n in range(N):
+        w = torch.ones(L, device=patches.device, dtype=patches.dtype)
+        if overlap > 0:
+            if n > 0:
+                w[:overlap] = ramp
+            if n < N - 1:
+                w[-overlap:] = ramp.flip(0)
+        pad = (n * stride, T - (n * stride + L))
+        contribs.append(F.pad(flat[:, n, :] * w, pad))
+        weights.append(F.pad(w, pad))
+    out = torch.stack(contribs, dim=0).sum(dim=0)
+    wsum = torch.stack(weights, dim=0).sum(dim=0)
+    return (out / wsum.clamp(min=1e-8)).reshape(*lead, T)
+
+
 # ==========================================
 # Embeddings
 # ==========================================
