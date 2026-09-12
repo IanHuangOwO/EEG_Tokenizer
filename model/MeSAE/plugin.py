@@ -72,7 +72,6 @@ def build_model(bp, num_channels):
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
-        coord_embed_tokenizer=bp.get('coord_embed_tokenizer', False),
     )
 
 
@@ -111,21 +110,24 @@ class MeSAETrainer(BaseTrainer):
         StampBank ever sees it, defeating the point of per-channel stamps -- a "stamp"
         would then just encode a mixed vector again, same failure mode flat tokens
         were built to avoid. enable_temporal only (cross-patch, same-channel context
-        stays -- needed for the UNet pool/upsample low-frequency reconstruction path);
-        enable_spatial deferred to on_pretrain_start, once StampBank is frozen and
-        the transformer is the only thing left learning from cross-channel context."""
+        stays -- needed for the UNet pool/upsample low-frequency reconstruction path).
+
+        Coordinate embedding (enable_coord_embed) used to also fire here, gated by a
+        coord_embed_tokenizer config flag -- removed. Measured on a trained checkpoint:
+        99%+ cross-channel cosine similarity, i.e. it wasn't encoding position at all,
+        no matter how the embedding's own architecture was fixed (scale, then dropping
+        its bias). Root cause isn't capacity: per-channel content ALREADY differs
+        enough for StampBank's per-channel amp_i(z_c) to reconstruct without ever
+        needing position, so nothing in this stage's loss rewards learning it. Cross-
+        channel spatial attention (on_pretrain_start, below) is the stage where
+        position could actually matter -- attending across channels needs to know
+        where they are -- so coord embedding is deferred there too now (enable_spatial
+        already flips both switches, see MeSAEPretrain.enable_spatial)."""
         if hasattr(model, 'enable_temporal'):
             model.enable_temporal()
-        coords_on = getattr(model, 'coord_embed_tokenizer', False)
-        if coords_on:
-            # Position embedding only — no cross-channel content mixing, so stamps stay
-            # single-channel. See MeSAEPretrain.enable_coord_embed for why the two
-            # halves of the old combined flag are separable and what this is testing.
-            model.enable_coord_embed()
         if logger:
-            logger.info(f"  [Tokenizer] temporal enabled, coord embedding "
-                        f"{'ON' if coords_on else 'OFF'}, cross-channel attention OFF "
-                        f"(stamps stay single-channel)")
+            logger.info("  [Tokenizer] temporal enabled, cross-channel attention OFF, "
+                        "coord embedding deferred to Pretrain (stamps stay single-channel)")
 
     def on_pretrain_start(self, model, logger=None):
         """freeze_stamps() first, then enable_spatial(): StampBank must already be

@@ -65,7 +65,6 @@ class MeSAEPretrain(nn.Module):
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
-        coord_embed_tokenizer=False,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -93,9 +92,6 @@ class MeSAEPretrain(nn.Module):
         self.n_routed_stamps = self.stamps.n_routed
         self.n_shared_stamps = self.stamps.n_shared
         self.stamps_frozen = False
-        # Whether the Tokenizer stage gets the coordinate embedding (position only) —
-        # see enable_coord_embed and MeSAETrainer.on_tokenizer_start.
-        self.coord_embed_tokenizer = coord_embed_tokenizer
 
         # EMA router-health buffers — same 3 metrics as MeFSQ's Router
         # (ema_stamp_router_entropy/ema_stamp_router_load_std/ema_stamp_gate_entropy), see
@@ -121,21 +117,20 @@ class MeSAEPretrain(nn.Module):
 
     def enable_coord_embed(self):
         """Coordinate embedding ONLY — each channel's token learns WHERE it is, with no
-        cross-channel content mixing (that is enable_spatial's MHA half, below).
+        cross-channel content mixing (that is enable_spatial's MHA half, below). Kept as
+        a standalone manual/experimental toggle (no longer auto-called anywhere in the
+        training path — see MeSAETrainer.on_tokenizer_start's docstring for why: it
+        measurably did nothing during the Tokenizer stage, no matter how the embedding's
+        own architecture was fixed, because per-channel content already differentiates
+        channels enough for that stage's loss without it).
 
-        These two were welded to one flag historically, but they leak very differently.
-        The coord embedding is per-channel: z_c gains a function of channel c's own
-        position, so a channel still never sees another channel's signal, and the
-        single-channel purity the flat-token design exists to protect is intact.
-        Cross-channel attention does mix content and would make a "stamp" encode a
-        blended vector again (see MeSAETrainer.on_tokenizer_start).
-
-        Why it may matter for stamp structure: without coords, two channels carrying
-        identical content produce identical z_c, hence identical amp — the bank
-        literally cannot represent "alpha at Oz" differently from "alpha at Fz", so a
-        mixing column can only vary where the raw content varies. Feeding position lets
-        amp_i(z_c) become position-aware, i.e. lets dipole-like topography be LEARNED
-        from content rather than imposed by an external penalty."""
+        Was originally meant to let amp_i(z_c) become position-aware even while stamps
+        stay single-channel (StampBank can't otherwise tell "alpha at Oz" from "alpha at
+        Fz" when the raw content happens to coincide) — a real idea, just not one the
+        Tokenizer stage's own reconstruction objective rewards learning. enable_spatial
+        (below) now enables this alongside cross-channel attention in the Pretrain
+        stage instead, where position could plausibly matter for attending across
+        channels."""
         self.embed.enable_spatial()
 
     def enable_spatial(self):
