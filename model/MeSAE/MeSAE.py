@@ -65,9 +65,19 @@ class MeSAEPretrain(nn.Module):
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
+        sample_freq=200,
+        patch_stride=None,
+        n_oscillator_stamps=0,
+        oscillator_init_hz=None,
     ):
         super().__init__()
         self.patch_len = patch_len
+        # Real absolute sample offset per patch (time_idx * patch_stride) is what
+        # StampBank's oscillator atoms (if any) need to evaluate their exact-frequency
+        # shape at each patch's true time — see forward(). Falls back to patch_len
+        # (non-overlapping default) matching PretrainDataset's own patch_stride-or-
+        # patch_len convention when not given.
+        self.patch_stride = patch_stride or patch_len
         self.head_dim = embed_dim
         self.num_channels = num_channels
 
@@ -85,6 +95,8 @@ class MeSAEPretrain(nn.Module):
             hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
             dead_threshold_frac=dead_threshold_frac,
             aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
+            n_oscillator_stamps=n_oscillator_stamps, oscillator_init_hz=oscillator_init_hz,
+            sample_freq=sample_freq,
         )
         # convenience aliases — viz/checker code reads these off the model directly
         # (e.g. base_checker.py compute_unit_colors).
@@ -338,6 +350,12 @@ class MeSAEPretrain(nn.Module):
         z_g = z.permute(0, 2, 1, 3).reshape(G, C, -1)          # [G, C, D]
         x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)           # [G, C, L] — aux-rescue target
 
+        # Absolute patch-start sample offset per group, same (B, N) -> G merge order as
+        # z_g/x_g (time_idx has no C dim to begin with, so a plain reshape already
+        # matches) — StampBank's oscillator atoms (if any) need this to evaluate their
+        # exact-frequency shape at each patch's real time, see StampBank.forward.
+        t_g = time_idx.reshape(G).to(z.dtype) * self.patch_stride if time_idx is not None else None
+
         # Per-channel raw-input RMS — the amplitude signal the LayerNorm stack erased
         # from z (embed.norm -> per-block norm_out -> stamps.input_norm), multiplied back
         # into every amp inside StampBank. Masked positions get 1.0: their true patch is
@@ -367,7 +385,7 @@ class MeSAEPretrain(nn.Module):
                 mask_g = mask_g & vc_g.unsqueeze(-1)
             rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g, t=t_g)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 

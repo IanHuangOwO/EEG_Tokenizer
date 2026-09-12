@@ -72,6 +72,14 @@ def build_model(bp, num_channels):
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
+        # sample_freq/patch_stride duplicate preprocess_params (same convention as
+        # patch_len above) — StampBank's oscillator atoms need real Hz/real time, which
+        # only exist relative to these, and the shared build_model(bp, num_channels)
+        # interface (model/factory.py) doesn't pass preprocess_params through.
+        sample_freq=bp.get('sample_freq', 200),
+        patch_stride=bp.get('patch_stride'),
+        n_oscillator_stamps=sb.get('n_oscillator_stamps', 0),
+        oscillator_init_hz=sb.get('oscillator_init_hz'),
     )
 
 

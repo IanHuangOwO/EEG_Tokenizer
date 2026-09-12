@@ -152,6 +152,8 @@
         "enc_depth": 5,
         "spatial_heads": 5,
         "dropout": 0.3,
+        "sample_freq": 200,
+        "patch_stride": 25,
         "pool_after_blocks": [
           0,
           1,
@@ -173,7 +175,9 @@
           "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
-          "sae_ema_decay": 0.99
+          "sae_ema_decay": 0.99,
+          "n_oscillator_stamps": 2,
+          "oscillator_init_hz": [50.0, 60.0]
         },
         "loss": {
           "hierarchical_mse_weight": 1.0,
@@ -187,6 +191,8 @@
         "enc_depth": 12,
         "spatial_heads": 5,
         "dropout": 0.3,
+        "sample_freq": 200,
+        "patch_stride": 25,
         "pool_after_blocks": [
           2,
           4,
@@ -208,7 +214,9 @@
           "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
-          "sae_ema_decay": 0.99
+          "sae_ema_decay": 0.99,
+          "n_oscillator_stamps": 2,
+          "oscillator_init_hz": [50.0, 60.0]
         },
         "loss": {
           "hierarchical_mse_weight": 1.0,
