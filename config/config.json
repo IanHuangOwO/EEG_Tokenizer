@@ -81,8 +81,8 @@
     "canonical_channels": "10-10",
     "window_length": 800,
     "window_pad_threshold": 0.5,
-    "patch_length": 100,
-    "patch_stride": 50,
+    "patch_length": 50,
+    "patch_stride": 25,
     "sample_freq": 200,
     "bandpass_filter": {
       "l_freq": 0.5,
@@ -147,16 +147,17 @@
     },
     "MeSAE": {
       "tokenizer": {
-        "patch_len": 100,
+        "patch_len": 50,
         "embed_dim": 100,
-        "enc_depth": 4,
+        "enc_depth": 5,
         "spatial_heads": 5,
         "dropout": 0.3,
         "pool_after_blocks": [
           0,
           1,
           2,
-          3
+          3,
+          4
         ],
         "moe_ffn": {
           "mlp_ratio": 4.0,
@@ -181,16 +182,17 @@
         }
       },
       "pretrain": {
-        "patch_len": 100,
+        "patch_len": 50,
         "embed_dim": 100,
         "enc_depth": 12,
         "spatial_heads": 5,
         "dropout": 0.3,
         "pool_after_blocks": [
           2,
-          5,
+          4,
+          6,
           8,
-          11
+          10
         ],
         "moe_ffn": {
           "mlp_ratio": 4.0,
