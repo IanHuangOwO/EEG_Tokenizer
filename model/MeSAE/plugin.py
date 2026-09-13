@@ -16,7 +16,7 @@ from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
 from viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch,
                           extract_flat_stamp_gallery, extract_filter_spectra)
-from viz.panels import (plot_attn_topo as render_attn_topo, plot_topo_psd_by_patch,
+from viz.panels import (plot_attn_topo as render_attn_topo, plot_stamp_by_patch,
                          plot_stamp_gallery, plot_event_stamp_dynamics)
 from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
                            plot_stamp_identity_consistency)
@@ -190,7 +190,7 @@ class MeSAEChecker(BaseEpochChecker):
                           fft_resolution=0.2):
         """Overrides BaseEpochChecker's default (per-stamp trial-wide dedup, topo_psd_filter.png)
         with two panels instead of the base's one:
-        - topo_psd_by_patch.png — the real per-patch grid (every patch_stride-th patch's
+        - stamp_by_patch.png — the real per-patch grid (every patch_stride-th patch's
           own union of stamps its C channels individually selected, zero-filled per
           channel that didn't pick a given displayed stamp — see
           viz.extract.extract_flat_stamp_psd_by_patch). The trial-wide dedup can't tell
@@ -200,7 +200,7 @@ class MeSAEChecker(BaseEpochChecker):
           SOMEWHERE in this trial (trial-wide dedup, see
           viz.extract.extract_flat_stamp_gallery), the piece the base default's
           topo_psd_filter.png would have covered — split into its own file rather than
-          folded into topo_psd_by_patch's header, since it's a different (trial-wide, not
+          folded into stamp_by_patch's header, since it's a different (trial-wide, not
           per-patch) view. psd_ch_x/importance (from extract_psd, via _render_snapshot)
           are still computed upstream since _render_snapshot uses that call to gate
           whether to attempt this panel at all, but this method recomputes its own
@@ -209,7 +209,7 @@ class MeSAEChecker(BaseEpochChecker):
         model = bundle.psd_model
         grid = extract_flat_stamp_psd_by_patch(
             model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
-            fs=fs, freq_resolution=fft_resolution)
+            fs=fs, freq_resolution=fft_resolution, patch_stride=5)
 
         # Same raw/recon full-trial FFT as the base default, see BaseEpochChecker._render_topo_psd
         # AND its _compute_spectra: n_fft here MUST equal grid.freqs' own n_fft (extract_flat_
@@ -251,8 +251,8 @@ class MeSAEChecker(BaseEpochChecker):
         raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
         recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
 
-        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_topo_psd_by_patch.png")
-        plot_topo_psd_by_patch(
+        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_stamp_by_patch.png")
+        plot_stamp_by_patch(
             out_path, pos2d, grid, cmap=cmap,
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
             unit_label=self.unit_label, n_routed=model.n_routed_stamps,

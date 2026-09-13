@@ -494,10 +494,14 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     np.ndarray — RAW per-channel phase (atan2(b,a), radians, NOT projected away like
     psd_ch_x's signed scalar) so a caller can see phase differ across channels for one
     stamp directly, e.g. paired with the psd_x panel, waveforms — list of Qu 1-D
-    np.ndarray, VARIABLE length per stamp (real decoded content at its own strongest
-    channel, concatenated only over the patches it actually fired on — the exact same
-    signal the ICLabel classification below is computed from, see the ICLabel section;
-    length differs per stamp, hence a list not a fixed-shape array), iclabel_probs
+    np.ndarray, all SAME length T = (N-1)*patch_stride + patch_len (the real trial
+    length): real decoded content at ONE pinned channel (the channel with the most
+    total energy across all this stamp's firings — see the ICLabel section below),
+    placed at each fired patch's true n*patch_stride position (overlapping firings
+    plain-averaged, not duplicated); positions no fired patch ever covers are NaN (a
+    real silent gap, not synthesized zero) — matplotlib breaks the plotted line there.
+    Not the same array ICLabel's classification reads (that one is gap-free, see the
+    ICLabel section), iclabel_probs
     [Qu, 7] np.ndarray or None — per-stamp ICLabel class distribution
     (viz.iclabel.ICLABEL_CLASSES order; None when mne-icalabel is unavailable or the
     pipeline fails, see viz/iclabel.py's caveat on interpreting these)).
@@ -517,19 +521,21 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
 
     # --- ICLabel pseudo-IC classification (see viz/iclabel.py, incl. the caveat) ---
     # Activation per used stamp: at every patch that selected it, the stamp's decoded
-    # waveform at its strongest valid channel's gain pair (the cleanest single-channel
-    # view of the source's own time course) — ONLY the patches it actually fired on,
-    # concatenated. Deliberately NOT stitched to a common length with zeros at unfired
-    # patches: _eeg_rpsd medians over windows and any all-zero window makes the whole
-    # feature NaN (measured at 25% and 12.5% nonzero, not just 0%), which is what used
-    # to leave most stamps unclassified. Those zeros were never part of the source
-    # anyway. Lengths therefore differ per stamp, which viz.iclabel handles by
+    # waveform at ONE pinned channel (the channel with the most total energy across all
+    # this stamp's firings — see channel-pinning note below), concatenated only over the
+    # patches it actually fired on. Deliberately NOT stitched to a common length with
+    # zeros at unfired patches: _eeg_rpsd medians over windows and any all-zero window
+    # makes the whole feature NaN (measured at 25% and 12.5% nonzero, not just 0%), which
+    # is what used to leave most stamps unclassified. Those zeros were never part of the
+    # source anyway. Lengths therefore differ per stamp, which viz.iclabel handles by
     # extracting features one stamp at a time.
     from viz.iclabel import stamp_iclabel_probs
     D_all, H_all = model.stamps._template_tables()          # [n_stamps, L]
     N, K = sel.idx.shape
     L = D_all.shape[1]
     C = x.shape[1]
+    stride = getattr(model, 'patch_stride', None) or L
+    T = (N - 1) * stride + L  # real trial length these N patches were sliced from
     vc = valid_channels[0].bool() if valid_channels is not None         else torch.ones(C, dtype=torch.bool, device=x.device)
     mag = sel.amp.pow(2).sum(-1)                            # [N, C, K]
     mag = mag.masked_fill(~vc.view(1, C, 1), 0.0)
@@ -539,14 +545,47 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     # stamp's ICLabel bar right below it: "here's the actual signal, here's the call").
     for sid in used_ids.tolist():
         hit = sel.idx == sid                                # [N, K] — <=1 slot per patch
-        segs = []
-        for n in hit.any(dim=1).nonzero(as_tuple=True)[0].tolist():
-            k = int(hit[n].float().argmax())
-            c = int(mag[n, :, k].argmax())
-            a, b = sel.amp[n, c, k, 0], sel.amp[n, c, k, 1]
-            segs.append((a * D_all[sid] + b * H_all[sid]).detach().cpu())
-        sig = torch.cat(segs).numpy() if segs else np.zeros(L, dtype=np.float32)
-        waveforms.append(sig)
+        fired = hit.any(dim=1).nonzero(as_tuple=True)[0].tolist()
+        nk = [(n, int(hit[n].float().argmax())) for n in fired]
+
+        # Pin ONE channel for the whole waveform — the channel with the most total
+        # energy across every patch this stamp fired on — instead of re-picking the
+        # per-patch strongest channel each time (the old behavior silently swapped
+        # channels mid-signal whenever a different channel briefly outscored the rest).
+        if nk:
+            c_star = int(sum(mag[n, :, k] for n, k in nk).argmax())
+        else:
+            c_star = 0
+
+        # Place each fired patch's decoded segment at its REAL position (n*stride) in a
+        # full-trial-length buffer instead of plain-concatenating (torch.cat) segment
+        # after segment regardless of true spacing — the same overlap-duplication /
+        # false-adjacency bug overlap_add_patches fixed for the actual recon display
+        # (model/MeSAE/MeSAE_modules.py), just never fixed here: consecutive overlapping
+        # firings were double-counted (inflating apparent duration beyond patch_len),
+        # and non-adjacent firings were joined with zero indication of the real silent
+        # gap between them. Overlapping fired patches are plain-averaged (uniform
+        # weight, not a full crossfade — sparse/gappy input doesn't need the trapezoid
+        # ramp, just correct normalization); positions no fired patch ever covers stay
+        # NaN (a real gap, not synthesized silence) — matplotlib's plot breaks the line
+        # there automatically.
+        acc = np.zeros(T, dtype=np.float32)
+        wsum = np.zeros(T, dtype=np.float32)
+        for n, k in nk:
+            a, b = sel.amp[n, c_star, k, 0], sel.amp[n, c_star, k, 1]
+            seg = (a * D_all[sid] + b * H_all[sid]).detach().cpu().numpy()
+            start = n * stride
+            acc[start:start + L] += seg
+            wsum[start:start + L] += 1.0
+        sig_full = np.full(T, np.nan, dtype=np.float32)
+        covered = wsum > 0
+        sig_full[covered] = acc[covered] / wsum[covered]
+        waveforms.append(sig_full)
+
+        # ICLabel needs a contiguous, gap-free signal (see docstring above) — build that
+        # separately from the displayed (gapped, true-position) waveform: real content
+        # only, in firing order, no NaNs, same pinned channel.
+        sig = sig_full[covered] if covered.any() else np.zeros(L, dtype=np.float32)
         # TILE the fired content up to the full trial length rather than zero-padding:
         # _eeg_rpsd emits its fixed 100-bin feature only for signals of at least ~sfreq
         # samples (a 1-patch stamp otherwise yields 99 bins and fails to stack), and
