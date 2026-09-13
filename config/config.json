@@ -175,9 +175,7 @@
           "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
-          "sae_ema_decay": 0.99,
-          "n_oscillator_stamps": 2,
-          "oscillator_init_hz": [50.0, 60.0]
+          "sae_ema_decay": 0.99
         },
         "loss": {
           "hierarchical_mse_weight": 1.0,
@@ -214,9 +212,7 @@
           "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
-          "sae_ema_decay": 0.99,
-          "n_oscillator_stamps": 2,
-          "oscillator_init_hz": [50.0, 60.0]
+          "sae_ema_decay": 0.99
         },
         "loss": {
           "hierarchical_mse_weight": 1.0,
