@@ -1258,3 +1258,46 @@ def plot_pool_ablation(out_path, baseline, no_shared, no_routed, unit_label='Sta
         b, ns, nr = baseline[d], no_shared[d], no_routed[d]
         print(f"    {d}: baseline={b:.4f} | shared-ablated={ns:.4f} (+{(ns-b)/max(b,1e-8)*100:.0f}%) | "
               f"routed-ablated={nr:.4f} (+{(nr-b)/max(b,1e-8)*100:.0f}%)")
+
+
+def plot_pool_label_probe(out_path, results, unit_label='Stamp'):
+    """Per-dataset grouped bar: 5-fold CV linear-probe accuracy (logistic regression on
+    trial-level usage, see MeSAECodebookChecker._render_pool_label_probe) predicting the
+    per-trial TASK LABEL from Routed-only usage, Shared-only usage, and both together.
+    A different question from plot_pool_energy_share/plot_pool_ablation -- those measure
+    which pool carries more reconstruction mass/necessity, this measures which pool's
+    usage pattern actually separates task classes. A pool can dominate recon while
+    sitting at chance on label information (pure "how the signal looks" content with no
+    task structure), or the reverse (a small usage share that's nonetheless the one
+    thing that tracks the label).
+
+    results: dict dataset_name -> {'routed': acc, 'shared': acc, 'both': acc,
+    'n_classes': int, 'n_trials': int, 'chance': float}. chance is drawn as a small
+    per-dataset tick (differs per dataset, since class count differs) rather than one
+    global line."""
+    datasets = list(results.keys())
+    x = np.arange(len(datasets))
+    w = 0.27
+    fig, ax = plt.subplots(figsize=(max(7, 1.0 * len(datasets) + 2), 5))
+    ax.bar(x - w, [results[d]['routed'] for d in datasets], width=w, label='routed', color='steelblue')
+    ax.bar(x, [results[d]['shared'] for d in datasets], width=w, label='shared', color='crimson')
+    ax.bar(x + w, [results[d]['both'] for d in datasets], width=w, label='both', color='gray')
+    for i, d in enumerate(datasets):
+        c = results[d]['chance']
+        ax.plot([i - 1.7 * w, i + 1.7 * w], [c, c], color='k', ls='--', lw=1.0)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{d}\n(k={results[d]['n_classes']}, n={results[d]['n_trials']})"
+                         for d in datasets], fontsize=7, rotation=45, ha='right')
+    ax.set_ylabel('5-fold CV accuracy')
+    ax.set_ylim(0, 1)
+    ax.legend(fontsize=8, loc='upper right')
+    ax.set_title(f'{unit_label} Pool Label Probe — which pool predicts the task label?\n'
+                 f'(dashed = chance level per dataset)', fontsize=11, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  [codebook] -> {out_path}")
+    for d in datasets:
+        r = results[d]
+        print(f"    {d} (k={r['n_classes']}, chance={r['chance']:.3f}): "
+              f"routed={r['routed']:.3f} | shared={r['shared']:.3f} | both={r['both']:.3f}")

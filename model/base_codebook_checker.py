@@ -106,6 +106,17 @@ class BaseCodebookChecker:
         the correlational usage/energy panels above show firing strength, not necessity.
         Needs raw tensors (needs_raw_tensors)."""
 
+    def _render_pool_label_probe(self, trial_usage_by_dataset, trial_labels_by_dataset, viz_dir, model):
+        """Default: no-op. Override for a model with a routed/shared-style pool split to
+        linear-probe (5-fold CV logistic regression) each pool's trial-level usage
+        against the per-trial task label -> pool_label_probe.png -- a different question
+        from _render_pool_energy_share/_render_pool_ablation: those measure which pool
+        carries more RECONSTRUCTION mass/necessity, this measures which pool's usage
+        pattern is actually predictive of the task label. A pool can dominate recon
+        while sitting at chance on label information, or the reverse. Reuses
+        trial_usage_by_dataset/trial_labels_by_dataset (already built by
+        check_codebook), no fresh forward pass needed."""
+
     @staticmethod
     def _trial_tensors(dataset, trial_idx, device):
         x_patches, coords, _mask, time_indices, label, _, valid_channels = dataset[trial_idx]
@@ -213,6 +224,7 @@ class BaseCodebookChecker:
         # Causal check over the whole sampled corpus at once (not per-dataset-loop below,
         # it renders one panel spanning every dataset) -- needs raw tensors.
         self._render_pool_ablation(trial_records, viz_dir, model, device, seed)
+        self._render_pool_label_probe(trial_usage_by_dataset, trial_labels_by_dataset, viz_dir, model)
 
         # Cross-trial, patch-position-aligned consistency (per dataset -- patch position
         # only means the same timeline slot within one dataset's own trial length/patch_len).

@@ -22,7 +22,7 @@ from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency
                            plot_stamp_identity_consistency, plot_fingerprint_similarity,
                            plot_pool_energy_share, plot_stamp_energy_rank,
                            plot_stamp_phase_consistency, plot_topography_distance,
-                           plot_pool_ablation)
+                           plot_pool_ablation, plot_pool_label_probe)
 from IO.preprocessing import slice_patches
 
 
@@ -482,6 +482,45 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         plot_pool_ablation(
             os.path.join(viz_dir, 'pool_ablation.png'), baseline, no_shared, no_routed,
             unit_label=self.unit_label)
+
+    def _render_pool_label_probe(self, trial_usage_by_dataset, trial_labels_by_dataset, viz_dir, model,
+                                  min_per_class=5, n_folds=5):
+        """Which pool's usage actually predicts the task label, as opposed to which pool
+        carries more reconstruction mass (_render_pool_energy_share/_render_pool_ablation,
+        a different question -- see plot_pool_label_probe's docstring). Logistic
+        regression (standardized features, k-fold CV) on trial-level usage
+        (trial_usage_by_dataset, patches already mean-pooled by check_codebook), same
+        features for all three probes (routed-only / shared-only / both) so the
+        comparison isn't confounded by anything but which columns are visible.
+
+        Datasets with fewer than 2 classes or fewer than min_per_class trials in their
+        smallest class are skipped -- a probe on 1-2 examples of a class is noise, not
+        signal."""
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.model_selection import StratifiedKFold, cross_val_score
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        n_routed = model.n_routed_stamps
+        results = {}
+        for ds_name, X in trial_usage_by_dataset.items():
+            y = trial_labels_by_dataset[ds_name]
+            classes, counts = np.unique(y, return_counts=True)
+            if len(classes) < 2 or counts.min() < min_per_class:
+                continue
+            cv = StratifiedKFold(n_splits=min(n_folds, int(counts.min())), shuffle=True, random_state=0)
+            accs = {}
+            for name, feats in (('routed', X[:, :n_routed]), ('shared', X[:, n_routed:]), ('both', X)):
+                clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000))
+                accs[name] = float(cross_val_score(clf, feats, y, cv=cv).mean())
+            results[ds_name] = dict(accs, n_classes=len(classes), n_trials=len(y), chance=1.0 / len(classes))
+
+        if not results:
+            print('  [codebook] pool label probe skipped (no dataset with >=2 classes and '
+                  f'>={min_per_class} trials/class)')
+            return
+        plot_pool_label_probe(
+            os.path.join(viz_dir, 'pool_label_probe.png'), results, unit_label=self.unit_label)
 
     @torch.no_grad()
     def extract_stamp_content(self, model, x_in, c_in, t_in, vc_in):
