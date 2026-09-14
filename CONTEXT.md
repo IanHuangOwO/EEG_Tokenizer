@@ -1,6 +1,6 @@
-# EEG Tokenizer (MeFSQ)
+# EEG Tokenizer
 
-An EEG signal tokenizer: converts multi-channel EEG time series into discrete codes via masked-reconstruction pretraining, using Multi-head Finite Scalar Quantization (MeFSQ).
+An EEG signal tokenizer: converts multi-channel EEG time series into per-patch features via masked-reconstruction pretraining. Two model families share the training/viz infrastructure — **MeFSQ** (discrete codes, Multi-head Finite Scalar Quantization) and **MeSAE** (sparse stamp dictionary, non-discrete). `config.json` currently runs MeSAE for all three stages; see "Current MeSAE defaults" below.
 
 ## Language
 
@@ -59,11 +59,66 @@ A parallel, non-discrete tokenizer approach (`model/MeSAE/`) — goal is explain
 
 **Group selection**: `StampBank` takes channel-grouped input `[G, C, D]` (G = B*N patch positions) and picks ONE top-k stamp set per patch position, shared by all C channels; each channel then decodes that same set with its own gains. This is what makes a stamp's `[C]` column a mixing vector instead of C unrelated per-channel choices.
 
+**Routed pool / Shared pool**: The two halves of the bank, sized independently (`n_routed_stamps`, `n_shared_stamps`; `n_stamps` is the derived sum). Routed stamps **compete** — scored per patch, only the `stamp_top_k` highest decode. Shared stamps are **unconditional**: they fire on every patch, every dataset. The distinction is load-bearing for what each pool can learn — conditional content (line noise present in only some recordings, say) cannot live in the unconditional pool, because an always-on atom specialising on it would be wrong wherever it is absent. See `docs/adr/0010-oscillator-atoms-withdrawn.md`.
+
+**Sparsity budget**: `2 * (stamp_top_k + n_shared_stamps)`, the free scalars the active slots contribute per channel (each slot gives an `(a, b)` pair). **Must stay below `patch_len`, with margin.** Past that the active slots alone fit any patch regardless of what the atoms contain, and it stops being sparse coding — measured, not theoretical. A ceiling, not a tuning knob. See `docs/adr/0011-matching-pursuit-residual-loss.md`.
+
+**Residual ordering** (`mp_loss`): Matching-Pursuit-style grading. Slots are ranked by amplitude per patch (shared pinned ahead of routed, since the always-on baseline is present regardless); rank 0 is graded against the full patch, its contribution subtracted **detached**, rank 1 graded against what remains, and so on. An atom duplicating a higher-ranked one faces a near-zero residual and earns nothing for repeating it. This is what makes stamps specialize; top-k-by-amplitude selection alone has no mechanism against two correlated atoms co-scoring high on the same content. Its value cannot reach zero by construction — read it as a trend within a run, never against `mse_patch`.
+
+**Shared claim** (`exclusive_pool='shared'`): The shared block's contribution is swapped for a detached copy before the reconstruction loss, so routed atoms are graded on the remainder after the baseline's claim. A routed atom re-emitting baseline content then makes the sum overshoot rather than earning reward. Measured effect is spectral honesty — the bank stops manufacturing out-of-band energy — at a small patch-fidelity cost.
+
+**Dead-atom rescue** (`aux_loss`): Routed atoms whose firing EMA falls below `dead_threshold` are aimed at the current residual, reviving them on content nobody covers. Dropped once stamps freeze, since a frozen dictionary's atoms cannot be reshaped.
+
 **Tokenizer stage**:
-MeSAE's first training phase: the encoder (kept shallow/local, see `docs/adr/0003-mesae-two-stage-masked-training.md`) and the StampBank train jointly, unmasked, full reconstruction only. No masked-patch pretext task at this stage — that's deferred to the Masked stage.
+MeSAE's first training phase: the encoder (kept shallow/local, see `docs/adr/0003-mesae-two-stage-masked-training.md`) and the StampBank train jointly, unmasked, full reconstruction only. No masked-patch pretext task at this stage — that's deferred to the Masked stage. Spatial mixing and coordinate embedding are both OFF here: StampBank must learn from patch-local single-channel content, or a "stamp" just re-encodes an already-mixed vector.
 
 **Masked stage**:
 MeSAE's second training phase: the Tokenizer-stage StampBank is frozen (weights fixed) and only the backbone trains, on masked input, to reconstruct through it. Mirrors MeFSQ's `freeze_vq_and_decoder()` split but two-stage/sequential rather than joint-warmup-then-freeze — deliberate, to keep the frozen target local rather than already-contextualized (see ADR 0003). `embed_dim` must match the tokenizer stage that produced the checkpoint (the StampBank and patch embedding both consume `z` of that width); `enc_depth`/`pool_after_blocks` may differ freely, and `train_pretrain.py` fails loudly on any other mismatch.
+
+## Current MeSAE defaults
+
+What `config/config.json` builds today. Rationale for each choice lives in the ADRs;
+this is the snapshot, so a reader does not have to reconstruct it from the config.
+
+**Signal path**: bandpass 0.5–100Hz → 200Hz (baked into the cache) → Window 800 (4s) →
+`slice_patches(patch_len=50, patch_stride=25)` → 31 patches at 50% overlap →
+`[B, C=64, N=31, L=50]`. `patch_len=50` at `fs=200` fixes the per-patch FFT grid at
+**Δf = 4Hz**, which is why 60Hz lands exactly on a bin and 50Hz never does — a trap for
+anyone measuring narrowband content per patch (see adr/0010's measurement note).
+
+**Modules** (1.64M params tokenizer / 3.15M pretrain):
+
+| module | params (tok) | what |
+|---|---|---|
+| `SpatialTemporalEmbeddings` | 0.51M | patch proj 50→100, **learnable** temporal position embedding (sinusoidal warm start), 3D coord MLP (Pretrain only) |
+| `TSAEncoder` | 1.09M / 2.61M | depth 5 / 12 `TSABlock`: temporal ConvAdditiveAttn → spatial MHA → MoE ConvFFN (4 routed + 1 shared, top-2); UNet pooling at `pool_after_blocks` |
+| `StampBank` | 0.042M | the dictionary — 2.6% of params and the entire point of the model |
+
+Each `TSABlock` branch carries a LayerNorm *before* its LayerScale multiply: LayerScale
+throttles a branch's residual contribution but not its internal magnitude, which let
+`branch_max` reach thousands.
+
+**StampBank**: 60 routed + 4 shared (tokenizer) / 56 + 8 (pretrain), `stamp_top_k=12`,
+bottleneck widths 6 routed / 3 shared. Sparsity budget 32 and 40, both under
+`patch_len=50`.
+
+**Loss**: `patch + trial + 1.0·mp + 0.01·aux + 0.01·ffn_lb`
+
+- `patch` — plain time-domain MSE per patch, valid channels only
+- `trial` — same MSE on the real continuous trial, patches overlap-added back
+  (`overlap_add_patches`, linear crossfade, weight-normalized), so gradient reaches each
+  patch through its true position in the trial
+- `mp` — residual ordering (above), with `mp_include_shared=True` and
+  `exclusive_pool='shared'`
+- `aux` — dead-atom rescue; `ffn_lb` — Switch-style load balance for the MoE FFN routers
+
+`mp` and `aux` are both dropped once stamps freeze. `ffn_lb` runs in both stages (it comes
+from the encoder, which keeps training).
+
+**Two stages**: Tokenizer trains encoder+StampBank jointly, unmasked, temporal mixing only.
+Pretrain loads that checkpoint, enables spatial + coord embedding, freezes the stamps, and
+trains only the transformer against masked reconstruction — encoder share of params goes
+66% → 83%.
 
 ## Model plugin architecture
 
