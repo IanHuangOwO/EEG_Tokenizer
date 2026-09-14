@@ -26,43 +26,38 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
 - [x] Router health (entropy/load-std/gate-entropy) — `stamp_router_entropy`
   etc., logged every epoch. Routed-pool only (no router over Shared, it's
   unconditional).
-- [ ] **Recon-energy share: routed vs shared.** Nothing currently sums
-  `h^2` (or `amp^2`) split at the `n_routed` boundary into one "% of total
-  reconstructed energy explained by Shared" number, aggregated over a
-  corpus/dataset. This is the most direct answer to the question and doesn't
-  exist yet. Add to `MeSAECodebookChecker` (`plugin.py`): a
-  `_render_pool_energy_share` method reading `extract_usage`'s already-cheap
-  `[N, n_stamps]` (or a fresh `amp`-based pass if signed energy matters), sum
-  `h[:n_routed]^2` vs `h[n_routed:]^2` per trial, plot as a bar/violin per
-  dataset (does the split vary by dataset — a "conditional content" signal —
-  or stay flat — a "shared IS the generic baseline" signal, per
-  `docs/adr/0010`'s reasoning about why conditional content can't live in an
-  unconditional pool).
-- [ ] **Cross-dataset stability of each pool's usage.** If Shared truly
-  carries generic content, its per-stamp mean-`h` should vary LESS across
-  datasets than Routed's does (Routed is where dataset-specific content is
-  allowed to live). Coefficient-of-variation of per-stamp mean usage across
-  `usage_by_dataset` (already computed in `check_codebook`), split at
-  `n_routed`, one number each. Cheap — reuses `filter_usage_and_activity.png`'s
-  underlying data (`plugin.py`'s `_render_...` doesn't currently emit this
-  number, `viz/codebook.py plot_usage_and_activity` would need an
-  aggregate-summary variant or a small new panel).
-- [ ] **Causal ablation: zero one pool, measure recon MSE delta.** The
-  above are all correlational (usage strength ≠ proof of necessity). A
-  `check_model.py --ablate-pool routed|shared` mode (or a
-  `MeSAECodebookChecker` method) that re-runs `model.stamps.forward` with one
-  pool's `amp` zeroed and reports the MSE increase per dataset would be the
-  strongest test of "does context genuinely live here" — a pool whose removal
-  barely moves MSE isn't load-bearing regardless of how often it fires.
-  Needs a small `StampBank.forward` hook or a monkeypatch at the checker
-  level; not yet built.
+- [x] **Recon-energy share: routed vs shared.** `_render_pool_energy_share`
+  (`plugin.py`) → `pool_energy_share.png` (`viz/codebook.py`). Measured on
+  `mesae_tokenizer_v4`: Shared pool (4 stamps) carries **68% of total recon
+  energy on average** (range 48-85% across 8 datasets) despite Routed having
+  15x more stamps (60).
+- [x] **Cross-dataset stability of each pool's usage.** Folded into the same
+  panel (`cv_routed`/`cv_shared` in `_render_pool_energy_share`). Measured:
+  Shared's usage CV across datasets = 0.277, Routed's = 1.135 — Shared really
+  is the stable/generic one, Routed genuinely varies per dataset, matching
+  what the names imply.
+- [x] **Causal ablation: zero one pool, measure recon MSE delta.**
+  `_render_pool_ablation` (`plugin.py`) → `pool_ablation.png`. No StampBank
+  change needed — zeroes `amp` for one pool's columns and re-decodes via the
+  already-public `decode_selected`. Measured: ablating Shared costs
+  **+844% to +5789%** MSE across all 8 datasets tested (incl. `BCICIV2a`,
+  never in the training set) — consistently worse than ablating Routed
+  (+679% to +2469%). Shared is the load-bearing pool, not a baseline on top
+  of Routed's work — the opposite of what the energy share alone might
+  suggest about "which pool does the interesting work". Open question this
+  raises: is Routed's 60-stamp specialization budget underused relative to
+  `docs/adr/0010`'s intent for it?
 
 ## 2. Differences between stamps — every current axis
 
 - [x] **Raw waveform template** (`D_i`, content-free, no `z` dependence) —
-  pairwise cosine similarity, `decoder_fingerprint_matrix`
-  (`plugin.py:356`) → the direct successor to the old `filter_relation.png`,
-  verifies `mp_loss` (`docs/adr/0011`) actually produced distinct atoms.
+  pairwise cosine similarity, `decoder_fingerprint_matrix` (`plugin.py`), now
+  actually wired into `_render_fingerprint_similarity` →
+  `stamp_fingerprint_similarity.png` (`viz/codebook.py`) — it existed before
+  this pass but was never called from anywhere, silently dead. Measured on
+  `mesae_tokenizer_v4`: off-diagonal cosine mean 0.002 (good, mostly
+  orthogonal) but max 0.890 — at least one near-duplicate pair still slipped
+  past `mp_loss` (`docs/adr/0011`), worth checking the heatmap for which pair.
 - [x] **Frequency content** — PSD per stamp, `extract_flat_stamp_psd`/
   `extract_flat_stamp_psd_by_patch` (`viz/extract.py`) feeding
   `plot_stamp_gallery`/`plot_stamp_by_patch`'s PSD cells.
@@ -97,40 +92,34 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
   (`plugin.py:502`). Currently used for same-stamp-across-trials consistency
   only, not stamp-vs-stamp content distance (that's `decoder_fingerprint_matrix`'s
   job on the cheaper raw template instead).
-- [ ] **Phase distribution per stamp.** Every firing carries a phase
-  `atan2(b,a)` (quadrature gain pair, see `CONTEXT.md`'s Stamp definition) —
-  currently only consumed by `recon`, never read as a diagnostic. Does a
-  stamp fire at a consistent phase (phase-locked — plausible for a
-  genuine oscillatory source like line noise) or an effectively random one
-  (broadband/transient content, where phase carries no information)? A
-  circular-variance histogram per stamp, computed alongside
-  `_render_identity_consistency`'s existing per-firing loop (`plugin.py:452`
-  already computes `mag`; phase is `atan2(o.amp[...,1], o.amp[...,0])`, free
-  to add there) is the missing panel.
-- [ ] **Full pairwise topography distance matrix.** `stamp_identity_consistency`
-  gives within/between AGGREGATES; a `[n_stamps, n_stamps]` cosine matrix on
-  each stamp's mean mixing column (parallel to `decoder_fingerprint_matrix`,
-  but on the topography instead of the raw waveform) would show whether
-  waveform-distinct stamps still project to similar scalp patterns, or
-  vice versa — currently nothing renders this pairing directly.
+- [x] **Phase distribution per stamp.** Extended `_render_identity_consistency`'s
+  existing per-firing loop (`plugin.py`) to also collect each firing's
+  channel-summed phase → `stamp_phase_consistency.png` (circular variance per
+  stamp, `viz/codebook.py`). Measured: mean circular variance 0.920, **0 of
+  30** units with ≥5 firings were phase-locked (<0.3) — no atom shows a
+  consistent firing phase, consistent with `docs/adr/0010`'s decision to
+  withdraw oscillator atoms (nothing here behaves like one).
+- [x] **Full pairwise topography distance matrix.** Same extended loop also
+  collects the raw signed `(a,b)` per firing (not just magnitude) →
+  `stamp_topography_distance.png`, one `[n,n]` cosine-distance heatmap per
+  dataset (channel spaces differ across datasets, so no single pooled
+  matrix), reusing the same coherent-average + reference-phase-projection
+  convention `viz/extract.py`'s `_used_flat_stamps` uses for one trial.
 - [ ] **Explicit pairwise co-firing/exclusivity matrix.** `plot_stamp_similarity`'s
   Jaccard is trial/patch-level aggregate; a raw `[n_stamps, n_stamps]`
   co-occurrence count within the same patch-position's top-k slate (which
   pairs are mutually exclusive vs always picked together) isn't rendered as
   its own matrix — would need `dense_routed`'s per-patch binary mask, easy to
   derive from what `check_codebook` already collects.
-- [ ] **Energy/loudness distribution per stamp — "load-bearing vs marginal".**
-  `k_eff` is an aggregate parsimony diagnostic; no panel currently shows the
-  distribution of `h` per stamp (is a given stamp usually the dominant
-  contributor when selected, or always a minor cleanup pick?). Cheap
-  histogram off `extract_usage`'s existing `h`.
-- [ ] **Rank position in mp_loss's residual ordering.** `mp_loss`
-  (`docs/adr/0011`, `CONTEXT.md`'s Residual ordering entry) ranks slots by
-  amplitude every forward pass; nothing logs which stamps consistently land
-  at rank 0 (dominant, graded against the full patch) vs late rank (cleanup,
-  graded against whatever's left). Would need a small addition to
-  `StampBank.forward`'s existing `order`/`order_routed` computation to expose
-  per-stamp mean rank as a diagnostic, not just consume it for the loss.
+- [x] **Energy/loudness distribution per stamp — "load-bearing vs marginal"**
+  and **rank position in mp_loss's residual ordering** — both answered by one
+  new panel, `_render_stamp_energy_and_rank` (`plugin.py`) →
+  `stamp_energy_rank.png`. Rank is recovered from `usage` alone (no
+  `StampBank.forward` change needed: each patch's routed row has exactly
+  `stamp_top_k` nonzero entries, ranking them descending reproduces
+  `mp_loss`'s own by-h order). Measured: mean h routed=0.186, shared=2.371
+  (~13x) — consistent with the pool-energy-share finding above; 33/60 routed
+  stamps fired at least once in this sample.
 - [ ] **Fire-rate trajectory over training (not just a checkpoint snapshot).**
   `fire_ema` is a single scalar per stamp at whatever epoch the checkpoint was
   saved — no panel shows a stamp's alive/dead HISTORY across epochs (does the
