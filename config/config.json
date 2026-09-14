@@ -236,7 +236,7 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAE",
-      "model_name": "mesae_tokenizer_v2",
+      "model_name": "mesae_tokenizer_v3",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -248,8 +248,8 @@
     },
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_pretrain_v2",
-      "tokenizer_checkpoint": "output/mesae_tokenizer_v2/tokenizer/best_tokenizer.pth",
+      "model_name": "mesae_pretrain_v3",
+      "tokenizer_checkpoint": "output/mesae_tokenizer_v3/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -261,8 +261,8 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_v2",
-      "pretrained_checkpoint": "output/mesae_pretrain_v2/pretrain/best_pretrain.pth",
+      "model_name": "mesae_finetune_v3",
+      "pretrained_checkpoint": "output/mesae_pretrain_v3/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.01,
