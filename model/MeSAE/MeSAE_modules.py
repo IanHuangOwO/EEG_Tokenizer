@@ -597,10 +597,8 @@ class StampBank(nn.Module):
     """
     def __init__(self, dim, patch_len, n_routed_stamps=796, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16,
-                 dead_threshold_frac=0.1, aux_k_cap_frac=0.04, ema_decay=0.999,
-                 mp_include_shared=False):
+                 dead_threshold_frac=0.1, aux_k_cap_frac=0.04, ema_decay=0.999):
         super().__init__()
-        self.mp_include_shared = mp_include_shared
         # Pool sizes are declared separately, not a total minus a slice: n_stamps is
         # the derived sum. Every internal use below wants the total, so it stays.
         self.n_routed = n_routed_stamps
@@ -880,18 +878,6 @@ class StampBank(nn.Module):
         recon = (torch.einsum('gck,gkl->gcl', amp[..., 0], D_sel)
                  + torch.einsum('gck,gkl->gcl', amp[..., 1], H_sel))
 
-        # Shared block on its own, split back out of the sum above. Used ONLY by
-        # MeSAEPretrain.get_loss's exclusivity path (exclusive_pool='shared') -- recon
-        # itself stays the true full sum, so display and diagnostics are unaffected.
-        # Measured: with the shared pool claiming first, the bank stops manufacturing
-        # out-of-band energy (60Hz reproduced at 1.3x the raw signal's share, versus
-        # 2.3-2.8x without it). See docs/adr/0011.
-        shared_recon = None
-        if self.n_shared > 0:
-            sl = slice(self.top_k, idx.shape[1])
-            shared_recon = (torch.einsum('gck,gkl->gcl', amp[:, :, sl, 0], D_sel[:, sl, :])
-                            + torch.einsum('gck,gkl->gcl', amp[:, :, sl, 1], H_sel[:, sl, :]))
-
         # Matching-Pursuit-style residual loss (see class docstring's Sequential
         # residual fit section below) — routed slots ONLY (shared stamps are an
         # always-on baseline, not competing for content, so residual-ordering them
@@ -917,19 +903,15 @@ class StampBank(nn.Module):
             contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
                            + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))   # [G, C, K, L]
             order_routed = h[:, :self.top_k].argsort(dim=-1, descending=True)  # [G, top_k]
-            if self.mp_include_shared:
-                # Every shared slot joins the chain, pinned ahead of routed: shared
-                # stamps are always-on, so every patch's reconstruction contains them
-                # whether or not anything asked. Grading a routed atom against a residual
-                # that still holds that baseline rewards it for re-explaining content
-                # already covered -- the same flaw mp_loss exists to remove, displaced to
-                # the routed/shared boundary. Subtract the baseline first, then ask what
-                # is specific to this patch.
-                shared_cols = torch.arange(self.top_k, idx.shape[1],
-                                           device=h.device).unsqueeze(0).expand(G, -1)
-                order = torch.cat([shared_cols, order_routed], dim=1)
-            else:
-                order = order_routed
+            # Shared slots pinned ahead of routed, always. They are always-on, so every
+            # patch's reconstruction contains them whether or not anything asked for them;
+            # grading a routed atom against a residual that still holds that baseline
+            # rewards it for re-explaining content already covered. Not a knob — the
+            # alternative is simply wrong. Measured: real 50Hz shared-pool share 0.336 ->
+            # 0.163, single routed owner 0.414 -> 0.661, mse_patch 0.0295 -> 0.0232.
+            shared_cols = torch.arange(self.top_k, idx.shape[1],
+                                       device=h.device).unsqueeze(0).expand(G, -1)
+            order = torch.cat([shared_cols, order_routed], dim=1)
             n_rank = order.shape[1]
             order_c = order.unsqueeze(1).unsqueeze(-1).expand(G, C, n_rank, L)
             contrib_ranked = contrib_all.gather(2, order_c)             # rank 0 = first claim
@@ -1000,7 +982,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss, shared_recon=shared_recon,
+            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss,
         )
 
 

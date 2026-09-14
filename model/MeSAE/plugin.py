@@ -80,7 +80,6 @@ def build_model(bp, num_channels):
         # above) — the shared build_model(bp, num_channels) interface
         # (model/factory.py) doesn't pass preprocess_params through.
         patch_stride=bp.get('patch_stride'),
-        mp_include_shared=sb.get('mp_include_shared', True),
     )
 
 
@@ -92,13 +91,11 @@ class MeSAETrainer(BaseTrainer):
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         mp_weight = hparams.get('mp_weight', 0.0)
-        exclusive_pool = hparams.get('exclusive_pool')   # None | 'shared'
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
-                               mp_loss=out.mp_loss, mp_weight=mp_weight,
-                               shared_recon=out.shared_recon, exclusive_pool=exclusive_pool)
+                               mp_loss=out.mp_loss, mp_weight=mp_weight)
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)

@@ -63,9 +63,7 @@ A parallel, non-discrete tokenizer approach (`model/MeSAE/`) — goal is explain
 
 **Sparsity budget**: `2 * (stamp_top_k + n_shared_stamps)`, the free scalars the active slots contribute per channel (each slot gives an `(a, b)` pair). **Must stay below `patch_len`, with margin.** Past that the active slots alone fit any patch regardless of what the atoms contain, and it stops being sparse coding — measured, not theoretical. A ceiling, not a tuning knob. See `docs/adr/0011-matching-pursuit-residual-loss.md`.
 
-**Residual ordering** (`mp_loss`): Matching-Pursuit-style grading. Slots are ranked by amplitude per patch (shared pinned ahead of routed, since the always-on baseline is present regardless); rank 0 is graded against the full patch, its contribution subtracted **detached**, rank 1 graded against what remains, and so on. An atom duplicating a higher-ranked one faces a near-zero residual and earns nothing for repeating it. This is what makes stamps specialize; top-k-by-amplitude selection alone has no mechanism against two correlated atoms co-scoring high on the same content. Its value cannot reach zero by construction — read it as a trend within a run, never against `mse_patch`.
-
-**Shared claim** (`exclusive_pool='shared'`): The shared block's contribution is swapped for a detached copy before the reconstruction loss, so routed atoms are graded on the remainder after the baseline's claim. A routed atom re-emitting baseline content then makes the sum overshoot rather than earning reward. Measured effect is spectral honesty — the bank stops manufacturing out-of-band energy — at a small patch-fidelity cost.
+**Residual ordering** (`mp_loss`): Matching-Pursuit-style grading. Slots are ranked by amplitude per patch, with shared slots always pinned ahead of routed (the always-on baseline is present regardless, so grading a routed atom against a residual that still holds it rewards re-explaining covered content — not a knob); rank 0 is graded against the full patch, its contribution subtracted **detached**, rank 1 graded against what remains, and so on. An atom duplicating a higher-ranked one faces a near-zero residual and earns nothing for repeating it. This is what makes stamps specialize; top-k-by-amplitude selection alone has no mechanism against two correlated atoms co-scoring high on the same content. Its value cannot reach zero by construction — read it as a trend within a run, never against `mse_patch`.
 
 **Dead-atom rescue** (`aux_loss`): Routed atoms whose firing EMA falls below `dead_threshold` are aimed at the current residual, reviving them on content nobody covers. Dropped once stamps freeze, since a frozen dictionary's atoms cannot be reshaped.
 
@@ -108,8 +106,7 @@ bottleneck widths 6 routed / 3 shared. Sparsity budget 32 and 40, both under
 - `trial` — same MSE on the real continuous trial, patches overlap-added back
   (`overlap_add_patches`, linear crossfade, weight-normalized), so gradient reaches each
   patch through its true position in the trial
-- `mp` — residual ordering (above), with `mp_include_shared=True` and
-  `exclusive_pool='shared'`
+- `mp` — residual ordering (above); shared slots are pinned ahead of routed, unconditionally
 - `aux` — dead-atom rescue; `ffn_lb` — Switch-style load balance for the MoE FFN routers
 
 `mp` and `aux` are both dropped once stamps freeze. `ffn_lb` runs in both stages (it comes

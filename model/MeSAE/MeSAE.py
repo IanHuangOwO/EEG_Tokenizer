@@ -67,7 +67,6 @@ class MeSAEPretrain(nn.Module):
         n_shared_ffn_experts=1,
         ffn_top_k=2,
         patch_stride=None,
-        mp_include_shared=False,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -91,7 +90,6 @@ class MeSAEPretrain(nn.Module):
             hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
             dead_threshold_frac=dead_threshold_frac,
             aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
-            mp_include_shared=mp_include_shared,
         )
         # convenience aliases — viz/checker code reads these off the model directly
         # (e.g. base_checker.py compute_unit_colors).
@@ -370,12 +368,9 @@ class MeSAEPretrain(nn.Module):
         out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
-        shared_recon = (out.shared_recon.reshape(B, N, C, L).permute(0, 2, 1, 3)
-                        if out.shared_recon is not None else None)
 
         return SimpleNamespace(
             recon=recon,
-            shared_recon=shared_recon,
             h=out.h,
             dense_routed=out.dense_routed,
             aux_loss=out.aux_loss,
@@ -459,7 +454,7 @@ class MeSAEPretrain(nn.Module):
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
-                 mp_loss=None, mp_weight=0.0, shared_recon=None, exclusive_pool=None):
+                 mp_loss=None, mp_weight=0.0):
         """
         Returns (total, l_masked, l_unmasked).
 
@@ -494,20 +489,6 @@ class MeSAEPretrain(nn.Module):
         from the encoder, which keeps training through the Masked stage (freeze_stamps()
         never locks the encoder).
         """
-        # Shared-pool exclusivity: swap the shared block's contribution for a DETACHED
-        # copy before the reconstruction loss sees it. recon - claimed is everything
-        # else (gradient intact); + claimed.detach() puts the shared block back as a
-        # constant. Net effect: every routed atom is graded on the REMAINDER after the
-        # always-on baseline's claim, and one that re-emits baseline content now makes
-        # the sum OVERSHOOT instead of earning reward. Shared keeps its own gradient
-        # through mp_loss (mp_include_shared pins it at the front of the residual
-        # chain). Measured: the bank stops manufacturing out-of-band energy -- 60Hz
-        # reproduced at 1.3x the raw signal's share versus 2.3-2.8x without it -- at a
-        # small patch-fidelity cost. No band is named anywhere, so this does not
-        # degrade into a hand-specified filter bank. See docs/adr/0011.
-        claimed = shared_recon if exclusive_pool == 'shared' else None
-        if claimed is not None:
-            recon = recon - claimed + claimed.detach()
         recon_loss, l_masked, l_unmasked = self._recon_loss(
             recon, x, bool_masked_pos, valid_channels=valid_channels)
         total = hierarchical_mse_weight * recon_loss

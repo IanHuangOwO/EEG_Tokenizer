@@ -130,9 +130,9 @@ source).
 content, it only declines to *reward* re-explaining what a stronger atom already
 covered.
 
-## Two follow-ons, both kept
+## Two follow-ons: one kept, one dropped
 
-### `mp_include_shared` — shared stamps join the residual chain
+### Shared stamps join the residual chain — kept, and hardcoded
 
 The first version ranked only the routed slots, leaving shared stamps outside the
 chain entirely. That exemption was load-bearing in the wrong direction: a routed
@@ -152,9 +152,10 @@ what is specific to this patch). Effect on 50Hz, the band with real signal:
 | `mp_include_shared` | routed 22 | **0.661** | 0.787 | **0.163** | **0.0232** |
 
 Shared-pool share of real line noise halved; one routed atom went from owning 41% to
-66%; patch fidelity improved as well.
+66%; patch fidelity improved as well. No tradeoff appeared on any measured axis, so
+this is not a knob — the flag was removed and the behaviour hardcoded.
 
-### `exclusive_pool='shared'` — the shared block claims first
+### `exclusive_pool='shared'` — tried, measured, then dropped
 
 `recon = recon - shared_recon + shared_recon.detach()` before the reconstruction
 loss. Routed atoms are graded on the remainder after the always-on baseline's claim,
@@ -177,8 +178,17 @@ out-of-band energy:
 
 60Hz is absent from the raw data here (verified model-free), so everything above the
 raw share is invented. Exclusivity nearly eliminates it and gives the best trial-level
-loss, at a small patch-fidelity cost (0.0319 vs 0.0232). Chosen deliberately:
-spectral honesty over patch fidelity.
+loss, at a patch-fidelity cost (0.0319 vs 0.0232).
+
+**Dropped anyway.** A probe confirmed the win was real rather than an artifact of the
+shared block shrinking (shared/total energy 0.906 either way, shared R^2 vs raw 0.906
+vs 0.904), so this is not a case of the mechanism failing. It was removed because the
+gain is confined to a metric — manufactured out-of-band energy — that only matters if
+interpretability outranks reconstruction, while the cost lands on the primary
+objective, and because detaching moves ~90% of the reconstruction (see the shared/raw
+figure above) onto mp_loss alone. Keeping the MSE path plain was judged worth more
+than the spectral cleanliness. `mp_include_shared` was hardcoded on at the same time;
+it improved both metrics and had no such tradeoff.
 
 ## Consequences
 
