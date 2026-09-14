@@ -65,7 +65,7 @@ def build_model(bp, num_channels):
         dropout=bp.get('dropout', 0.0),
         pool_after_blocks=bp.get('pool_after_blocks', []),
         num_channels=num_channels,
-        n_stamps=sb.get('n_stamps', 800),
+        n_routed_stamps=sb.get('n_routed_stamps', 60),
         n_shared_stamps=sb.get('n_shared_stamps', 4),
         stamp_top_k=sb.get('stamp_top_k', 32),
         stamp_hidden_width=sb.get('stamp_hidden_width', 8),
@@ -76,14 +76,11 @@ def build_model(bp, num_channels):
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
-        # sample_freq/patch_stride duplicate preprocess_params (same convention as
-        # patch_len above) — StampBank's oscillator atoms need real Hz/real time, which
-        # only exist relative to these, and the shared build_model(bp, num_channels)
-        # interface (model/factory.py) doesn't pass preprocess_params through.
-        sample_freq=bp.get('sample_freq', 200),
+        # patch_stride duplicates preprocess_params (same convention as patch_len
+        # above) — the shared build_model(bp, num_channels) interface
+        # (model/factory.py) doesn't pass preprocess_params through.
         patch_stride=bp.get('patch_stride'),
-        n_oscillator_stamps=sb.get('n_oscillator_stamps', 0),
-        oscillator_init_hz=sb.get('oscillator_init_hz'),
+        mp_include_shared=sb.get('mp_include_shared', True),
     )
 
 
@@ -97,13 +94,15 @@ class MeSAETrainer(BaseTrainer):
         decorr_weight = hparams.get('decorr_weight', 0.0)
         negent_weight = hparams.get('negent_weight', 0.0)
         mp_weight = hparams.get('mp_weight', 0.0)
+        exclusive_pool = hparams.get('exclusive_pool')   # None | 'shared'
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
                                dense_routed=out.dense_routed,
                                decorr_weight=decorr_weight, negent_weight=negent_weight,
-                               mp_loss=out.mp_loss, mp_weight=mp_weight)
+                               mp_loss=out.mp_loss, mp_weight=mp_weight,
+                               shared_recon=out.shared_recon, exclusive_pool=exclusive_pool)
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)

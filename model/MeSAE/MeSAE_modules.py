@@ -520,7 +520,7 @@ class StampBank(nn.Module):
 
     Group selection binds one source to ONE stamp across the whole scalp.
 
-    n_stamps splits into n_routed (compete via score + top-k) and n_shared (always
+    The bank is n_routed (compete via score + top-k) plus n_shared (always
     included, every group, no top-k). No fixed down-weight on the shared pool's
     recon contribution: a scalar multiplier on amp is not a real regularizer here —
     amp is a free, unconstrained linear gain, so the optimizer just inflates it to
@@ -590,51 +590,22 @@ class StampBank(nn.Module):
     fabricated-probe fingerprint() vs real-data dense_probe() split to work around a
     generator whose shape depended on its input (see both methods below).
 
-    Oscillator atoms (n_oscillator_stamps, a subset of the shared pool): a free
-    [patch_len]-length D_i's implicit frequency content is bound to whatever the
-    patch_len-length FFT grid can represent (Δf = fs/patch_len) — a real-world
-    narrowband source that doesn't land on that grid (measured: 50Hz line noise at
-    patch_len=50/fs=200Hz, Δf=4Hz, nearest bins 48/52Hz) forces the atom into a
-    beating pattern between its nearest representable bins, visible as a within-patch
-    amplitude envelope (strong center, weak edges — a full beat cycle at exactly the
-    patch length) and a phase seam at every patch boundary. A handful of atoms
-    (line-noise being the motivating case) get an exact closed-form shape instead —
-    D_i(t) = cos(2*pi*f_i*t + phi_i), f_i and phi_i free learnable SCALARS, t the
-    patch's real continuous time — with NO bin grid to misalign with: f_i can converge
-    to an exact measured frequency (e.g. 60.000Hz) regardless of patch_len, and every
-    firing reads off the same continuous function, so consecutive/overlapping patches
-    are automatically phase-continuous. (a, b) stay exactly the same content-derived
-    gain pair read off the atom's own hidden bottleneck as every other stamp — only the
-    SHAPE source differs for this subset, never the selection/gain machinery. See
-    _eval_oscillators/_template_tables. Scoped narrowly on purpose: transient sources
-    (blinks, muscle bursts) need real shape freedom a pure sinusoid can't give them, so
-    the routed pool keeps the free-vector design unchanged.
+    A free [patch_len]-length D_i's implicit frequency content is bound to the
+    patch_len-length FFT grid (Df = fs/patch_len). Parametric oscillator atoms once
+    carved out shared slots to escape that grid for line noise; withdrawn after
+    measurement — see docs/adr/0010-oscillator-atoms-withdrawn.md.
     """
-    def __init__(self, dim, patch_len, n_stamps=800, n_shared_stamps=4,
+    def __init__(self, dim, patch_len, n_routed_stamps=796, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16,
                  dead_threshold_frac=0.1, aux_k_cap_frac=0.04, ema_decay=0.999,
-                 n_oscillator_stamps=0, oscillator_init_hz=None, sample_freq=200,
-                 oscillator_f_min=40.0, oscillator_f_max=70.0):
+                 mp_include_shared=False):
         super().__init__()
-        self.n_stamps = n_stamps
+        self.mp_include_shared = mp_include_shared
+        # Pool sizes are declared separately, not a total minus a slice: n_stamps is
+        # the derived sum. Every internal use below wants the total, so it stays.
+        self.n_routed = n_routed_stamps
         self.n_shared = n_shared_stamps
-        self.n_routed = n_stamps - n_shared_stamps
-        # Oscillator atoms: a subset of the SHARED pool (global index range
-        # [n_routed, n_routed+n_oscillator) — the first slots inside the shared block,
-        # see _template_tables) whose "shape" is an exact, continuous-frequency
-        # cos/sin evaluated at each patch's real time, not a free [patch_len]-length
-        # vector. See _eval_oscillators and the class docstring's Oscillator atoms
-        # section for why: a free vector's implicit frequency is bound to whatever the
-        # patch_len-length FFT grid can represent (Δf = fs/patch_len), so a real-world
-        # line-noise frequency that doesn't land on that grid (e.g. 50Hz at patch_len=50,
-        # Δf=4Hz) forces a beating/tapering artifact within every patch. A continuous
-        # scalar frequency parameter has no such grid to misalign with.
-        assert n_oscillator_stamps <= n_shared_stamps, \
-            f"n_oscillator_stamps ({n_oscillator_stamps}) must be <= n_shared_stamps ({n_shared_stamps})"
-        self.n_oscillator = n_oscillator_stamps
-        self.fs = sample_freq
-        self.osc_f_min = oscillator_f_min
-        self.osc_f_max = oscillator_f_max
+        self.n_stamps = n_routed_stamps + n_shared_stamps
         self.top_k = min(top_k, self.n_routed)
         # Normalizes z before it's used for anything (scoring, the bottleneck's
         # generator input, z_h) — z inherits whatever scale the encoder currently
@@ -698,27 +669,7 @@ class StampBank(nn.Module):
         # Normal-init at a modest std (not kaiming, there's no fan-in/fan-out here: this
         # is a direct [patch_len] output vector, not a weight matrix).
         self.D_routed = nn.Parameter(torch.randn(self.n_routed, patch_len) * 0.02)
-        # Free-vector shared atoms only occupy the LOCAL shared indices past the
-        # oscillator ones (global layout: routed, then oscillator, then free-shared —
-        # see _template_tables) — shrunk by n_oscillator, not dropped from n_shared:
-        # w_amp_shared/W_down_shared above still generate (a, b) for every shared LOCAL
-        # index including the oscillator ones (same content-derived gain mechanism,
-        # only the SHAPE source differs for those slots).
-        self.D_shared = nn.Parameter(torch.randn(self.n_shared - self.n_oscillator, patch_len) * 0.02)
-
-        if self.n_oscillator > 0:
-            # Warm-started from real measurements (a whole-recording FFT trivially
-            # gives sub-0.01Hz resolution, no patch_len tradeoff — see class docstring),
-            # not blind round numbers: oscillator_init_hz supplies one target per atom,
-            # padded with 50.0 if short. f_raw is the pre-sigmoid value that makes
-            # osc_f_min + (osc_f_max-osc_f_min)*sigmoid(f_raw) land exactly on that
-            # target at init — logit of the target's fraction within [f_min, f_max].
-            init_hz = list(oscillator_init_hz or [])
-            init_hz = (init_hz + [50.0] * self.n_oscillator)[:self.n_oscillator]
-            frac = torch.tensor(init_hz, dtype=torch.float32)
-            frac = ((frac - oscillator_f_min) / (oscillator_f_max - oscillator_f_min)).clamp(1e-4, 1 - 1e-4)
-            self.osc_f_raw = nn.Parameter(torch.log(frac / (1 - frac)))
-            self.osc_phi = nn.Parameter(torch.zeros(self.n_oscillator))
+        self.D_shared = nn.Parameter(torch.randn(self.n_shared, patch_len) * 0.02)
 
         self.dead_threshold = dead_threshold_frac * (self.top_k / self.n_routed)
         self.aux_k_cap = max(1, int(aux_k_cap_frac * self.n_routed))
@@ -766,85 +717,28 @@ class StampBank(nn.Module):
         H = torch.fft.irfft(Fd, n=D.shape[-1], dim=-1)
         return F.normalize(H, dim=-1).to(D.dtype)
 
-    def _eval_oscillators(self, t):
-        """t: [G] each group's patch START offset in SAMPLES (time_idx * patch_stride,
-        see MeSAEPretrain.forward) -> (D_osc, H_osc) each [G, n_oscillator, patch_len],
-        unit-normalized. f_i (frequency) and phi_i (phase) are free learnable SCALARS
-        (see __init__) evaluated at this patch's real, continuous sample positions
-        (t[g] + arange(patch_len)) / fs — no FFT-bin quantization anywhere: unlike the
-        free-vector D_i atoms, whose implicit frequency is bound to whatever the
-        patch_len-length FFT grid can represent, f_i can converge to an exact real-world
-        frequency (e.g. 50.000Hz) regardless of patch_len, and every patch — whatever its
-        real position in the recording — reads off the SAME continuous function, so
-        consecutive/overlapping firings are automatically phase-continuous (no boundary
-        seam, unlike independently-fit free-vector atoms)."""
-        f = self.osc_f_min + (self.osc_f_max - self.osc_f_min) * torch.sigmoid(self.osc_f_raw)  # [n_osc]
-        sample_pos = t.view(-1, 1, 1) + torch.arange(
-            self.D_routed.shape[-1], device=t.device, dtype=t.dtype).view(1, 1, -1)             # [G, 1, L]
-        phase = 2 * math.pi * f.view(1, -1, 1) * (sample_pos / self.fs) + self.osc_phi.view(1, -1, 1)  # [G, n_osc, L]
-        return F.normalize(torch.cos(phase), dim=-1), F.normalize(torch.sin(phase), dim=-1)
-
-    def _template_tables(self, t=None):
-        """(D_all, H_all): unit templates, GLOBAL layout routed-then-oscillator-then-
-        free-shared (see __init__'s n_oscillator comment), and their quadrature
-        partners. Static [n_stamps, L] if t is None — oscillator atoms evaluated at one
-        arbitrary reference time (t=0): fine for fingerprint()/display, where only the
-        atom's frequency identity matters, not any one firing's real arrival phase.
-        Grouped [G, n_stamps, L] if t: [G] absolute per-group sample offsets are given —
-        the path forward() uses, where oscillator atoms genuinely need each group's own
-        real time (see _eval_oscillators). Free-vector atoms (routed + free-shared) are
-        identical regardless of t, just broadcast to G when a grouped table is asked for."""
-        D_routed = F.normalize(self.D_routed, dim=-1)            # [n_routed, L]
-        D_shared_free = F.normalize(self.D_shared, dim=-1)       # [n_shared-n_osc, L]
-        if self.n_oscillator == 0:
-            D_all = torch.cat([D_routed, D_shared_free], dim=0)
-            return D_all, self._quadrature(D_all)
-
-        H_routed = self._quadrature(D_routed)
-        H_shared_free = self._quadrature(D_shared_free)
-
-        if t is None:
-            t0 = D_routed.new_zeros(1)
-            D_osc, H_osc = self._eval_oscillators(t0)             # [1, n_osc, L]
-            D_osc, H_osc = D_osc[0], H_osc[0]                     # [n_osc, L]
-            return (torch.cat([D_routed, D_osc, D_shared_free], dim=0),
-                    torch.cat([H_routed, H_osc, H_shared_free], dim=0))
-
-        G = t.shape[0]
-        D_osc, H_osc = self._eval_oscillators(t)                  # [G, n_osc, L]
-        D_all = torch.cat([D_routed.unsqueeze(0).expand(G, -1, -1), D_osc,
-                            D_shared_free.unsqueeze(0).expand(G, -1, -1)], dim=1)
-        H_all = torch.cat([H_routed.unsqueeze(0).expand(G, -1, -1), H_osc,
-                            H_shared_free.unsqueeze(0).expand(G, -1, -1)], dim=1)
-        return D_all, H_all
+    def _template_tables(self):
+        """(D_all, H_all): unit templates in GLOBAL layout (routed then shared) and
+        their quadrature partners, each [n_stamps, patch_len]."""
+        D_all = F.normalize(torch.cat([self.D_routed, self.D_shared], dim=0), dim=-1)
+        return D_all, self._quadrature(D_all)
 
     @staticmethod
     def _gather_by_idx(table, idx):
-        """table: [n_stamps, L] (static) or [G, n_stamps, L] (grouped), idx: [G, K]
-        (global stamp ids) -> [G, K, L]. Static tables use plain fancy indexing (every
-        group reads the same row); grouped tables need a real per-group gather since
-        row g's own table differs from row g+1's (oscillator atoms' time-dependent
-        shape) — same values either way for a global index outside the oscillator
-        range."""
-        if table.dim() == 2:
-            return table[idx]
-        K, L = idx.shape[1], table.shape[-1]
-        return table.gather(1, idx.unsqueeze(-1).expand(-1, K, L))
+        """table: [n_stamps, L], idx: [G, K] global stamp ids -> [G, K, L]."""
+        return table[idx]
 
-    def decode_selected(self, idx, amp, t=None):
+    def decode_selected(self, idx, amp):
         """idx: [G, top_k+n_shared] GLOBAL indices (routed then shared, forward()'s
         layout), amp: [G, C, top_k+n_shared, 2] per-channel quadrature gain pairs WITH
-        rms already in (forward()'s out.amp), t: [G] absolute per-group sample offsets
-        or None (see _template_tables — needed to re-expand an oscillator atom's real,
-        time-dependent shape; None falls back to the arbitrary-reference-phase static
-        table) -> contribution [G, C, top_k+n_shared, patch_len] = a*D_hat + b*H_hat
+        rms already in (forward()'s out.amp) -> contribution [G, C, top_k+n_shared, patch_len] = a*D_hat + b*H_hat
         per slot, each slot's own raw decoded output per channel (unsummed — viz reads
         this to show per-stamp per-channel content; a stamp's [C] magnitude column
         sqrt(a^2+b^2) at one slot is its phase-invariant topomap at that patch time).
         Pure re-expansion of forward()'s already-computed quantities — no model
         re-evaluation, so callers can't accidentally decode with different
         selection/scale than training produced."""
-        D_all, H_all = self._template_tables(t)
+        D_all, H_all = self._template_tables()
         D_sel, H_sel = self._gather_by_idx(D_all, idx), self._gather_by_idx(H_all, idx)
         return (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
                 + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))
@@ -861,10 +755,8 @@ class StampBank(nn.Module):
 
     @torch.no_grad()
     def fingerprint(self):
-        """Every stamp's raw waveform template, concatenated routed-then-oscillator-
-        then-free-shared (see __init__'s n_oscillator comment). Free-vector atoms have
-        NO z dependence at all — D_i IS the shape, unconditionally. Oscillator atoms
-        have no z dependence either, but DO depend on time — shown here at one
+        """Every stamp's raw waveform template, routed then shared. Free-vector atoms
+        have NO z dependence at all — D_i IS the shape, unconditionally. Shown at one
         arbitrary reference phase (t=0, see _template_tables), since only their
         frequency is a stable identity; arrival phase isn't. amp_i(z) never touches
         shape for either kind, only overall scale/sign — see class docstring — so this
@@ -905,18 +797,14 @@ class StampBank(nn.Module):
         return (amp[..., 0].unsqueeze(-1) * D_all.view(1, 1, self.n_stamps, -1)
                 + amp[..., 1].unsqueeze(-1) * H_all.view(1, 1, self.n_stamps, -1))
 
-    def forward(self, z, x_target=None, rms=None, valid_channels=None, t=None):
+    def forward(self, z, x_target=None, rms=None, valid_channels=None):
         """
         z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions, all C
         channels of one patch time per group — see class docstring), x_target:
         [G, C, patch_len] the real patch content (only needed for the dead-atom aux
         rescue, training only), rms: [G, C, 1] per-channel raw-input RMS or None —
         multiplied into every amp; callers running the real pipeline should always
-        pass it. t: [G] each group's absolute patch-start offset in SAMPLES
-        (time_idx * patch_stride, see MeSAEPretrain.forward), or None — feeds
-        _template_tables so oscillator atoms (if any, see __init__) evaluate their
-        exact continuous-frequency shape at this patch's real time instead of an
-        arbitrary reference phase; irrelevant if n_oscillator_stamps=0.
+        pass it.
         valid_channels: [G, C] bool, True = real (not zero-padded) channel,
         or None — used ONLY for the group selection score (a zero-padded channel's amp
         is encoder-bias noise that shouldn't vote on which sources this patch
@@ -991,11 +879,23 @@ class StampBank(nn.Module):
         h = slot_mag.clamp(min=0).sqrt()                                 # [G, K]
         dense_routed = torch.zeros_like(group_score).scatter_(-1, topk_idx, h[:, :self.top_k])  # [G, n_routed]
 
-        D_all, H_all = self._template_tables(t)
+        D_all, H_all = self._template_tables()
         D_sel, H_sel = self._gather_by_idx(D_all, idx), self._gather_by_idx(H_all, idx)  # each [G, top_k+n_shared, patch_len]
         # a*D_hat + b*Hilbert(D_hat) summed over slots — no [G,C,K,L] materialized
         recon = (torch.einsum('gck,gkl->gcl', amp[..., 0], D_sel)
                  + torch.einsum('gck,gkl->gcl', amp[..., 1], H_sel))
+
+        # Shared block on its own, split back out of the sum above. Used ONLY by
+        # MeSAEPretrain.get_loss's exclusivity path (exclusive_pool='shared') -- recon
+        # itself stays the true full sum, so display and diagnostics are unaffected.
+        # Measured: with the shared pool claiming first, the bank stops manufacturing
+        # out-of-band energy (60Hz reproduced at 1.3x the raw signal's share, versus
+        # 2.3-2.8x without it). See docs/adr/0011.
+        shared_recon = None
+        if self.n_shared > 0:
+            sl = slice(self.top_k, idx.shape[1])
+            shared_recon = (torch.einsum('gck,gkl->gcl', amp[:, :, sl, 0], D_sel[:, sl, :])
+                            + torch.einsum('gck,gkl->gcl', amp[:, :, sl, 1], H_sel[:, sl, :]))
 
         # Matching-Pursuit-style residual loss (see class docstring's Sequential
         # residual fit section below) — routed slots ONLY (shared stamps are an
@@ -1018,21 +918,33 @@ class StampBank(nn.Module):
         # content NO ONE ELSE at a higher rank already covered.
         mp_loss = amp.new_zeros(())
         if x_target is not None:
-            h_routed = h[:, :self.top_k]                                   # [G, top_k]
-            order = h_routed.argsort(dim=-1, descending=True)               # [G, top_k]
-            amp_routed = amp[:, :, :self.top_k, :]                          # [G, C, top_k, 2]
-            D_routed_sel, H_routed_sel = D_sel[:, :self.top_k, :], H_sel[:, :self.top_k, :]
-            contrib_routed = (amp_routed[..., 0].unsqueeze(-1) * D_routed_sel.unsqueeze(1)
-                               + amp_routed[..., 1].unsqueeze(-1) * H_routed_sel.unsqueeze(1))  # [G,C,top_k,L]
-            order_c = order.unsqueeze(1).unsqueeze(-1).expand(G, C, self.top_k, contrib_routed.shape[-1])
-            contrib_ranked = contrib_routed.gather(2, order_c)              # [G, C, top_k, L], rank 0 = strongest
+            L = D_sel.shape[-1]
+            contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
+                           + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))   # [G, C, K, L]
+            order_routed = h[:, :self.top_k].argsort(dim=-1, descending=True)  # [G, top_k]
+            if self.mp_include_shared:
+                # Every shared slot joins the chain, pinned ahead of routed: shared
+                # stamps are always-on, so every patch's reconstruction contains them
+                # whether or not anything asked. Grading a routed atom against a residual
+                # that still holds that baseline rewards it for re-explaining content
+                # already covered -- the same flaw mp_loss exists to remove, displaced to
+                # the routed/shared boundary. Subtract the baseline first, then ask what
+                # is specific to this patch.
+                shared_cols = torch.arange(self.top_k, idx.shape[1],
+                                           device=h.device).unsqueeze(0).expand(G, -1)
+                order = torch.cat([shared_cols, order_routed], dim=1)
+            else:
+                order = order_routed
+            n_rank = order.shape[1]
+            order_c = order.unsqueeze(1).unsqueeze(-1).expand(G, C, n_rank, L)
+            contrib_ranked = contrib_all.gather(2, order_c)             # rank 0 = first claim
 
             vmask = None
             if valid_channels is not None:
                 vmask = valid_channels.unsqueeze(-1).to(contrib_ranked.dtype)  # [G, C, 1]
 
             resid = x_target
-            for m in range(self.top_k):
+            for m in range(n_rank):
                 contrib_m = contrib_ranked[:, :, m, :]                      # [G, C, L]
                 diff2 = (contrib_m - resid).pow(2)
                 if vmask is not None:
@@ -1040,7 +952,7 @@ class StampBank(nn.Module):
                 else:
                     mp_loss = mp_loss + diff2.mean()
                 resid = resid - contrib_m.detach()
-            mp_loss = mp_loss / self.top_k
+            mp_loss = mp_loss / n_rank
 
         # Magnitude sqrt(a^2+b^2) per selected routed slot — the phase-invariant
         # amplitude, what sparsity/k_eff should see (penalize/count loudness, never
@@ -1093,7 +1005,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss,
+            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss, shared_recon=shared_recon,
         )
 
 

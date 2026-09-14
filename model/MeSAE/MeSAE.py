@@ -55,7 +55,7 @@ class MeSAEPretrain(nn.Module):
         dropout=0.0,
         pool_after_blocks=(),
         num_channels=1,
-        n_stamps=800,
+        n_routed_stamps=796,
         n_shared_stamps=4,
         stamp_top_k=32,
         stamp_hidden_width=8,
@@ -66,18 +66,13 @@ class MeSAEPretrain(nn.Module):
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
-        sample_freq=200,
         patch_stride=None,
-        n_oscillator_stamps=0,
-        oscillator_init_hz=None,
+        mp_include_shared=False,
     ):
         super().__init__()
         self.patch_len = patch_len
-        # Real absolute sample offset per patch (time_idx * patch_stride) is what
-        # StampBank's oscillator atoms (if any) need to evaluate their exact-frequency
-        # shape at each patch's true time — see forward(). Falls back to patch_len
-        # (non-overlapping default) matching PretrainDataset's own patch_stride-or-
-        # patch_len convention when not given.
+        # patch_stride drives overlap-add stitching in _recon_loss's trial term.
+        # Falls back to patch_len (non-overlapping) matching PretrainDataset.
         self.patch_stride = patch_stride or patch_len
         self.head_dim = embed_dim
         self.num_channels = num_channels
@@ -92,12 +87,11 @@ class MeSAEPretrain(nn.Module):
 
         self.stamps = StampBank(
             embed_dim, patch_len,
-            n_stamps=n_stamps, n_shared_stamps=n_shared_stamps, top_k=stamp_top_k,
+            n_routed_stamps=n_routed_stamps, n_shared_stamps=n_shared_stamps, top_k=stamp_top_k,
             hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
             dead_threshold_frac=dead_threshold_frac,
             aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
-            n_oscillator_stamps=n_oscillator_stamps, oscillator_init_hz=oscillator_init_hz,
-            sample_freq=sample_freq,
+            mp_include_shared=mp_include_shared,
         )
         # convenience aliases — viz/checker code reads these off the model directly
         # (e.g. base_checker.py compute_unit_colors).
@@ -344,12 +338,6 @@ class MeSAEPretrain(nn.Module):
         z_g = z.permute(0, 2, 1, 3).reshape(G, C, -1)          # [G, C, D]
         x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)           # [G, C, L] — aux-rescue target
 
-        # Absolute patch-start sample offset per group, same (B, N) -> G merge order as
-        # z_g/x_g (time_idx has no C dim to begin with, so a plain reshape already
-        # matches) — StampBank's oscillator atoms (if any) need this to evaluate their
-        # exact-frequency shape at each patch's real time, see StampBank.forward.
-        t_g = time_idx.reshape(G).to(z.dtype) * self.patch_stride if time_idx is not None else None
-
         # Per-channel raw-input RMS — the amplitude signal the LayerNorm stack erased
         # from z (embed.norm -> per-block norm_out -> stamps.input_norm), multiplied back
         # into every amp inside StampBank. Masked positions get 1.0: their true patch is
@@ -379,12 +367,15 @@ class MeSAEPretrain(nn.Module):
                 mask_g = mask_g & vc_g.unsqueeze(-1)
             rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g, t=t_g)
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
+        shared_recon = (out.shared_recon.reshape(B, N, C, L).permute(0, 2, 1, 3)
+                        if out.shared_recon is not None else None)
 
         return SimpleNamespace(
             recon=recon,
+            shared_recon=shared_recon,
             h=out.h,
             dense_routed=out.dense_routed,
             aux_loss=out.aux_loss,
@@ -466,8 +457,8 @@ class MeSAEPretrain(nn.Module):
           moment disagreed. Same math here, but differentiable and inside the actual
           loss: gradient reaches every patch through its real position in the trial,
           which patch alone never gave it — this is the level a pooled/attended
-          representation (or the oscillator atoms, see StampBank) needs real training
-          pressure to serve well, not just the *capacity* to serve it.
+          representation needs real training pressure to serve well, not just the
+          *capacity* to serve it.
 
         Previously patch was spectrally whitened (rFFT, per-bin weight ~1/EMA-tracked
         dataset PSD, meant to counteract EEG's 1/f spectrum handing all the gradient
@@ -530,7 +521,7 @@ class MeSAEPretrain(nn.Module):
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
                  dense_routed=None, decorr_weight=0.0, negent_weight=0.0,
-                 mp_loss=None, mp_weight=0.0):
+                 mp_loss=None, mp_weight=0.0, shared_recon=None, exclusive_pool=None):
         """
         Returns (total, l_masked, l_unmasked).
 
@@ -572,6 +563,20 @@ class MeSAEPretrain(nn.Module):
         from the encoder, which keeps training through the Masked stage (freeze_stamps()
         never locks the encoder).
         """
+        # Shared-pool exclusivity: swap the shared block's contribution for a DETACHED
+        # copy before the reconstruction loss sees it. recon - claimed is everything
+        # else (gradient intact); + claimed.detach() puts the shared block back as a
+        # constant. Net effect: every routed atom is graded on the REMAINDER after the
+        # always-on baseline's claim, and one that re-emits baseline content now makes
+        # the sum OVERSHOOT instead of earning reward. Shared keeps its own gradient
+        # through mp_loss (mp_include_shared pins it at the front of the residual
+        # chain). Measured: the bank stops manufacturing out-of-band energy -- 60Hz
+        # reproduced at 1.3x the raw signal's share versus 2.3-2.8x without it -- at a
+        # small patch-fidelity cost. No band is named anywhere, so this does not
+        # degrade into a hand-specified filter bank. See docs/adr/0011.
+        claimed = shared_recon if exclusive_pool == 'shared' else None
+        if claimed is not None:
+            recon = recon - claimed + claimed.detach()
         recon_loss, l_masked, l_unmasked = self._recon_loss(
             recon, x, bool_masked_pos, valid_channels=valid_channels)
         total = hierarchical_mse_weight * recon_loss

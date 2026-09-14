@@ -168,22 +168,22 @@
           "top_k": 2
         },
         "stamp_bank": {
-          "n_stamps": 64,
+          "n_routed_stamps": 60,
           "n_shared_stamps": 4,
           "stamp_top_k": 12,
           "stamp_hidden_width": 6,
           "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
-          "sae_ema_decay": 0.99
+          "sae_ema_decay": 0.99,
+          "mp_include_shared": true
         },
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
           "aux_weight": 0.01,
-          "decorr_weight": 0.0,
-          "negent_weight": 0.0,
-          "mp_weight": 1.0
+          "mp_weight": 1.0,
+          "exclusive_pool": "shared"
         }
       },
       "pretrain": {
@@ -208,22 +208,22 @@
           "top_k": 2
         },
         "stamp_bank": {
-          "n_stamps": 64,
+          "n_routed_stamps": 56,
           "n_shared_stamps": 8,
           "stamp_top_k": 12,
           "stamp_hidden_width": 6,
           "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": 0.1,
-          "sae_ema_decay": 0.99
+          "sae_ema_decay": 0.99,
+          "mp_include_shared": true
         },
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
           "aux_weight": 0.01,
-          "decorr_weight": 0.0,
-          "negent_weight": 0.0,
-          "mp_weight": 1.0
+          "mp_weight": 1.0,
+          "exclusive_pool": "shared"
         }
       },
       "finetune": {
