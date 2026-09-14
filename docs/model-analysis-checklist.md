@@ -47,6 +47,24 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
   suggest about "which pool does the interesting work". Open question this
   raises: is Routed's 60-stamp specialization budget underused relative to
   `docs/adr/0010`'s intent for it?
+- [x] **Task-label information: which pool actually predicts it.** The
+  panels above measure reconstruction mass/necessity, not task relevance —
+  a pool can dominate recon while carrying no label information, or the
+  reverse. `_render_pool_label_probe` (`plugin.py`) → `pool_label_probe.png`
+  (`viz/codebook.py`): 5-fold CV logistic regression on trial-level usage,
+  routed-only vs shared-only vs both, against the per-trial task label
+  (datasets with <2 classes or <5 trials/class skipped). Measured on
+  `mesae_tokenizer_v4` (5/8 sampled datasets qualified): `BCICIV1_Train`
+  sits at chance in BOTH pools (no task info either way — not a
+  routed-vs-shared question there, the usage just isn't predictive at all);
+  where real signal exists (`Inria_Train` 72%/77.5% routed/shared vs 50%
+  chance, `EEGMMIdb` 37.5%/44.0% vs 33.3% chance), Shared beats Routed —
+  same direction as the energy-share/ablation findings above. `both`
+  combined didn't reliably beat either pool alone (worse on those same two
+  datasets) — likely mild overfitting from doubling feature count against a
+  small per-fold trial count, not yet a real "combining hurts" finding;
+  worth revisiting with more trials/regularization before reading much into
+  it.
 
 ## 2. Differences between stamps — every current axis
 
