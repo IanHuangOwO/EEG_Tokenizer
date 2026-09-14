@@ -105,6 +105,18 @@ contract.
 
 - **`model/factory.py`**: `build_pretrain_from_config(config, mode=...)` — dispatches on `training_params[mode].model_type` (`MeFSQ` or `MeSAE`)
 
+### MeSAE sparsity budget — a hard ceiling, not a knob
+
+Each active stamp slot contributes two free scalars (`a`, `b`) per channel, so the
+reconstruction has `2 * (stamp_top_k + n_shared_stamps)` degrees of freedom against a
+`patch_len`-sample target. **Keep `2 * (top_k + n_shared) < patch_len`, with margin.**
+
+Past that line the active slots alone can fit any patch exactly regardless of what the
+atoms contain, and it stops being sparse coding: measured at `top_k=24` (DOF 56 >
+patch_len 50), `recon_mse` collapsed to ~0 on every dataset at once while activation
+kurtosis fell 6.68 -> 1.17 and cross-atom correlation quadrupled. Current defaults sit
+at 32 (tokenizer) and 40 (pretrain). See `docs/adr/0011-matching-pursuit-residual-loss.md`.
+
 ### Config (`config/config.json`)
 
 Key fields:

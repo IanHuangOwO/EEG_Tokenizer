@@ -283,3 +283,17 @@ did. `stamp_lb_weight` removed from `config.json`'s `loss` blocks;
 `lb_loss` term. "Stamp Router Health" panel's LB-loss twin-axis line simply
 stops appearing (guarded by `key in self.history['train']` in
 `router_health_series`) rather than needing its own panel edit.
+
+## Resolved later
+
+This ADR's open Diversity question — whether decorrelation pressure is enough to
+keep stamp templates distinct, and whether it needs a temporal counterpart — was
+settled by measurement. Activation decorrelation and a FastICA negentropy surrogate
+were both implemented and both made per-patch content overlap WORSE, because they
+act on when/how strongly an atom fires and never on what it decodes. The mechanism
+that worked is residual-ordered grading (`mp_loss`). See
+docs/adr/0011-matching-pursuit-residual-loss.md.
+
+The sparsity budget also turned out to be a hard ceiling rather than a free knob:
+`2 * (top_k + n_shared)` must stay below `patch_len`, or the active slots can fit any
+patch regardless of content and the dictionary stops being a dictionary. Same ADR.

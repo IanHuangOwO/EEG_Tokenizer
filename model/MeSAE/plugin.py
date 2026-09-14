@@ -91,16 +91,12 @@ class MeSAETrainer(BaseTrainer):
         aux_weight = hparams.get('aux_weight', 0.03)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
-        decorr_weight = hparams.get('decorr_weight', 0.0)
-        negent_weight = hparams.get('negent_weight', 0.0)
         mp_weight = hparams.get('mp_weight', 0.0)
         exclusive_pool = hparams.get('exclusive_pool')   # None | 'shared'
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
-                               dense_routed=out.dense_routed,
-                               decorr_weight=decorr_weight, negent_weight=negent_weight,
                                mp_loss=out.mp_loss, mp_weight=mp_weight,
                                shared_recon=out.shared_recon, exclusive_pool=exclusive_pool)
 
@@ -364,10 +360,8 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         """Per-stamp [patch_len] waveform template D_i (see StampBank.fingerprint —
         content-free and exact now, no probe involved: D_i never depends on any input),
         pairwise cosine sim — this is `filter_relation.png`'s direct successor and the
-        empirical check on template diversity — no longer enforced by the deleted
-        decorr/indep repulsion losses NOR by whitening (also since removed, see
-        MeSAE._recon_loss's docstring); this panel is now the main way to catch a
-        collapse back toward duplicate waveforms, not just a sanity check on one."""
+        empirical check on template diversity. mp_loss is what now discourages
+        duplicate atoms (docs/adr/0011); this panel is how you verify it held."""
         fp = model.stamps.fingerprint().cpu().numpy()  # [n_stamps, patch_len]
         flat = fp.reshape(fp.shape[0], -1)
         flat = flat / (np.linalg.norm(flat, axis=1, keepdims=True) + 1e-8)

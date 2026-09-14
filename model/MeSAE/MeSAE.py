@@ -388,62 +388,6 @@ class MeSAEPretrain(nn.Module):
             valid_channels=valid_channels,
         )
 
-    def _ica_regularizers(self, dense_routed):
-        """ICA-inspired pair to _recon_loss's reconstruction terms — neither touches
-        recon at all, both act only on StampBank.forward's dense_routed [G, n_routed]
-        (zeros at unselected, h magnitude at selected). Motivation (see session
-        discussion, top_k=24 collapse): once 2*(top_k+n_shared) exceeds patch_len, the
-        active atoms have enough raw degrees of freedom to exactly fit ANY patch
-        regardless of their content — dense_routed alone can't tell a meaningful sparse
-        decomposition from an arbitrary one that just happens to zero the loss. Real
-        ICA resolves the analogous ambiguity (after whitening, a rotation ambiguity
-        remains) by picking the rotation that maximizes non-Gaussianity of each
-        component — because a linear mixture of independent non-Gaussian sources looks
-        MORE Gaussian than any single source (CLT), the "arbitrary mixed" solution is
-        the Gaussian-looking one and the "real distinct sources" solution is the
-        non-Gaussian one. Two terms, matching FastICA's own two stages — NEITHER alone
-        is sufficient (decorrelation doesn't rule out two atoms being non-linearly
-        dependent duplicates; non-Gaussianity alone doesn't rule out two atoms being
-        literally identical, since identical peaky signals are still each individually
-        peaky) — this is deliberately two knobs, not one, so an ablation can test
-        whether both are actually needed in practice:
-          - decorr: mean squared off-diagonal correlation between atoms' activation
-            series across the batch (Barlow-Twins-style) — penalizes redundant/
-            duplicate atoms directly.
-          - negent: FastICA's robust log-cosh negentropy surrogate, MAXIMIZED (hence
-            the sign) — rewards each atom's own activation distribution for being
-            peaky/non-Gaussian (E[log cosh(v)] for standard-normal v is a known
-            constant, ~0.375; squared distance from that reference is 0 for Gaussian,
-            grows for non-Gaussian).
-        Computed fresh per batch (no EMA) — G = B*N patches per batch is a few hundred
-        to a few thousand samples, enough for a stable 2nd/4th-moment estimate; atoms
-        with near-zero variance this batch (silent/rarely-fired) are excluded from
-        both terms rather than injecting a degenerate all-same-value column. Returns
-        (decorr_loss, negent_loss), both exactly 0 (not NaN) if fewer than 2 atoms
-        have real variance in this batch."""
-        G, R = dense_routed.shape
-        mean = dense_routed.mean(dim=0, keepdim=True)
-        centered = dense_routed - mean
-        var = centered.pow(2).mean(dim=0)                       # [R]
-        std = var.clamp(min=1e-8).sqrt()
-        active = std > 1e-4
-        if int(active.sum()) < 2:
-            z = dense_routed.new_zeros(())
-            return z, z
-
-        c = centered[:, active] / std[active].unsqueeze(0)      # [G, R'] whitened columns
-        Rp = c.shape[1]
-
-        corr = (c.t() @ c) / G                                  # [R', R'], diag ~= 1
-        eye = torch.eye(Rp, device=c.device, dtype=torch.bool)
-        decorr_loss = corr[~eye].pow(2).mean()
-
-        g = torch.log(torch.cosh(c.clamp(-15, 15)))
-        negent = (g.mean(dim=0) - 0.375).pow(2)                 # [R']
-        negent_loss = -negent.mean()
-
-        return decorr_loss, negent_loss
-
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None):
         """Two-term recon loss, both plain time-domain MSE:
         - patch: every raw patch against its own reconstruction, independent of the
@@ -460,12 +404,7 @@ class MeSAEPretrain(nn.Module):
           representation needs real training pressure to serve well, not just the
           *capacity* to serve it.
 
-        Previously patch was spectrally whitened (rFFT, per-bin weight ~1/EMA-tracked
-        dataset PSD, meant to counteract EEG's 1/f spectrum handing all the gradient
-        to the lowest bins) — dropped: not established to be earning its complexity
-        (ema_bin_psd buffer + FFT machinery) over plain time-domain MSE. If frequency-
-        aware weighting is wanted again later, it belongs on trial (the level that
-        actually has a physical timeline to take a spectrum of), not patch.
+        patch was once spectrally whitened; dropped, see docs/adr/0011.
 
         The former window term (mean over the N axis into one "typical patch" shape,
         not tied to any real point in time) is also dropped — trial now covers the
@@ -520,15 +459,9 @@ class MeSAEPretrain(nn.Module):
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
-                 dense_routed=None, decorr_weight=0.0, negent_weight=0.0,
                  mp_loss=None, mp_weight=0.0, shared_recon=None, exclusive_pool=None):
         """
         Returns (total, l_masked, l_unmasked).
-
-        dense_routed/decorr_weight/negent_weight: optional ICA-inspired regularizer
-        pair (see _ica_regularizers) — both weights default 0.0 (off, matching every
-        other optional term here). Skipped entirely (no _ica_regularizers call at all)
-        when both weights are 0, so passing dense_routed costs nothing when unused.
 
         mp_loss/mp_weight: optional Matching-Pursuit-style residual loss (see
         StampBank.forward's mp_loss section) — always computed there (cheap relative
@@ -549,14 +482,12 @@ class MeSAEPretrain(nn.Module):
         frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
         freeze_stamps().
 
-        No auxiliary dictionary-shaping term remains. top_k is the sparsity budget,
-        aux_loss the anti-collapse mechanism; the WHITENED recon objective that used to
-        be the diversity mechanism was removed (see _recon_loss's docstring) without a
-        replacement — template diversity is no longer structurally guaranteed, only
-        whatever aux_loss's residual-rescue still provides. Watch stamp waveform
-        diversity (viz.codebook's stamp_similarity panel) on the next run for signs of
-        the collapse whitening existed to prevent. StampBank has no load-balance loss
-        of its own — see StampBank.forward docstring.
+        Dictionary shaping is mp_loss's job (see StampBank.forward): top_k is the
+        sparsity budget, aux_loss the anti-collapse mechanism, and mp_loss the
+        residual-ordered term that stops atoms being rewarded for re-explaining what a
+        higher-ranked atom already covered. Earlier attempts at this — spectral
+        whitening, then activation decorrelation/negentropy — were measured and
+        dropped; see docs/adr/0011. StampBank has no load-balance loss of its own.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
@@ -585,12 +516,6 @@ class MeSAEPretrain(nn.Module):
             total = total + aux_weight * aux_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
-
-        if dense_routed is not None and (decorr_weight or negent_weight):
-            decorr_loss, negent_loss = self._ica_regularizers(dense_routed)
-            total = total + decorr_weight * decorr_loss + negent_weight * negent_loss
-            self._last_pyramid_levels['decorr'] = decorr_loss.detach().item()
-            self._last_pyramid_levels['negent'] = negent_loss.detach().item()
 
         # Gated on stamps_frozen exactly like aux_loss above, same reasoning: mp_loss
         # exists to shape WHICH atom owns which content (see StampBank.forward's

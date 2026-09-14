@@ -255,7 +255,7 @@ if __name__ == '__main__':
             # assemble_trials=False: one snapshot = one REAL trial, so patch count matches the
             # trial's own length (e.g. a 260-pt Inria P300 epoch -> 2 patches) instead of an
             # 800-pt assembled window that spans ~3 concatenated epochs, which makes the
-            # topo_psd_by_patch panel's "patch position within trial" axis meaningless for
+            # stamp_by_patch panel's "patch position within trial" axis meaningless for
             # short-trial datasets. Long-trial datasets (~800pt) are unaffected. Same call the
             # codebook path already uses. Note: trial_idx now indexes real trials, not windows.
             ds = build_dataset_from_config(cfg, mode=data_mode, assemble_trials=False)

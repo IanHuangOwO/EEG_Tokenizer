@@ -743,15 +743,11 @@ class StampBank(nn.Module):
         return (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
                 + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))
 
-    # No auxiliary dictionary-shaping loss remains. Redundant/degenerate atoms are
-    # handled structurally: interchangeable atoms die naturally (sparsity_loss shrinks
-    # one's amp at zero recon cost -> group score fades -> dead -> aux rescue re-aims
-    # it at the residual — content nobody else covers). Frequency diversity used to
-    # additionally come from the spectrally whitened recon objective (MeSAE._recon_
-    # loss) — that whitening was removed (not established to be earning its
-    # complexity over plain time-domain MSE), so diversity now rests on the dead-atom
-    # rescue alone. k_eff and stamp_router_entropy_frac stay logged so this is the
-    # first place to check for the template-collapse whitening used to guard against.
+    # Redundant/degenerate atoms are handled two ways: mp_loss (below) denies them
+    # reward for re-explaining a higher-ranked atom's content, and interchangeable
+    # atoms that still slip through die naturally (amp shrinks at zero recon cost ->
+    # group score fades -> dead -> aux rescue re-aims them at uncovered residual).
+    # k_eff and stamp_router_entropy_frac stay logged as the collapse tripwire.
 
     @torch.no_grad()
     def fingerprint(self):
@@ -821,8 +817,7 @@ class StampBank(nn.Module):
         diagnostics/viz-ranking only, still never touches recon),
         dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
         MeSAETrainer/MeSAECodebookChecker read for router-health/usage
-        panels, at patch-position granularity), aux_loss, k_eff (diagnostic only — no
-        auxiliary dictionary-shaping loss remains).
+        panels, at patch-position granularity), aux_loss, k_eff (diagnostic only).
 
         No load-balance loss — see class docstring. Dead-atom collapse is handled by
         fire_ema/dead_threshold/aux_loss below ("fired" now means "selected for a
