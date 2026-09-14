@@ -997,6 +997,51 @@ class StampBank(nn.Module):
         recon = (torch.einsum('gck,gkl->gcl', amp[..., 0], D_sel)
                  + torch.einsum('gck,gkl->gcl', amp[..., 1], H_sel))
 
+        # Matching-Pursuit-style residual loss (see class docstring's Sequential
+        # residual fit section below) — routed slots ONLY (shared stamps are an
+        # always-on baseline, not competing for content, so residual-ordering them
+        # doesn't apply). One-shot top-k-by-energy selection has NO mechanism against
+        # two correlated/near-duplicate atoms co-scoring high on the SAME target and
+        # getting selected together every time (unlike Matching Pursuit/OMP, which
+        # explicitly re-scores against the RESIDUAL after each pick, so a near-
+        # duplicate of an already-picked atom scores ~0 on what's left). This term
+        # doesn't change selection or recon (both stay exactly as above) — it only
+        # reshapes each routed slot's TRAINING TARGET: rank the top_k routed slots
+        # by h (descending, real reconstruction-energy order, not the fixed idx
+        # order), then grade slot rank m against x_target MINUS what ranks 0..m-1
+        # already explained (detached, so gradient only ever pushes a slot toward
+        # what's genuinely still unexplained, never perturbs the residual itself).
+        # A true duplicate of a higher-ranked atom sees a near-zero residual and gets
+        # no reward for repeating it — sidesteps the narrowband-collapse risk a blunt
+        # pairwise spectral-overlap penalty would have (see session discussion): nothing
+        # here penalizes two atoms sharing content, only rewards atoms for covering
+        # content NO ONE ELSE at a higher rank already covered.
+        mp_loss = amp.new_zeros(())
+        if x_target is not None:
+            h_routed = h[:, :self.top_k]                                   # [G, top_k]
+            order = h_routed.argsort(dim=-1, descending=True)               # [G, top_k]
+            amp_routed = amp[:, :, :self.top_k, :]                          # [G, C, top_k, 2]
+            D_routed_sel, H_routed_sel = D_sel[:, :self.top_k, :], H_sel[:, :self.top_k, :]
+            contrib_routed = (amp_routed[..., 0].unsqueeze(-1) * D_routed_sel.unsqueeze(1)
+                               + amp_routed[..., 1].unsqueeze(-1) * H_routed_sel.unsqueeze(1))  # [G,C,top_k,L]
+            order_c = order.unsqueeze(1).unsqueeze(-1).expand(G, C, self.top_k, contrib_routed.shape[-1])
+            contrib_ranked = contrib_routed.gather(2, order_c)              # [G, C, top_k, L], rank 0 = strongest
+
+            vmask = None
+            if valid_channels is not None:
+                vmask = valid_channels.unsqueeze(-1).to(contrib_ranked.dtype)  # [G, C, 1]
+
+            resid = x_target
+            for m in range(self.top_k):
+                contrib_m = contrib_ranked[:, :, m, :]                      # [G, C, L]
+                diff2 = (contrib_m - resid).pow(2)
+                if vmask is not None:
+                    mp_loss = mp_loss + (diff2 * vmask).sum() / vmask.sum().clamp(min=1.0) / diff2.shape[-1]
+                else:
+                    mp_loss = mp_loss + diff2.mean()
+                resid = resid - contrib_m.detach()
+            mp_loss = mp_loss / self.top_k
+
         # Magnitude sqrt(a^2+b^2) per selected routed slot — the phase-invariant
         # amplitude, what sparsity/k_eff should see (penalize/count loudness, never
         # phase).
@@ -1048,7 +1093,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, k_eff=k_eff,
+            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss,
         )
 
 

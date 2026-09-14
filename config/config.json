@@ -180,7 +180,10 @@
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
-          "aux_weight": 0.01
+          "aux_weight": 0.01,
+          "decorr_weight": 0.0,
+          "negent_weight": 0.0,
+          "mp_weight": 1.0
         }
       },
       "pretrain": {
@@ -217,7 +220,10 @@
         "loss": {
           "hierarchical_mse_weight": 1.0,
           "ffn_lb_weight": 0.01,
-          "aux_weight": 0.01
+          "aux_weight": 0.01,
+          "decorr_weight": 0.0,
+          "negent_weight": 0.0,
+          "mp_weight": 1.0
         }
       },
       "finetune": {
@@ -230,7 +236,7 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAE",
-      "model_name": "mesae_tokenizer_v1",
+      "model_name": "mesae_tokenizer_v2",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -242,8 +248,8 @@
     },
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_pretrain_v1",
-      "tokenizer_checkpoint": "output/mesae_tokenizer_v1/tokenizer/best_tokenizer.pth",
+      "model_name": "mesae_pretrain_v2",
+      "tokenizer_checkpoint": "output/mesae_tokenizer_v2/tokenizer/best_tokenizer.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,
@@ -255,8 +261,8 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_v1",
-      "pretrained_checkpoint": "output/mesae_pretrain_v1/pretrain/best_pretrain.pth",
+      "model_name": "mesae_finetune_v2",
+      "pretrained_checkpoint": "output/mesae_pretrain_v2/pretrain/best_pretrain.pth",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "backbone_lr_mult": 0.01,

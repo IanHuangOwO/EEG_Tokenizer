@@ -388,6 +388,7 @@ class MeSAEPretrain(nn.Module):
             h=out.h,
             dense_routed=out.dense_routed,
             aux_loss=out.aux_loss,
+            mp_loss=out.mp_loss,
             ffn_lb_loss=ffn_lb_loss,
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
@@ -395,6 +396,62 @@ class MeSAEPretrain(nn.Module):
             k_eff=out.k_eff,
             valid_channels=valid_channels,
         )
+
+    def _ica_regularizers(self, dense_routed):
+        """ICA-inspired pair to _recon_loss's reconstruction terms — neither touches
+        recon at all, both act only on StampBank.forward's dense_routed [G, n_routed]
+        (zeros at unselected, h magnitude at selected). Motivation (see session
+        discussion, top_k=24 collapse): once 2*(top_k+n_shared) exceeds patch_len, the
+        active atoms have enough raw degrees of freedom to exactly fit ANY patch
+        regardless of their content — dense_routed alone can't tell a meaningful sparse
+        decomposition from an arbitrary one that just happens to zero the loss. Real
+        ICA resolves the analogous ambiguity (after whitening, a rotation ambiguity
+        remains) by picking the rotation that maximizes non-Gaussianity of each
+        component — because a linear mixture of independent non-Gaussian sources looks
+        MORE Gaussian than any single source (CLT), the "arbitrary mixed" solution is
+        the Gaussian-looking one and the "real distinct sources" solution is the
+        non-Gaussian one. Two terms, matching FastICA's own two stages — NEITHER alone
+        is sufficient (decorrelation doesn't rule out two atoms being non-linearly
+        dependent duplicates; non-Gaussianity alone doesn't rule out two atoms being
+        literally identical, since identical peaky signals are still each individually
+        peaky) — this is deliberately two knobs, not one, so an ablation can test
+        whether both are actually needed in practice:
+          - decorr: mean squared off-diagonal correlation between atoms' activation
+            series across the batch (Barlow-Twins-style) — penalizes redundant/
+            duplicate atoms directly.
+          - negent: FastICA's robust log-cosh negentropy surrogate, MAXIMIZED (hence
+            the sign) — rewards each atom's own activation distribution for being
+            peaky/non-Gaussian (E[log cosh(v)] for standard-normal v is a known
+            constant, ~0.375; squared distance from that reference is 0 for Gaussian,
+            grows for non-Gaussian).
+        Computed fresh per batch (no EMA) — G = B*N patches per batch is a few hundred
+        to a few thousand samples, enough for a stable 2nd/4th-moment estimate; atoms
+        with near-zero variance this batch (silent/rarely-fired) are excluded from
+        both terms rather than injecting a degenerate all-same-value column. Returns
+        (decorr_loss, negent_loss), both exactly 0 (not NaN) if fewer than 2 atoms
+        have real variance in this batch."""
+        G, R = dense_routed.shape
+        mean = dense_routed.mean(dim=0, keepdim=True)
+        centered = dense_routed - mean
+        var = centered.pow(2).mean(dim=0)                       # [R]
+        std = var.clamp(min=1e-8).sqrt()
+        active = std > 1e-4
+        if int(active.sum()) < 2:
+            z = dense_routed.new_zeros(())
+            return z, z
+
+        c = centered[:, active] / std[active].unsqueeze(0)      # [G, R'] whitened columns
+        Rp = c.shape[1]
+
+        corr = (c.t() @ c) / G                                  # [R', R'], diag ~= 1
+        eye = torch.eye(Rp, device=c.device, dtype=torch.bool)
+        decorr_loss = corr[~eye].pow(2).mean()
+
+        g = torch.log(torch.cosh(c.clamp(-15, 15)))
+        negent = (g.mean(dim=0) - 0.375).pow(2)                 # [R']
+        negent_loss = -negent.mean()
+
+        return decorr_loss, negent_loss
 
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None):
         """Two-term recon loss, both plain time-domain MSE:
@@ -471,9 +528,21 @@ class MeSAEPretrain(nn.Module):
         return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
-                 ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None):
+                 ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
+                 dense_routed=None, decorr_weight=0.0, negent_weight=0.0,
+                 mp_loss=None, mp_weight=0.0):
         """
         Returns (total, l_masked, l_unmasked).
+
+        dense_routed/decorr_weight/negent_weight: optional ICA-inspired regularizer
+        pair (see _ica_regularizers) — both weights default 0.0 (off, matching every
+        other optional term here). Skipped entirely (no _ica_regularizers call at all)
+        when both weights are 0, so passing dense_routed costs nothing when unused.
+
+        mp_loss/mp_weight: optional Matching-Pursuit-style residual loss (see
+        StampBank.forward's mp_loss section) — always computed there (cheap relative
+        to the rest of the forward pass) but only added to total when mp_weight != 0,
+        same "off by default, zero cost when off" convention as everything else here.
 
         Reconstruction term is _recon_loss's two-term objective (plain time-domain
         patch + trial MSE — see its docstring; kept the hierarchical_mse_weight
@@ -511,6 +580,23 @@ class MeSAEPretrain(nn.Module):
             total = total + aux_weight * aux_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
+
+        if dense_routed is not None and (decorr_weight or negent_weight):
+            decorr_loss, negent_loss = self._ica_regularizers(dense_routed)
+            total = total + decorr_weight * decorr_loss + negent_weight * negent_loss
+            self._last_pyramid_levels['decorr'] = decorr_loss.detach().item()
+            self._last_pyramid_levels['negent'] = negent_loss.detach().item()
+
+        # Gated on stamps_frozen exactly like aux_loss above, same reasoning: mp_loss
+        # exists to shape WHICH atom owns which content (see StampBank.forward's
+        # mp_loss section), and a frozen dictionary's atoms can't be reshaped. Gradient
+        # would still reach the (never-frozen) encoder through amp=f(z), but pushing the
+        # encoder to make greedy residual decomposition easier is not the Masked stage's
+        # job — that stage optimizes masked reconstruction, and leaving this on would
+        # quietly add a second, unrelated objective to it.
+        if mp_loss is not None and mp_weight and (bool_masked_pos is None or not self.stamps_frozen):
+            total = total + mp_weight * mp_loss
+            self._last_pyramid_levels['mp'] = mp_loss.detach().item()
         return total, l_masked, l_unmasked
 
     def get_metrics(self, dense_routed=None):

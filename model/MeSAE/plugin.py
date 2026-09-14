@@ -94,10 +94,16 @@ class MeSAETrainer(BaseTrainer):
         aux_weight = hparams.get('aux_weight', 0.03)
         hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
+        decorr_weight = hparams.get('decorr_weight', 0.0)
+        negent_weight = hparams.get('negent_weight', 0.0)
+        mp_weight = hparams.get('mp_weight', 0.0)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
-                               valid_channels=out.valid_channels)
+                               valid_channels=out.valid_channels,
+                               dense_routed=out.dense_routed,
+                               decorr_weight=decorr_weight, negent_weight=negent_weight,
+                               mp_loss=out.mp_loss, mp_weight=mp_weight)
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)
