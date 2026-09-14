@@ -966,7 +966,8 @@ class StampBank(nn.Module):
             if dead_mask.any() and x_target is not None:
                 dead_score = group_score.masked_fill(~dead_mask.unsqueeze(0), float('-inf'))
                 aux_k = min(self.aux_k_cap, int(dead_mask.sum().item()))
-                aux_val, aux_idx = dead_score.topk(aux_k, dim=-1)  # [G, aux_k]
+                aux_val, aux_idx = dead_score.topk(aux_k, dim=-1)  # [G, aux_k], sorted descending by
+                                                                     # topk (highest dead_score = rank 0)
                 # rescue only ever draws from the routed pool (dead atoms are a routed-only
                 # concept, shared stamps are always "alive" by construction). Training a
                 # rescued atom's amp toward the residual raises exactly the quantity that
@@ -979,10 +980,31 @@ class StampBank(nn.Module):
                 D_r_hat = F.normalize(self.D_routed, dim=-1)
                 D_aux = D_r_hat[aux_idx]                       # [G, aux_k, patch_len]
                 H_aux = self._quadrature(D_r_hat)[aux_idx]
-                recon_aux = (torch.einsum('gck,gkl->gcl', amp_aux[..., 0], D_aux)
-                             + torch.einsum('gck,gkl->gcl', amp_aux[..., 1], H_aux))
                 residual = (x_target - recon).detach()
-                aux_loss = F.mse_loss(recon_aux, residual) / (residual.pow(2).mean() + 1e-8)
+
+                # MP-aware rescue: grade each rescued atom against the residual MINUS what
+                # every higher-dead_score-ranked rescued atom in this same group already
+                # claimed, instead of jointly fitting all aux_k atoms to one shared target.
+                # A joint fit (the old recon_aux = sum-then-MSE) has no mechanism against two
+                # rescued atoms converging on the same shape — the sum only needs to match
+                # the residual, so nothing stops them splitting credit on identical content.
+                # Same exclusive-cumsum trick as StampBank.forward's mp_loss block above
+                # (see its comment) applied to the rescue group: aux_idx/aux_val are already
+                # in descending dead_score order (torch.topk's default sorted=True), so no
+                # separate argsort is needed here the way mp_loss needed one for its
+                # fixed-idx-order routed slots.
+                contrib_aux = (amp_aux[..., 0].unsqueeze(-1) * D_aux.unsqueeze(1)
+                               + amp_aux[..., 1].unsqueeze(-1) * H_aux.unsqueeze(1))  # [G,C,aux_k,L]
+                cum_excl_aux = contrib_aux.detach().cumsum(dim=2) - contrib_aux.detach()
+                resid_aux = residual.unsqueeze(2) - cum_excl_aux                       # [G,C,aux_k,L]
+                diff2_aux = (contrib_aux - resid_aux).pow(2)
+                if valid_channels is not None:
+                    vmask_aux = valid_channels.unsqueeze(-1).unsqueeze(2).to(diff2_aux.dtype)  # [G,C,1,1]
+                    per_rank_aux = (diff2_aux * vmask_aux).sum(dim=(0, 1, 3)) \
+                        / vmask_aux.sum().clamp(min=1.0) / diff2_aux.shape[-1]
+                else:
+                    per_rank_aux = diff2_aux.mean(dim=(0, 1, 3))
+                aux_loss = per_rank_aux.mean() / (residual.pow(2).mean() + 1e-8)
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
