@@ -172,9 +172,9 @@
           "n_shared_stamps": 4,
           "stamp_top_k": 12,
           "stamp_hidden_width": 6,
-          "stamp_shared_hidden_width": 3,
+          "stamp_shared_hidden_width": 8,
           "dead_threshold_frac": 0.1,
-          "aux_k_cap_frac": 0.1,
+          "aux_k_cap_frac": 0.3,
           "sae_ema_decay": 0.99
         },
         "loss": {
@@ -212,7 +212,7 @@
           "stamp_hidden_width": 6,
           "stamp_shared_hidden_width": 3,
           "dead_threshold_frac": 0.1,
-          "aux_k_cap_frac": 0.1,
+          "aux_k_cap_frac": 0.3,
           "sae_ema_decay": 0.99
         },
         "loss": {
@@ -232,11 +232,11 @@
   "training_params": {
     "tokenizer": {
       "model_type": "MeSAE",
-      "model_name": "mesae_tokenizer_v3",
+      "model_name": "mesae_tokenizer_v4",
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
-      "epochs": 50,
-      "warmup_epochs": 5,
+      "epochs": 10,
+      "warmup_epochs": 2,
       "batch_size": 16,
       "weight_decay": 0.01,
       "device": "cuda",
@@ -319,7 +319,7 @@
             "trial": 0
           }
         ],
-        "every_n_epochs": 10
+        "every_n_epochs": 5
       },
       "finetune": {
         "every_n_epochs": 10

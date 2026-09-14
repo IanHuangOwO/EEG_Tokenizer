@@ -562,22 +562,24 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         sample = ds_trials if len(ds_trials) <= max_trials else rng.sample(ds_trials, max_trials)
 
         n_stamps = int(model.n_stamps)
-        sel_cnt, amp_sum = defaultdict(lambda: np.zeros(n_stamps)), defaultdict(lambda: np.zeros(n_stamps))
-        obs, pow_s, pow_sq, h_s = defaultdict(float), defaultdict(float), defaultdict(float), defaultdict(float)
+        # One accumulator per time-bin center `c`, not six co-indexed dicts — keeps the
+        # per-bin fields (sel/amp/obs/pow/pow_sq/h) from being able to drift out of sync.
+        bins = defaultdict(lambda: {'sel': np.zeros(n_stamps), 'amp': np.zeros(n_stamps),
+                                     'obs': 0, 'pow': 0.0, 'pow_sq': 0.0, 'h': 0.0})
 
         for t in sample:
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])   # x_in [1,C,N,L] native-stride patches
             xp = x_in[0]                                                  # [C, N, L]
             C, N, L = xp.shape
             take = min(native_stride, L)                                 # =native_stride when stride<=len
-            # rebuild the raw [C, T] the patches were cut from: with stride<=len the first
-            # `take` samples of each patch tile the signal with no gap, plus the last
-            # patch's full tail. Samples past the last patch's end were dropped at slice
-            # time and are unrecoverable (fine — the model never saw them either).
-            raw = x_in.new_zeros(C, (N - 1) * take + L)
-            for p in range(N - 1):
-                raw[:, p * take:(p + 1) * take] = xp[:, p, :take]
-            raw[:, (N - 1) * take:] = xp[:, N - 1, :]
+            # rebuild the raw [C, T] the patches were cut from — same stitcher used
+            # everywhere else in this file (see the two call sites above). Overlapping raw
+            # patches are byte-identical copies of the same real samples (unlike a model's
+            # recon), so overlap_add_patches's crossfade just averages identical values in
+            # the overlap zone, same result as the old first-`take`-samples tiling. Samples
+            # past the last patch's end were dropped at slice time and are unrecoverable
+            # (fine — the model never saw them either).
+            raw = overlap_add_patches(xp, take)
 
             for off in offsets:
                 xps, tidx = slice_patches(raw[:, off:], patch_len, native_stride)  # [C, P, L]
@@ -590,23 +592,25 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                 re = (grid.recon_topo ** 2).mean(axis=1)                  # [P]
                 for pi in range(ids.shape[0]):
                     c = off + pi * native_stride + patch_len // 2
-                    obs[c] += 1; pow_s[c] += re[pi]; pow_sq[c] += re[pi] ** 2; h_s[c] += hh[pi].mean()
+                    b = bins[c]
+                    b['obs'] += 1; b['pow'] += re[pi]; b['pow_sq'] += re[pi] ** 2; b['h'] += hh[pi].mean()
                     for k, sid in enumerate(ids[pi]):
-                        sel_cnt[c][sid] += 1; amp_sum[c][sid] += hh[pi, k]
+                        b['sel'][sid] += 1; b['amp'][sid] += hh[pi, k]
 
-        centers = np.array(sorted(obs))
+        centers = np.array(sorted(bins))
         if len(centers) == 0:
             return
         B = len(centers)
         sr, am = np.zeros((n_stamps, B)), np.zeros((n_stamps, B))
         pm, ps_, hm = np.zeros(B), np.zeros(B), np.zeros(B)
         for j, c in enumerate(centers):
-            o = obs[c]
-            sr[:, j] = sel_cnt[c] / o
-            am[:, j] = np.divide(amp_sum[c], sel_cnt[c], out=np.zeros(n_stamps), where=sel_cnt[c] > 0)
-            pm[j] = pow_s[c] / o
-            ps_[j] = np.sqrt(max(pow_sq[c] / o - pm[j] ** 2, 0.0))
-            hm[j] = h_s[c] / o
+            b = bins[c]
+            o = b['obs']
+            sr[:, j] = b['sel'] / o
+            am[:, j] = np.divide(b['amp'], b['sel'], out=np.zeros(n_stamps), where=b['sel'] > 0)
+            pm[j] = b['pow'] / o
+            ps_[j] = np.sqrt(max(b['pow_sq'] / o - pm[j] ** 2, 0.0))
+            hm[j] = b['h'] / o
         t_axis = centers / fs if fs else centers.astype(float)
 
         plot_event_stamp_dynamics(

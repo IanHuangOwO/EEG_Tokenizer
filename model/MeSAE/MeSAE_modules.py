@@ -33,12 +33,17 @@ def overlap_add_patches(patches, stride):
     Built via pad-then-stack-then-sum (not in-place slice accumulation) so it stays
     autograd-safe when patches requires grad."""
     *lead, N, L = patches.shape
+    assert stride <= L, f"overlap_add_patches: stride ({stride}) > patch_len ({L}) leaves gaps unfilled"
     overlap = L - stride
     T = (N - 1) * stride + L
     flat = patches.reshape(-1, N, L)
     ramp = torch.linspace(0, 1, overlap + 2, device=patches.device, dtype=patches.dtype)[1:-1] \
         if overlap > 0 else None
-    contribs, weights = [], []
+    # Accumulate directly instead of stacking N full-length [.., T] tensors first — plain
+    # addition is already a valid non-in-place autograd op, so this keeps the same
+    # autograd-safety guarantee without the extra O(N*T) list/stack.
+    out = flat.new_zeros(flat.shape[0], T)
+    wsum = flat.new_zeros(T)
     for n in range(N):
         w = torch.ones(L, device=patches.device, dtype=patches.dtype)
         if overlap > 0:
@@ -47,10 +52,8 @@ def overlap_add_patches(patches, stride):
             if n < N - 1:
                 w[-overlap:] = ramp.flip(0)
         pad = (n * stride, T - (n * stride + L))
-        contribs.append(F.pad(flat[:, n, :] * w, pad))
-        weights.append(F.pad(w, pad))
-    out = torch.stack(contribs, dim=0).sum(dim=0)
-    wsum = torch.stack(weights, dim=0).sum(dim=0)
+        out = out + F.pad(flat[:, n, :] * w, pad)
+        wsum = wsum + F.pad(w, pad)
     return (out / wsum.clamp(min=1e-8)).reshape(*lead, T)
 
 
@@ -721,11 +724,6 @@ class StampBank(nn.Module):
         D_all = F.normalize(torch.cat([self.D_routed, self.D_shared], dim=0), dim=-1)
         return D_all, self._quadrature(D_all)
 
-    @staticmethod
-    def _gather_by_idx(table, idx):
-        """table: [n_stamps, L], idx: [G, K] global stamp ids -> [G, K, L]."""
-        return table[idx]
-
     def decode_selected(self, idx, amp):
         """idx: [G, top_k+n_shared] GLOBAL indices (routed then shared, forward()'s
         layout), amp: [G, C, top_k+n_shared, 2] per-channel quadrature gain pairs WITH
@@ -737,7 +735,7 @@ class StampBank(nn.Module):
         re-evaluation, so callers can't accidentally decode with different
         selection/scale than training produced."""
         D_all, H_all = self._template_tables()
-        D_sel, H_sel = self._gather_by_idx(D_all, idx), self._gather_by_idx(H_all, idx)
+        D_sel, H_sel = D_all[idx], H_all[idx]
         return (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
                 + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))
 
@@ -873,7 +871,7 @@ class StampBank(nn.Module):
         dense_routed = torch.zeros_like(group_score).scatter_(-1, topk_idx, h[:, :self.top_k])  # [G, n_routed]
 
         D_all, H_all = self._template_tables()
-        D_sel, H_sel = self._gather_by_idx(D_all, idx), self._gather_by_idx(H_all, idx)  # each [G, top_k+n_shared, patch_len]
+        D_sel, H_sel = D_all[idx], H_all[idx]  # each [G, top_k+n_shared, patch_len]
         # a*D_hat + b*Hilbert(D_hat) summed over slots — no [G,C,K,L] materialized
         recon = (torch.einsum('gck,gkl->gcl', amp[..., 0], D_sel)
                  + torch.einsum('gck,gkl->gcl', amp[..., 1], H_sel))
@@ -920,16 +918,22 @@ class StampBank(nn.Module):
             if valid_channels is not None:
                 vmask = valid_channels.unsqueeze(-1).to(contrib_ranked.dtype)  # [G, C, 1]
 
-            resid = x_target
-            for m in range(n_rank):
-                contrib_m = contrib_ranked[:, :, m, :]                      # [G, C, L]
-                diff2 = (contrib_m - resid).pow(2)
-                if vmask is not None:
-                    mp_loss = mp_loss + (diff2 * vmask).sum() / vmask.sum().clamp(min=1.0) / diff2.shape[-1]
-                else:
-                    mp_loss = mp_loss + diff2.mean()
-                resid = resid - contrib_m.detach()
-            mp_loss = mp_loss / n_rank
+            # Vectorized over rank (was a Python for-loop over n_rank, every training
+            # step): rank m's residual is x_target minus every STRICTLY-higher-ranked
+            # slot's (detached) contribution, i.e. an EXCLUSIVE cumsum over the rank axis
+            # of the detached contributions. cumsum of detached == detach of cumsum, so
+            # this is exactly the sequential loop's math, just computed for every rank at
+            # once instead of one at a time (verified numerically equal, incl. gradients,
+            # against the loop form before this rewrite).
+            cum_excl = contrib_ranked.detach().cumsum(dim=2) - contrib_ranked.detach()  # [G,C,n_rank,L]
+            resid_all = x_target.unsqueeze(2) - cum_excl
+            diff2_all = (contrib_ranked - resid_all).pow(2)                 # [G, C, n_rank, L]
+            if vmask is not None:
+                per_rank = (diff2_all * vmask.unsqueeze(2)).sum(dim=(0, 1, 3)) \
+                    / vmask.sum().clamp(min=1.0) / L
+            else:
+                per_rank = diff2_all.mean(dim=(0, 1, 3))
+            mp_loss = per_rank.mean()
 
         # Magnitude sqrt(a^2+b^2) per selected routed slot — the phase-invariant
         # amplitude, what sparsity/k_eff should see (penalize/count loudness, never
