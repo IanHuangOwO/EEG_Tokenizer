@@ -81,6 +81,31 @@ class BaseCodebookChecker:
         scalar applied to all); datasets absent from it still get the trajectory + heatmap
         without the pre/post split."""
 
+    def _render_fingerprint_similarity(self, viz_dir, model):
+        """Default: no-op. Override to render decoder_fingerprint_matrix(model) (already
+        required by that method's contract) as a heatmap -> <unit_label>_fingerprint_
+        similarity.png. Purely structural/dataset-independent, so unlike every other
+        panel here it needs none of check_codebook's sampled trials -- safe to call
+        unconditionally before the per-dataset sampling loop."""
+
+    def _render_pool_energy_share(self, usage_by_dataset, viz_dir, model):
+        """Default: no-op. Override for a model whose dictionary splits into an
+        always-on/context pool and a competitively-selected/specialized pool (e.g. MeSAE's
+        Routed/Shared) to render what fraction of total reconstruction energy each pool
+        carries, per dataset -> pool_energy_share.png. Reuses check_codebook's
+        already-computed usage_by_dataset, no fresh forward pass needed."""
+
+    def _render_stamp_energy_and_rank(self, usage_by_dataset, viz_dir, model):
+        """Default: no-op. Override to render per-unit mean firing strength and (for a
+        competitively-ranked pool) mean rank-when-selected -> stamp_energy_rank.png.
+        Reuses usage_by_dataset like _render_pool_energy_share, no fresh forward pass."""
+
+    def _render_pool_ablation(self, trial_records, viz_dir, model, device, seed):
+        """Default: no-op. Override for a causal check: zero one pool's contribution to
+        recon and measure the resulting MSE increase, per dataset -> pool_ablation.png --
+        the correlational usage/energy panels above show firing strength, not necessity.
+        Needs raw tensors (needs_raw_tensors)."""
+
     @staticmethod
     def _trial_tensors(dataset, trial_idx, device):
         x_patches, coords, _mask, time_indices, label, _, valid_channels = dataset[trial_idx]
@@ -138,6 +163,9 @@ class BaseCodebookChecker:
         viz_dir = os.path.join(output_dir, 'codebook')
         os.makedirs(viz_dir, exist_ok=True)
 
+        # Structural, dataset-independent -- doesn't need any of the sampling above.
+        self._render_fingerprint_similarity(viz_dir, model)
+
         plot_embedding_scatter_by_dataset(
             os.path.join(viz_dir, 'patch_embedding_scatter_by_dataset.png'), usage_by_dataset,
             unit_label=self.unit_label, max_points=max_scatter_points, random_state=seed)
@@ -177,6 +205,14 @@ class BaseCodebookChecker:
         plot_usage_and_activity(
             os.path.join(viz_dir, 'filter_usage_and_activity.png'), usage_by_dataset, strength, combined_dataset,
             category_order=dataset_order, unit_label=self.unit_label)
+
+        # Both reuse usage_by_dataset directly -- no fresh forward pass, model-agnostic
+        # no-op unless a subclass has a routed/shared-style pool split to report on.
+        self._render_pool_energy_share(usage_by_dataset, viz_dir, model)
+        self._render_stamp_energy_and_rank(usage_by_dataset, viz_dir, model)
+        # Causal check over the whole sampled corpus at once (not per-dataset-loop below,
+        # it renders one panel spanning every dataset) -- needs raw tensors.
+        self._render_pool_ablation(trial_records, viz_dir, model, device, seed)
 
         # Cross-trial, patch-position-aligned consistency (per dataset -- patch position
         # only means the same timeline slot within one dataset's own trial length/patch_len).

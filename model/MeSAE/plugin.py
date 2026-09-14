@@ -19,7 +19,10 @@ from viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch
 from viz.panels import (plot_attn_topo as render_attn_topo, plot_stamp_by_patch,
                          plot_stamp_gallery, plot_event_stamp_dynamics)
 from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
-                           plot_stamp_identity_consistency)
+                           plot_stamp_identity_consistency, plot_fingerprint_similarity,
+                           plot_pool_energy_share, plot_stamp_energy_rank,
+                           plot_stamp_phase_consistency, plot_topography_distance,
+                           plot_pool_ablation)
 from IO.preprocessing import slice_patches
 
 
@@ -367,6 +370,119 @@ class MeSAECodebookChecker(BaseCodebookChecker):
     def rank_ceiling(self, model):
         return min(model.stamps.top_k, model.head_dim)
 
+    def _render_fingerprint_similarity(self, viz_dir, model):
+        plot_fingerprint_similarity(
+            os.path.join(viz_dir, 'stamp_fingerprint_similarity.png'),
+            self.decoder_fingerprint_matrix(model), unit_label=self.unit_label,
+            n_routed=model.n_routed_stamps)
+
+    def _render_pool_energy_share(self, usage_by_dataset, viz_dir, model):
+        """"Where does context live" -- direct answer: what fraction of total h^2
+        (real reconstruction energy) each dataset draws from the Shared pool. usage's
+        [n_routed:] columns are already the Shared pool's post-rms magnitude (see
+        extract_usage), [:n_routed] the Routed pool's selection strength (zero where
+        unselected) -- both are the same h units, so summing h^2 on either side of the
+        n_routed boundary is a real energy split, not an apples-to-oranges comparison.
+
+        cv_routed/cv_shared: coefficient of variation, across datasets, of each pool's
+        own per-stamp MEAN usage -- see plot_pool_energy_share's docstring for why this
+        is the complementary "is Shared actually generic" read."""
+        n_routed = model.n_routed_stamps
+        share_by_dataset = {}
+        per_ds_mean = {}  # ds -> [n_stamps] mean usage, for the CV computation below
+        for ds_name, usage in usage_by_dataset.items():
+            energy = usage.astype(np.float64) ** 2                      # [M, n_stamps]
+            routed_e = energy[:, :n_routed].sum()
+            shared_e = energy[:, n_routed:].sum()
+            share_by_dataset[ds_name] = float(shared_e / max(routed_e + shared_e, 1e-12))
+            per_ds_mean[ds_name] = usage.mean(axis=0)                   # [n_stamps]
+
+        stacked = np.stack(list(per_ds_mean.values()), axis=0)          # [D, n_stamps]
+        mean_ = stacked.mean(axis=0)
+        std_ = stacked.std(axis=0)
+        cv = np.divide(std_, mean_, out=np.full_like(mean_, np.nan), where=mean_ > 1e-8)
+        cv_routed = float(np.nanmean(cv[:n_routed]))
+        cv_shared = float(np.nanmean(cv[n_routed:]))
+
+        plot_pool_energy_share(
+            os.path.join(viz_dir, 'pool_energy_share.png'), share_by_dataset,
+            cv_routed, cv_shared, unit_label=self.unit_label)
+
+    def _render_stamp_energy_and_rank(self, usage_by_dataset, viz_dir, model):
+        """Per-unit mean firing strength (loudness) and, for Routed units only, mean
+        rank-when-selected -- see plot_stamp_energy_rank's docstring. Rank is recovered
+        from usage alone (no fresh forward pass, no StampBank changes needed): each
+        patch's routed usage row has exactly stamp_top_k nonzero entries (the routed
+        winners for that patch, see StampBank.forward); ranking those descending by
+        value reproduces mp_loss's own by-h ordering (docs/adr/0011) without needing
+        StampBank to expose it separately."""
+        n_routed = model.n_routed_stamps
+        usage = np.concatenate(list(usage_by_dataset.values()), axis=0)  # [M_total, n_stamps]
+        n_stamps = usage.shape[1]
+        mean_h = usage.mean(axis=0)                                      # [n_stamps], zeros count
+
+        routed = usage[:, :n_routed]
+        order = np.argsort(-routed, axis=1)                               # [M, n_routed]
+        ranks = np.empty_like(order)
+        rows = np.arange(routed.shape[0])[:, None]
+        ranks[rows, order] = np.arange(n_routed)[None, :]                 # inverse permutation -> rank per column
+        fired = routed > 0
+        rank_sum = np.where(fired, ranks, 0).sum(axis=0).astype(np.float64)
+        fire_count = fired.sum(axis=0)
+        mean_rank = np.full(n_routed, np.nan)
+        nz = fire_count > 0
+        mean_rank[nz] = rank_sum[nz] / fire_count[nz]
+
+        plot_stamp_energy_rank(
+            os.path.join(viz_dir, 'stamp_energy_rank.png'), mean_h, mean_rank, n_routed,
+            unit_label=self.unit_label)
+
+    @torch.no_grad()
+    def _render_pool_ablation(self, trial_records, viz_dir, model, device, seed, max_trials=60):
+        """Causal necessity check -- see plot_pool_ablation's docstring for why the
+        correlational usage/energy panels above aren't enough on their own. Re-decodes
+        with one pool's amp zeroed via StampBank.decode_selected (public, already used by
+        extract_stamp_content) -- no StampBank.forward change needed, selection/idx stay
+        exactly what training produced, only the summed contribution changes."""
+        needing = [t for t in trial_records if 'raw' in t]
+        if not needing:
+            return
+        rng = random.Random(seed)
+        sample = needing if len(needing) <= max_trials else rng.sample(needing, max_trials)
+
+        top_k = model.stamps.top_k
+        sums = {}  # ds -> [sq_err_baseline, sq_err_no_shared, sq_err_no_routed, n_valid_elems]
+        for t in sample:
+            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
+            B, C, N, L = x_in.shape
+            z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
+            z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
+            x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
+            rms = x_g.pow(2).mean(-1, keepdim=True).sqrt()
+            vg = vc_in.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
+            out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vg)
+
+            def _mse(amp):
+                contrib = model.stamps.decode_selected(out.idx, amp).sum(dim=2)  # [G, C, L]
+                err = (contrib - x_g).pow(2)
+                return (err * vg.unsqueeze(-1)).sum().item(), vg.sum().item() * L
+
+            amp_no_shared = out.amp.clone(); amp_no_shared[:, :, top_k:, :] = 0
+            amp_no_routed = out.amp.clone(); amp_no_routed[:, :, :top_k, :] = 0
+            se_base, n_base = _mse(out.amp)
+            se_ns, _ = _mse(amp_no_shared)
+            se_nr, _ = _mse(amp_no_routed)
+
+            acc = sums.setdefault(t['dataset'], [0.0, 0.0, 0.0, 0.0])
+            acc[0] += se_base; acc[1] += se_ns; acc[2] += se_nr; acc[3] += n_base
+
+        baseline = {ds: v[0] / max(v[3], 1e-8) for ds, v in sums.items()}
+        no_shared = {ds: v[1] / max(v[3], 1e-8) for ds, v in sums.items()}
+        no_routed = {ds: v[2] / max(v[3], 1e-8) for ds, v in sums.items()}
+        plot_pool_ablation(
+            os.path.join(viz_dir, 'pool_ablation.png'), baseline, no_shared, no_routed,
+            unit_label=self.unit_label)
+
     @torch.no_grad()
     def extract_stamp_content(self, model, x_in, c_in, t_in, vc_in):
         """Dense per-(channel,patch) DECODED CONTENT [C, N, n_stamps, patch_len],
@@ -439,6 +555,13 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         # them would be meaningless even if the shapes matched. Statistics are computed
         # within each dataset and pooled.
         cols, labels = defaultdict(list), defaultdict(list)
+        # ab_cols: same (dataset, id) keying, but the raw signed (a, b) pair per valid
+        # channel per firing (not just magnitude) — feeds _render_topography_distance's
+        # coherent per-channel average below. phase_cols: dataset-agnostic (a scalar, not
+        # a channel-shaped vector, so pooling across datasets is fine) — every firing's
+        # OVERALL phase (channel-summed complex value's angle), feeds the phase
+        # consistency panel.
+        ab_cols, phase_cols = defaultdict(list), defaultdict(list)
         for t in trial_records:
             ds_name = t.get('dataset', '_')
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
@@ -451,9 +574,14 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             o = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vg)
             mag = o.amp.pow(2).sum(-1).sqrt()                      # [G, C, K]
             m = vc_in[0].bool()
+            ab_sum = o.amp[:, m, :, :].sum(dim=1)                  # [G, K, 2] channel-summed (a, b)
+            phase = torch.atan2(ab_sum[..., 1], ab_sum[..., 0])    # [G, K] this firing's overall phase
             for g in range(mag.shape[0]):
                 for k in range(o.idx.shape[1]):
-                    cols[(ds_name, int(o.idx[g, k]))].append(mag[g, m, k].detach().cpu().numpy())
+                    sid = int(o.idx[g, k])
+                    cols[(ds_name, sid)].append(mag[g, m, k].detach().cpu().numpy())
+                    ab_cols[(ds_name, sid)].append(o.amp[g, m, k, :].detach().cpu().numpy())
+                    phase_cols[sid].append(float(phase[g, k]))
             gal = extract_flat_stamp_gallery(model, x_in, c_in, time_idx=t_in,
                                               valid_channels=vc_in, fs=200, freq_resolution=0.2)
             uids, probs = gal[0], gal[-1]
@@ -461,6 +589,17 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                 for qi, sid in enumerate(uids.tolist()):
                     if np.all(np.isfinite(probs[qi])):
                         labels[int(sid)].append(int(probs[qi].argmax()))  # class is dataset-agnostic
+
+        n_stamps = model.n_stamps
+        circ_var = np.full(n_stamps, np.nan)
+        fire_count = np.zeros(n_stamps, dtype=np.int64)
+        for sid, ph in phase_cols.items():
+            ph = np.asarray(ph)
+            fire_count[sid] = len(ph)
+            circ_var[sid] = 1.0 - np.abs(np.exp(1j * ph).mean())
+        plot_stamp_phase_consistency(
+            os.path.join(viz_dir, 'stamp_phase_consistency.png'), circ_var, fire_count,
+            model.n_routed_stamps, unit_label=self.unit_label)
 
         def prep(a):
             # center across channels then unit-norm: raw magnitude columns are
@@ -477,6 +616,29 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             print('  [codebook] identity consistency skipped (too few repeated stamps)')
             return
         P = {k: prep(np.stack(cols[k])) for k in keys}
+
+        # Topography distance matrix, per dataset: same coherent per-firing (a, b) average
+        # + reference-phase projection _used_flat_stamps uses for one trial's amp_topo, here
+        # pooled across every firing in this dataset's sampled trials instead of one trial's
+        # N patches — see plot_topography_distance's docstring for what this adds on top of
+        # decoder_fingerprint_matrix (raw waveform shape) and the within/between stats above
+        # (aggregate only, not a full pairwise view).
+        mats = {}
+        for ds_name, sids in by_ds.items():
+            if len(sids) < 2:
+                continue
+            topo_vecs = []
+            for sid in sids:
+                mean_ab = np.stack(ab_cols[(ds_name, sid)]).mean(axis=0)   # [C, 2], coherent average
+                ref = mean_ab.mean(axis=0)
+                ref = ref / (np.linalg.norm(ref) + 1e-8)
+                signed = mean_ab @ ref                                     # [C] signed projection
+                topo_vecs.append(signed / (np.linalg.norm(signed) + 1e-8))
+            V = np.stack(topo_vecs)                                        # [n, C]
+            mats[ds_name] = (1.0 - V @ V.T, sids)
+        plot_topography_distance(
+            os.path.join(viz_dir, 'stamp_topography_distance.png'), mats, unit_label=self.unit_label)
+
         rng = np.random.default_rng(0)
         within, between, per_stamp, ids = [], [], [], []
         for ds_name, sids in by_ds.items():

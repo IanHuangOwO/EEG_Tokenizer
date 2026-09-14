@@ -1,5 +1,5 @@
 {
-  "checkpoint": "output/mesaeflat_tokenizer_v0/tokenizer/best_tokenizer.pth",
+  "checkpoint": "output/mesae_tokenizer_v4/tokenizer/best_tokenizer.pth",
   "mode": "tokenizer",
   "dataset_params": {
     "pretrain": {
@@ -83,6 +83,19 @@
           "all"
         ]
       },
+      "GraspAndLift_Train": {
+        "dataset_path": "datas/GraspAndLift_Train",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
       "BCICIV2a": {
         "dataset_path": "datas/BCICIV2a",
         "subject_to_use": [
@@ -99,7 +112,7 @@
     }
   },
   "check": {
-    "analysis": "both",
+    "analysis": "codebook",
     "plot_recon": true,
     "plot_topo_psd": true,
     "plot_attn_topo": true,

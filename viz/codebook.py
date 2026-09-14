@@ -1048,3 +1048,213 @@ def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, pe
     print(f"    within-id {np.mean(within):.3f} | between-id {np.mean(between):.3f} | "
           f"separation {sep:+.3f}"
           + (f" | ICLabel modal agreement {np.mean(list(label_agree.values())):.3f}" if label_agree else ""))
+
+
+def plot_fingerprint_similarity(out_path, matrix, unit_label='Stamp', n_routed=None):
+    """Q x Q cosine similarity between each unit's own raw decoder template (content-free,
+    no data dependence — see BaseCodebookChecker.decoder_fingerprint_matrix) — the direct
+    structural redundancy check: two units with near-1 similarity here learned the same
+    shape regardless of when/where they fire. n_routed: optional boundary line splitting a
+    Routed/Shared-style pool so the block structure (does redundancy cluster within a pool
+    or cross the boundary) is visible directly on the heatmap."""
+    Q = matrix.shape[0]
+    fig, ax = plt.subplots(figsize=(max(6, 0.08 * Q + 3), max(5, 0.08 * Q + 3)))
+    im = ax.imshow(matrix, vmin=-1, vmax=1, cmap='RdBu_r')
+    if n_routed is not None and 0 < n_routed < Q:
+        ax.axhline(n_routed - 0.5, color='k', lw=1.0)
+        ax.axvline(n_routed - 0.5, color='k', lw=1.0)
+    ax.set_title(f'{unit_label} Fingerprint Similarity (raw template cosine)',
+                 fontsize=11, fontweight='bold')
+    ax.set_xlabel(f'{unit_label} id'); ax.set_ylabel(f'{unit_label} id')
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    off_diag = matrix[~np.eye(Q, dtype=bool)]
+    print(f"  [codebook] -> {out_path}")
+    print(f"    off-diagonal cosine: mean {off_diag.mean():.3f} | max {off_diag.max():.3f} "
+          f"(near-1 = two atoms learned the same shape, mp_loss should keep this low)")
+
+
+def plot_pool_energy_share(out_path, share_by_dataset, cv_routed, cv_shared, unit_label='Stamp'):
+    """Bar chart of what fraction of total reconstructed h^2 (real reconstruction energy,
+    routed selection-strength + shared post-rms magnitude, see StampBank.forward) each
+    dataset draws from the Shared pool vs the Routed pool -- the direct answer to "where
+    does context live". A flat share across datasets says Shared is genuinely the
+    generic/context baseline (same content-independent role everywhere); a share that
+    swings with dataset says Shared is absorbing dataset-specific content it shouldn't
+    (Routed exists precisely because conditional content can't live in an always-on pool,
+    see docs/adr/0010).
+
+    cv_routed/cv_shared: coefficient of variation (std/mean, across datasets) of each
+    pool's own per-stamp mean usage -- a second, complementary read: if Shared really is
+    generic, ITS stamps' usage should vary less across datasets than Routed's (Routed is
+    where dataset-specific specialization is allowed to live). Lower cv_shared than
+    cv_routed supports that story; roughly equal or reversed says the pools aren't
+    behaving as their names imply."""
+    datasets = list(share_by_dataset.keys())
+    shares = np.array([share_by_dataset[d] for d in datasets])
+    fig, ax = plt.subplots(figsize=(max(6, 0.6 * len(datasets) + 2), 5))
+    ax.bar(range(len(datasets)), shares, color='crimson', label='Shared pool')
+    ax.bar(range(len(datasets)), 1 - shares, bottom=shares, color='steelblue', label='Routed pool')
+    ax.set_xticks(range(len(datasets))); ax.set_xticklabels(datasets, rotation=45, ha='right', fontsize=8)
+    ax.set_ylabel('Fraction of reconstruction energy (h^2)')
+    ax.set_ylim(0, 1)
+    ax.axhline(shares.mean(), color='k', ls='--', lw=0.8, label=f'mean shared share = {shares.mean():.2f}')
+    ax.legend(fontsize=8, loc='upper right')
+    ax.set_title(f'{unit_label} Pool Energy Share by Dataset\n'
+                 f'usage CV across datasets: routed={cv_routed:.3f}, shared={cv_shared:.3f}'
+                 f' (lower = more stable/generic)', fontsize=10, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  [codebook] -> {out_path}")
+    print(f"    shared-pool energy share: mean {shares.mean():.3f}, range "
+          f"[{shares.min():.3f}, {shares.max():.3f}] | usage CV routed={cv_routed:.3f} shared={cv_shared:.3f}")
+
+
+def plot_stamp_energy_rank(out_path, mean_h, mean_rank, n_routed, unit_label='Stamp'):
+    """Two panels off the same corpus-wide usage: (1) mean firing strength (h, real
+    reconstruction energy averaged over every patch that used it) per unit, sorted
+    descending, Routed/Shared colored separately -- distinguishes load-bearing atoms from
+    ones that only ever contribute a marginal top-up. (2) mean rank-when-selected for
+    Routed units only (Shared is unconditional, its "rank" is a fixed pin, not
+    informative -- see mp_loss's docstring/docs/adr/0011): rank 0 = usually the loudest
+    slot in whatever patch selected it (graded against the full patch by mp_loss), high
+    rank = usually a cleanup pick graded against whatever's already been explained.
+    mean_rank is NaN for a unit that never fired."""
+    n_stamps = len(mean_h)
+    colors = ['steelblue' if i < n_routed else 'crimson' for i in range(n_stamps)]
+    order = np.argsort(-mean_h)
+
+    fig, axes = plt.subplots(2, 1, figsize=(max(8, 0.05 * n_stamps + 4), 8))
+    ax = axes[0]
+    ax.bar(range(n_stamps), mean_h[order], color=[colors[i] for i in order], width=1.0)
+    ax.set_title(f'{unit_label} Mean Firing Strength (h), sorted — steelblue=routed, crimson=shared',
+                 fontsize=10, fontweight='bold')
+    ax.set_xlabel(f'{unit_label} rank by mean h'); ax.set_ylabel('mean h')
+
+    routed_rank = mean_rank[:n_routed]
+    valid = np.isfinite(routed_rank)
+    order_r = np.argsort(np.where(valid, routed_rank, np.inf))
+    ax2 = axes[1]
+    ax2.bar(range(n_routed), routed_rank[order_r], color='steelblue', width=1.0)
+    ax2.set_title(f'Routed {unit_label} Mean Rank When Selected, sorted (0 = usually dominant, '
+                  f'high = usually cleanup)', fontsize=10, fontweight='bold')
+    ax2.set_xlabel(f'{unit_label} rank by mean selection-rank'); ax2.set_ylabel('mean rank')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  [codebook] -> {out_path}")
+    print(f"    mean h: routed {mean_h[:n_routed].mean():.4f} | shared {mean_h[n_routed:].mean():.4f} | "
+          f"{valid.sum()}/{n_routed} routed units fired at least once")
+
+
+def plot_stamp_phase_consistency(out_path, circ_var, fire_count, n_routed, unit_label='Stamp',
+                                  min_fires=5):
+    """Per-unit circular variance (1 - |mean(exp(i*phase))|, over that unit's own firings'
+    channel-summed phase atan2(b,a)) of the quadrature phase every firing carries but
+    nothing in the loss ever reads directly (see CONTEXT.md's Stamp definition —
+    contribution is a*D + b*H, amplitude sqrt(a^2+b^2), phase atan2(b,a)). Low variance
+    (near 0) = phase-locked -- plausible for a genuine oscillatory source (e.g. line
+    noise) that really does arrive at a consistent phase relative to the patch window.
+    High variance (near 1) = effectively random phase -- broadband/transient content
+    where phase carries no real information, just whatever the encoder's continuous
+    quadrature gain happened to produce. Units with fewer than min_fires firings are
+    dropped (a circular variance from 1-2 samples is meaningless)."""
+    n_stamps = len(circ_var)
+    keep = fire_count >= min_fires
+    idx = np.where(keep)[0]
+    if len(idx) == 0:
+        print(f"  [codebook] phase consistency skipped (no unit fired >= {min_fires} times)")
+        return
+    order = idx[np.argsort(circ_var[idx])]
+    colors = ['steelblue' if i < n_routed else 'crimson' for i in order]
+
+    fig, ax = plt.subplots(figsize=(max(8, 0.08 * len(order) + 4), 5))
+    ax.bar(range(len(order)), circ_var[order], color=colors, width=1.0)
+    ax.set_ylim(0, 1)
+    ax.set_title(f'{unit_label} Phase Consistency, sorted (0 = phase-locked, 1 = random phase) — '
+                 f'steelblue=routed, crimson=shared, min {min_fires} firings',
+                 fontsize=10, fontweight='bold')
+    ax.set_xlabel(f'{unit_label} rank by circular variance'); ax.set_ylabel('circular variance')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  [codebook] -> {out_path}")
+    print(f"    phase circular variance ({len(order)}/{n_stamps} units with >= {min_fires} firings): "
+          f"mean {circ_var[order].mean():.3f} | {int((circ_var[order] < 0.3).sum())} phase-locked (<0.3)")
+
+
+def plot_topography_distance(out_path, matrices, unit_label='Stamp'):
+    """One heatmap per dataset of pairwise cosine distance (1 - cosine similarity) between
+    units' MEAN mixing column (the signed, coherently-averaged per-channel topography of
+    every unit that fired at least a few times in that dataset -- see
+    MeSAECodebookChecker._render_identity_consistency, which already computes the
+    coherent per-firing (a,b) average this reuses). Complements
+    plot_fingerprint_similarity (raw waveform shape, dataset-independent): two units can
+    have very different D_i templates yet project to a similar scalp pattern, or vice
+    versa -- this is the only panel that shows that pairing directly. Computed per
+    dataset only (not pooled): different datasets map to different channel subsets, so a
+    unit's topography vector isn't even the same length across datasets.
+
+    matrices: dict dataset_name -> (dist [n,n] np.ndarray, unit_ids [n] list)."""
+    names = list(matrices.keys())
+    D = len(names)
+    if D == 0:
+        print('  [codebook] topography distance skipped (no dataset with enough repeated units)')
+        return
+    n_cols = min(3, D)
+    n_rows = math.ceil(D / n_cols)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5.5 * n_cols, 5 * n_rows), squeeze=False)
+    for i, ds_name in enumerate(names):
+        dist, uids = matrices[ds_name]
+        ax = axes[i // n_cols, i % n_cols]
+        im = ax.imshow(dist, vmin=0, vmax=2, cmap='YlOrRd')
+        n = len(uids)
+        if n <= 30:
+            ax.set_xticks(range(n)); ax.set_yticks(range(n))
+            ax.set_xticklabels(uids, fontsize=6, rotation=90)
+            ax.set_yticklabels(uids, fontsize=6)
+        else:
+            ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title(f'{ds_name} (n={n})', fontsize=9)
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    for j in range(D, n_rows * n_cols):
+        axes[j // n_cols, j % n_cols].axis('off')
+    fig.suptitle(f'{unit_label} Topography (mixing column) Cosine Distance, per dataset',
+                 fontsize=12, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=110, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  [codebook] -> {out_path}")
+
+
+def plot_pool_ablation(out_path, baseline, no_shared, no_routed, unit_label='Stamp'):
+    """Causal necessity check, per dataset: recon MSE with nothing ablated vs with the
+    Shared pool's amp zeroed vs with the Routed pool's amp zeroed (same idx/selection,
+    just zeroed contribution -- see MeSAECodebookChecker._render_pool_ablation). Every
+    other panel about "where does context live" (energy share, usage stability) is
+    correlational -- firing strength doesn't prove necessity. This is the direct test: a
+    pool whose removal barely moves MSE isn't load-bearing regardless of how loud it
+    looks in the energy-share panel."""
+    datasets = list(baseline.keys())
+    x = np.arange(len(datasets))
+    w = 0.27
+    fig, ax = plt.subplots(figsize=(max(7, 1.0 * len(datasets) + 2), 5))
+    ax.bar(x - w, [baseline[d] for d in datasets], width=w, label='baseline', color='gray')
+    ax.bar(x, [no_shared[d] for d in datasets], width=w, label='shared ablated', color='crimson')
+    ax.bar(x + w, [no_routed[d] for d in datasets], width=w, label='routed ablated', color='steelblue')
+    ax.set_xticks(x); ax.set_xticklabels(datasets, rotation=45, ha='right', fontsize=8)
+    ax.set_ylabel('recon MSE (patch-level)')
+    ax.legend(fontsize=8)
+    ax.set_title(f'{unit_label} Pool Ablation — causal necessity of Routed vs Shared',
+                 fontsize=11, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  [codebook] -> {out_path}")
+    for d in datasets:
+        b, ns, nr = baseline[d], no_shared[d], no_routed[d]
+        print(f"    {d}: baseline={b:.4f} | shared-ablated={ns:.4f} (+{(ns-b)/max(b,1e-8)*100:.0f}%) | "
+              f"routed-ablated={nr:.4f} (+{(nr-b)/max(b,1e-8)*100:.0f}%)")
