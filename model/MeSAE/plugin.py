@@ -75,6 +75,11 @@ def build_model(bp, num_channels):
         stamp_shared_hidden_width=sb.get('stamp_shared_hidden_width', 16),
         dead_threshold_frac=sb.get('dead_threshold_frac', 0.1),
         stamp_ema_decay=sb.get('sae_ema_decay', 0.999),
+        # Both None (the default) = fully continuous (a, b), exactly as before
+        # quantization existed. See StampBank._quantize_amp_phase.
+        stamp_amp_levels=sb.get('amp_levels'),
+        stamp_phase_levels=sb.get('phase_levels'),
+        stamp_amp_log2_range=tuple(sb.get('amp_log2_range', (-8.0, -2.0))),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),

@@ -600,7 +600,8 @@ class StampBank(nn.Module):
     """
     def __init__(self, dim, patch_len, n_routed_stamps=796, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16,
-                 dead_threshold_frac=0.1, ema_decay=0.999):
+                 dead_threshold_frac=0.1, ema_decay=0.999,
+                 amp_levels=None, phase_levels=None, amp_log2_range=(-8.0, -2.0)):
         super().__init__()
         # Pool sizes are declared separately, not a total minus a slice: n_stamps is
         # the derived sum. Every internal use below wants the total, so it stays.
@@ -676,6 +677,29 @@ class StampBank(nn.Module):
         self.ema_decay = ema_decay
         self.register_buffer('fire_ema', torch.zeros(self.n_routed))
 
+        # Optional amp/phase quantization of the (a, b) pair (see _quantize_amp_phase).
+        # BOTH must be set to enable it; either left None keeps the fully continuous
+        # path, bit-identical to before this existed. Off by default so an existing
+        # config/checkpoint behaves exactly as it did.
+        self.amp_levels = amp_levels
+        self.phase_levels = phase_levels
+        self.quantized = amp_levels is not None and phase_levels is not None
+        if self.quantized:
+            lo, hi = amp_log2_range
+            # Geometric (log2-spaced) amp grid. Log spacing, not linear: EEG amplitude is
+            # multiplicative, so linear levels would waste resolution on loud values and
+            # starve quiet ones. Quantization itself happens in the log domain (nearest in
+            # log2, not nearest in linear) — see _quantize_amp_phase.
+            self.amp_log2_lo, self.amp_log2_hi = float(lo), float(hi)
+            self.amp_log2_step = (self.amp_log2_hi - self.amp_log2_lo) / max(1, amp_levels - 1)
+            # persistent=False: derived from config, never a learned value — keeping it out
+            # of the state dict means turning quantization on/off is not a checkpoint
+            # schema change.
+            self.register_buffer(
+                'amp_grid',
+                torch.pow(2.0, torch.linspace(self.amp_log2_lo, self.amp_log2_hi, amp_levels)),
+                persistent=False)
+
     def _amp_dense(self, z):
         """z: [G, C, D] ALREADY input_norm'd channel-grouped tokens -> per-channel,
         per-atom QUADRATURE gain pairs (a, b), dense over both pools:
@@ -698,6 +722,70 @@ class StampBank(nn.Module):
         hidden_s = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down_shared) + self.b_down_shared)
         amp_s = torch.einsum('gchk,hkp->gchp', hidden_s, self.w_amp_shared) + self.b_amp_shared
         return amp_r, amp_s
+
+    def _quantize_amp_phase(self, amp):
+        """amp: [..., 2] continuous quadrature pairs (a, b) -> (amp_q [..., 2],
+        levels [..., 2] int64, clip_frac, off_frac). POLAR quantization, not rectangular:
+        the pair means amplitude A=sqrt(a^2+b^2) and phase phi=atan2(b, a) (see the
+        w_amp init comment), and a rectangular grid on (a, b) would give uneven phase
+        resolution at different amplitudes and destroy exactly that decomposition.
+
+        - phase: UNIFORM on the circle, phi_hat = 2*pi*p/P. Uniform is the only grid
+          that keeps rotational equivariance (a phase-shifted input has to map to a
+          phase-shifted code and nothing else); any non-uniform phase grid would make
+          the code depend on absolute arrival phase.
+        - amplitude: nearest in LOG2 space on a geometric grid, plus an explicit "off"
+          level below the grid floor. Level 0 = off (contribution exactly zero, phase
+          irrelevant); levels 1..amp_levels index amp_grid.
+
+        Called on the PRE-rms (relative) amp only: rms restores raw per-channel
+        microvolt scale, and a fixed level grid is meaningless there (it would mean a
+        different thing per subject/dataset). Pre-rms, amp is a relative coefficient off
+        a LayerNorm'd z, so a fixed grid is well-posed.
+
+        Straight-through estimator for the gradient (same trick MeFSQ already uses):
+        forward sees the quantized value, backward sees identity. No commitment loss —
+        with a FIXED grid there is no codebook to pull toward the encoder, and the real
+        risk (amp drifting outside amp_log2_range) is reported rather than penalized,
+        until measurement says it needs a term.
+
+        BOTH saturation directions are reported, since they fail differently and neither
+        is visible in the loss: clip_frac = fraction pinned to the TOP level (range set
+        too low), off_frac = fraction that fell below the grid floor and was zeroed
+        outright (range set too high — a silently DROPPED contribution, not merely a
+        coarse one). Measured at init with range (-6, 0), log2|A| ran -7.4..-2.5 with
+        median -4.2: the top two octaves of that grid were unreachable while the bottom
+        tail was being discarded, which is why the default is (-8, -2). That default is
+        derived from the INIT distribution -- trained amps drift, so re-read both fracs
+        off a real run before trusting the range."""
+        a, b = amp[..., 0], amp[..., 1]
+        A = torch.sqrt(a.pow(2) + b.pow(2) + 1e-12)
+        phi = torch.atan2(b, a)
+
+        two_pi = 2.0 * math.pi
+        p_idx = torch.round(phi / (two_pi / self.phase_levels)) % self.phase_levels  # [...] in [0, P)
+        phi_q = p_idx * (two_pi / self.phase_levels)
+
+        log2A = torch.log2(A.clamp(min=1e-12))
+        lvl = torch.round((log2A - self.amp_log2_lo) / self.amp_log2_step)
+        # Below the grid floor by more than half a step -> "off" (level 0). Above the
+        # ceiling -> clamped to the top level, and counted in clip_frac: a high clip rate
+        # means amp_log2_range is mis-set for this run's actual amp distribution, which
+        # would otherwise show up only as a quiet accuracy loss.
+        clipped_hi = lvl > (self.amp_levels - 1)
+        off = lvl < 0
+        lvl = lvl.clamp(0, self.amp_levels - 1)
+        A_q = torch.pow(2.0, self.amp_log2_lo + lvl * self.amp_log2_step)
+        A_q = torch.where(off, torch.zeros_like(A_q), A_q)
+
+        amp_q = torch.stack([A_q * torch.cos(phi_q), A_q * torch.sin(phi_q)], dim=-1)
+        # amp_idx: 0 = off, 1..amp_levels = amp_grid entry (so one integer carries both).
+        amp_idx = torch.where(off, torch.zeros_like(lvl), lvl + 1).to(torch.int64)
+        levels = torch.stack([amp_idx, p_idx.to(torch.int64)], dim=-1)
+        clip_frac = clipped_hi.float().mean().detach()
+        off_frac = off.float().mean().detach()
+
+        return amp + (amp_q - amp).detach(), levels, clip_frac, off_frac
 
     @staticmethod
     def _quadrature(D):
@@ -852,6 +940,17 @@ class StampBank(nn.Module):
         amp_sel_r = amp_r_dense.gather(
             2, topk_idx.view(G, 1, self.top_k, 1).expand(G, C, self.top_k, 2))
         amp = torch.cat([amp_sel_r, amp_s_dense], dim=2)  # [G, C, top_k+n_shared, 2]
+
+        # Quantize the SELECTED slots' gains, before rms (see _quantize_amp_phase for
+        # why pre-rms) and after selection (deliberately: group_score above stays
+        # continuous — quantizing the selection score would collapse many atoms onto
+        # one level, turning top-k into arbitrary tie-breaking and flattening the
+        # dead_score ranking the aux rescue depends on). Only what actually lands in
+        # recon is discretized.
+        levels, quant_clip_frac, quant_off_frac = None, None, None
+        if self.quantized:
+            amp, levels, quant_clip_frac, quant_off_frac = self._quantize_amp_phase(amp)
+
         if rms is not None:
             amp = amp * rms.unsqueeze(-1)  # [G, C, 1, 1] broadcast — restores raw amplitude
 
@@ -1022,6 +1121,10 @@ class StampBank(nn.Module):
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
             aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss,
+            # None unless quantization is configured. levels [G, C, K, 2] int64
+            # (amp_idx, phase_idx) is the discrete code — with idx [G, K] it forms the
+            # full (stamp_id, amp_level, phase_level) symbol per (channel, patch, slot).
+            levels=levels, quant_clip_frac=quant_clip_frac, quant_off_frac=quant_off_frac,
         )
 
 
