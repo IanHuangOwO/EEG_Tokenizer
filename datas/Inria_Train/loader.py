@@ -13,13 +13,14 @@ class Loader(BaseSubjectLoader):
     subject key -- keeps the train/val subject split (train_pretrain.py) from
     ever putting two sessions of the same person on opposite sides.
 
-    PRE_EVENT_SECONDS only applies in the standard_window branch below (where
-    headroom was actually measured: min 6.57s, generous relative to trial_len
-    1.3s -- see docs/model-analysis-checklist.md); the trig-spacing fallback
-    (no standard_window) derives trial_len from inter-trigger gaps themselves,
+    self.pre_event_seconds (config/compile.json's per-dataset pre_event_seconds,
+    default 0.0 -- see IO/loader.py's BaseSubjectLoader) only applies in the
+    standard_window branch below (where headroom was actually measured: min
+    6.57s, generous relative to trial_len 1.3s -- see
+    docs/model-analysis-checklist.md); the trig-spacing fallback (no
+    standard_window) derives trial_len from inter-trigger gaps themselves,
     where a pre-event shift would eat directly into that budget.
     """
-    PRE_EVENT_SECONDS = 1.0
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
         entry = self._require_subject(subject_id)
@@ -48,7 +49,7 @@ class Loader(BaseSubjectLoader):
 
             if self.standard_window:
                 trial_len = int(self.standard_window * self.sample_freq)
-                pre_event_pts = int(self.PRE_EVENT_SECONDS * self.sample_freq)
+                pre_event_pts = int(self.pre_event_seconds * self.sample_freq)
             elif len(trig_indices) > 1:
                 trial_len = int(np.median(np.diff(trig_indices)))
                 pre_event_pts = 0

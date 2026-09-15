@@ -22,6 +22,15 @@ class BaseSubjectLoader(ABC):
         self.sample_freq = acquisition['sample_frequency']
         self.standard_window = acquisition.get('window_size_seconds', None)
         self.target_points = int(self.standard_window * self.sample_freq) if self.standard_window else None
+        # Per-dataset compile-time tuning (config/compile.json's per-dataset entry, e.g.
+        # {"dataset_path": ..., "pre_event_seconds": 1.0}) -- dataset_params IS that entry
+        # (see cache_compile.py's loader_config), so any extra key put there reaches every
+        # loader without a code change. 0.0 default = old behavior (window starts exactly
+        # at the event) for every loader that hasn't opted in. Only meaningful for a
+        # trigger/annotation-anchored loader that actually reads it (BCICIV1_Train,
+        # BCICIV2a, Inria_Train as of this comment) -- see docs/model-analysis-checklist.md
+        # for the per-dataset headroom measured before enabling this.
+        self.pre_event_seconds = self.dataset_params.get('pre_event_seconds', 0.0)
 
     def _require_subject(self, subject_id) -> Dict:
         """Looks up this subject's data_structure entry, raising a clear error if missing."""

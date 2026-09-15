@@ -8,9 +8,9 @@ from IO.loader import BaseSubjectLoader
 class Loader(BaseSubjectLoader):
     # Real marker-triggered trials (the 'mrk' branch below) measured with >=4.0s
     # headroom before every trial in the dataset (evenly-spaced, back-to-back at
-    # trial_len + headroom) -- see docs/model-analysis-checklist.md. The no-marker
-    # fallback branch has no real event to be "pre" of, so it's left alone.
-    PRE_EVENT_SECONDS = 1.0
+    # trial_len + headroom) -- see docs/model-analysis-checklist.md. self.pre_event_
+    # seconds (config/compile.json's per-dataset pre_event_seconds) only gets applied
+    # there; the no-marker fallback branch has no real event to be "pre" of.
 
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
@@ -36,7 +36,7 @@ class Loader(BaseSubjectLoader):
             mrk = mat['mrk'][0, 0]
             pos = mrk['pos'][0]
             y = mrk['y'][0]
-            pre_event_pts = int(self.PRE_EVENT_SECONDS * self.sample_freq)
+            pre_event_pts = int(self.pre_event_seconds * self.sample_freq)
 
         trials, raw_labels = [], []
         for p, label in zip(pos, y):
