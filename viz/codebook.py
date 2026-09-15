@@ -1263,7 +1263,9 @@ def plot_pool_ablation(out_path, baseline, no_shared, no_routed, unit_label='Sta
 def plot_pool_label_probe(out_path, results, unit_label='Stamp'):
     """Per-dataset grouped bar: 5-fold CV linear-probe accuracy (logistic regression on
     trial-level usage, see MeSAECodebookChecker._render_pool_label_probe) predicting the
-    per-trial TASK LABEL from Routed-only usage, Shared-only usage, and both together.
+    per-trial TASK LABEL from Routed-only usage, Shared-only usage, both together, and a
+    RAW-signal baseline (per-channel power of the stitched trial, no learned structure at
+    all -- 'raw' key is optional per dataset, dropped from the group when absent).
     A different question from plot_pool_energy_share/plot_pool_ablation -- those measure
     which pool carries more reconstruction mass/necessity, this measures which pool's
     usage pattern actually separates task classes. A pool can dominate recon while
@@ -1271,20 +1273,32 @@ def plot_pool_label_probe(out_path, results, unit_label='Stamp'):
     task structure), or the reverse (a small usage share that's nonetheless the one
     thing that tracks the label).
 
+    The raw baseline is what makes either reading unambiguous: a chance-level stamp probe
+    only means "the tokenizer lost task info" if raw ALSO clears chance (task is
+    decodable, tokenizer just didn't preserve it) -- if raw is ALSO at chance, the task
+    itself has ~no linearly-decodable signal in anything, and the stamp result says
+    nothing about the tokenizer. Symmetrically, a high stamp-probe score only reflects
+    something the tokenizer learned if it beats raw; matching raw just means the task was
+    trivially decodable from amplitude alone.
+
     results: dict dataset_name -> {'routed': acc, 'shared': acc, 'both': acc,
-    'n_classes': int, 'n_trials': int, 'chance': float}. chance is drawn as a small
-    per-dataset tick (differs per dataset, since class count differs) rather than one
-    global line."""
+    'raw': acc (optional), 'n_classes': int, 'n_trials': int, 'chance': float}. chance is
+    drawn as a small per-dataset tick (differs per dataset, since class count differs)
+    rather than one global line."""
     datasets = list(results.keys())
+    keys = [('routed', 'steelblue'), ('shared', 'crimson'), ('both', 'gray'), ('raw', 'goldenrod')]
+    keys = [(k, c) for k, c in keys if any(k in results[d] for d in datasets)]
+    n = len(keys)
+    w = 0.8 / n
     x = np.arange(len(datasets))
-    w = 0.27
     fig, ax = plt.subplots(figsize=(max(7, 1.0 * len(datasets) + 2), 5))
-    ax.bar(x - w, [results[d]['routed'] for d in datasets], width=w, label='routed', color='steelblue')
-    ax.bar(x, [results[d]['shared'] for d in datasets], width=w, label='shared', color='crimson')
-    ax.bar(x + w, [results[d]['both'] for d in datasets], width=w, label='both', color='gray')
+    for j, (key, color) in enumerate(keys):
+        offset = (j - (n - 1) / 2) * w
+        vals = [results[d].get(key, np.nan) for d in datasets]
+        ax.bar(x + offset, vals, width=w, label=key, color=color)
     for i, d in enumerate(datasets):
         c = results[d]['chance']
-        ax.plot([i - 1.7 * w, i + 1.7 * w], [c, c], color='k', ls='--', lw=1.0)
+        ax.plot([i - 0.4, i + 0.4], [c, c], color='k', ls='--', lw=1.0)
     ax.set_xticks(x)
     ax.set_xticklabels([f"{d}\n(k={results[d]['n_classes']}, n={results[d]['n_trials']})"
                          for d in datasets], fontsize=7, rotation=45, ha='right')
@@ -1292,12 +1306,13 @@ def plot_pool_label_probe(out_path, results, unit_label='Stamp'):
     ax.set_ylim(0, 1)
     ax.legend(fontsize=8, loc='upper right')
     ax.set_title(f'{unit_label} Pool Label Probe — which pool predicts the task label?\n'
-                 f'(dashed = chance level per dataset)', fontsize=11, fontweight='bold')
+                 f'(dashed = chance level per dataset; raw = per-channel power baseline, '
+                 f'no learned structure)', fontsize=10, fontweight='bold')
     fig.tight_layout()
     fig.savefig(out_path, dpi=120, bbox_inches='tight')
     plt.close(fig)
     print(f"  [codebook] -> {out_path}")
     for d in datasets:
         r = results[d]
-        print(f"    {d} (k={r['n_classes']}, chance={r['chance']:.3f}): "
-              f"routed={r['routed']:.3f} | shared={r['shared']:.3f} | both={r['both']:.3f}")
+        parts = " | ".join(f"{k}={r[k]:.3f}" for k, _ in keys if k in r)
+        print(f"    {d} (k={r['n_classes']}, chance={r['chance']:.3f}): {parts}")
