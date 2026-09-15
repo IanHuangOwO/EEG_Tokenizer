@@ -224,10 +224,19 @@ def main():
     val_dataset   = build_dataset_from_config(val_config,   transform=None, mode='tokenizer')
     logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
 
+    # Separate assemble_trials=False dataset just for periodic snapshot viz -- val_dataset
+    # itself stays assembled (assemble_trials=True, continuous windows) for real
+    # train/val loss. A snapshot built from an assembled window mixes multiple real
+    # trials with no single event to mark, so _lookup_event_onset (model/base_checker.py)
+    # silently drops the recon_signal/stamp_by_patch onset line whenever it's handed one.
+    # Same assemble_trials=False dataset check_model.py's own snapshot path already uses.
+    logger.info("Building Viz Snapshot Dataset (assemble_trials=False)...")
+    viz_dataset = build_dataset_from_config(val_config, transform=None, mode='tokenizer', assemble_trials=False)
+
     def _first_subject(dataset_name=None):
-        sub_data = val_dataset.base_dataset.subject_data
+        sub_data = viz_dataset.base_dataset.subject_data
         if dataset_name is not None:
-            names = val_dataset.base_dataset.dataset_names
+            names = viz_dataset.base_dataset.dataset_names
             idx = next((i for i, n in enumerate(names) if n == dataset_name), None)
             if idx is not None:
                 return sub_data[idx].item()
@@ -237,7 +246,7 @@ def main():
     viz_target_cfg = viz_params.get('targets') or [{'subject': None, 'trial': 0}]
     viz_every_n = viz_params.get('every_n_epochs', 2)
     viz_targets = [
-        pick_trial(val_dataset, t.get('subject') if t.get('subject') is not None else _first_subject(t.get('dataset')),
+        pick_trial(viz_dataset, t.get('subject') if t.get('subject') is not None else _first_subject(t.get('dataset')),
                    trial=t.get('trial'), dataset_name=t.get('dataset'))
         for t in viz_target_cfg
     ]
@@ -331,7 +340,7 @@ def main():
             for topo_trial_idx, topo_subject_id in viz_targets:
                 try:
                     checker.check_pretrain(
-                        config, vis_dir, model, val_dataset,
+                        config, vis_dir, model, viz_dataset,
                         topo_trial_idx, subject_id=topo_subject_id, epoch=epoch,
                         cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'),
                     )
