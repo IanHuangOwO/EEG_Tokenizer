@@ -45,7 +45,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
                              subject_id=None, trial_idx=None,
                              mask=None, patch_len=100, tag='',
                              fs=200.0, l_freq=None, h_freq=None, band_edges=None,
-                             event_onset_sec=None):
+                             event_onset_sec=None, valid_start=None, valid_end=None):
     """
     Band-filtered orig vs recon for all channels of one val sample.
     Rows: channels. Cols: Raw / Delta / Theta / Alpha / Beta / Gamma.
@@ -60,6 +60,15 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     every panel when given, `is not None` (0 is a real onset, e.g. a trial with no
     pre-event buffer — see docs/model-analysis-checklist.md), never omitted just because
     it's falsy.
+    valid_start/valid_end: sample indices (see BaseEpochChecker._lookup_valid_range) —
+    real content lies in [valid_start, valid_end), everything outside is compile-time
+    zero-pad. orig is already exactly zero there (cache_compile.py re-zeros post-filter),
+    but recon is the model's own output, which has no reason to be zero on pad it was
+    never trained to reconstruct meaningfully — and both get re-filtered per band here
+    (_band_filter), which would ring across that zero/nonzero edge same as the cache-time
+    bug this mirrors (see cache_compile.py's re-zero comment) if not re-zeroed AFTER
+    filtering, not before. When given, both orig and recon are forced flat (zero) outside
+    [valid_start, valid_end) on every band column, pre- and post-pad alike, symmetric.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -73,6 +82,9 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     n = min(orig.shape[-1], recon.shape[-1])
     orig, recon = orig[:, :n], recon[:, :n]
     t = np.arange(n) / fs
+
+    vs = max(0, min(valid_start, n)) if valid_start is not None else None
+    ve = max(0, min(valid_end,   n)) if valid_end   is not None else None
 
     bands = _canonical_bands(l_freq, h_freq, band_edges, fs=fs)
 
@@ -89,6 +101,12 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
         for row in range(C):
             ax = axes[row, col]
             yo, yr = _band_filter(orig[row], recon[row], freqs, fs)
+            if vs is not None:
+                yo[:vs] = 0.0
+                yr[:vs] = 0.0
+            if ve is not None:
+                yo[ve:] = 0.0
+                yr[ve:] = 0.0
             ax.plot(t, yo, color='#666666', lw=0.5, alpha=0.7)
             ax.plot(t, yr, 'r--', lw=0.5, alpha=0.8)
             # shade masked patches

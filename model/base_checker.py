@@ -53,6 +53,12 @@ class SnapshotBundle:
                                               # or None -- see check_pretrain's lookup. Only ever set
                                               # for a genuine single real trial (assemble_trials=False);
                                               # an assembled continuous window has no one event to mark.
+    valid_start: Optional[int] = None  # [sample idx into raw_t/recon_t's T axis] real-content
+    valid_end: Optional[int] = None    # start/end -- see check_pretrain's lookup, row_valid_start/
+                                        # row_valid_end (IO/dataset.py). Meaningful in both assemble
+                                        # modes (unlike event_onset_sec): an assembled window can still
+                                        # trail off into pad at a subject's last window, same as a
+                                        # single real trial cut short of pre/post_event_seconds.
 
 
 class BaseEpochChecker:
@@ -103,6 +109,18 @@ class BaseEpochChecker:
         else:
             onset = eo
         return (onset / fs) if onset is not None else None
+
+    @staticmethod
+    def _lookup_valid_range(dataset, trial_idx):
+        """(valid_start, valid_end) sample indices into raw_t/recon_t's T axis, from
+        IO/dataset.py's row_valid_start/row_valid_end -- real content lies in
+        [valid_start, valid_end), everything outside is compile-time zero-pad (see
+        cache_compile.py's post-filter re-zero). Unlike _lookup_event_onset this stays
+        meaningful for assemble_trials=True too (an assembled window can still trail into
+        pad at a subject's last window), so no assemble_trials gate here."""
+        base_dataset = dataset.base_dataset
+        base_idx = trial_idx % len(base_dataset)
+        return int(base_dataset.row_valid_start[base_idx]), int(base_dataset.row_valid_end[base_idx])
 
     def extract_psd(self, model, x_in, c_in, t_in, vc_in) -> PsdResult:
         """See viz/extract.py extract_head_psd / extract_filter_psd."""
@@ -253,6 +271,7 @@ class BaseEpochChecker:
                 tag=filename_tag.lstrip('_') + ('_' if filename_tag else ''),
                 fs=fs or 200.0, l_freq=l_freq, h_freq=h_freq, band_edges=band_edges,
                 event_onset_sec=bundle.event_onset_sec,
+                valid_start=bundle.valid_start, valid_end=bundle.valid_end,
             )
 
         if not (plot_topo_psd or plot_attn_topo):
@@ -335,6 +354,7 @@ class BaseEpochChecker:
                                            float(np.mean((data['raw'] - data['recon']) ** 2)))
 
             event_onset_sec = self._lookup_event_onset(config, dataset, trial_idx)
+            valid_start, valid_end = self._lookup_valid_range(dataset, trial_idx)
 
             bundle = SnapshotBundle(
                 x_in=x_in, c_in=c_in, t_in=t_in, vc_in=vc_in, psd_model=model,
@@ -343,7 +363,7 @@ class BaseEpochChecker:
                 raw_cnl=x_patches.numpy(), recon_cnl=recon_cnl, attn=attn,
                 coords=coords.numpy(), channel_names=dataset.base_dataset.channel_names,
                 valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=mask_np,
-                event_onset_sec=event_onset_sec,
+                event_onset_sec=event_onset_sec, valid_start=valid_start, valid_end=valid_end,
                 unit_colors=unit_colors,
                 unit_ids=used_ids.cpu().numpy() if used_ids is not None else None,
             )
