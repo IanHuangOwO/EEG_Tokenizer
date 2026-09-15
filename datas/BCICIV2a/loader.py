@@ -11,13 +11,14 @@ class Loader(BaseSubjectLoader):
     Only *T (training) session files are referenced in metadata.json -- the
     *E (evaluation) session's true labels ship as separate .mat files not
     included in this raw download, so E trials have no usable label.
-    Segments each recording into fixed-length windows starting
-    self.pre_event_seconds (config/compile.json's per-dataset pre_event_seconds,
-    default 0.0 — see IO/loader.py's BaseSubjectLoader) before the per-class cue
-    event (769/770/771/772) -- measured real headroom before the cue (raw event
-    768 fires 2.0s earlier, and the loader never used that either) is >=3.5s
-    across every trial in the dataset, comfortably more than the current 1.0s
-    setting; see docs/model-analysis-checklist.md.
+    Segments each recording into [self.pre_event_seconds + self.post_event_seconds]
+    windows around the per-class cue event (769/770/771/772) — config/compile.json's
+    global pre_event_seconds/post_event_seconds (see IO/loader.py's BaseSubjectLoader),
+    which now define this dataset's trial length directly (replacing standard_window
+    for this loader). Measured real headroom before the cue (raw event 768 fires 2.0s
+    earlier, and the loader never used that either) is >=3.5s across every trial in the
+    dataset, comfortably more than the current 1.0s pre_event_seconds setting; see
+    docs/model-analysis-checklist.md.
     """
     _EVENT_TO_LABEL = {'769': 0, '770': 1, '771': 2, '772': 3}
 
@@ -28,18 +29,18 @@ class Loader(BaseSubjectLoader):
     def _load_data(self):
         if not self._existing([self.file_path]):
             return None, None
-        if self.standard_window is None:
-            print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
+        if not self.post_event_seconds:
+            print(f"  [Warning] Subject {self.subject_id}: post_event_seconds not set, cannot segment data.")
             return None, None
 
         import mne
         raw = mne.io.read_raw_gdf(self.file_path, preload=True, verbose=False)
         self._resample_if_needed(raw)
 
-        trial_len_pts = int(self.standard_window * self.sample_freq)
-        pre_event_pts = int(self.pre_event_seconds * self.sample_freq)
-        trials, labels = self._segment_by_annotations(raw, trial_len_pts, self._EVENT_TO_LABEL, self.channel_indices,
-                                                        pre_event_pts=pre_event_pts)
+        pre_pts = int(self.pre_event_seconds * self.sample_freq)
+        post_pts = int(self.post_event_seconds * self.sample_freq)
+        trials, labels = self._segment_by_annotations(raw, self._EVENT_TO_LABEL, self.channel_indices,
+                                                        pre_pts, post_pts)
         if not trials:
             print(f"  [Warning] Subject {self.subject_id}: no cue events (769-772) found.")
             return None, None

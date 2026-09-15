@@ -98,13 +98,55 @@ def build_bandpass_resample_from_config(config: dict, fs_orig: Optional[float] =
     )
 
 
-def cache_suffix(sample_freq, bandpass_filter: dict) -> str:
+def cache_suffix(sample_freq, bandpass_filter: dict, pre_event_seconds: float = 0.0,
+                  post_event_seconds: float = 0.0) -> str:
     """Derives the compiled-cache filename suffix from the params baked into it —
     shared by cache_compile.py (writes) and IO/dataset.py (reads), so a config
     change that alters either just misses the cache instead of silently reading
-    stale data."""
+    stale data. pre_event_seconds/post_event_seconds only add to the suffix when
+    either is nonzero (the default 0/0 keeps existing filenames — and existing
+    caches — untouched); once set, EVERY dataset's cache filename changes, same as
+    a bandpass_filter change would, even datasets whose own loader ignores these
+    params (they're a global compile-time setting, not a per-dataset one — see
+    cache_compile.py / IO/loader.py's cut_event_window)."""
     l_freq, h_freq = bandpass_filter['l_freq'], bandpass_filter['h_freq']
-    return f"fs{sample_freq}_bp{l_freq}-{h_freq}"
+    suffix = f"fs{sample_freq}_bp{l_freq}-{h_freq}"
+    if pre_event_seconds or post_event_seconds:
+        suffix += f"_pre{pre_event_seconds:g}_post{post_event_seconds:g}"
+    return suffix
+
+
+def cut_event_window(data: np.ndarray, event_pts: int, pre_pts: int, post_pts: int
+                      ) -> Tuple[np.ndarray, int, int]:
+    """data: [C, T] one continuous recording, event_pts: sample index of the real
+    event/trigger within it -> (window [C, pre_pts+post_pts], valid_start, valid_end).
+
+    Cuts [event_pts-pre_pts, event_pts+post_pts) around the anchor, ALWAYS returning a
+    window of exactly pre_pts+post_pts samples — zero-padded on whichever side(s) run
+    past the recording's actual start/end, never dropped (no threshold to clear, unlike
+    the old window_continuous_signal design this generalizes — see its docstring).
+    valid_start/valid_end mark the real (non-padded) content within the returned window
+    (window[:, valid_start:valid_end] is real; everything outside is zero pad) — feeds
+    IO/dataset.py's per-row validity, which keeps masking/loss from treating pad as
+    signal (see docs/model-analysis-checklist.md).
+
+    Padding here only covers running off the EDGE OF THE RECORDING — it does NOT
+    protect against reading real content that belongs to a DIFFERENT, adjacent
+    trial/event in the middle of a continuous recording (that's a labeling problem,
+    not a bounds problem — see datas/EEGMMIdb/loader.py's docstring for why that
+    dataset doesn't use this at all)."""
+    C, T = data.shape
+    total = pre_pts + post_pts
+    raw_start = event_pts - pre_pts
+    raw_end = event_pts + post_pts
+    window = np.zeros((C, total), dtype=data.dtype)
+    src_start, src_end = max(0, raw_start), min(T, raw_end)
+    if src_end <= src_start:
+        return window, 0, 0  # entirely outside the recording -- degenerate, caller should skip
+    dst_start = src_start - raw_start
+    dst_end = dst_start + (src_end - src_start)
+    window[:, dst_start:dst_end] = data[:, src_start:src_end]
+    return window, dst_start, dst_end
 
 
 def num_patches(total_T: int, patch_len: int, patch_stride: Optional[int] = None) -> int:
@@ -137,24 +179,36 @@ def slice_patches(x: torch.Tensor, patch_len: int, patch_stride: Optional[int] =
     return x_patches, time_indices
 
 
-def window_continuous_signal(trials: torch.Tensor, target_L: int, threshold: float,
-                              ds_name: str, subject_id) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def window_continuous_signal(trials: torch.Tensor, target_L: int, ds_name: str, subject_id,
+                              valid_ranges=None
+                              ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Flatten all trials into a continuous signal, then cut into non-overlapping
-    windows of target_L. Keeps the last chunk (zero-padded) only if it fills at
-    least `threshold` of target_L. Moved out of EEGDataset so the base dataset
-    class stays focused on load/channel-map/normalize; this is pure slicing.
+    Flatten all trials into a continuous signal, then cut into non-overlapping windows
+    of target_L. ALWAYS pads the final partial chunk now (previously conditional on a
+    window_pad_threshold — removed; every window gets used, none silently dropped for
+    running a few samples short). Moved out of EEGDataset so the base dataset class
+    stays focused on load/channel-map/normalize; this is pure slicing.
 
-    Returns (assembled [n_windows, C, target_L], labels [n_windows] (dummy, always
-    0 — assembled windows don't carry a real per-trial label), valid_length
-    [n_windows] long — target_L for every full window, `remainder` for the one
-    zero-padded tail window if kept. Every OTHER caller of this used to be able to
-    ignore that the tail window is partially fake content; valid_length is what lets
-    IO/dataset.py's PretrainDataset keep random masking from picking patches out of
-    that zero tail (see docs/model-analysis-checklist.md's masking-blindness note) —
-    without it, masking has no way to know a window isn't 100% real signal.
+    valid_ranges: optional list of N (start, end) pairs, one per INPUT trial, marking
+    real (non-padded) content within that trial (see IO/loader.py's cut_event_window —
+    only event-anchored loaders produce these; None, the default, means every input
+    trial is fully real). Propagated through concatenation+rechunking as a per-sample
+    validity mask, then reduced back to one (valid_start, valid_end) per OUTPUT window —
+    safe because the real region within any one window is always contiguous here: either
+    an input trial is fully valid (the None/default case, or any complete input trial
+    that isn't the very first/last one touching a recording edge), or trial_len already
+    equals target_L (the event-anchored case, one input trial maps 1:1 onto one output
+    window, no splicing of two different trials' validity within a single window).
+
+    Returns (assembled [n_windows, C, target_L], labels [n_windows] (dummy, always 0 —
+    assembled windows don't carry a real per-trial label), valid_start [n_windows] long,
+    valid_end [n_windows] long — window[:, valid_start:valid_end] is real content,
+    everything outside is zero pad. See docs/model-analysis-checklist.md for why
+    IO/dataset.py's PretrainDataset needs this (masking must not treat pad as signal).
     """
     N, C, T = trials.shape
+    if valid_ranges is None:
+        valid_ranges = [(0, T)] * N
     # NOT trials.reshape(N*T, C).T — that reinterprets the (N,C,T) memory buffer
     # directly without transposing, scrambling channel and time together. permute
     # first so reshape only merges the N and T axes (already-adjacent after permute),
@@ -162,25 +216,35 @@ def window_continuous_signal(trials: torch.Tensor, target_L: int, threshold: flo
     signal = trials.permute(1, 0, 2).reshape(C, N * T)  # (C, N*T)
     total_T = signal.shape[-1]
 
+    valid_mask = np.zeros(total_T, dtype=bool)
+    for i, (vs, ve) in enumerate(valid_ranges):
+        valid_mask[i * T + vs: i * T + ve] = True
+
+    def _bounds(seg):
+        idx = np.flatnonzero(seg)
+        return (int(idx[0]), int(idx[-1]) + 1) if len(idx) else (0, 0)
+
     n_complete = total_T // target_L
     remainder = total_T % target_L
 
-    windows = [signal[:, i * target_L:(i + 1) * target_L] for i in range(n_complete)]
-    valid_lengths = [target_L] * n_complete
+    windows, valid_starts, valid_ends = [], [], []
+    for i in range(n_complete):
+        windows.append(signal[:, i * target_L:(i + 1) * target_L])
+        vs, ve = _bounds(valid_mask[i * target_L:(i + 1) * target_L])
+        valid_starts.append(vs); valid_ends.append(ve)
 
     if remainder > 0:
-        if remainder >= target_L * threshold:
-            last = torch.zeros((C, target_L), dtype=signal.dtype)
-            last[:, :remainder] = signal[:, n_complete * target_L:]
-            windows.append(last)
-            valid_lengths.append(remainder)
-            print(f"  [{ds_name} S{subject_id}] Last chunk {remainder}/{target_L}pts kept (padded {target_L - remainder}pts).")
-        else:
-            print(f"  [{ds_name} S{subject_id}] Last chunk {remainder}/{target_L}pts discarded (below {threshold*100:.0f}% threshold).")
+        last = torch.zeros((C, target_L), dtype=signal.dtype)
+        last[:, :remainder] = signal[:, n_complete * target_L:]
+        windows.append(last)
+        vs, ve = _bounds(valid_mask[n_complete * target_L: n_complete * target_L + remainder])
+        valid_starts.append(vs); valid_ends.append(ve)
+        print(f"  [{ds_name} S{subject_id}] Last chunk {remainder}/{target_L}pts kept (padded {target_L - remainder}pts).")
 
     if not windows:
         raise RuntimeError(f"No windows produced for {ds_name} subject {subject_id} (total_T={total_T}, target_L={target_L}).")
 
     assembled = torch.stack(windows)
     print(f"  [{ds_name} S{subject_id}] {N} trials x {T}pts -> {total_T}pts -> {len(assembled)} windows of {target_L}pts.")
-    return assembled, torch.zeros(len(assembled), dtype=torch.long), torch.tensor(valid_lengths, dtype=torch.long)
+    return (assembled, torch.zeros(len(assembled), dtype=torch.long),
+            torch.tensor(valid_starts, dtype=torch.long), torch.tensor(valid_ends, dtype=torch.long))

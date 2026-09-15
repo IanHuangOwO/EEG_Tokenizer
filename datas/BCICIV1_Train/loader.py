@@ -3,14 +3,17 @@ import scipy.io
 from typing import Dict, List
 
 from IO.loader import BaseSubjectLoader
+from IO.preprocessing import cut_event_window
 
 
 class Loader(BaseSubjectLoader):
     # Real marker-triggered trials (the 'mrk' branch below) measured with >=4.0s
     # headroom before every trial in the dataset (evenly-spaced, back-to-back at
     # trial_len + headroom) -- see docs/model-analysis-checklist.md. self.pre_event_
-    # seconds (config/compile.json's per-dataset pre_event_seconds) only gets applied
-    # there; the no-marker fallback branch has no real event to be "pre" of.
+    # seconds/post_event_seconds (config/compile.json's global setting) only apply
+    # there; the no-marker fallback branch has no real event to be "pre"/"post" of,
+    # its trial_len stays standard_window-derived, always fully valid by
+    # construction (np.arange already stops short of running past the recording).
 
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
@@ -20,7 +23,7 @@ class Loader(BaseSubjectLoader):
         if not self._existing([self.file_path]):
             return None, None
         mat = scipy.io.loadmat(self.file_path)
-        cnt = mat['cnt'].astype(np.float32)  # (Time, Channels)
+        cnt = mat['cnt'].astype(np.float32)[:, self.channel_indices].T  # (C, T)
 
         if self.standard_window is None:
             print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
@@ -29,24 +32,25 @@ class Loader(BaseSubjectLoader):
         trial_len = int(self.standard_window * self.sample_freq)
 
         if 'mrk' not in mat:
-            pos = np.arange(0, cnt.shape[0] - trial_len, trial_len)
+            pos = np.arange(0, cnt.shape[-1] - trial_len, trial_len)
             y = np.zeros(len(pos))
-            pre_event_pts = 0
+            trials = [cnt[:, p:p + trial_len] for p in pos]
+            valid_ranges = [(0, trial_len)] * len(pos)
+            raw_labels = list(y)
         else:
             mrk = mat['mrk'][0, 0]
             pos = mrk['pos'][0]
             y = mrk['y'][0]
-            pre_event_pts = int(self.pre_event_seconds * self.sample_freq)
-
-        trials, raw_labels = [], []
-        for p, label in zip(pos, y):
-            start = int(p) - pre_event_pts
-            if start < 0:
-                continue
-            end = start + trial_len
-            if end <= cnt.shape[0]:
-                trials.append(cnt[start:end, self.channel_indices].T)
+            pre_pts = int(self.pre_event_seconds * self.sample_freq)
+            post_pts = int(self.post_event_seconds * self.sample_freq) or trial_len
+            trials, raw_labels, valid_ranges = [], [], []
+            for p, label in zip(pos, y):
+                window, vs, ve = cut_event_window(cnt, int(p), pre_pts, post_pts)
+                if ve <= vs:
+                    continue
+                trials.append(window)
                 raw_labels.append(int(label))
+                valid_ranges.append((vs, ve))
 
         if not trials:
             return None, None
@@ -57,4 +61,5 @@ class Loader(BaseSubjectLoader):
         uniq = np.unique(raw_labels)
         remap = {v: i for i, v in enumerate(uniq)}
         valid_y = np.array([remap[v] for v in raw_labels])
+        self._last_valid_ranges = valid_ranges
         return np.stack(trials), valid_y

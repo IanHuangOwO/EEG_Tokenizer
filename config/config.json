@@ -79,8 +79,7 @@
   },
   "preprocess_params": {
     "canonical_channels": "10-10",
-    "window_length": 800,
-    "window_pad_threshold": 0.5,
+    "window_length": 1000,
     "patch_length": 50,
     "patch_stride": 25,
     "sample_freq": 200,
@@ -88,6 +87,8 @@
       "l_freq": 0.5,
       "h_freq": 100.0
     },
+    "pre_event_seconds": 1.0,
+    "post_event_seconds": 4.0,
     "normalization_type": "zscore",
     "mask": {
       "masking_strategy": "random_to_complementary",

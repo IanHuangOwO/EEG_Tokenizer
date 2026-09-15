@@ -3,6 +3,8 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Tuple, Any
 
+from IO.preprocessing import cut_event_window
+
 
 class BaseSubjectLoader(ABC):
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
@@ -22,15 +24,24 @@ class BaseSubjectLoader(ABC):
         self.sample_freq = acquisition['sample_frequency']
         self.standard_window = acquisition.get('window_size_seconds', None)
         self.target_points = int(self.standard_window * self.sample_freq) if self.standard_window else None
-        # Per-dataset compile-time tuning (config/compile.json's per-dataset entry, e.g.
-        # {"dataset_path": ..., "pre_event_seconds": 1.0}) -- dataset_params IS that entry
-        # (see cache_compile.py's loader_config), so any extra key put there reaches every
-        # loader without a code change. 0.0 default = old behavior (window starts exactly
-        # at the event) for every loader that hasn't opted in. Only meaningful for a
+        # Global compile-time setting (config/compile.json's compile_params, passed into
+        # every loader's dataset_params by cache_compile.py -- same mechanism dataset_path
+        # already uses). 0.0 default = old behavior (window starts exactly at the event,
+        # zero-length post) for every loader that hasn't opted in. Only meaningful for a
         # trigger/annotation-anchored loader that actually reads it (BCICIV1_Train,
         # BCICIV2a, Inria_Train as of this comment) -- see docs/model-analysis-checklist.md
-        # for the per-dataset headroom measured before enabling this.
+        # for the per-dataset headroom measured before enabling this. In NATIVE sample-rate
+        # samples wherever a loader converts to pts (self.sample_freq, not the compile
+        # target) -- cache_compile.py rescales the resulting valid_ranges to the compiled
+        # rate itself, see get_subject_data.
         self.pre_event_seconds = self.dataset_params.get('pre_event_seconds', 0.0)
+        self.post_event_seconds = self.dataset_params.get('post_event_seconds', 0.0)
+        # Set by a loader's _load_data() (via _segment_by_annotations or its own cutting) to
+        # a list of N (start, end) NATIVE-rate-sample pairs, one per trial this subject
+        # produced, marking real (non-padded) content -- see IO/preprocessing.py's
+        # cut_event_window. None (default, and every loader that never sets this) means
+        # "every trial fully real", read by get_subject_data below.
+        self._last_valid_ranges = None
 
     def _require_subject(self, subject_id) -> Dict:
         """Looks up this subject's data_structure entry, raising a clear error if missing."""
@@ -56,23 +67,21 @@ class BaseSubjectLoader(ABC):
                 print(f"  [Warning] Missing file: {p}")
         return [p for p in paths if os.path.exists(p)]
 
-    @staticmethod
     def _segment_by_annotations(
-        raw, trial_len_pts: int, code_to_label: Dict[str, int], channel_indices: List[int],
-        pre_event_pts: int = 0,
+        self, raw, code_to_label: Dict[str, int], channel_indices: List[int],
+        pre_event_pts: int, post_event_pts: int,
     ) -> Tuple[List[np.ndarray], List[int]]:
         """
-        Cuts fixed-length [C, trial_len_pts] windows starting pre_event_pts samples
-        BEFORE each MNE annotation whose description is a key of code_to_label
-        (pre_event_pts=0, the default, keeps the old behavior: window starts
-        exactly at the event). Shared by the GDF/EDF event-marker loaders
-        (EEGMMIdb, BCICIV2a, BCICIV2b) -- a trial too close to the start of the
-        recording to fit the requested pre-event buffer is dropped rather than
-        silently clamped to 0 (a partial buffer would be a different, smaller
-        pre_event_pts than every other trial got). Measured real pre-event
-        headroom per dataset (min ~3.5s+ in all three GDF/EDF loaders that use
-        this) is in docs/model-analysis-checklist.md -- check it before raising
-        pre_event_pts much past what's already used there.
+        Cuts [C, pre_event_pts+post_event_pts] windows around each MNE annotation whose
+        description is a key of code_to_label, via cut_event_window (always pads a
+        trial that runs off the recording's start/end, never drops one -- see that
+        function's docstring; this replaces the old drop-if-insufficient-headroom
+        behavior). Shared by the GDF/EDF event-marker loaders (EEGMMIdb, BCICIV2a,
+        BCICIV2b) -- sets self._last_valid_ranges (NATIVE-rate samples) alongside the
+        returned trials/labels so get_subject_data can carry real-vs-padded content
+        through to the compiled cache. Measured real pre-event headroom per dataset
+        (min ~3.5s+ in the loaders that use this) is in
+        docs/model-analysis-checklist.md.
         """
         import mne
         events, event_id = mne.events_from_annotations(raw, verbose=False)
@@ -81,18 +90,18 @@ class BaseSubjectLoader(ABC):
             return [], []
 
         data_np = raw.get_data(picks=channel_indices)
-        trials, labels = [], []
+        trials, labels, valid_ranges = [], [], []
         for event_pts, _, code in events:
             label = label_for_code.get(code, -1)
             if label == -1:
                 continue
-            start_pts = event_pts - pre_event_pts
-            if start_pts < 0:
-                continue
-            end_pts = start_pts + trial_len_pts
-            if end_pts <= data_np.shape[1]:
-                trials.append(data_np[:, start_pts:end_pts])
-                labels.append(label)
+            window, vs, ve = cut_event_window(data_np, event_pts, pre_event_pts, post_event_pts)
+            if ve <= vs:
+                continue  # entirely outside the recording -- degenerate, see cut_event_window
+            trials.append(window)
+            labels.append(label)
+            valid_ranges.append((vs, ve))
+        self._last_valid_ranges = valid_ranges
         return trials, labels
 
     def _get_standard_coords(self, ch_name: str) -> Optional[np.ndarray]:
@@ -111,14 +120,26 @@ class BaseSubjectLoader(ABC):
         pass
 
     def get_subject_data(self) -> Optional[Dict[str, Any]]:
+        self._last_valid_ranges = None  # reset -- only a loader that calls
+                                         # _segment_by_annotations (or sets it itself)
+                                         # below overrides this before returning
         data, labels = self._load_data()
         if data is None:
             return None
+        n = len(data)
+        valid_ranges = self._last_valid_ranges if self._last_valid_ranges is not None \
+            else [(0, data.shape[-1])] * n
         return {
             'data': data.astype(np.float32),
             'labels': labels.astype(np.int64),
             'coords': self._load_coords().astype(np.float32),
-            'subject_id': self.subject_id
+            'subject_id': self.subject_id,
+            # NATIVE-rate (self.sample_freq) sample indices -- cache_compile.py rescales
+            # to the compiled rate before saving (see BandpassResample changing sample
+            # count). [(0, T)]*n (every trial fully real) for every loader that doesn't
+            # set self._last_valid_ranges -- i.e. all of them except the event-anchored
+            # ones (see IO/preprocessing.py's cut_event_window / _segment_by_annotations).
+            'valid_ranges': valid_ranges,
         }
 
 

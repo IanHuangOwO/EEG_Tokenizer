@@ -18,7 +18,8 @@ def load_cache(dataset_path, subject_id, suffix):
 
 
 def check_subject(dataset_path, subject_id, data_metadata, data_structure,
-                   sample_freq, bandpass_filter, suffix, deep=False):
+                   sample_freq, bandpass_filter, suffix, deep=False,
+                   pre_event_seconds=0.0, post_event_seconds=0.0):
     """Returns a list of problem strings — empty means the cached subject looks correct.
     Checks: cache exists, shapes/dtypes consistent, labels in-range, no NaN/Inf, no
     dead (zero-variance) channels, and that the bandpass filter actually attenuated
@@ -73,7 +74,8 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
         fs_orig = data_metadata['acquisition']['sample_frequency']
         loader_cls = resolve_dataset_loader(dataset_path)
         loader_config = {
-            'dataset_params': {'dataset_path': dataset_path},
+            'dataset_params': {'dataset_path': dataset_path, 'pre_event_seconds': pre_event_seconds,
+                                'post_event_seconds': post_event_seconds},
             'data_metadata': data_metadata,
             'data_structure': data_structure,
         }
@@ -99,7 +101,8 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
     return problems
 
 
-def check_dataset(ds_name, ds_args, sample_freq, bandpass_filter, suffix, n_subjects, deep):
+def check_dataset(ds_name, ds_args, sample_freq, bandpass_filter, suffix, n_subjects, deep,
+                   pre_event_seconds=0.0, post_event_seconds=0.0):
     """Checks the first n_subjects of one dataset, returns (ds_name, {sub_id: problems})."""
     dataset_path = ds_args['dataset_path']
     with open(os.path.join(dataset_path, 'metadata.json'), 'r', encoding='utf-8') as f:
@@ -111,7 +114,9 @@ def check_dataset(ds_name, ds_args, sample_freq, bandpass_filter, suffix, n_subj
     results = {}
     for sub_id in subjects:
         results[sub_id] = check_subject(dataset_path, sub_id, data_metadata, data_structure,
-                                         sample_freq, bandpass_filter, suffix, deep=deep)
+                                         sample_freq, bandpass_filter, suffix, deep=deep,
+                                         pre_event_seconds=pre_event_seconds,
+                                         post_event_seconds=post_event_seconds)
     return ds_name, len(data_structure), results
 
 
@@ -150,21 +155,26 @@ def main():
         config = json.load(f)
 
     cp = config['compile_params']
-    suffix = cache_suffix(cp['sample_freq'], cp['bandpass_filter'])
+    suffix = cache_suffix(cp['sample_freq'], cp['bandpass_filter'],
+                           cp.get('pre_event_seconds', 0.0), cp.get('post_event_seconds', 0.0))
     names = [args.dataset] if args.dataset else list(cp['datasets'].keys())
+
+    pre_event_seconds = cp.get('pre_event_seconds', 0.0)
+    post_event_seconds = cp.get('post_event_seconds', 0.0)
 
     any_problems = False
     if args.workers <= 1:
         for ds_name in names:
             ds_name, n_total, results = check_dataset(
                 ds_name, cp['datasets'][ds_name], cp['sample_freq'], cp['bandpass_filter'],
-                suffix, args.subjects, args.deep)
+                suffix, args.subjects, args.deep, pre_event_seconds, post_event_seconds)
             any_problems |= _print_dataset_result(ds_name, n_total, results, args.deep)
     else:
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = [
                 pool.submit(check_dataset, ds_name, cp['datasets'][ds_name], cp['sample_freq'],
-                            cp['bandpass_filter'], suffix, args.subjects, args.deep)
+                            cp['bandpass_filter'], suffix, args.subjects, args.deep,
+                            pre_event_seconds, post_event_seconds)
                 for ds_name in names
             ]
             for future in as_completed(futures):

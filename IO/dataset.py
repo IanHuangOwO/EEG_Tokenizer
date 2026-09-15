@@ -51,7 +51,8 @@ class EEGDataset(Dataset):
         all_coords: List[torch.Tensor] = []
         all_valid_channels: List[torch.Tensor] = []  # per-task [Nc] bool, True = real (not zero-padded) channel
         all_valid_length: List[int] = []             # per-task original T, before cross-subject max_T padding
-        all_row_valid_length: List[torch.Tensor] = []  # per-task [N_rows] real (non-zero-tail) samples per row
+        all_row_valid_start: List[torch.Tensor] = []  # per-task [N_rows] real-content start, per row
+        all_row_valid_end: List[torch.Tensor] = []    # per-task [N_rows] real-content end, per row
 
         print(f"Loading {len(loading_tasks)} subject-dataset tasks... (assembly={'on' if assemble_trials else 'off'})")
         for task in loading_tasks:
@@ -70,7 +71,8 @@ class EEGDataset(Dataset):
             all_coords.append(result['coords'])
             all_valid_channels.append(result['valid_channels'])
             all_valid_length.append(result['valid_length'])
-            all_row_valid_length.append(result['row_valid_length'])
+            all_row_valid_start.append(result['row_valid_start'])
+            all_row_valid_end.append(result['row_valid_end'])
 
         if not all_data_chunks:
             raise RuntimeError("No datasets were loaded successfully.")
@@ -92,10 +94,13 @@ class EEGDataset(Dataset):
         self.all_valid_channels = all_valid_channels
         self.all_valid_length = all_valid_length
         # Per-ROW (not per-task, unlike all_valid_length above): indexed the same way
-        # self.labels/self.data rows are, since row_valid_length varies WITHIN a task for
-        # the assembled-window case (only the tail window is partial). Used by
-        # PretrainDataset to keep masking from picking patches out of a window's zero tail.
-        self.row_valid_length = torch.cat(all_row_valid_length)
+        # self.labels/self.data rows are, since real-content bounds vary WITHIN a task
+        # (an assembled window's tail pad, or an event-anchored trial's own pre/post pad
+        # near a recording edge). data[:, :, row_valid_start[i]:row_valid_end[i]] is real
+        # content for row i; everything outside is zero pad. Used by PretrainDataset to
+        # keep masking from picking patches out of padded content.
+        self.row_valid_start = torch.cat(all_row_valid_start)
+        self.row_valid_end = torch.cat(all_row_valid_end)
 
         self.trial_to_coords_idx = []
         for i, d in enumerate(standardized):
@@ -139,6 +144,12 @@ class EEGDataset(Dataset):
 
         raw_data = torch.from_numpy(data_np.astype(np.float32))  # (N, C, T)
         N, _, T = raw_data.shape
+        # Per-trial real-content bounds, compiled-rate samples (see cache_compile.py /
+        # IO/loader.py's get_subject_data) -- 'valid_start'/'valid_end' absent (an older
+        # cache from before this existed) means "every trial fully real", same default
+        # get_subject_data itself uses.
+        cache_valid_start = npz['valid_start'].tolist() if 'valid_start' in npz else [0] * N
+        cache_valid_end = npz['valid_end'].tolist() if 'valid_end' in npz else [T] * N
 
         # Transform (bandpass/resample/normalize) on the REAL channels only, before padding —
         # normalizing after zero-padding folds the zero-filled missing-channel rows into the
@@ -155,16 +166,16 @@ class EEGDataset(Dataset):
 
         if self.assemble_trials:
             target_L = self.assembly_params.get('window_length', padded.shape[-1])
-            threshold = self.assembly_params.get('window_pad_threshold', 0.5)
-            padded, labels, row_valid_length = window_continuous_signal(padded, target_L, threshold, ds_name, subject_id)
+            padded, labels, row_valid_start, row_valid_end = window_continuous_signal(
+                padded, target_L, ds_name, subject_id,
+                valid_ranges=list(zip(cache_valid_start, cache_valid_end)))
         else:
             labels = torch.from_numpy(npz['labels'].astype(np.int64))
-            # Every row here is one real, untouched-by-assembly trial: fully valid up to
-            # its own post-transform length (cross-subject max_T padding, applied later in
-            # EEGDataset.__init__, is handled separately via all_valid_length/FinetuneDataset
-            # — this is the per-ROW value PretrainDataset's masking needs, see
-            # window_continuous_signal's valid_length for the assembled-window case).
-            row_valid_length = torch.full((padded.shape[0],), post_transform_T, dtype=torch.long)
+            # Every row here is one real, untouched-by-assembly trial -- use the cache's
+            # own per-trial bounds directly (cross-subject max_T padding, applied later in
+            # EEGDataset.__init__, is handled separately via all_valid_length/FinetuneDataset).
+            row_valid_start = torch.tensor(cache_valid_start, dtype=torch.long)
+            row_valid_end = torch.tensor(cache_valid_end, dtype=torch.long)
 
         task_coords = torch.zeros((self.Nc, 3), dtype=torch.float32)
         task_coords[target_pos] = torch.from_numpy(coords_np.astype(np.float32))
@@ -180,7 +191,8 @@ class EEGDataset(Dataset):
             'coords': task_coords,
             'valid_channels': valid_channels,
             'valid_length': post_transform_T,
-            'row_valid_length': row_valid_length,
+            'row_valid_start': row_valid_start,
+            'row_valid_end': row_valid_end,
         }
 
     # Old → canonical label aliases (covers both 10-20 naming conventions)
@@ -429,17 +441,20 @@ class PretrainDataset(Dataset):
     def _build_valid_masks(self):
         """Per-trial [Nc*num_patches] bool -- True at (channel, patch) positions that are
         BOTH a real (not zero-padded) channel and a genuinely-real patch position (a
-        patch whose start sample falls before the trial/window's real content ends --
-        past that, for an assembled window's zero tail, it's padding, see
-        IO/preprocessing.py's window_continuous_signal). Feeds generate_mask/resolve so
-        masking never spends its budget on content that's already known-zero."""
+        patch whose start sample falls within [row_valid_start, row_valid_end) -- outside
+        that, whether an assembled window's tail pad or an event-anchored trial's own
+        leading/trailing pad near a recording edge, it's padding, see
+        IO/preprocessing.py's window_continuous_signal / cut_event_window). Feeds
+        generate_mask/resolve so masking never spends its budget on content that's
+        already known-zero."""
         bd = self.base_dataset
         patch_starts = torch.arange(self.num_patches) * self.patch_stride  # [P]
         masks = []
         for trial_idx in range(len(bd)):
             coords_idx = bd.trial_to_coords_idx[trial_idx]
             valid_channels = bd.all_valid_channels[coords_idx]           # [Nc] bool
-            valid_patch = patch_starts < bd.row_valid_length[trial_idx]  # [P] bool
+            valid_patch = (patch_starts >= bd.row_valid_start[trial_idx]) \
+                & (patch_starts < bd.row_valid_end[trial_idx])           # [P] bool
             masks.append((valid_channels.unsqueeze(1) & valid_patch.unsqueeze(0)).reshape(-1))
         return masks
 
@@ -599,7 +614,8 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         data_structure = metadata.get('data_structure', {})
 
         ds_transform = transform if transform is not None else build_normalizer_from_config(config_dict)
-        ds_cache_suffix = cache_suffix(pp['sample_freq'], pp['bandpass_filter'])
+        ds_cache_suffix = cache_suffix(pp['sample_freq'], pp['bandpass_filter'],
+                                        pp.get('pre_event_seconds', 0.0), pp.get('post_event_seconds', 0.0))
 
         loader_config = {
             'dataset_params': ds_args,
