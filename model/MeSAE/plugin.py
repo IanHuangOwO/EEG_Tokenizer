@@ -252,12 +252,25 @@ class MeSAEChecker(BaseEpochChecker):
         raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
         recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
 
+        # Real-trial event marker (see BaseEpochChecker._lookup_event_onset): convert the
+        # onset from seconds to a displayed-COLUMN index. grid.patch_ids holds the raw
+        # patch-n each displayed column represents; patch n's own start time is
+        # n * model.patch_stride / fs (same convention slice_patches/time_indices use) --
+        # searchsorted finds the first displayed column at or after the onset, i.e. the
+        # pre/post boundary. None (the normal case: an assembled continuous window has no
+        # single event) draws nothing, see plot_stamp_by_patch's onset_col docstring.
+        onset_col = None
+        if bundle.event_onset_sec is not None and fs:
+            onset_patch_n = bundle.event_onset_sec * fs / model.patch_stride
+            onset_col = int(np.searchsorted(grid.patch_ids, onset_patch_n))
+
         out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_stamp_by_patch.png")
         plot_stamp_by_patch(
             out_path, pos2d, grid, cmap=cmap,
             subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
             unit_label=self.unit_label, n_routed=model.n_routed_stamps,
             signed_stamps=True,  # grid.topo is signed amp (mixing columns), see extract_flat_stamp_psd_by_patch
+            onset_col=onset_col,
         )
         print(f"  [epoch] -> {out_path}")
 

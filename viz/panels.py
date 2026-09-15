@@ -100,7 +100,7 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
                             trial_idx=None, epoch_tag='', unit_label='Stamp',
                             n_routed=None, shared_color='crimson',
                             raw_power=None, recon_power=None, psd_raw=None, psd_recon=None,
-                            signed_stamps=False):
+                            signed_stamps=False, onset_col=None):
     """
     One column PER SAMPLED PATCH, topo+PSD side by side within a column (one column pair
     of subplot-columns). Row 0: each patch's own real raw input (grid.raw_topo/raw_psd).
@@ -131,6 +131,15 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
     signed_stamps: True when grid.topo carries SIGNED per-channel amps (MeSAE's
     grouped StampBank — the mixing/topomap column, see _cell's signed branch); False
     (default) for unsigned norm-based topos (a pooled model's per-unit PSD extractor).
+
+    onset_col: displayed-column index (0..P) where a real trial event occurs — columns
+    before it are pre-event, columns from onset_col on are post-event (see
+    BaseEpochChecker._lookup_event_onset / MeSAEChecker._render_topo_psd for how this is
+    derived from grid.patch_ids and the trial's own event_onset_sec). None (default, most
+    calls — an assembled continuous window has no single event) draws nothing. Columns
+    are laid out one-per-sampled-patch, evenly spaced regardless of real elapsed time
+    (this is a subplot grid, not a shared time axis), so the boundary is drawn as a bold
+    left border on every row's onset_col column rather than a positioned vertical line.
     """
     patch_ids, stamp_ids, topo, psd, h, freqs = (
         grid.patch_ids, grid.stamp_ids, grid.topo, grid.psd, grid.h, grid.freqs)
@@ -227,6 +236,24 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
             label = f'P{patch_ids[pi]} {unit_label[0]}{sid} (h={h[pi, ki]:.2f})'
             _cell(krow, pi, topo[pi, ki], psd[pi, ki], label, color, signed=signed_stamps)
         _blank_rest(krow, P)
+
+    if onset_col is not None and 0 < onset_col < P:
+        # Columns are a uniform subplot grid, not a shared time axis (each patch gets an
+        # equal-width slot regardless of real elapsed time), so the boundary is a fixed
+        # vertical line at the seam between column onset_col-1 and onset_col, not a
+        # positioned one -- drawn in figure coordinates (constrained_layout has to
+        # resolve final axes positions first, hence the draw() call) so it spans every
+        # row cleanly, including rows where the boundary column itself is blanked (a
+        # pad-sentinel patch, see the sid<0 branch above) and would otherwise carry no
+        # visible marker at all.
+        fig.canvas.draw()
+        left_ax  = axes[0, (onset_col - 1) * 2]
+        right_ax = axes[0, onset_col * 2]
+        x_fig = (left_ax.get_position().x1 + right_ax.get_position().x0) / 2
+        line = plt.Line2D([x_fig, x_fig], [0.02, 0.98], transform=fig.transFigure,
+                           color='black', linewidth=2.5, linestyle='--')
+        fig.add_artist(line)
+        fig.text(x_fig, 0.995, 'event', ha='center', va='top', fontsize=9, fontweight='bold')
 
     fig.text(0.5, 0.005, 'PSD y-axis: Channel (Iz -> Fp1) — log1p scale', ha='center', fontsize=8)
     fig.savefig(out_path, dpi=100)

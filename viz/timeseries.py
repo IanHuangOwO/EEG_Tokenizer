@@ -44,7 +44,8 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
                              channel_names=None,
                              subject_id=None, trial_idx=None,
                              mask=None, patch_len=100, tag='',
-                             fs=200.0, l_freq=None, h_freq=None, band_edges=None):
+                             fs=200.0, l_freq=None, h_freq=None, band_edges=None,
+                             event_onset_sec=None):
     """
     Band-filtered orig vs recon for all channels of one val sample.
     Rows: channels. Cols: Raw / Delta / Theta / Alpha / Beta / Gamma.
@@ -54,6 +55,11 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     and the band-filter cutoffs; defaults to 200.0 only for callers that don't pass one.
     l_freq/h_freq: preprocess_params bandpass — clips the canonical band edges to what the
     preprocessing bandpass actually preserved, see _canonical_bands.
+    event_onset_sec: real-trial event onset in seconds (see
+    BaseEpochChecker._lookup_event_onset), or None — drawn as a vertical dashed line on
+    every panel when given, `is not None` (0 is a real onset, e.g. a trial with no
+    pre-event buffer — see docs/model-analysis-checklist.md), never omitted just because
+    it's falsy.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -93,6 +99,8 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
                         t0 = p_idx * patch_len / fs
                         t1 = (p_idx + 1) * patch_len / fs
                         ax.axvspan(t0, t1, color='red', alpha=0.15, linewidth=0)
+            if event_onset_sec is not None:
+                ax.axvline(event_onset_sec, color='k', ls='--', lw=0.8, alpha=0.8)
             ax.set_yticks([])
             ax.grid(True, alpha=0.08)
             if row == 0:

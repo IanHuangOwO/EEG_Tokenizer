@@ -49,6 +49,10 @@ class SnapshotBundle:
     unit_colors: Optional[List[str]] = None  # [Q] per-unit title/label color override, or None
     unit_ids: Optional[np.ndarray] = None    # [Q] real global unit ids matching attn's row order,
                                               # or None (attn's row order already IS the real ids)
+    event_onset_sec: Optional[float] = None  # real-trial event onset (seconds into raw_t/recon_t),
+                                              # or None -- see check_pretrain's lookup. Only ever set
+                                              # for a genuine single real trial (assemble_trials=False);
+                                              # an assembled continuous window has no one event to mark.
 
 
 class BaseEpochChecker:
@@ -70,6 +74,35 @@ class BaseEpochChecker:
         MeSAEPretrain.used_stamp_ids) so callers can slice other per-unit arrays (attn,
         psd) to the exact same subset, in the exact same order, as these colors."""
         return None, None
+
+    @staticmethod
+    def _lookup_event_onset(config, dataset, trial_idx):
+        """config['check']['event_onset_sample'] ({dataset_name: samples} dict, or a
+        scalar for all) -> seconds, or None. Only meaningful for a genuine single real
+        trial: an assembled continuous window (assemble_trials=True, the normal
+        training-time val_dataset) mixes multiple real trials together with no one event
+        to mark, so this deliberately returns None whenever base_dataset.assemble_trials
+        is True rather than draw a misleading line on a window that isn't one real
+        trial. `is not None` (not truthiness) throughout -- an onset of literal 0 (event
+        at the very start of the trial, e.g. BCICIV2a/BCICIV1_Train/Inria_Train after
+        their pre-event-buffer shift, see docs/model-analysis-checklist.md) is a real,
+        legitimate value, not "not configured"."""
+        base_dataset = dataset.base_dataset
+        if getattr(base_dataset, 'assemble_trials', True):
+            return None
+        eo = config.get('check', {}).get('event_onset_sample')
+        if eo is None:
+            return None
+        fs = config.get('preprocess_params', {}).get('sample_freq')
+        if not fs:
+            return None
+        if isinstance(eo, dict):
+            base_idx = trial_idx % len(base_dataset)
+            ds_name = base_dataset.dataset_names[base_idx]
+            onset = eo.get(ds_name)
+        else:
+            onset = eo
+        return (onset / fs) if onset is not None else None
 
     def extract_psd(self, model, x_in, c_in, t_in, vc_in) -> PsdResult:
         """See viz/extract.py extract_head_psd / extract_filter_psd."""
@@ -219,6 +252,7 @@ class BaseEpochChecker:
                 mask=bundle.mask_np, patch_len=bundle.patch_len,
                 tag=filename_tag.lstrip('_') + ('_' if filename_tag else ''),
                 fs=fs or 200.0, l_freq=l_freq, h_freq=h_freq, band_edges=band_edges,
+                event_onset_sec=bundle.event_onset_sec,
             )
 
         if not (plot_topo_psd or plot_attn_topo):
@@ -300,6 +334,8 @@ class BaseEpochChecker:
             metrics = self._epoch_metrics(trainer, model, out,
                                            float(np.mean((data['raw'] - data['recon']) ** 2)))
 
+            event_onset_sec = self._lookup_event_onset(config, dataset, trial_idx)
+
             bundle = SnapshotBundle(
                 x_in=x_in, c_in=c_in, t_in=t_in, vc_in=vc_in, psd_model=model,
                 raw_t=torch.from_numpy(data['raw']).unsqueeze(0),
@@ -307,6 +343,7 @@ class BaseEpochChecker:
                 raw_cnl=x_patches.numpy(), recon_cnl=recon_cnl, attn=attn,
                 coords=coords.numpy(), channel_names=dataset.base_dataset.channel_names,
                 valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=mask_np,
+                event_onset_sec=event_onset_sec,
                 unit_colors=unit_colors,
                 unit_ids=used_ids.cpu().numpy() if used_ids is not None else None,
             )
