@@ -601,7 +601,7 @@ class StampBank(nn.Module):
     def __init__(self, dim, patch_len, n_routed_stamps=796, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16,
                  dead_threshold_frac=0.1, ema_decay=0.999,
-                 amp_levels=None, phase_levels=None, amp_log2_range=(-8.0, -2.0)):
+                 amp_levels=None, phase_levels=None, amp_log2_range=(-14.0, 3.0)):
         super().__init__()
         # Pool sizes are declared separately, not a total minus a slice: n_stamps is
         # the derived sum. Every internal use below wants the total, so it stays.
@@ -750,14 +750,23 @@ class StampBank(nn.Module):
         until measurement says it needs a term.
 
         BOTH saturation directions are reported, since they fail differently and neither
-        is visible in the loss: clip_frac = fraction pinned to the TOP level (range set
-        too low), off_frac = fraction that fell below the grid floor and was zeroed
-        outright (range set too high — a silently DROPPED contribution, not merely a
-        coarse one). Measured at init with range (-6, 0), log2|A| ran -7.4..-2.5 with
-        median -4.2: the top two octaves of that grid were unreachable while the bottom
-        tail was being discarded, which is why the default is (-8, -2). That default is
-        derived from the INIT distribution -- trained amps drift, so re-read both fracs
-        off a real run before trusting the range."""
+        is visible in the loss: clip_frac = fraction pinned to the TOP level, off_frac =
+        fraction that fell below the grid floor and was zeroed outright (a silently
+        DROPPED contribution, not merely a coarse one).
+
+        RANGE COVERAGE DOMINATES RESOLUTION, badly asymmetrically -- set the range from
+        TRAINED amps, never from init. Measured post-hoc on trained mesae_tokenizer_v5
+        (real data, no STE adaptation), log2|A| runs -11.2..+2.0 (median -3.95), ~13
+        octaves across the bulk and ~17 including tails:
+            range (-8,-2)  A=16 P=16 -> mse_patch 61.5x continuous, clip_frac 0.65
+            range (-12,2)  A=16 P=16 ->            6.28x,           clip_frac 0.009
+            range (-12,2)  A=128 P=32 ->           4.50x,           clip_frac 0.034
+            range (-14,3)  A=64 P=32 ->            1.43x,           clip_frac 0.000
+        Multiplying levels 8x at a too-narrow range only bought 6.28x -> 4.50x, while
+        widening the range to cover the tails took it to 1.43x. Clipping truncates the
+        HIGHEST-energy components (up to 16x in amplitude) and wrecks the reconstruction;
+        over-wide range merely costs resolution. So err wide -- hence the (-14, 3)
+        default, and re-read clip_frac/off_frac on any new run rather than trusting it."""
         a, b = amp[..., 0], amp[..., 1]
         A = torch.sqrt(a.pow(2) + b.pow(2) + 1e-12)
         phi = torch.atan2(b, a)

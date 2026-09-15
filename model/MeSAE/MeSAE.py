@@ -64,7 +64,7 @@ class MeSAEPretrain(nn.Module):
         stamp_ema_decay=0.999,
         stamp_amp_levels=None,
         stamp_phase_levels=None,
-        stamp_amp_log2_range=(-8.0, -2.0),
+        stamp_amp_log2_range=(-14.0, 3.0),
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
@@ -384,6 +384,14 @@ class MeSAEPretrain(nn.Module):
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
             k_eff=out.k_eff,
             valid_channels=valid_channels,
+            # None unless stamp quantization is configured. Carried up from StampBank
+            # rather than left at its boundary: quant_clip_frac/quant_off_frac are the
+            # only visibility into a mis-set amp_log2_range (neither shows up in the
+            # loss), so the trainer's epoch metrics and the checkers have to be able to
+            # read them. levels [G, C, K, 2] is the discrete code itself.
+            levels=out.levels,
+            quant_clip_frac=out.quant_clip_frac,
+            quant_off_frac=out.quant_off_frac,
         )
 
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None):
