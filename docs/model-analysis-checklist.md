@@ -47,24 +47,40 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
   suggest about "which pool does the interesting work". Open question this
   raises: is Routed's 60-stamp specialization budget underused relative to
   `docs/adr/0010`'s intent for it?
-- [x] **Task-label information: which pool actually predicts it.** The
-  panels above measure reconstruction mass/necessity, not task relevance —
-  a pool can dominate recon while carrying no label information, or the
-  reverse. `_render_pool_label_probe` (`plugin.py`) → `pool_label_probe.png`
-  (`viz/codebook.py`): 5-fold CV logistic regression on trial-level usage,
-  routed-only vs shared-only vs both, against the per-trial task label
-  (datasets with <2 classes or <5 trials/class skipped). Measured on
-  `mesae_tokenizer_v4` (5/8 sampled datasets qualified): `BCICIV1_Train`
-  sits at chance in BOTH pools (no task info either way — not a
-  routed-vs-shared question there, the usage just isn't predictive at all);
-  where real signal exists (`Inria_Train` 72%/77.5% routed/shared vs 50%
-  chance, `EEGMMIdb` 37.5%/44.0% vs 33.3% chance), Shared beats Routed —
-  same direction as the energy-share/ablation findings above. `both`
-  combined didn't reliably beat either pool alone (worse on those same two
-  datasets) — likely mild overfitting from doubling feature count against a
-  small per-fold trial count, not yet a real "combining hurts" finding;
-  worth revisiting with more trials/regularization before reading much into
-  it.
+- [x] **Task-label information: which pool actually predicts it (with a raw
+  baseline).** The panels above measure reconstruction mass/necessity, not
+  task relevance — a pool can dominate recon while carrying no label
+  information, or the reverse. `_render_pool_label_probe` (`plugin.py`) →
+  `pool_label_probe.png` (`viz/codebook.py`): 5-fold CV logistic regression
+  on trial-level usage, routed-only vs shared-only vs both vs a RAW-signal
+  baseline (per-channel power of the stitched trial, no learned structure),
+  against the per-trial task label (datasets with <2 classes or <5
+  trials/class skipped). The raw column is load-bearing, not decoration —
+  without it a chance-level stamp probe can't be told apart from "task has
+  no decodable signal in anything" vs "tokenizer specifically lost it", and
+  a high stamp probe can't be told apart from "tokenizer learned something"
+  vs "trivially decodable from amplitude alone".
+
+  Measured on `mesae_tokenizer_v4` (5/8 sampled datasets qualified),
+  routed/shared/both/raw:
+  - `Dial` 14.0/12.0/17.0/**8.5** (chance 8.3) — raw is at chance, every
+    stamp probe clears it: real value-add from the tokenizer here.
+  - `BCICIV1_Train` 50.0/46.0/49.5/**46.0** (chance 50.0) — raw is ALSO at
+    chance: this task has no decodable signal in anything, not a tokenizer
+    failure (my read before adding the raw column was right by accident).
+  - `Inria_Train` 72.0/77.5/70.0/**74.5** (chance 50.0) — raw alone is
+    already strong; Routed sits BELOW raw. Most of this task's signal is
+    just loudness, the tokenizer isn't adding much on top for Routed.
+  - `EEGMMIdb` 37.5/44.0/38.0/**38.0** (chance 33.3) — only Shared clears
+    raw; Routed and both are statistically indistinguishable from raw.
+  - `BCICIV2a` 28.0/28.0/28.5/**32.0** (chance 25.0) — raw beats every
+    stamp probe on this held-out (never-trained-on) dataset — a real
+    regression the earlier pass (no baseline) couldn't see at all.
+
+  `both` combined still doesn't reliably beat either pool alone — likely
+  mild overfitting from doubling feature count against a small per-fold
+  trial count, not yet a real "combining hurts" finding; worth revisiting
+  with more trials/regularization.
 
 ## 2. Differences between stamps — every current axis
 
