@@ -22,8 +22,10 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
                    pre_event_seconds=0.0, post_event_seconds=0.0):
     """Returns a list of problem strings — empty means the cached subject looks correct.
     Checks: cache exists, shapes/dtypes consistent, labels in-range, no NaN/Inf, no
-    dead (zero-variance) channels, and that the bandpass filter actually attenuated
-    content above the cutoff (spectral rolloff). --deep additionally re-runs the raw
+    dead (zero-variance) channels, that the bandpass filter actually attenuated content
+    above the cutoff (spectral rolloff), and valid_start/valid_end's own internal
+    consistency (present, right length, in-bounds, and the padded/real split they claim
+    actually matches what's in `data` — see below). --deep additionally re-runs the raw
     loader + BandpassResample fresh and diffs byte-for-byte against the cache, catching
     a cache that's stale relative to the current loader/compile code."""
     problems = []
@@ -54,6 +56,50 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
         dead = np.where(per_channel_std < 1e-8)[0]
         if len(dead) > 0:
             problems.append(f"channels with ~zero variance (possible zero-pad/misindex): {dead.tolist()}")
+
+    # valid_start/valid_end (see IO/loader.py's cut_event_window / cache_compile.py):
+    # marks real vs zero-padded content per trial. Absent entirely means an older cache
+    # from before this existed -- only a real problem once pre/post_event_seconds is
+    # actually in use (0/0 means every loader falls back to full validity anyway, so an
+    # old-format cache is equivalent, not stale).
+    has_valid_range = 'valid_start' in npz and 'valid_end' in npz
+    if not has_valid_range and (pre_event_seconds or post_event_seconds):
+        problems.append("cache predates valid_start/valid_end (pre/post_event_seconds is "
+                         "configured, but this cache has neither key) — rerun cache_compile.py")
+    elif has_valid_range:
+        vs, ve = npz['valid_start'], npz['valid_end']
+        if len(vs) != N or len(ve) != N:
+            problems.append(f"valid_start/valid_end length {len(vs)}/{len(ve)} != trial count N={N}")
+        elif N > 0:
+            if (vs < 0).any() or (ve > T).any() or (vs > ve).any():
+                bad = np.where((vs < 0) | (ve > T) | (vs > ve))[0]
+                problems.append(f"valid_start/valid_end out of [0,{T}] or start>end for trial(s): "
+                                 f"{bad[:5].tolist()}{'...' if len(bad) > 5 else ''}")
+            else:
+                # The metadata's claimed padded region should actually BE zero in `data`,
+                # and its claimed real region should NOT be (a mismatch either way means
+                # the valid_start/valid_end written at compile time no longer describes
+                # what's actually in this array -- e.g. a resample-rescale bug, or a stale
+                # cache mixing an old data array with new metadata).
+                bad_pad, bad_real, any_pad = [], [], False
+                for i in range(N):
+                    s, e = int(vs[i]), int(ve[i])
+                    if s > 0 and np.abs(data[i, :, :s]).max() > 1e-6:
+                        bad_pad.append(i)
+                    if e < T and np.abs(data[i, :, e:]).max() > 1e-6:
+                        bad_pad.append(i)
+                    if e > s and np.abs(data[i, :, s:e]).max() < 1e-6:
+                        bad_real.append(i)
+                    any_pad = any_pad or s > 0 or e < T
+                if bad_pad:
+                    problems.append(f"valid_start/valid_end claims padding but data is nonzero there, "
+                                     f"trial(s): {sorted(set(bad_pad))[:5]}{'...' if len(set(bad_pad)) > 5 else ''}")
+                if bad_real:
+                    problems.append(f"valid_start:valid_end region is all-zero (degenerate real content), "
+                                     f"trial(s): {bad_real[:5]}{'...' if len(bad_real) > 5 else ''}")
+                if any_pad:
+                    frac = float(((vs > 0) | (ve < T)).mean())
+                    print(f"  [info] {frac*100:.0f}% of trials have some padding (real content < {T} samples)")
 
     # Spectral rolloff: bandpass should have suppressed power above h_freq.
     l_freq, h_freq = bandpass_filter['l_freq'], bandpass_filter['h_freq']

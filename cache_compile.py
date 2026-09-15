@@ -63,6 +63,20 @@ def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_fi
                                 dtype=np.int64)
         valid_end = np.array([min(int(round(ve * resample_scale)), new_T) for _, ve in subject_data['valid_ranges']],
                               dtype=np.int64)
+        # Re-zero padding AFTER the bandpass filter, not just before it (cut_event_window
+        # already zeroed it pre-filter) -- sosfiltfilt is zero-phase but NOT zero-leakage
+        # across a hard real-to-zero discontinuity: a low l_freq (slow filter, long
+        # settling time) rings for dozens of samples on either side of that edge, leaving
+        # real-magnitude artifacts in what's supposed to be padding (measured: comparable
+        # mean-abs to the real region, not a tiny residue -- caught by cache_verify.py's
+        # valid_start/valid_end checks). Without this, those patches are ordinary
+        # (unmasked, loss-included) model input -- valid_start/valid_end only gates
+        # masking ELIGIBILITY (see IO/dataset.py's PretrainDataset._build_valid_masks),
+        # nothing excludes them from being fed to the model or from the recon loss, so
+        # the model would be trained to reconstruct filter ringing as if it were signal.
+        for i in range(len(data)):
+            data[i, :, :valid_start[i]] = 0.0
+            data[i, :, valid_end[i]:] = 0.0
         out_path = os.path.join(cache_dir, f"{sub_id}_{suffix}.npz")
         np.savez(out_path, data=data.astype(np.float32), labels=subject_data['labels'].astype(np.int64),
                  valid_start=valid_start, valid_end=valid_end)
