@@ -779,7 +779,12 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
         eo = config.get('check', {}).get('event_onset_sample', {})
         onset = eo.get(ds_name) if isinstance(eo, dict) else eo
-        onset_sec = (onset / fs) if (onset and fs) else (float(onset) if onset else None)
+        # `is not None`, not truthiness -- an onset of literal 0 (event at trial start,
+        # e.g. BCICIV1_Train/Inria_Train/EEGMMIdb/BCICIV2a, all trigger-cut with no
+        # pre-event buffer, see config/analysis.json's event_onset_sample comment) is a
+        # real, legitimate value. `onset and fs` treated 0 as falsy and silently fell
+        # through to "not configured", which would have made every 0 entry a no-op.
+        onset_sec = (onset / fs) if (onset is not None and fs) else (float(onset) if onset is not None else None)
 
         n_off = next((k for k in (5, 4, 6, 3, 2) if native_stride % k == 0), 1)
         fine = native_stride // n_off
