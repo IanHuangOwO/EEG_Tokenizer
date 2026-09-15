@@ -394,6 +394,17 @@ def main():
 
         logging.info("-" * 40)
 
+        # Unconditional, every epoch: a mask-ratio curriculum (or any other future metric
+        # surprise) can make val_metrics['loss'] structurally incomparable across epochs —
+        # e.g. random_to_complementary's mask_ratio ramp makes the task itself harder over
+        # time, so best_val_loss below can freeze on an early, easy-ratio epoch and never
+        # update again even while the model keeps genuinely improving within each step.
+        # That leaves ONLY that early checkpoint on disk if training is later interrupted —
+        # real instance: mesae_pretrain_v4 froze "best" at epoch 4/50, losing every epoch's
+        # progress after that when the run was stopped at epoch 32. last_pretrain.pth is the
+        # insurance: whatever epoch you actually stopped at is always recoverable.
+        torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'last_pretrain.pth'))
+
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
             torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_pretrain.pth'))

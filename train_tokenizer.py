@@ -314,6 +314,11 @@ def main():
 
         logging.info("-" * 40)
 
+        # Unconditional, every epoch — see train_pretrain.py's identical save for why:
+        # cheap insurance so an interrupted/killed run always has a recoverable last state,
+        # not just whatever epoch happened to be "best" by whatever metric was tracked.
+        torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'last_tokenizer.pth'))
+
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
             torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_tokenizer.pth'))
