@@ -37,6 +37,50 @@ def _safe_name(s):
     return ''.join(c if c.isalnum() else '_' for c in s).strip('_') or 'unnamed'
 
 
+def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng):
+    """Shuffle ds_args's resolved subject list and keep only as many subjects as needed
+    to cover ~max_trials real trials, peeking each subject's cheap 'labels' array
+    (shape (N,), a few hundred int64s -- negligible) to learn its trial count WITHOUT
+    touching that subject's 'data' array (the actual multi-hundred-MB payload). Without
+    this, subject_to_use=["all"] on a big dataset (e.g. EEGMMIdb's 109 subjects) loads
+    every real trial from every subject into RAM via build_dataset_from_config, even
+    though check_codebook only ever samples up to max_trials_per_dataset of them right
+    afterward -- the rest sat in memory for nothing. Real instance: this OOM'd a run at
+    ~55GB RSS loading all-subjects for every dataset at once (see
+    docs/model-analysis-checklist.md). Returns the capped subject id list; a dataset
+    whose FIRST subject alone already exceeds max_trials still returns just that one
+    subject (never zero), so a small max_trials never drops a dataset entirely."""
+    import numpy as np
+    dataset_path = ds_args['dataset_path']
+    with open(os.path.join(dataset_path, 'metadata.json'), 'r', encoding='utf-8') as f:
+        meta = json.load(f)
+    all_subjects = sorted(meta.get('data_structure', {}).keys())
+    requested = ds_args.get('subject_to_use', ['all'])
+    if requested in (['all'], 'all'):
+        subjects = list(all_subjects)
+    else:
+        req = {str(s) for s in requested}
+        subjects = [s for s in all_subjects if s in req]
+    rng.shuffle(subjects)
+
+    from IO.preprocessing import cache_suffix
+    pp = cfg['preprocess_params']
+    suffix = cache_suffix(pp['sample_freq'], pp['bandpass_filter'],
+                           pp.get('pre_event_seconds', 0.0), pp.get('post_event_seconds', 0.0))
+
+    picked, total = [], 0
+    for sid in subjects:
+        cache_path = os.path.join(dataset_path, 'cache', f"{sid}_{suffix}.npz")
+        if not os.path.exists(cache_path):
+            continue
+        n = len(np.load(cache_path)['labels'])
+        picked.append(sid)
+        total += n
+        if total >= max_trials:
+            break
+    return picked
+
+
 def _detect_model_type(probe):
     """MeFSQ/MeSAE resolved from the live model instance: n_routed_experts is MeFSQ-only
     (MeSAE's routed pool lives on its StampBank, not the top-level model)."""
@@ -181,12 +225,17 @@ if __name__ == '__main__':
         # label; data_mode='pretrain' would otherwise window-assemble and every label comes
         # back torch.zeros(...) (see IO/preprocessing.py window_continuous_signal), collapsing every
         # target to a single dummy class.
+        import random as _random
+        cap_rng = _random.Random(0)
         datasets_by_name = {}
         for ds_name, ds_args in codebook_ds_params.items():
+            capped_subjects = _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, cap_rng)
             single_cfg = copy.deepcopy(cfg)
-            single_cfg['dataset_params']['pretrain'] = {ds_name: ds_args}
+            single_cfg['dataset_params']['pretrain'] = {ds_name: {**ds_args, 'subject_to_use': capped_subjects}}
             datasets_by_name[ds_name] = build_dataset_from_config(
                 single_cfg, mode='pretrain', assemble_trials=False)
+            print(f"  [codebook] {ds_name}: loading {len(capped_subjects)} subject(s) "
+                  f"(capped to a ~{max_trials}-trial budget, from subject_to_use={ds_args.get('subject_to_use')})")
 
         out = resolve_output_dir(cfg, 'analysis', mode=mode)
         checker.check_codebook(cfg, out, probe, datasets_by_name, max_trials_per_dataset=max_trials)
@@ -268,7 +317,19 @@ if __name__ == '__main__':
             # stamp_by_patch panel's "patch position within trial" axis meaningless for
             # short-trial datasets. Long-trial datasets (~800pt) are unaffected. Same call the
             # codebook path already uses. Note: trial_idx now indexes real trials, not windows.
-            ds = build_dataset_from_config(cfg, mode=data_mode, assemble_trials=False)
+            # Restrict to just the datasets `targets` actually reference (with subject_to_use
+            # still whatever dataset_params.<mode> already says, e.g. "all") -- every OTHER
+            # dataset in dataset_params.<mode> would otherwise get loaded in full here too,
+            # just to pick 1-2 trials out of the handful this config's targets actually name
+            # (see check_model_v5_fullall_log's OOM: the codebook phase's per-dataset,
+            # trial-budget-capped load below fixes that half; this branch was the other half).
+            targets_pre = cfg['training_params']['visualize_params'][data_mode]['targets']
+            wanted_datasets = {t.get('dataset') for t in targets_pre if t.get('dataset')}
+            filtered_dsp = ({k: v for k, v in ds_params.items() if k in wanted_datasets}
+                            if wanted_datasets else ds_params)
+            snapshot_cfg = copy.deepcopy(cfg)
+            snapshot_cfg['dataset_params'][data_mode] = filtered_dsp
+            ds = build_dataset_from_config(snapshot_cfg, mode=data_mode, assemble_trials=False)
 
             def _first_subject(dataset_name=None):
                 sub_data = ds.base_dataset.subject_data

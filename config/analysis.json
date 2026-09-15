@@ -24,8 +24,8 @@
     "plot_attn_topo": true,
     "cmap": "YlOrRd",
     "codebook": {
-      "_comment": "No real dataset has anywhere near this many trials -- this is a not-a-cap sentinel, not a real target (see base_codebook_checker.py's n_trials = min(max_trials_per_dataset, n)).",
-      "max_trials_per_dataset": 1000000
+      "_comment": "Now also caps how much gets LOADED, not just how much check_codebook samples afterward -- check_model.py's _cap_subjects_by_trial_budget shuffles each dataset's subject list and stops adding subjects once their cumulative trial count crosses this, so subject_to_use=['all'] on e.g. EEGMMIdb (109 subjects) no longer loads every real trial from every subject just to discard most of them post-hoc (that OOM'd a run at ~55GB RSS -- see docs/model-analysis-checklist.md). 3000 is generous (15x the old 200) while keeping worst-case per-dataset memory in the hundreds of MB, not GB.",
+      "max_trials_per_dataset": 3000
     },
     "event_onset_sample": {
       "_comment": "Samples at preprocess_params.sample_freq (200Hz). Verified against each loader's own trial-cutting code + real raw annotation streams, not assumed (see docs/model-analysis-checklist.md). BCICIV2a/BCICIV1_Train/Inria_Train loaders now shift their extracted window PRE_EVENT_SECONDS=1.0s before the real event (measured headroom: BCICIV2a >=3.58s, BCICIV1_Train >=4.0s, Inria_Train >=6.57s, all far more than 1.0s -- the event now sits at sample 200 (1.0s), not the window start. EEGMMIdb stays 0/unshifted: it labels T0 (rest) as its own class, so events are back-to-back with ~0 real headroom -- shifting would pull the tail of the PRECEDING, differently-labeled trial into the window, mixing classes (see datas/EEGMMIdb/loader.py). Requires the caches for these 4 datasets to be recompiled (cache_compile.py) and the tokenizer/pretrain stages retrained before these numbers describe the actual data being analyzed.",
