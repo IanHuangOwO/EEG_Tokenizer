@@ -1,22 +1,37 @@
 import torch
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 class BaseMaskingStrategy(ABC):
     multiplier: int = 1  # dataset-size multiplier this strategy yields (e.g. complementary pairs double it)
 
     @abstractmethod
-    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
-        """Returns a boolean mask of shape (num_channels * num_patches,)."""
+    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float,
+                       valid_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """Returns a boolean mask of shape (num_channels * num_patches,).
+
+        valid_mask: optional bool tensor of the same shape, True = real content eligible
+        for masking, False = zero-padded (a zero-padded channel — IO/dataset.py's
+        valid_channels — or the zero tail of an assembled window past its real length,
+        see IO/preprocessing.py's window_continuous_signal). None = every token eligible
+        (the old, padding-blind behavior). mask_ratio is applied to the COUNT OF VALID
+        tokens, not num_channels*num_patches, and True is never set outside valid_mask —
+        without this, a heavily channel-padded dataset (e.g. one mapping 8/64 channels)
+        or an assembled window's zero tail silently wastes most of the masking budget on
+        content that's already known-zero, so the EFFECTIVE mask ratio over real signal
+        ends up far below the configured one. See docs/model-analysis-checklist.md."""
         pass
 
     def effective_mask_ratio(self, requested_ratio: float) -> float:
         """Ratio actually used to generate masks; override if the strategy pins its own."""
         return requested_ratio
 
-    def resolve(self, masks: List[torch.Tensor], index: int, n: int) -> Tuple[int, torch.Tensor]:
-        """Maps a dataset __getitem__ index (0..len(dataset)*multiplier-1) to (trial_idx, mask)."""
+    def resolve(self, masks: List[torch.Tensor], index: int, n: int,
+                valid_masks: Optional[List[torch.Tensor]] = None) -> Tuple[int, torch.Tensor]:
+        """Maps a dataset __getitem__ index (0..len(dataset)*multiplier-1) to (trial_idx, mask).
+        valid_masks: parallel to `masks`, only read by strategies that need to invert a
+        mask (ComplementaryMaskingStrategy) — inverting must stay within valid content."""
         return index, masks[index]
 
     def set_epoch(self, epoch: int) -> None:
@@ -25,12 +40,14 @@ class BaseMaskingStrategy(ABC):
 
 
 class RandomMaskingStrategy(BaseMaskingStrategy):
-    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
+    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float,
+                       valid_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         num_tokens = num_channels * num_patches
-        num_masked = int(num_tokens * mask_ratio)
-        indices = torch.randperm(num_tokens)
+        valid_idx = torch.arange(num_tokens) if valid_mask is None else valid_mask.nonzero(as_tuple=True)[0]
+        num_masked = int(len(valid_idx) * mask_ratio)
+        perm = valid_idx[torch.randperm(len(valid_idx))]
         mask = torch.zeros(num_tokens, dtype=torch.bool)
-        mask[indices[:num_masked]] = True
+        mask[perm[:num_masked]] = True
         return mask
 
 
@@ -43,17 +60,26 @@ class ComplementaryMaskingStrategy(BaseMaskingStrategy):
     MASK_RATIO = 0.5
     multiplier = 2
 
-    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float = 0.5) -> torch.Tensor:
-        return RandomMaskingStrategy().generate_mask(num_channels, num_patches, self.MASK_RATIO)
+    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float = 0.5,
+                       valid_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        return RandomMaskingStrategy().generate_mask(num_channels, num_patches, self.MASK_RATIO, valid_mask=valid_mask)
 
     def effective_mask_ratio(self, requested_ratio: float) -> float:
         return self.MASK_RATIO
 
-    def resolve(self, masks: List[torch.Tensor], index: int, n: int) -> Tuple[int, torch.Tensor]:
+    def resolve(self, masks: List[torch.Tensor], index: int, n: int,
+                valid_masks: Optional[List[torch.Tensor]] = None) -> Tuple[int, torch.Tensor]:
         trial_idx = index % n
         mask = masks[trial_idx]
         if index >= n:
-            mask = ~mask
+            # XOR with valid_mask, not a plain ~mask: flips exactly the valid bits (a
+            # masked valid token becomes visible, a visible valid token becomes masked)
+            # while invalid tokens stay False in BOTH halves (mask is already guaranteed
+            # never True outside valid_mask, and False^False=False) -- a plain ~mask would
+            # instead mark every invalid token True in this second half, undoing the whole
+            # point of valid_mask for exactly half the pairs.
+            vm = valid_masks[trial_idx] if valid_masks is not None else torch.ones_like(mask)
+            mask = mask ^ vm
         return trial_idx, mask
 
 
@@ -103,14 +129,16 @@ class RandomToComplementaryMaskingStrategy(BaseMaskingStrategy):
             return self.start_ratio
         return self.start_ratio + (self.target_ratio - self.start_ratio) * step / (n_steps - 1)
 
-    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float) -> torch.Tensor:
+    def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float,
+                       valid_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         if not self._in_ramp():
-            return self._complementary.generate_mask(num_channels, num_patches, mask_ratio)
-        return RandomMaskingStrategy().generate_mask(num_channels, num_patches, mask_ratio)
+            return self._complementary.generate_mask(num_channels, num_patches, mask_ratio, valid_mask=valid_mask)
+        return RandomMaskingStrategy().generate_mask(num_channels, num_patches, mask_ratio, valid_mask=valid_mask)
 
-    def resolve(self, masks: List[torch.Tensor], index: int, n: int) -> Tuple[int, torch.Tensor]:
+    def resolve(self, masks: List[torch.Tensor], index: int, n: int,
+                valid_masks: Optional[List[torch.Tensor]] = None) -> Tuple[int, torch.Tensor]:
         if not self._in_ramp():
-            return self._complementary.resolve(masks, index, n)
+            return self._complementary.resolve(masks, index, n, valid_masks=valid_masks)
         return index, masks[index]
 
 

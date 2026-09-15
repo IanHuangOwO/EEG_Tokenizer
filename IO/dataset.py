@@ -51,6 +51,7 @@ class EEGDataset(Dataset):
         all_coords: List[torch.Tensor] = []
         all_valid_channels: List[torch.Tensor] = []  # per-task [Nc] bool, True = real (not zero-padded) channel
         all_valid_length: List[int] = []             # per-task original T, before cross-subject max_T padding
+        all_row_valid_length: List[torch.Tensor] = []  # per-task [N_rows] real (non-zero-tail) samples per row
 
         print(f"Loading {len(loading_tasks)} subject-dataset tasks... (assembly={'on' if assemble_trials else 'off'})")
         for task in loading_tasks:
@@ -69,6 +70,7 @@ class EEGDataset(Dataset):
             all_coords.append(result['coords'])
             all_valid_channels.append(result['valid_channels'])
             all_valid_length.append(result['valid_length'])
+            all_row_valid_length.append(result['row_valid_length'])
 
         if not all_data_chunks:
             raise RuntimeError("No datasets were loaded successfully.")
@@ -89,6 +91,11 @@ class EEGDataset(Dataset):
         self.all_coords = all_coords
         self.all_valid_channels = all_valid_channels
         self.all_valid_length = all_valid_length
+        # Per-ROW (not per-task, unlike all_valid_length above): indexed the same way
+        # self.labels/self.data rows are, since row_valid_length varies WITHIN a task for
+        # the assembled-window case (only the tail window is partial). Used by
+        # PretrainDataset to keep masking from picking patches out of a window's zero tail.
+        self.row_valid_length = torch.cat(all_row_valid_length)
 
         self.trial_to_coords_idx = []
         for i, d in enumerate(standardized):
@@ -149,9 +156,15 @@ class EEGDataset(Dataset):
         if self.assemble_trials:
             target_L = self.assembly_params.get('window_length', padded.shape[-1])
             threshold = self.assembly_params.get('window_pad_threshold', 0.5)
-            padded, labels = window_continuous_signal(padded, target_L, threshold, ds_name, subject_id)
+            padded, labels, row_valid_length = window_continuous_signal(padded, target_L, threshold, ds_name, subject_id)
         else:
             labels = torch.from_numpy(npz['labels'].astype(np.int64))
+            # Every row here is one real, untouched-by-assembly trial: fully valid up to
+            # its own post-transform length (cross-subject max_T padding, applied later in
+            # EEGDataset.__init__, is handled separately via all_valid_length/FinetuneDataset
+            # — this is the per-ROW value PretrainDataset's masking needs, see
+            # window_continuous_signal's valid_length for the assembled-window case).
+            row_valid_length = torch.full((padded.shape[0],), post_transform_T, dtype=torch.long)
 
         task_coords = torch.zeros((self.Nc, 3), dtype=torch.float32)
         task_coords[target_pos] = torch.from_numpy(coords_np.astype(np.float32))
@@ -167,6 +180,7 @@ class EEGDataset(Dataset):
             'coords': task_coords,
             'valid_channels': valid_channels,
             'valid_length': post_transform_T,
+            'row_valid_length': row_valid_length,
         }
 
     # Old → canonical label aliases (covers both 10-20 naming conventions)
@@ -389,10 +403,19 @@ class PretrainDataset(Dataset):
         total_T     = base_dataset.data.shape[-1]
         self.num_patches = num_patches(total_T, self.patch_len, self.patch_stride)
 
+        # Per-trial (channel, patch) validity -- excludes zero-padded channels AND, for an
+        # assembled window's zero tail (window_continuous_signal), patches that start past
+        # the window's real content. Computed once (patch_len/stride/num_patches never
+        # change after construction, only masking_strategy/mask_ratio do via set_masking)
+        # and reused by every generate_mask/resolve call below. See IO/masking.py's
+        # valid_mask docstring for why this matters.
+        self._valid_masks = self._build_valid_masks()
+
         # pre-generate one mask per trial so complementary pairs are exact inverses
         self._masks = [
-            self.masking_strategy.generate_mask(base_dataset.Nc, self.num_patches, self.mask_ratio)
-            for _ in range(len(base_dataset))
+            self.masking_strategy.generate_mask(base_dataset.Nc, self.num_patches, self.mask_ratio,
+                                                 valid_mask=self._valid_masks[i])
+            for i in range(len(base_dataset))
         ]
 
         strategy_name = type(self.masking_strategy).__name__.replace('MaskingStrategy', '').lower()
@@ -403,6 +426,23 @@ class PretrainDataset(Dataset):
         print(f"  effective dataset size: {n_effective}")
         print(f"----------------------------\n")
 
+    def _build_valid_masks(self):
+        """Per-trial [Nc*num_patches] bool -- True at (channel, patch) positions that are
+        BOTH a real (not zero-padded) channel and a genuinely-real patch position (a
+        patch whose start sample falls before the trial/window's real content ends --
+        past that, for an assembled window's zero tail, it's padding, see
+        IO/preprocessing.py's window_continuous_signal). Feeds generate_mask/resolve so
+        masking never spends its budget on content that's already known-zero."""
+        bd = self.base_dataset
+        patch_starts = torch.arange(self.num_patches) * self.patch_stride  # [P]
+        masks = []
+        for trial_idx in range(len(bd)):
+            coords_idx = bd.trial_to_coords_idx[trial_idx]
+            valid_channels = bd.all_valid_channels[coords_idx]           # [Nc] bool
+            valid_patch = patch_starts < bd.row_valid_length[trial_idx]  # [P] bool
+            masks.append((valid_channels.unsqueeze(1) & valid_patch.unsqueeze(0)).reshape(-1))
+        return masks
+
     def set_masking(self, masking_strategy: BaseMaskingStrategy, mask_ratio: float = 0.5):
         """Swap masking strategy/ratio and regenerate self._masks in place — e.g. for a
         mask-ratio curriculum (ramp a RandomMaskingStrategy up before switching to a fixed
@@ -411,12 +451,15 @@ class PretrainDataset(Dataset):
         differs from the old one (e.g. random 1x -> complementary 2x) — any DataLoader
         already built against this dataset must be rebuilt afterward, not just re-iterated:
         with persistent_workers=True, worker subprocesses hold their own copy of the
-        dataset from when they were spawned and never see this mutation otherwise."""
+        dataset from when they were spawned and never see this mutation otherwise.
+        self._valid_masks is untouched -- validity depends only on patch_len/stride/
+        num_patches, none of which set_masking changes."""
         self.masking_strategy = masking_strategy
         self.mask_ratio = self.masking_strategy.effective_mask_ratio(mask_ratio)
         self._masks = [
-            self.masking_strategy.generate_mask(self.base_dataset.Nc, self.num_patches, self.mask_ratio)
-            for _ in range(len(self.base_dataset))
+            self.masking_strategy.generate_mask(self.base_dataset.Nc, self.num_patches, self.mask_ratio,
+                                                 valid_mask=self._valid_masks[i])
+            for i in range(len(self.base_dataset))
         ]
 
     def __len__(self):
@@ -424,7 +467,7 @@ class PretrainDataset(Dataset):
 
     def __getitem__(self, index):
         N = len(self.base_dataset)
-        trial_idx, mask = self.masking_strategy.resolve(self._masks, index, N)
+        trial_idx, mask = self.masking_strategy.resolve(self._masks, index, N, valid_masks=self._valid_masks)
 
         x, y = self.base_dataset[trial_idx]
         x_patches, time_indices = slice_patches(x, self.patch_len, self.patch_stride)

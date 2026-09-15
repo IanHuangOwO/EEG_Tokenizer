@@ -138,12 +138,21 @@ def slice_patches(x: torch.Tensor, patch_len: int, patch_stride: Optional[int] =
 
 
 def window_continuous_signal(trials: torch.Tensor, target_L: int, threshold: float,
-                              ds_name: str, subject_id) -> Tuple[torch.Tensor, torch.Tensor]:
+                              ds_name: str, subject_id) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Flatten all trials into a continuous signal, then cut into non-overlapping
     windows of target_L. Keeps the last chunk (zero-padded) only if it fills at
     least `threshold` of target_L. Moved out of EEGDataset so the base dataset
     class stays focused on load/channel-map/normalize; this is pure slicing.
+
+    Returns (assembled [n_windows, C, target_L], labels [n_windows] (dummy, always
+    0 — assembled windows don't carry a real per-trial label), valid_length
+    [n_windows] long — target_L for every full window, `remainder` for the one
+    zero-padded tail window if kept. Every OTHER caller of this used to be able to
+    ignore that the tail window is partially fake content; valid_length is what lets
+    IO/dataset.py's PretrainDataset keep random masking from picking patches out of
+    that zero tail (see docs/model-analysis-checklist.md's masking-blindness note) —
+    without it, masking has no way to know a window isn't 100% real signal.
     """
     N, C, T = trials.shape
     # NOT trials.reshape(N*T, C).T — that reinterprets the (N,C,T) memory buffer
@@ -157,12 +166,14 @@ def window_continuous_signal(trials: torch.Tensor, target_L: int, threshold: flo
     remainder = total_T % target_L
 
     windows = [signal[:, i * target_L:(i + 1) * target_L] for i in range(n_complete)]
+    valid_lengths = [target_L] * n_complete
 
     if remainder > 0:
         if remainder >= target_L * threshold:
             last = torch.zeros((C, target_L), dtype=signal.dtype)
             last[:, :remainder] = signal[:, n_complete * target_L:]
             windows.append(last)
+            valid_lengths.append(remainder)
             print(f"  [{ds_name} S{subject_id}] Last chunk {remainder}/{target_L}pts kept (padded {target_L - remainder}pts).")
         else:
             print(f"  [{ds_name} S{subject_id}] Last chunk {remainder}/{target_L}pts discarded (below {threshold*100:.0f}% threshold).")
@@ -172,4 +183,4 @@ def window_continuous_signal(trials: torch.Tensor, target_L: int, threshold: flo
 
     assembled = torch.stack(windows)
     print(f"  [{ds_name} S{subject_id}] {N} trials x {T}pts -> {total_T}pts -> {len(assembled)} windows of {target_L}pts.")
-    return assembled, torch.zeros(len(assembled), dtype=torch.long)
+    return assembled, torch.zeros(len(assembled), dtype=torch.long), torch.tensor(valid_lengths, dtype=torch.long)
