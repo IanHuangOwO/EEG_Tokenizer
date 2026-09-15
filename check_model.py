@@ -337,6 +337,20 @@ if __name__ == '__main__':
             wanted_datasets = {t.get('dataset') for t in targets_pre if t.get('dataset')}
             filtered_dsp = ({k: v for k, v in ds_params.items() if k in wanted_datasets}
                             if wanted_datasets else ds_params)
+            # This branch only ever plots ONE trial per target (pick_trial below), so even
+            # the small codebook budget above is overkill here -- a big dataset's
+            # subject_to_use=["all"] (e.g. EEGMMIdb's 109) still loads every real trial from
+            # every subject otherwise, just to render 1-2 snapshots (the exact same shape of
+            # bug the codebook loop's _cap_subjects_by_trial_budget already fixes, so reuse
+            # it -- small budget, small min_subjects since diversity doesn't matter for a
+            # single representative pick).
+            import random as _random
+            snap_rng = _random.Random(1)
+            filtered_dsp = {
+                ds_name: {**ds_args, 'subject_to_use': _cap_subjects_by_trial_budget(
+                    cfg, ds_args, max_trials=50, rng=snap_rng, min_subjects=1)}
+                for ds_name, ds_args in filtered_dsp.items()
+            }
             snapshot_cfg = copy.deepcopy(cfg)
             snapshot_cfg['dataset_params'][data_mode] = filtered_dsp
             ds = build_dataset_from_config(snapshot_cfg, mode=data_mode, assemble_trials=False)
