@@ -74,7 +74,6 @@ def build_model(bp, num_channels):
         stamp_hidden_width=sb.get('stamp_hidden_width', 8),
         stamp_shared_hidden_width=sb.get('stamp_shared_hidden_width', 16),
         dead_threshold_frac=sb.get('dead_threshold_frac', 0.1),
-        aux_k_cap_frac=sb.get('aux_k_cap_frac', 0.04),
         stamp_ema_decay=sb.get('sae_ema_decay', 0.999),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),

@@ -163,7 +163,6 @@
           "stamp_hidden_width": 6,
           "stamp_shared_hidden_width": 8,
           "dead_threshold_frac": 0.1,
-          "aux_k_cap_frac": 0.2,
           "sae_ema_decay": 0.99
         },
         "loss": {
@@ -201,7 +200,6 @@
           "stamp_hidden_width": 6,
           "stamp_shared_hidden_width": 8,
           "dead_threshold_frac": 0.1,
-          "aux_k_cap_frac": 0.2,
           "sae_ema_decay": 0.99
         },
         "loss": {

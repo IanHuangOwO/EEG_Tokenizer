@@ -600,7 +600,7 @@ class StampBank(nn.Module):
     """
     def __init__(self, dim, patch_len, n_routed_stamps=796, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16,
-                 dead_threshold_frac=0.1, aux_k_cap_frac=0.04, ema_decay=0.999):
+                 dead_threshold_frac=0.1, ema_decay=0.999):
         super().__init__()
         # Pool sizes are declared separately, not a total minus a slice: n_stamps is
         # the derived sum. Every internal use below wants the total, so it stays.
@@ -673,7 +673,6 @@ class StampBank(nn.Module):
         self.D_shared = nn.Parameter(torch.randn(self.n_shared, patch_len) * 0.02)
 
         self.dead_threshold = dead_threshold_frac * (self.top_k / self.n_routed)
-        self.aux_k_cap = max(1, int(aux_k_cap_frac * self.n_routed))
         self.ema_decay = ema_decay
         self.register_buffer('fire_ema', torch.zeros(self.n_routed))
 
@@ -965,7 +964,21 @@ class StampBank(nn.Module):
 
             if dead_mask.any() and x_target is not None:
                 dead_score = group_score.masked_fill(~dead_mask.unsqueeze(0), float('-inf'))
-                aux_k = min(self.aux_k_cap, int(dead_mask.sum().item()))
+                # Uncapped: rescue EVERY dead atom every step, not just the top
+                # aux_k_cap-by-score among them. A fixed cap here is a self-reinforcing
+                # lockout -- an atom's decoder direction only gets gradient when its
+                # group_score wins a rescue slot, but group_score is computed FROM that
+                # same never-updated direction, so an atom that loses the top-k cut once
+                # (unlucky init, decoder direction never close to any real residual) has
+                # no path to ever winning it later either. Measured on mesae_tokenizer_v5
+                # (aux_k_cap_frac=0.2, cap=12): fire_ema had 23/60 atoms pinned at literal
+                # float-zero (never fired even once, not just rare) plus 2 more near-zero,
+                # while dead_mask.sum() ran ~23-25 -- the cap was starving over half the
+                # dead pool every single step, permanently. The MP-aware exclusive-residual
+                # grading below (added for exactly this reason) already prevents a large
+                # rescue group from collapsing into duplicate atoms, so uncapping no longer
+                # trades starvation for redundancy the way it would have before that fix.
+                aux_k = int(dead_mask.sum().item())
                 aux_val, aux_idx = dead_score.topk(aux_k, dim=-1)  # [G, aux_k], sorted descending by
                                                                      # topk (highest dead_score = rank 0)
                 # rescue only ever draws from the routed pool (dead atoms are a routed-only

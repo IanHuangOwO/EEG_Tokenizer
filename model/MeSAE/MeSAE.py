@@ -61,7 +61,6 @@ class MeSAEPretrain(nn.Module):
         stamp_hidden_width=8,
         stamp_shared_hidden_width=16,
         dead_threshold_frac=0.1,
-        aux_k_cap_frac=0.04,
         stamp_ema_decay=0.999,
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
@@ -88,8 +87,7 @@ class MeSAEPretrain(nn.Module):
             embed_dim, patch_len,
             n_routed_stamps=n_routed_stamps, n_shared_stamps=n_shared_stamps, top_k=stamp_top_k,
             hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
-            dead_threshold_frac=dead_threshold_frac,
-            aux_k_cap_frac=aux_k_cap_frac, ema_decay=stamp_ema_decay,
+            dead_threshold_frac=dead_threshold_frac, ema_decay=stamp_ema_decay,
         )
         # convenience aliases — viz/checker code reads these off the model directly
         # (e.g. base_checker.py compute_unit_colors).
