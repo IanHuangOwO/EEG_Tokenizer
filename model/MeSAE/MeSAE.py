@@ -65,6 +65,8 @@ class MeSAEPretrain(nn.Module):
         stamp_amp_levels=None,
         stamp_phase_levels=None,
         stamp_amp_log2_range=(-6.0, 3.0),
+        stamp_selection_mode='topk',
+        stamp_selection_norm_beta=1.0,
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
@@ -93,6 +95,8 @@ class MeSAEPretrain(nn.Module):
             dead_threshold_frac=dead_threshold_frac, ema_decay=stamp_ema_decay,
             amp_levels=stamp_amp_levels, phase_levels=stamp_phase_levels,
             amp_log2_range=stamp_amp_log2_range,
+            selection_mode=stamp_selection_mode,
+            selection_norm_beta=stamp_selection_norm_beta,
         )
         # convenience aliases — viz/checker code reads these off the model directly
         # (e.g. base_checker.py compute_unit_colors).
@@ -368,7 +372,11 @@ class MeSAEPretrain(nn.Module):
                 mask_g = mask_g & vc_g.unsqueeze(-1)
             rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
+        # allow_residual_selection=False whenever anything is masked: selection_mode
+        # 'gain' ranks atoms against x_target, which at a masked position IS the answer
+        # (see StampBank.forward). Falls back to plain top-k there.
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g,
+                           allow_residual_selection=bool_masked_pos is None)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 

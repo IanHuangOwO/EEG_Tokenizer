@@ -80,6 +80,9 @@ def build_model(bp, num_channels):
         stamp_amp_levels=sb.get('amp_levels'),
         stamp_phase_levels=sb.get('phase_levels'),
         stamp_amp_log2_range=tuple(sb.get('amp_log2_range', (-6.0, 3.0))),
+        # 'topk' (original) | 'gain' | 'normalized' -- see StampBank.__init__.
+        stamp_selection_mode=sb.get('selection_mode', 'topk'),
+        stamp_selection_norm_beta=sb.get('selection_norm_beta', 1.0),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
