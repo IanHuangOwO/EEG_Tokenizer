@@ -9,6 +9,15 @@ class Loader(BaseSubjectLoader):
     """
     Loader for PhysioNet Motor Imagery (BCI2000) dataset.
     Segments EDF files by T0 (rest), T1, and T2 annotations.
+
+    No pre-event buffer here (unlike BCICIV2a/BCICIV2b, which share
+    _segment_by_annotations) -- checked the real annotation stream directly
+    (S001R03.edf): T0/T1/T2 events are back-to-back, each starting almost
+    exactly trial_len_pts after the previous one (e.g. T0@0.0s, T2@4.2s,
+    T0@8.3s, T1@12.5s...). T0 (rest) IS one of the labeled classes here, unlike
+    BCICIV2a's unlabeled pre-cue fixation period -- so there is no idle gap to
+    borrow from; shifting the window back would pull in the tail of the
+    PRECEDING, differently-labeled trial and mix classes into one window.
     """
     _EVENT_TO_LABEL = {'T0': 0, 'T1': 1, 'T2': 2}
 

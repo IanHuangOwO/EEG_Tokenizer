@@ -121,11 +121,11 @@
       "max_trials_per_dataset": 200
     },
     "event_onset_sample": {
-      "_comment": "0 for every dataset here, verified against each loader's own trial-cutting code (see docs/model-analysis-checklist.md): _segment_by_annotations (BCICIV2a/EEGMMIdb) and the marker/trigger-indexed loaders (BCICIV1_Train/Inria_Train) all start the extracted trial array AT the event sample, no pre-event buffer kept. BCICIV2a was previously 400 (2s @ 200Hz), assuming the classic literature epoching around the earlier '768' trial-start code -- checked the raw GDF annotations directly (A01T.gdf): _segment_by_annotations only keys on 769-772 (the cue itself, confirmed 500 samples/2.0s after 768 at the raw 250Hz rate), and cuts starting there, so the cue is already sample 0 of this repo's trial arrays.",
-      "BCICIV2a": 0,
+      "_comment": "Samples at preprocess_params.sample_freq (200Hz). Verified against each loader's own trial-cutting code + real raw annotation streams, not assumed (see docs/model-analysis-checklist.md). BCICIV2a/BCICIV1_Train/Inria_Train loaders now shift their extracted window PRE_EVENT_SECONDS=1.0s before the real event (measured headroom: BCICIV2a >=3.58s, BCICIV1_Train >=4.0s, Inria_Train >=6.57s, all far more than 1.0s -- the event now sits at sample 200 (1.0s), not the window start. EEGMMIdb stays 0/unshifted: it labels T0 (rest) as its own class, so events are back-to-back with ~0 real headroom -- shifting would pull the tail of the PRECEDING, differently-labeled trial into the window, mixing classes (see datas/EEGMMIdb/loader.py). Requires the caches for these 4 datasets to be recompiled (cache_compile.py) and the tokenizer/pretrain stages retrained before these numbers describe the actual data being analyzed.",
+      "BCICIV2a": 200,
       "EEGMMIdb": 0,
-      "BCICIV1_Train": 0,
-      "Inria_Train": 0
+      "BCICIV1_Train": 200,
+      "Inria_Train": 200
     }
   }
 }

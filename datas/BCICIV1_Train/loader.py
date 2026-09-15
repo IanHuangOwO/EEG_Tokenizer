@@ -6,6 +6,12 @@ from IO.loader import BaseSubjectLoader
 
 
 class Loader(BaseSubjectLoader):
+    # Real marker-triggered trials (the 'mrk' branch below) measured with >=4.0s
+    # headroom before every trial in the dataset (evenly-spaced, back-to-back at
+    # trial_len + headroom) -- see docs/model-analysis-checklist.md. The no-marker
+    # fallback branch has no real event to be "pre" of, so it's left alone.
+    PRE_EVENT_SECONDS = 1.0
+
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
         self.file_path = self._resolve(self._require_subject(subject_id)['file'])
@@ -25,14 +31,18 @@ class Loader(BaseSubjectLoader):
         if 'mrk' not in mat:
             pos = np.arange(0, cnt.shape[0] - trial_len, trial_len)
             y = np.zeros(len(pos))
+            pre_event_pts = 0
         else:
             mrk = mat['mrk'][0, 0]
             pos = mrk['pos'][0]
             y = mrk['y'][0]
+            pre_event_pts = int(self.PRE_EVENT_SECONDS * self.sample_freq)
 
         trials, raw_labels = [], []
         for p, label in zip(pos, y):
-            start = int(p)
+            start = int(p) - pre_event_pts
+            if start < 0:
+                continue
             end = start + trial_len
             if end <= cnt.shape[0]:
                 trials.append(cnt[start:end, self.channel_indices].T)

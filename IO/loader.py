@@ -49,12 +49,21 @@ class BaseSubjectLoader(ABC):
 
     @staticmethod
     def _segment_by_annotations(
-        raw, trial_len_pts: int, code_to_label: Dict[str, int], channel_indices: List[int]
+        raw, trial_len_pts: int, code_to_label: Dict[str, int], channel_indices: List[int],
+        pre_event_pts: int = 0,
     ) -> Tuple[List[np.ndarray], List[int]]:
         """
-        Cuts fixed-length [C, trial_len_pts] windows starting at each MNE
-        annotation whose description is a key of code_to_label. Shared by the
-        GDF/EDF event-marker loaders (EEGMMIdb, BCICIV2a, BCICIV2b).
+        Cuts fixed-length [C, trial_len_pts] windows starting pre_event_pts samples
+        BEFORE each MNE annotation whose description is a key of code_to_label
+        (pre_event_pts=0, the default, keeps the old behavior: window starts
+        exactly at the event). Shared by the GDF/EDF event-marker loaders
+        (EEGMMIdb, BCICIV2a, BCICIV2b) -- a trial too close to the start of the
+        recording to fit the requested pre-event buffer is dropped rather than
+        silently clamped to 0 (a partial buffer would be a different, smaller
+        pre_event_pts than every other trial got). Measured real pre-event
+        headroom per dataset (min ~3.5s+ in all three GDF/EDF loaders that use
+        this) is in docs/model-analysis-checklist.md -- check it before raising
+        pre_event_pts much past what's already used there.
         """
         import mne
         events, event_id = mne.events_from_annotations(raw, verbose=False)
@@ -64,9 +73,12 @@ class BaseSubjectLoader(ABC):
 
         data_np = raw.get_data(picks=channel_indices)
         trials, labels = [], []
-        for start_pts, _, code in events:
+        for event_pts, _, code in events:
             label = label_for_code.get(code, -1)
             if label == -1:
+                continue
+            start_pts = event_pts - pre_event_pts
+            if start_pts < 0:
                 continue
             end_pts = start_pts + trial_len_pts
             if end_pts <= data_np.shape[1]:
