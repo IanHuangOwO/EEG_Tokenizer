@@ -601,7 +601,7 @@ class StampBank(nn.Module):
     def __init__(self, dim, patch_len, n_routed_stamps=796, n_shared_stamps=4,
                  top_k=32, hidden_width=8, shared_hidden_width=16,
                  dead_threshold_frac=0.1, ema_decay=0.999,
-                 amp_levels=None, phase_levels=None, amp_log2_range=(-14.0, 3.0)):
+                 amp_levels=None, phase_levels=None, amp_log2_range=(-6.0, 3.0)):
         super().__init__()
         # Pool sizes are declared separately, not a total minus a slice: n_stamps is
         # the derived sum. Every internal use below wants the total, so it stays.
@@ -754,19 +754,30 @@ class StampBank(nn.Module):
         fraction that fell below the grid floor and was zeroed outright (a silently
         DROPPED contribution, not merely a coarse one).
 
-        RANGE COVERAGE DOMINATES RESOLUTION, badly asymmetrically -- set the range from
-        TRAINED amps, never from init. Measured post-hoc on trained mesae_tokenizer_v5
-        (real data, no STE adaptation), log2|A| runs -11.2..+2.0 (median -3.95), ~13
-        octaves across the bulk and ~17 including tails:
-            range (-8,-2)  A=16 P=16 -> mse_patch 61.5x continuous, clip_frac 0.65
-            range (-12,2)  A=16 P=16 ->            6.28x,           clip_frac 0.009
-            range (-12,2)  A=128 P=32 ->           4.50x,           clip_frac 0.034
-            range (-14,3)  A=64 P=32 ->            1.43x,           clip_frac 0.000
-        Multiplying levels 8x at a too-narrow range only bought 6.28x -> 4.50x, while
-        widening the range to cover the tails took it to 1.43x. Clipping truncates the
-        HIGHEST-energy components (up to 16x in amplitude) and wrecks the reconstruction;
-        over-wide range merely costs resolution. So err wide -- hence the (-14, 3)
-        default, and re-read clip_frac/off_frac on any new run rather than trusting it."""
+        Set the range from TRAINED amps of the SELECTED slots -- not from init, and not
+        from the dense all-atom distribution. Those are three different distributions and
+        picking the wrong one is expensive. Measured post-hoc on trained
+        mesae_tokenizer_v5 (real data, no STE adaptation):
+            init, dense                      log2|A| -7.4 .. -2.5
+            trained, dense (all 60 atoms)    log2|A| -11.2 .. +2.0   (~17 oct with tails)
+            trained, SELECTED slots only     log2|A| -5.0 .. +2.7    (7.8 oct)  <-- this one
+        The dense distribution's long bottom tail is DEAD atoms sitting near 2^-11, which
+        are never selected and therefore never quantized. Sizing the grid off it wastes
+        half the resolution covering amplitudes this function never sees.
+
+            range (-8,-2)  A=16 P=16 -> mse_patch 61.5x continuous, clip 0.650
+            range (-12,2)  A=16 P=16 ->            6.28x,           clip 0.009
+            range (-12,2)  A=128 P=32 ->           4.50x,           clip 0.034
+            range (-14,3)  A=64 P=32 ->            1.43x,           clip 0.000
+            range (-6,3)   A=64 P=32 ->            1.29x,           clip 0.000, off 0.021
+            range (-6,3)   A=32 P=32 ->            1.46x
+            range (-6,3)   A=32 P=16 ->            2.12x
+        Clipping is far more damaging than coarse resolution -- it truncates the
+        HIGHEST-energy components (up to 16x in amplitude) -- so never let clip_frac run.
+        off_frac is the opposite: ~2% is CORRECT, not a defect. Widening (-6,3) to (-7,3)
+        to rescue that quiet tail (off 0.021 -> 0.005) made things worse (1.46 -> 1.52x),
+        because the octave spent covering it costs more resolution than those
+        near-silent slots were contributing. Re-read both fracs on any new run."""
         a, b = amp[..., 0], amp[..., 1]
         A = torch.sqrt(a.pow(2) + b.pow(2) + 1e-12)
         phi = torch.atan2(b, a)

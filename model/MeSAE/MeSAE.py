@@ -64,7 +64,7 @@ class MeSAEPretrain(nn.Module):
         stamp_ema_decay=0.999,
         stamp_amp_levels=None,
         stamp_phase_levels=None,
-        stamp_amp_log2_range=(-14.0, 3.0),
+        stamp_amp_log2_range=(-6.0, 3.0),
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
