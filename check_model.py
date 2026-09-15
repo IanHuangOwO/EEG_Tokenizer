@@ -192,6 +192,16 @@ if __name__ == '__main__':
         checker.check_codebook(cfg, out, probe, datasets_by_name, max_trials_per_dataset=max_trials)
         print(f"[check] codebook analysis done: datasets={list(datasets_by_name)}  |  out={out}")
 
+        # analysis='both' builds a SECOND full dataset below (the snapshot branch's own
+        # combined-multi-dataset `ds`, covering the exact same dataset_params) while
+        # datasets_by_name (12 separate full datasets, all subjects) is still a live local
+        # var -- Python won't free it just because check_codebook is done with it, only
+        # once nothing references it. Drop it explicitly so the snapshot phase's own load
+        # isn't peaking on top of the whole codebook phase's data, not just competing with it.
+        del datasets_by_name
+        import gc
+        gc.collect()
+
     if analysis in ('snapshot', 'both'):
         if mode == 'finetune':
             # Per-target correct/wrong snapshot pairs, not a single per-subject trial pick:

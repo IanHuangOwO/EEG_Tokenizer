@@ -47,7 +47,17 @@ class BandpassResample:
 class Normalizer:
     """Online (train-time) — normalization only. Bandpass/resample already
     baked into the compiled cache by BandpassResample, so the training
-    pipeline never carries that logic."""
+    pipeline never carries that logic. Batched: __call__ takes (N, C, T) and
+    normalizes each of the N trials independently (its own mean/std/median,
+    not one pooled across the batch) -- same per-trial semantics a Python
+    loop of N single-trial calls would give, but computed in one vectorized
+    pass instead. IO/dataset.py's _load_task used to do exactly that loop
+    (torch.stack([transform(raw_data[i]) for i in range(N)])), which for a
+    large subject (e.g. EEGMMIdb's ~362 trials/subject) held N separately-
+    normalized tensors in a Python list simultaneously before torch.stack
+    copied them into one buffer -- a real, avoidable memory spike across a
+    whole dataset's worth of subjects, not just a speed cost (see check_model.py
+    OOM investigation, docs/model-analysis-checklist.md)."""
     def __init__(self, normalization_type='fixed'):
         self.normalization_type = str(normalization_type).lower() if normalization_type else 'none'
 
@@ -61,15 +71,17 @@ class Normalizer:
         return torch.from_numpy(self._normalize(x)).float()
 
     def _normalize(self, x):
+        # x: (N, C, T) -- reduce over (C, T) per trial (axis 0), never pooled across N.
         if self.normalization_type == 'fixed':
             return x / 100.0
         elif self.normalization_type == 'zscore':
-            mean = np.mean(x)
-            std  = np.std(x)
+            mean = np.mean(x, axis=(-2, -1), keepdims=True)
+            std  = np.std(x, axis=(-2, -1), keepdims=True)
             return (x - mean) / (std + 1e-8)
         elif self.normalization_type == 'robust':
-            median = np.median(x)
-            q75, q25 = np.percentile(x, [75, 25])
+            median = np.median(x, axis=(-2, -1), keepdims=True)
+            q75 = np.percentile(x, 75, axis=(-2, -1), keepdims=True)
+            q25 = np.percentile(x, 25, axis=(-2, -1), keepdims=True)
             return (x - median) / ((q75 - q25) + 1e-8)
         return x
 

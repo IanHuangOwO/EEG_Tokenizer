@@ -158,7 +158,13 @@ class EEGDataset(Dataset):
         # to canonical_channels (e.g. BCICIV2a is ~2/3 zero-padded channels — that's a much
         # bigger normalization bias than a near-complete dataset like EEGMMIdb).
         if transform is not None:
-            raw_data = torch.stack([transform(raw_data[i]) for i in range(N)])
+            # Whole (N, C, T) batch in one call -- Normalizer._normalize reduces
+            # per-trial (its own mean/std/median, never pooled across N), so this is
+            # numerically identical to the old torch.stack([transform(raw_data[i])
+            # for i in range(N)]) loop, just without holding N separately-normalized
+            # tensors in a Python list before the stack copies them into one buffer
+            # (see IO/preprocessing.py's Normalizer docstring).
+            raw_data = transform(raw_data)
         post_transform_T = raw_data.shape[-1]  # real (non-padded) length for finetune's per-trial mask
 
         padded = torch.zeros((N, self.Nc, post_transform_T), dtype=torch.float32)

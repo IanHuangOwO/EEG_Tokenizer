@@ -1,124 +1,31 @@
 {
-  "checkpoint": "output/mesae_tokenizer_v4/tokenizer/best_tokenizer.pth",
+  "checkpoint": "output/mesae_tokenizer_v5/tokenizer/best_tokenizer.pth",
   "mode": "tokenizer",
   "dataset_params": {
     "pretrain": {
-      "Dial": {
-        "dataset_path": "datas/Dial",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "BETA_4s": {
-        "dataset_path": "datas/BETA_4s",
-        "subject_to_use": [
-          "31",
-          "32",
-          "33",
-          "34",
-          "35"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "BCICIV1_Train": {
-        "dataset_path": "datas/BCICIV1_Train",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "Inria_Train": {
-        "dataset_path": "datas/Inria_Train",
-        "subject_to_use": [
-          "2",
-          "6",
-          "7",
-          "11",
-          "12"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "EEGMMIdb": {
-        "dataset_path": "datas/EEGMMIdb",
-        "subject_to_use": [
-          "11",
-          "12",
-          "13",
-          "14",
-          "15"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "BETA_3s": {
-        "dataset_path": "datas/BETA_3s",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "GraspAndLift_Train": {
-        "dataset_path": "datas/GraspAndLift_Train",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "BCICIV2a": {
-        "dataset_path": "datas/BCICIV2a",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      }
+      "Dial": { "dataset_path": "datas/Dial", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BETA_4s": { "dataset_path": "datas/BETA_4s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BETA_3s": { "dataset_path": "datas/BETA_3s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BCICIV1_Train": { "dataset_path": "datas/BCICIV1_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BCICIV1_Test": { "dataset_path": "datas/BCICIV1_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BCICIV2a": { "dataset_path": "datas/BCICIV2a", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BCICIV2b": { "dataset_path": "datas/BCICIV2b", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "GraspAndLift_Train": { "dataset_path": "datas/GraspAndLift_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "GraspAndLift_Test": { "dataset_path": "datas/GraspAndLift_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "Inria_Train": { "dataset_path": "datas/Inria_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "Inria_Test": { "dataset_path": "datas/Inria_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "EEGMMIdb": { "dataset_path": "datas/EEGMMIdb", "subject_to_use": ["all"], "channels_to_use": ["all"] }
     }
   },
   "check": {
-    "analysis": "codebook",
+    "analysis": "both",
     "plot_recon": true,
     "plot_topo_psd": true,
     "plot_attn_topo": true,
     "cmap": "YlOrRd",
     "codebook": {
-      "max_trials_per_dataset": 200
+      "_comment": "No real dataset has anywhere near this many trials -- this is a not-a-cap sentinel, not a real target (see base_codebook_checker.py's n_trials = min(max_trials_per_dataset, n)).",
+      "max_trials_per_dataset": 1000000
     },
     "event_onset_sample": {
       "_comment": "Samples at preprocess_params.sample_freq (200Hz). Verified against each loader's own trial-cutting code + real raw annotation streams, not assumed (see docs/model-analysis-checklist.md). BCICIV2a/BCICIV1_Train/Inria_Train loaders now shift their extracted window PRE_EVENT_SECONDS=1.0s before the real event (measured headroom: BCICIV2a >=3.58s, BCICIV1_Train >=4.0s, Inria_Train >=6.57s, all far more than 1.0s -- the event now sits at sample 200 (1.0s), not the window start. EEGMMIdb stays 0/unshifted: it labels T0 (rest) as its own class, so events are back-to-back with ~0 real headroom -- shifting would pull the tail of the PRECEDING, differently-labeled trial into the window, mixing classes (see datas/EEGMMIdb/loader.py). Requires the caches for these 4 datasets to be recompiled (cache_compile.py) and the tokenizer/pretrain stages retrained before these numbers describe the actual data being analyzed.",
