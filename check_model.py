@@ -37,7 +37,7 @@ def _safe_name(s):
     return ''.join(c if c.isalnum() else '_' for c in s).strip('_') or 'unnamed'
 
 
-def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng):
+def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng, min_subjects=20):
     """Shuffle ds_args's resolved subject list and keep only as many subjects as needed
     to cover ~max_trials real trials, peeking each subject's cheap 'labels' array
     (shape (N,), a few hundred int64s -- negligible) to learn its trial count WITHOUT
@@ -49,7 +49,17 @@ def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng):
     ~55GB RSS loading all-subjects for every dataset at once (see
     docs/model-analysis-checklist.md). Returns the capped subject id list; a dataset
     whose FIRST subject alone already exceeds max_trials still returns just that one
-    subject (never zero), so a small max_trials never drops a dataset entirely."""
+    subject (never zero), so a small max_trials never drops a dataset entirely.
+
+    min_subjects: keeps adding subjects past max_trials until at least this many are
+    picked (or the dataset runs out), even if that overshoots the trial budget --
+    trial count alone gives a stable per-unit usage-rate ESTIMATE (variance shrinks with
+    sqrt(n) regardless of subject count), but a handful of subjects each contributing
+    hundreds of correlated trials (e.g. EEGMMIdb: 9 subjects hit 3000 trials on their
+    own) under-covers SUBJECT diversity -- inter-subject variability is usually the
+    dominant source of variance in EEG, not trial-to-trial noise within one subject.
+    A small dataset with fewer than min_subjects subjects total just returns all of
+    them, same as before."""
     import numpy as np
     dataset_path = ds_args['dataset_path']
     with open(os.path.join(dataset_path, 'metadata.json'), 'r', encoding='utf-8') as f:
@@ -76,7 +86,7 @@ def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng):
         n = len(np.load(cache_path)['labels'])
         picked.append(sid)
         total += n
-        if total >= max_trials:
+        if total >= max_trials and len(picked) >= min_subjects:
             break
     return picked
 
