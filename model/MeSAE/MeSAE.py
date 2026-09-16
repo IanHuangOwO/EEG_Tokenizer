@@ -615,10 +615,40 @@ class MeSAEFinetune(nn.Module):
     the head sees it, so the head only pools over patches and stamps.
     """
     def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, hidden=128, freeze_backbone=False,
-                 dropout=0.1):
+                 dropout=0.1, use_topo_feature=False):
         super().__init__()
         self.backbone = backbone
-        self.head = PerChannelHeadAttn(backbone.head_dim, num_classes, dropout=dropout)
+        # use_topo_feature: also hand the head each stamp's per-patch TOPOGRAPHY
+        # (chan_attn, the softmax-over-channels weight encode_post_stamp_expert already
+        # computes) as a FEATURE, instead of only consuming it as a pooling weight.
+        #
+        # Measured with linear probes on v5's dictionary (600 trials/dataset, shared
+        # folds), the topography is where the class information lives on lateralized MI:
+        #                            BCICIV2a   BCICIV1_Train
+        #   pooled mag (head-ish)      0.255       0.512
+        #   chan_attn topography       0.373       0.615
+        #   raw per-channel power      0.338       0.547
+        #   topography + covariance    0.397       0.650
+        # i.e. the topography beats per-channel power AND adds on top of channel
+        # covariance, the input the Riemannian/CSP family for MI decoding is built on.
+        # Pooling integrates it out: a softmax-weighted mean cannot represent a CONTRAST
+        # (stamp A strong at C3 while stamp B is strong at C4), which is exactly the
+        # lateralization these tasks turn on. Probes also put head_z (this head's real
+        # input) at or below every alternative including chance on BCICIV1 (0.483).
+        #
+        # Off by default -- it widens the head input to 2*head_dim, so it is an
+        # architecture change, not a free fix. NOT universal either: on EEGMMIdb the
+        # collapsed features win (pool_mag 0.502 vs topography 0.465), so this is
+        # expected to help lateralized MI and may not help elsewhere.
+        self.use_topo_feature = use_topo_feature
+        head_dim = backbone.head_dim
+        if use_topo_feature:
+            # C -> head_dim so the topography arrives in the same space/width as z, and
+            # the two can be concatenated per (patch, stamp) without one dominating the
+            # LayerNorm inside the head.
+            self.topo_proj = nn.Linear(num_channels, head_dim)
+            head_dim = head_dim * 2
+        self.head = PerChannelHeadAttn(head_dim, num_classes, dropout=dropout)
 
         if freeze_backbone:
             for p in self.backbone.parameters():
@@ -632,7 +662,15 @@ class MeSAEFinetune(nn.Module):
         pad_mask: [B, N] bool, True = valid patch (optional, for padded trailing time)
         returns: (logits [B, num_classes], attn_h [B, Q], attn_n [B, Q, N])
         """
-        z_per_head = self.backbone.encode_post_stamp_expert(
-            x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [B, N, Q, D]
+        if self.use_topo_feature:
+            z_per_head, chan_attn = self.backbone.encode_post_stamp_expert(
+                x, coords, time_idx=time_idx, valid_channels=valid_channels,
+                return_chan_attn=True)                                    # [B,N,Q,D], [B,N,Q,C]
+            # Concatenated, not added: the head's input_norm sees one vector per
+            # (patch, stamp), and adding would let z's scale bury the topography.
+            z_per_head = torch.cat([z_per_head, self.topo_proj(chan_attn)], dim=-1)
+        else:
+            z_per_head = self.backbone.encode_post_stamp_expert(
+                x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [B, N, Q, D]
         logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)
         return logits, attn_h, attn_n

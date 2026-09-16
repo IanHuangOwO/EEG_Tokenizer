@@ -11,10 +11,11 @@ import warnings
 import statistics
 import matplotlib
 matplotlib.use('Agg')
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 from sklearn.metrics import f1_score, balanced_accuracy_score, cohen_kappa_score
 
@@ -203,6 +204,11 @@ def validate_one_epoch(model, data_loader, device):
 
 
 def _underlying_base_dataset(ds):
+    # split_mode='within' hands back a torch Subset (a trial-level index view over the
+    # wrapper) rather than the wrapper itself, so unwrap before reaching for
+    # base_dataset. Loop rather than a single .dataset in case a Subset is ever nested.
+    while isinstance(ds, Subset):
+        ds = ds.dataset
     return ds.base_dataset
 
 
@@ -240,8 +246,11 @@ def _resolve_requested_subjects(ds_args, all_available_subjects):
 
 
 def build_subject_split_datasets(config, dataset_params, split_ratio, logger):
-    """Subject-level holdout: shuffle subjects per dataset, split by ratio.
-    Never leaks trials from the same subject across train/val."""
+    """INTER-subject holdout (split_mode='inter_subject'): shuffle subjects per dataset,
+    split by ratio. Never leaks trials from the same subject across train/val, so this is
+    the only mode whose numbers are a generalization claim. Correspondingly the hardest:
+    on BCICIV2a every feature set measured subject-wise sits at 0.27-0.31 vs 0.25 chance,
+    against 0.513 for the same features measured intra-subject."""
     random.seed(42)
     train_config = copy.deepcopy(config)
     val_config   = copy.deepcopy(config)
@@ -264,6 +273,81 @@ def build_subject_split_datasets(config, dataset_params, split_ratio, logger):
     train_dataset = build_dataset_from_config(train_config, transform=None, mode='finetune')
     val_dataset   = build_dataset_from_config(val_config,   transform=None, mode='finetune')
     return train_dataset, val_dataset
+
+
+def _intra_subject_split(dataset, subject, split_ratio, seed=42):
+    """One subject's own trials, stratified by class into train/val Subsets."""
+    base = dataset.base_dataset
+    subjects = base.subject_data.numpy()
+    labels = base.labels.numpy()
+    rng = np.random.RandomState(seed)
+    train_idx, val_idx = [], []
+    for c in np.unique(labels):
+        pool = np.flatnonzero((subjects == subject) & (labels == c))
+        if len(pool) == 0:
+            continue
+        rng.shuffle(pool)
+        n_tr = max(1, int(len(pool) * split_ratio)) if len(pool) > 1 else len(pool)
+        train_idx.extend(pool[:n_tr]); val_idx.extend(pool[n_tr:])
+    return Subset(dataset, sorted(train_idx)), Subset(dataset, sorted(val_idx))
+
+
+def _run_intra_subject(config, dataset_params, base_output_dir, artifact_dir, logger, patch_len,
+                        split_ratio):
+    """INTRA-subject: one model PER SUBJECT, that subject's own trials split by class.
+
+    This is the standard BCICIV2a protocol and the regime where the class signal is known
+    to be decodable -- measured on this very pipeline, per-subject mu/beta band-power LDA
+    reaches 0.513 mean (0.385-0.674 across the 9 subjects) against 0.25 chance. So 0.51 is
+    the floor any learned head has to beat here, which makes this the mode that can tell
+    an architecture change from noise.
+
+    Deliberately NOT the same as pooling every subject into one model and splitting by
+    trial -- that was tried and sat at 0.28 (kappa ~0.04), because a single model has to
+    reconcile subject-specific spatial patterns. It is also not comparable to
+    'inter_subject'/'loso': those answer "does this transfer to an unseen person", which
+    is a much harder question. Never report an intra_subject number as generalization.
+    """
+    ds_name, ds_args = next(iter(dataset_params.items()))
+    full = build_dataset_from_config(copy.deepcopy(config), transform=None, mode='finetune')
+    subjects = sorted(set(full.base_dataset.subject_data.numpy().tolist()))
+    logger.info(f"INTRA-subject: {len(subjects)} per-subject models ({ds_name}) "
+                f"split_ratio={split_ratio}")
+
+    results = {}
+    for s in subjects:
+        fold_tag = f"{ds_name}_S{s}"
+        tr, va = _intra_subject_split(full, s, split_ratio)
+        logger.info(f"===== intra-subject {fold_tag}: train={len(tr)} val={len(va)} =====")
+        ck = os.path.join(base_output_dir, "finetune", f"subj_{s}")
+        vz = os.path.join(base_output_dir, "visualization", f"subj_{s}")
+        os.makedirs(ck, exist_ok=True); os.makedirs(vz, exist_ok=True)
+        results[fold_tag] = run_training_loop(config, tr, va, ck, vz, artifact_dir, logger,
+                                               patch_len, fold_tag=fold_tag)
+
+    logger.info("===== INTRA-subject Summary (best-val-acc epoch per subject) =====")
+    metric_keys = ['acc', 'f1', 'f1_weighted', 'balanced_acc', 'kappa']
+    per_metric = {k: [] for k in metric_keys}
+    for tag, best in results.items():
+        if best is None:
+            logger.info(f"  {tag}: no valid epoch"); continue
+        v = best['val']
+        logger.info(f"  {tag}: " + " | ".join(f"{k}={v[k]:.4f}" for k in metric_keys))
+        for k in metric_keys:
+            per_metric[k].append(v[k])
+
+    summary = {'subjects': results, 'aggregate': {}}
+    for k in metric_keys:
+        vals = per_metric[k]
+        if vals:
+            mean = statistics.mean(vals)
+            std = statistics.pstdev(vals) if len(vals) > 1 else 0.0
+            summary['aggregate'][k] = {'mean': mean, 'std': std}
+            logger.info(f"  MEAN {k}: {mean:.4f} +/- {std:.4f}")
+    path = os.path.join(artifact_dir, 'intra_subject_summary.json')
+    with open(path, 'w') as f:
+        json.dump(summary, f, indent=2)
+    logger.info(f"intra-subject summary written to {path}")
 
 
 def _loso_fold_configs(config, dataset_params, ds_name, held_out_subject):
@@ -481,7 +565,7 @@ def main():
 
     dataset_params = config['dataset_params']['finetune']
     split_ratio = train_params.get('train_val_split', 0.9)
-    split_mode  = train_params.get('split_mode', 'subject')
+    split_mode  = train_params.get('split_mode', 'inter_subject')
 
     pp = config.get('preprocess_params', {})
     patch_len = pp.get('patch_length', 100)
@@ -492,10 +576,17 @@ def main():
         _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, patch_len)
         return
 
-    if split_mode == 'subject':
+    if split_mode == 'intra_subject':
+        _run_intra_subject(config, dataset_params, base_output_dir, artifact_dir, logger,
+                           patch_len, split_ratio)
+        return
+
+    if split_mode == 'inter_subject':
         train_dataset, val_dataset = build_subject_split_datasets(config, dataset_params, split_ratio, logger)
     else:
-        raise ValueError(f"Unknown split_mode: {split_mode!r} (expected 'subject' or 'loso')")
+        raise ValueError(
+            f"Unknown split_mode: {split_mode!r} "
+            "(expected 'inter_subject', 'intra_subject' or 'loso')")
 
     logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
     run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_dir, artifact_dir, logger, patch_len, fold_tag=split_mode)

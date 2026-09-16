@@ -91,4 +91,6 @@ def build_finetune_from_config(config, num_classes, mode='finetune'):
         hidden=ft_params.get('hidden', 128),
         freeze_backbone=ft_params.get('freeze_backbone', False),
         dropout=ft_params.get('dropout', 0.1),
+        **({'use_topo_feature': ft_params['use_topo_feature']}
+           if 'use_topo_feature' in ft_params else {}),
     )

@@ -339,7 +339,7 @@
       "batch_size": 16,
       "weight_decay": 0.01,
       "device": "cuda",
-      "split_mode": "subject",
+      "split_mode": "inter_subject",
       "train_val_split": 0.8
     },
     "visualize_params": {
