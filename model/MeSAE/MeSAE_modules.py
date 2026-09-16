@@ -772,7 +772,7 @@ class StampBank(nn.Module):
         amp_s = torch.einsum('gchk,hkp->gchp', hidden_s, self.w_amp_shared) + self.b_amp_shared
         return amp_r, amp_s
 
-    def _select_gain(self, amp_r_dense, residual, rms, valid_channels):
+    def _select_gain(self, amp_r_dense, residual, rms, usable_channels):
         """Rank routed atoms by how much of `residual` each would actually REMOVE, rather
         than by its own amplitude. amp_r_dense [G,C,n_routed,2], residual [G,C,patch_len]
         (what the always-on shared pool left behind) -> score [G, n_routed].
@@ -797,7 +797,15 @@ class StampBank(nn.Module):
         rms is applied here (unlike 'topk', which deliberately skips it to avoid letting
         loud channels dominate the ranking): gain is measured against a real residual in
         real units, so the amps have to be in those units too for the comparison to mean
-        anything."""
+        anything.
+
+        usable_channels [G, C] bool restricts which channels' residual may be read. In the
+        masked stage that is (valid AND NOT masked): an unmasked channel's content is the
+        model's own input, so scoring with it leaks nothing, while a masked channel's
+        content is the answer. Selection is per patch POSITION but averaged over channels,
+        so a position stays scoreable as long as ANY of its channels is unmasked -- which
+        at mask ratios 0.1-0.5 is nearly all of them. Returns (score [G, n_routed],
+        scoreable [G] bool); callers must fall back to 'topk' where scoreable is False."""
         a, b = amp_r_dense[..., 0], amp_r_dense[..., 1]          # [G, C, n_routed]
         if rms is not None:
             a, b = a * rms, b * rms
@@ -806,10 +814,11 @@ class StampBank(nn.Module):
         rD = torch.einsum('gcl,ml->gcm', residual, D_r)
         rH = torch.einsum('gcl,ml->gcm', residual, H_r)
         gain = 2.0 * (a * rD + b * rH) - (a.pow(2) + b.pow(2))    # [G, C, n_routed]
-        if valid_channels is not None:
-            vc = valid_channels.unsqueeze(-1).to(gain.dtype)
-            return (gain * vc).sum(dim=1) / vc.sum(dim=1).clamp(min=1.0)
-        return gain.mean(dim=1)
+        if usable_channels is None:
+            return gain.mean(dim=1), torch.ones(gain.shape[0], dtype=torch.bool, device=gain.device)
+        uc = usable_channels.unsqueeze(-1).to(gain.dtype)         # [G, C, 1]
+        denom = uc.sum(dim=1)                                     # [G, 1]
+        return (gain * uc).sum(dim=1) / denom.clamp(min=1.0), denom.squeeze(-1) > 0
 
     def _quantize_amp_phase(self, amp):
         """amp: [..., 2] continuous quadrature pairs (a, b) -> (amp_q [..., 2],
@@ -985,7 +994,7 @@ class StampBank(nn.Module):
                 + amp[..., 1].unsqueeze(-1) * H_all.view(1, 1, self.n_stamps, -1))
 
     def forward(self, z, x_target=None, rms=None, valid_channels=None,
-                allow_residual_selection=True):
+                target_visible=None):
         """
         z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions, all C
         channels of one patch time per group — see class docstring), x_target:
@@ -998,12 +1007,13 @@ class StampBank(nn.Module):
         is encoder-bias noise that shouldn't vote on which sources this patch
         contains); padded channels still decode/reconstruct like any other, and the
         loss-side exclusion stays get_loss's job.
-        allow_residual_selection: False disables selection_mode='gain' for this call,
-        falling back to plain 'topk'. MANDATORY in the masked stage: 'gain' ranks atoms
-        against (x_target - shared_recon), and at a MASKED position x_target is the very
-        content the model is supposed to be predicting -- selecting with it would leak
-        the answer into the prediction path. MeSAE.forward passes
-        bool_masked_pos is None for exactly this reason.
+        target_visible: [G, C] bool or None -- which channels' x_target may be read by
+        selection_mode='gain'. None means all (the Tokenizer stage, no masking). In the
+        masked stage MeSAE.forward passes ~bool_masked_pos: an UNMASKED channel's content
+        is the model's own input so scoring with it leaks nothing, while a MASKED
+        channel's content is exactly what the model is being asked to predict. Selection
+        is per patch position but averages over channels, so a position stays scoreable
+        while any of its channels is visible; the rest fall back to 'topk' per position.
 
         Returns recon [G, C, patch_len], idx [G, top_k+n_shared] (GLOBAL stamp ids,
         routed then shared — ONE selection per patch position, shared by all C
@@ -1054,18 +1064,26 @@ class StampBank(nn.Module):
                     self.amp_ema.mul_(self.ema_decay).add_(
                         group_score.detach().mean(dim=0), alpha=1 - self.ema_decay)
             sel_score = group_score / self.amp_ema.clamp(min=1e-8).pow(self.selection_norm_beta)
-        elif self.selection_mode == 'gain' and x_target is not None and allow_residual_selection:
+        elif self.selection_mode == 'gain' and x_target is not None:
             # Residual the always-on shared pool leaves behind -- routed atoms are then
             # ranked on what is actually still missing. Detached: this picks WHICH atoms
             # compete, it must not backprop a selection preference into the shared pool.
+            usable = valid_channels
+            if target_visible is not None:
+                usable = target_visible if valid_channels is None else (valid_channels & target_visible)
             with torch.no_grad():
                 D_s = F.normalize(self.D_shared, dim=-1)
                 H_s = self._quadrature(D_s)
                 amp_s = amp_s_dense * rms.unsqueeze(-1) if rms is not None else amp_s_dense
                 shared_recon = (torch.einsum('gck,kl->gcl', amp_s[..., 0], D_s)
                                 + torch.einsum('gck,kl->gcl', amp_s[..., 1], H_s))
-                sel_score = self._select_gain(amp_r_dense.detach(), (x_target - shared_recon),
-                                               rms, valid_channels)
+                gain_score, scoreable = self._select_gain(
+                    amp_r_dense.detach(), (x_target - shared_recon), rms, usable)
+            # Per-POSITION fallback, not all-or-nothing: a position with no visible
+            # channel left has no leak-free residual to score against, so it reverts to
+            # group_score. Safe to mix scales across rows because topk(dim=-1) ranks each
+            # row independently -- gain and group_score are never compared to each other.
+            sel_score = torch.where(scoreable.unsqueeze(-1), gain_score, group_score)
 
         _, topk_idx = sel_score.topk(self.top_k, dim=-1)   # [G, top_k]
 

@@ -372,11 +372,14 @@ class MeSAEPretrain(nn.Module):
                 mask_g = mask_g & vc_g.unsqueeze(-1)
             rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        # allow_residual_selection=False whenever anything is masked: selection_mode
-        # 'gain' ranks atoms against x_target, which at a masked position IS the answer
-        # (see StampBank.forward). Falls back to plain top-k there.
+        # target_visible: which channels' x_target selection_mode='gain' may read. An
+        # UNMASKED channel's content is the model's own input (no leak); a MASKED one is
+        # the answer. Per (position, channel), not all-or-nothing -- see StampBank.forward.
+        target_visible = None
+        if bool_masked_pos is not None:
+            target_visible = (~bool_masked_pos).permute(0, 2, 1).reshape(G, C)
         out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g,
-                           allow_residual_selection=bool_masked_pos is None)
+                           target_visible=target_visible)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 
