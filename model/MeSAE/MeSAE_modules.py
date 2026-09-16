@@ -602,7 +602,7 @@ class StampBank(nn.Module):
                  top_k=32, hidden_width=8, shared_hidden_width=16,
                  dead_threshold_frac=0.1, ema_decay=0.999,
                  amp_levels=None, phase_levels=None, amp_log2_range=(-6.0, 3.0),
-                 selection_mode='topk', selection_norm_beta=1.0):
+                 selection_mode='topk', selection_norm_beta=1.0, aux_k_cap_frac=None):
         super().__init__()
         # Pool sizes are declared separately, not a total minus a slice: n_stamps is
         # the derived sum. Every internal use below wants the total, so it stays.
@@ -677,6 +677,36 @@ class StampBank(nn.Module):
         self.dead_threshold = dead_threshold_frac * (self.top_k / self.n_routed)
         self.ema_decay = ema_decay
         self.register_buffer('fire_ema', torch.zeros(self.n_routed))
+
+        # Bound on how many dead atoms the aux rescue processes per step. None = all of
+        # them (the default; correct and cheap for a small dead pool).
+        #
+        # This exists for COST, not for training dynamics: the rescue block materializes
+        # four [G, C, aux_k, patch_len] tensors (contrib_aux, cum_excl_aux, resid_aux,
+        # diff2_aux). At a typical G = B*N = 624, C = 64, patch_len = 50 that is ~96 MB
+        # each per 12 rescued atoms, so a large pool mid-collapse is expensive:
+        # n_routed=120 sitting at dead 0.55 (~66 atoms, as v8 did for several epochs)
+        # is ~2 GB of transient aux tensors plus autograd graph.
+        #
+        # An earlier version of this cap picked WHICH atoms to rescue with
+        # dead_score.topk(aux_k_cap) -- highest-scoring dead atoms first. That is a
+        # permanent lockout, not a bound: dead_score derives from the same group_score
+        # that governs main selection, and an atom's score only improves if it receives
+        # gradient, which only happens if it is picked. Measured on mesae_tokenizer_v5:
+        # 23 of 60 atoms sat at literal float-zero fire_ema, never rescued once in a
+        # whole run, while dead_mask.sum() ran ~25 against a cap of 12.
+        #
+        # So the cap is kept but the RULE is starvation-first (see forward): among dead
+        # atoms, rescue the ones rescued least often so far. Bounded cost per step AND
+        # every dead atom is reached within ceil(n_dead / aux_k_cap) steps, regardless of
+        # its score. Same fix shape as SAE neuron-resampling schedules, which also rotate
+        # rather than always re-picking the same candidates.
+        self.aux_k_cap = None if aux_k_cap_frac is None else max(1, int(aux_k_cap_frac * self.n_routed))
+        # persistent=False: a pure scheduling counter, not learned state. Keeping it out
+        # of the state dict means enabling/disabling the cap is not a checkpoint schema
+        # change, and a reload just restarts the rotation (harmless).
+        self.register_buffer('rescue_count', torch.zeros(self.n_routed, dtype=torch.long),
+                              persistent=False)
 
         # How the routed top_k is chosen. Measured on trained v5: of 39 atoms below
         # dead_threshold, 28 are INERT (won 0 of ~1560 patch positions) and 11 are merely
@@ -1219,7 +1249,24 @@ class StampBank(nn.Module):
                 dead_mask = self.fire_ema < self.dead_threshold  # [n_routed]
 
             if dead_mask.any() and x_target is not None:
-                dead_score = group_score.masked_fill(~dead_mask.unsqueeze(0), float('-inf'))
+                # Which dead atoms to rescue this step. Uncapped -> all of them.
+                # Capped -> STARVATION-FIRST (fewest rescues so far), never
+                # highest-score-first: see the aux_k_cap note in __init__ for why
+                # score-ranking here is a permanent lockout rather than a bound. The
+                # chosen subset is global (same atoms for every patch position), so the
+                # rotation is coherent across the batch; per-position ORDERING within
+                # the subset is still by dead_score below, which is what the MP-aware
+                # exclusive-residual grading needs.
+                rescue_mask = dead_mask
+                if self.aux_k_cap is not None and int(dead_mask.sum().item()) > self.aux_k_cap:
+                    dead_idx = dead_mask.nonzero().flatten()
+                    starved = torch.argsort(self.rescue_count[dead_idx])[:self.aux_k_cap]
+                    rescue_mask = torch.zeros_like(dead_mask)
+                    rescue_mask[dead_idx[starved]] = True
+                with torch.no_grad():
+                    self.rescue_count[rescue_mask] += 1
+
+                dead_score = group_score.masked_fill(~rescue_mask.unsqueeze(0), float('-inf'))
                 # Uncapped: rescue EVERY dead atom every step, not just the top
                 # aux_k_cap-by-score among them. A fixed cap here is a self-reinforcing
                 # lockout -- an atom's decoder direction only gets gradient when its
@@ -1234,7 +1281,7 @@ class StampBank(nn.Module):
                 # grading below (added for exactly this reason) already prevents a large
                 # rescue group from collapsing into duplicate atoms, so uncapping no longer
                 # trades starvation for redundancy the way it would have before that fix.
-                aux_k = int(dead_mask.sum().item())
+                aux_k = int(rescue_mask.sum().item())
                 aux_val, aux_idx = dead_score.topk(aux_k, dim=-1)  # [G, aux_k], sorted descending by
                                                                      # topk (highest dead_score = rank 0)
                 # rescue only ever draws from the routed pool (dead atoms are a routed-only

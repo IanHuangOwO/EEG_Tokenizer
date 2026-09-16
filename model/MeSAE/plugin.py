@@ -83,6 +83,10 @@ def build_model(bp, num_channels):
         # 'topk' (original) | 'gain' | 'normalized' -- see StampBank.__init__.
         stamp_selection_mode=sb.get('selection_mode', 'topk'),
         stamp_selection_norm_beta=sb.get('selection_norm_beta', 1.0),
+        # None = rescue every dead atom (default). A value bounds the aux
+        # block's memory; selection among dead atoms is starvation-first,
+        # never score-first -- see StampBank.__init__.
+        stamp_aux_k_cap_frac=sb.get('aux_k_cap_frac'),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
