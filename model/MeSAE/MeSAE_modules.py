@@ -692,7 +692,31 @@ class StampBank(nn.Module):
         #                  low; a quiet atom hitting unexplained content scores high.
         #   'normalized' - rank mean_c(a^2+b^2) / amp_ema^beta, i.e. RELATIVE excitation,
         #                  so a structurally-quiet atom can still win when unusually
-        #                  excited. beta=0 reproduces 'topk'.
+        #                  excited. beta=0 reproduces 'topk'. MEASURED BAD, see below.
+        #
+        # A/B on a 4-dataset/18-subject set, 12 epochs, identical seeds:
+        #                dead_rate  mse_patch  inert/60  atoms>1% use
+        #   topk            0.700     0.0565      37          18
+        #   gain            0.433     0.0439      31          26
+        #   normalized      0.000     0.1026       1          59
+        # 'gain' improves BOTH coverage and reconstruction -- no tradeoff, because picking
+        # atoms that fit the residual IS the better reconstruction strategy.
+        # 'normalized' is Goodhart: dead_feature_rate hits 0.000 only because selection
+        # went near-uniform (median win rate 0.110 ~ the 12/60 uniform share), so every
+        # atom clears fire_ema while the dictionary stops discriminating and mse nearly
+        # doubles. aux also pins to 0 -- nothing reads as dead, so the rescue never fires.
+        # Do not resurrect it without fixing that.
+        #
+        # 'gain' deployment caveat: it reads x_target, so the masked stage falls back to
+        # 'topk' (see allow_residual_selection in forward). Measured on identical weights,
+        # that mismatch costs most of the recon advantage but stays >= baseline:
+        #   gain-trained + gain-selected  0.01883
+        #   gain-trained + topk-selected  0.02314   (selection overlap 0.69)
+        #   topk-trained + topk-selected  0.02401
+        # The DICTIONARY benefit (more atoms alive) is selector-independent and does
+        # carry over. To reclaim the rest, gain needs a residual reference that is not
+        # ground truth -- e.g. a first topk pass's own reconstruction -- which would work
+        # under masking and make the selector consistent across both stages.
         self.selection_mode = selection_mode
         self.selection_norm_beta = float(selection_norm_beta)
         if selection_mode == 'normalized':
