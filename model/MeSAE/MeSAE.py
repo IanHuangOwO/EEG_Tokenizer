@@ -66,7 +66,6 @@ class MeSAEPretrain(nn.Module):
         stamp_phase_levels=None,
         stamp_amp_log2_range=(-6.0, 3.0),
         stamp_selection_mode='topk',
-        stamp_selection_norm_beta=1.0,
         stamp_aux_k_cap_frac=None,
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
@@ -97,7 +96,6 @@ class MeSAEPretrain(nn.Module):
             amp_levels=stamp_amp_levels, phase_levels=stamp_phase_levels,
             amp_log2_range=stamp_amp_log2_range,
             selection_mode=stamp_selection_mode,
-            selection_norm_beta=stamp_selection_norm_beta,
             aux_k_cap_frac=stamp_aux_k_cap_frac,
         )
         # convenience aliases — viz/checker code reads these off the model directly

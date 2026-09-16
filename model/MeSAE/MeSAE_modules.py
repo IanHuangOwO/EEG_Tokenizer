@@ -602,7 +602,7 @@ class StampBank(nn.Module):
                  top_k=32, hidden_width=8, shared_hidden_width=16,
                  dead_threshold_frac=0.1, ema_decay=0.999,
                  amp_levels=None, phase_levels=None, amp_log2_range=(-6.0, 3.0),
-                 selection_mode='topk', selection_norm_beta=1.0, aux_k_cap_frac=None):
+                 selection_mode='topk', aux_k_cap_frac=None):
         super().__init__()
         # Pool sizes are declared separately, not a total minus a slice: n_stamps is
         # the derived sum. Every internal use below wants the total, so it stays.
@@ -720,22 +720,19 @@ class StampBank(nn.Module):
         #   'gain'       - rank by residual REDUCTION instead of raw amplitude, see
         #                  _select_gain. A loud atom duplicating explained content scores
         #                  low; a quiet atom hitting unexplained content scores high.
-        #   'normalized' - rank mean_c(a^2+b^2) / amp_ema^beta, i.e. RELATIVE excitation,
-        #                  so a structurally-quiet atom can still win when unusually
-        #                  excited. beta=0 reproduces 'topk'. MEASURED BAD, see below.
         #
         # A/B on a 4-dataset/18-subject set, 12 epochs, identical seeds:
         #                dead_rate  mse_patch  inert/60  atoms>1% use
         #   topk            0.700     0.0565      37          18
         #   gain            0.433     0.0439      31          26
-        #   normalized      0.000     0.1026       1          59
         # 'gain' improves BOTH coverage and reconstruction -- no tradeoff, because picking
         # atoms that fit the residual IS the better reconstruction strategy.
-        # 'normalized' is Goodhart: dead_feature_rate hits 0.000 only because selection
-        # went near-uniform (median win rate 0.110 ~ the 12/60 uniform share), so every
-        # atom clears fire_ema while the dictionary stops discriminating and mse nearly
-        # doubles. aux also pins to 0 -- nothing reads as dead, so the rescue never fires.
-        # Do not resurrect it without fixing that.
+        # A third mode, 'normalized' (rank group_score / amp_ema^beta, i.e. relative
+        # excitation), was tried and REMOVED: dead_feature_rate hit 0.000 only because
+        # selection went near-uniform (median win rate 0.110 ~ the 12/60 uniform share),
+        # so every atom cleared fire_ema while the dictionary stopped discriminating and
+        # mse nearly doubled (0.1026 vs 0.0565). Pure Goodhart. Do not reintroduce it in
+        # that form.
         #
         # 'gain' deployment caveat: it reads x_target, so the masked stage falls back to
         # 'topk' (see allow_residual_selection in forward). Measured on identical weights,
@@ -748,13 +745,6 @@ class StampBank(nn.Module):
         # ground truth -- e.g. a first topk pass's own reconstruction -- which would work
         # under masking and make the selector consistent across both stages.
         self.selection_mode = selection_mode
-        self.selection_norm_beta = float(selection_norm_beta)
-        if selection_mode == 'normalized':
-            # Per-atom typical energy, EMA. Init at 1.0 (not 0) so the first steps divide
-            # by ~1 and rank essentially as 'topk' would, rather than by a near-zero
-            # denominator that would make the ordering arbitrary noise before the EMA has
-            # seen anything.
-            self.register_buffer('amp_ema', torch.ones(self.n_routed))
 
         # Optional amp/phase quantization of the (a, b) pair (see _quantize_amp_phase).
         # BOTH must be set to enable it; either left None keeps the fully continuous
@@ -1088,13 +1078,7 @@ class StampBank(nn.Module):
         # measured reason that ranking on raw amplitude is unwinnable for an atom whose
         # only gradient source (the aux rescue) trains it against the residual.
         sel_score = group_score
-        if self.selection_mode == 'normalized':
-            if self.training:
-                with torch.no_grad():
-                    self.amp_ema.mul_(self.ema_decay).add_(
-                        group_score.detach().mean(dim=0), alpha=1 - self.ema_decay)
-            sel_score = group_score / self.amp_ema.clamp(min=1e-8).pow(self.selection_norm_beta)
-        elif self.selection_mode == 'gain' and x_target is not None:
+        if self.selection_mode == 'gain' and x_target is not None:
             # Residual the always-on shared pool leaves behind -- routed atoms are then
             # ranked on what is actually still missing. Detached: this picks WHICH atoms
             # compete, it must not backprop a selection preference into the shared pool.
