@@ -77,7 +77,32 @@ arm.
 | `raw` | `x` itself (skip the backbone) | the classical floor for this head |
 | `recon` | the decoded reconstruction | does the tokenizer preserve the signal? (expected ≈ raw) |
 | `chan_mag` | per-channel stamp magnitudes, through the same spatial filter + linear, no band power | is code space usable once the softmax pool is gone? |
+| `stamp_bandpow` | per-channel band power computed in code space from the stamp templates (below) | do the templates `D_i` carry the band information that `chan_mag` misses? |
 | `head_z` | the current `MeSAEFinetune` | the existing head, as the reference to beat |
+
+**`stamp_bandpow` uses `D_i` as a fixed stamp-to-band map.** `D_i` is the same for every
+trial, so on its own it cannot be a feature. It becomes useful as a weight on the
+amplitudes:
+
+```
+stamp_bandpow[c, band] = log mean_patches Σ_i ( a_ic²·E_D[i, band] + b_ic²·E_H[i, band] )
+E_D / E_H[i, band] = band energy of template D_i / its quadrature partner H_i
+```
+
+This formula is exact per stamp. Because `H_i` is a quadrature partner, the `a·b` cross
+term vanishes in every positive-frequency bin (checked numerically: relative error 2e-7).
+`H` has its own energy table because `_quadrature` renormalizes it after zeroing DC and
+Nyquist.
+
+What it leaves out is the cross-stamp terms. It also needs no decoding: it is
+`chan_mag`'s amplitudes, weighted by each template's spectrum. Reading the result:
+
+- **≈ `recon`:** the stamps are band-selective, and the cross-stamp terms don't matter.
+- **≈ `chan_mag`:** the band information lives in how stamps combine, not in the
+  individual templates. That is ADR 0012's untested explanation, now testable.
+
+Caveat: `patch_len` 50 at 200 Hz gives 4 Hz template bins. mu is only the 8 and 12 Hz
+bins, so the band edges are coarse.
 
 `raw` and `recon` go through the identical module. That comparison is the fair "does the
 tokenizer help" test, instead of setting a trained head against an LDA number.
@@ -132,7 +157,7 @@ tokenizer help" test, instead of setting a trained head against an LDA number.
 
 ## Open prerequisites
 
-- **v10 probe** (`probe_v10.py` on `mesae_v10_small_uw01`): check that the recon > chan_mag
+- **v10 probe** (`probe_v10.py` on `mesae_v10_small_uw01`, now including `stamp_bandpow`): check that the recon > chan_mag
   > head_z ordering still holds under the fused and unfrozen training.
 - **Stamp band-selectivity:** read the stamp PSD / fingerprint panels (ADR 0012 open).
 - **SSVEP phase-coherence probe:** not run yet.
