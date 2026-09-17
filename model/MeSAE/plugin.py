@@ -864,11 +864,11 @@ class MeSAEPlotter(BasePlotter):
         stamp_health_panels = [
             dict(title='Stamp Aux-K Loss (dead-atom revival)\n[train only, 0 in eval by design]',
                  ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
-            dict(title='Dead Feature Rate', ylabel='Fraction',
-                 series=[dict(key='dead_feature_rate', color='crimson')]),
-            dict(title='Effective Atoms per Token\n(k_eff = (sum|a|)^2 / sum(a^2) — 1 = one atom carries all, '
-                       'top_k = all equal)',
-                 ylabel='k_eff', series=[dict(key='k_eff', color='darkorchid')]),
+            dict(title='Dead Feature Rate (left) + Effective Atoms per Token (right)\n'
+                       '(k_eff = (sum|a|)^2 / sum(a^2) — 1 = one atom carries all, top_k = all equal)',
+                 ylabel='Dead fraction',
+                 series=[dict(key='dead_feature_rate', color='crimson')],
+                 twin=dict(ylabel='k_eff', series=[dict(key='k_eff', color='darkorchid')])),
         ]
 
         # Stamp Router Health — see MeSAE.update_stamp_router_metrics for what each number
