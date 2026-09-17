@@ -245,8 +245,9 @@ last-10-epoch mean.
 | `stamp_bandpow` concat | .51 | .44 | .58 | .45 | .28 | .37 | .59 | .59 | .43 | 0.470 | −0.025 | 0.22 | 2/9 | 0.61 |
 | `z_chan` concat | .44 | .37 | .54 | .30 | .23 | .24 | .36 | .55 | .53 | 0.395 | −0.100 | 0.009 | 1/9 | **0.99** |
 | `raw` spatial:8 | .61 | .47 | .80 | .40 | .34 | .49 | .60 | .70 | .51 | **0.547** | **+0.053** | 0.092 | 6/9 | 0.74 |
+| `recon` spatial:8 | .57 | .54 | .82 | .39 | .23 | .42 | .62 | .74 | .51 | **0.537** | +0.042 | 0.15 | 5/9 | — |
 
-Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469 and 0.613.
+Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469, 0.613 and 0.602.
 
 - **`stamp_bandpow` holds up under a trained head.** At −0.025 against `raw` (p = 0.22)
   it matches the LDA probe's −0.028 gap. Code-space features that keep stamp attribution
@@ -261,8 +262,13 @@ Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469 and 0.613.
   expected CSP-like gain, but not significant at n = 9. The largest gains are on the
   weak subjects (S6 0.30 → 0.49, S5 0.24 → 0.34), and S3 reaches 0.80. The train/val gap
   widens (0.74 vs 0.55).
-- **`recon` spatial:8 is still running.** It answers whether the reconstruction keeps
-  the spatial contrast the filter exploits.
+- **The reconstruction keeps the spatial contrast.** `recon` spatial:8 vs `raw`
+  spatial:8 is −0.011 (p = 0.59, 4/9). Against its own concat baseline, the filter adds
+  +0.051 to `recon` (p = 0.093, 6/9), about the same as the +0.053 it adds to `raw`. The
+  one clear loss is S5, which stays at chance with `recon` (0.23 vs 0.34).
+- **Step 4 (B1 channel) outcome:** the signed filter improves both arms by about
+  +0.05. That is consistent but not significant at n = 9, and `recon` tracks `raw`
+  throughout.
 
 **The optimizer setting matters.** The first `raw` run used the repo finetune defaults
 (lr 1e-3 cosine, 50 epochs, dropout 0.3) and reached only 0.418 on the last-10 mean.
