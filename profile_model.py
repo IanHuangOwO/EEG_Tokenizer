@@ -80,7 +80,7 @@ def profile_model():
     with open('config/config.json', 'r') as f:
         config = json.load(f)
 
-    model_type = config['training_params']['pretrain'].get('model_type', 'MeFSQ')
+    model_type = config['training_params']['pretrain'].get('model_type', 'MeSAE')
     preprocess = config['preprocess_params']
     
     # 2. Dummy Input - Dynamically extracted from config

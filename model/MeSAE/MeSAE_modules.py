@@ -1318,9 +1318,8 @@ class StampBank(nn.Module):
 
 class PerChannelHeadAttn(nn.Module):
     """
-    Two-stage attention pooling — identical to model/MeFSQ/MeFSQ_modules.py's
-    PerChannelHeadAttn (duplicated here rather than cross-imported, same convention as
-    ExpertChannelPool/MultiHeadDecoder above: each model package stays self-contained).
+    Two-stage attention pooling — ported from the removed MeFSQ package's
+    PerChannelHeadAttn.
     Fully backbone-agnostic — only needs z_per_head [B, N, H, d] at forward time, so it
     works unchanged whether H indexes MeFSQ Experts or MeSAE stamps.
 

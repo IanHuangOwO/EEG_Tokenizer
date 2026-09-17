@@ -328,7 +328,7 @@ def sanity_check_wrapper(dataset) -> None:
 # --- Dataset Wrappers ---
 
 def _resolve_default_patch_len(base_dataset: 'EEGDataset') -> int:
-    model_type = base_dataset.config.get('training_params', {}).get('pretrain', {}).get('model_type', 'MeFSQ')
+    model_type = base_dataset.config.get('training_params', {}).get('pretrain', {}).get('model_type', 'MeSAE')
     preprocess = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
     return preprocess.get('patch_length', 200)
 

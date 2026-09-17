@@ -255,7 +255,7 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=train_params['batch_size'], shuffle=True,  num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True)
     val_loader   = DataLoader(val_dataset,   batch_size=train_params['batch_size'], shuffle=False, num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True)
 
-    model_type = train_params.get('model_type', 'MeFSQ')
+    model_type = train_params.get('model_type', 'MeSAE')
     entry      = MODEL_REGISTRY[model_type]
     trainer    = entry.trainer_cls()
     checker    = entry.checker_cls()

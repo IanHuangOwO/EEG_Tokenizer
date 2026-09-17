@@ -608,7 +608,7 @@ class MeSAEFinetune(nn.Module):
     """
     Wraps a pretrained MeSAEPretrain backbone (unmodified) with a temporal+stamp
     attention classification head (PerChannelHeadAttn) — same shape/rationale as
-    MeFSQFinetune (model/MeFSQ/MeFSQ.py). Reads backbone.encode_post_stamp_expert: a
+    the removed MeFSQFinetune. Reads backbone.encode_post_stamp_expert: a
     D-dim View per stamp per patch, every stamp densely (no top-k), channels collapsed
     by pooling z with that stamp's own per-channel amp magnitude as the weight — see
     encode_post_stamp_expert's docstring. The channel dim is already gone by the time

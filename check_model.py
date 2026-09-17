@@ -1,5 +1,5 @@
 """
-Post-training checker: per-subject topo/PSD/attention snapshot (MeFSQ or MeSAE, resolved
+Post-training checker: per-subject topo/PSD/attention snapshot (MeSAE, resolved
 from the model instance) via BaseEpochChecker.check_pretrain/check_finetune
 (model/base_checker.py).
 
@@ -91,12 +91,6 @@ def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng, min_subjects=20
     return picked
 
 
-def _detect_model_type(probe):
-    """MeFSQ/MeSAE resolved from the live model instance: n_routed_experts is MeFSQ-only
-    (MeSAE's routed pool lives on its StampBank, not the top-level model)."""
-    return 'MeFSQ' if hasattr(probe, 'n_routed_experts') else 'MeSAE'
-
-
 def _predict_all(model, dataset, patch_len, device):
     """Runs the finetune model over every trial in `dataset` (in index order, no shuffle)
     and returns (preds, labels) numpy arrays aligned to dataset indices — used to find one
@@ -128,11 +122,7 @@ def _predict_all(model, dataset, patch_len, device):
 def run(config, output_dir, model, dataset, trial_idx, mode='pretrain', subject_id=None,
         epoch=None, cmap='YlOrRd', plot_recon=True, plot_topo_psd=True, plot_attn_topo=True,
         tag=''):
-    # finetune mode's `model` is the Finetune wrapper (model.backbone/model.head) — the
-    # attribute that tells MeFSQ from MeSAE apart lives on the backbone submodule then,
-    # not on the wrapper itself.
-    probe = model.backbone if hasattr(model, 'backbone') else model
-    model_type = _detect_model_type(probe)
+    model_type = 'MeSAE'  # only registered model (MeFSQ removed, docs/adr/0013)
     plugin  = MODEL_REGISTRY[model_type]
     checker = plugin.checker_cls()
     trainer = plugin.trainer_cls()
@@ -162,7 +152,7 @@ if __name__ == '__main__':
         select_subject_dataset, filter_config_to_subject, pick_trial, resolve_output_dir,
     )
 
-    parser = argparse.ArgumentParser(description='Post-training EEG checker (MeFSQ or MeSAE)')
+    parser = argparse.ArgumentParser(description='Post-training EEG checker (MeSAE)')
     parser.add_argument('--config',      default='config/analysis.json')
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
@@ -213,7 +203,7 @@ if __name__ == '__main__':
         from model.factory import MODEL_REGISTRY
 
         probe = mdl.backbone if hasattr(mdl, 'backbone') else mdl
-        model_type = _detect_model_type(probe)
+        model_type = 'MeSAE'
         plugin = MODEL_REGISTRY[model_type]
         if plugin.codebook_checker_cls is None:
             raise NotImplementedError(f"{model_type} has no codebook_checker_cls yet (see model/base_plugin.py)")

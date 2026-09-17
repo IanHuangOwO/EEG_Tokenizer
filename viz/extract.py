@@ -10,7 +10,7 @@ needs to know which model it's plotting. The four functions share their FFT/norm
 math (_psd_per_channel/_spectra_per_channel/_cosine_affinity below) — only where each
 model's per-Unit decoded vector comes from, and how importance is scored, differs.
 _split_channel_major is duplicated here (not imported from a shared module) — kept local
-to each of this file, model/MeFSQ/MeFSQ.py, and model/MeSAE/MeSAE.py on purpose, same
+to each of this file and model/MeSAE/MeSAE.py on purpose, same
 per-model-ownership rationale as docs/adr/0006.
 """
 

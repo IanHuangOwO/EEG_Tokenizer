@@ -173,48 +173,6 @@
     }
   },
   "model_params": {
-    "MeFSQ": {
-      "pretrain": {
-        "patch_len": 50,
-        "embed_dim": 100,
-        "enc_depth": 12,
-        "spatial_heads": 10,
-        "mlp_ratio": 4.0,
-        "moe": {
-          "n_routed_experts": 128,
-          "top_k": 32,
-          "n_shared_experts": 4,
-          "routed_expert": {
-            "r": 8,
-            "num_discrete": 3,
-            "decoder_hidden": 100
-          },
-          "shared_expert": {
-            "r": 16,
-            "num_discrete": 5,
-            "decoder_hidden": 100
-          }
-        },
-        "dropout": 0.3,
-        "pool_after_blocks": [
-          2,
-          5,
-          8,
-          11
-        ],
-        "upsample_residual_add": true,
-        "loss": {
-          "masked_mse_weight": 1.0,
-          "unmasked_mse_weight": 1.0,
-          "load_balance_weight": 0.01
-        }
-      },
-      "finetune": {
-        "hidden": 100,
-        "freeze_backbone": true,
-        "dropout": 0.3
-      }
-    },
     "MeSAE": {
       "tokenizer": {
         "patch_len": 50,

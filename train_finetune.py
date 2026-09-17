@@ -409,7 +409,7 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
         logger.info(f"  WARNING [{fold_tag}]: classes {sorted(val_labels - train_labels)} only appear in val, never trained on")
     logger.info(f"[{fold_tag}] num_classes={num_classes}")
 
-    model_type = train_params.get('model_type', 'MeFSQ')
+    model_type = train_params.get('model_type', 'MeSAE')
     entry      = MODEL_REGISTRY[model_type]
     checker    = entry.checker_cls()
 
@@ -540,7 +540,7 @@ def _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, pat
 
 
 def main():
-    parser = argparse.ArgumentParser(description='MeFSQ Finetuning')
+    parser = argparse.ArgumentParser(description='MeSAE Finetuning')
     parser.add_argument('--config', type=str, default='config/config.json')
     args = parser.parse_args()
 

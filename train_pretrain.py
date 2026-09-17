@@ -265,7 +265,7 @@ def main():
     train_loader = _make_loader(train_dataset, shuffle=True)
     val_loader   = _make_loader(val_dataset,   shuffle=False)
 
-    model_type = train_params.get('model_type', 'MeFSQ')
+    model_type = train_params.get('model_type', 'MeSAE')
     entry      = MODEL_REGISTRY[model_type]
     trainer    = entry.trainer_cls()
     checker    = entry.checker_cls()

@@ -1,5 +1,4 @@
 import torch
-from model.MeFSQ.plugin import PLUGIN as MEFSQ_PLUGIN
 from model.MeSAE.plugin import PLUGIN as MESAE_PLUGIN
 from IO.dataset import resolve_canonical_channels
 
@@ -7,14 +6,13 @@ from IO.dataset import resolve_canonical_channels
 # bundled into a BasePlugin) and register the PLUGIN instance here. No other shared file
 # needs editing — see docs/adr/0004-model-plugin-base-classes.md.
 MODEL_REGISTRY = {
-    'MeFSQ': MEFSQ_PLUGIN,
     'MeSAE': MESAE_PLUGIN,
 }
 
 
 def build_pretrain_from_config(config, mode='pretrain'):
     train_params = config['training_params'][mode]
-    model_type   = train_params.get('model_type', 'MeFSQ')
+    model_type   = train_params.get('model_type', 'MeSAE')
     if model_type not in MODEL_REGISTRY:
         raise ValueError(f"Unknown model type: {model_type}")
     plugin = MODEL_REGISTRY[model_type]
@@ -73,7 +71,7 @@ def build_finetune_from_config(config, num_classes, mode='finetune'):
     pass it in.
     """
     train_params = config['training_params'][mode]
-    model_type   = train_params.get('model_type', 'MeFSQ')
+    model_type   = train_params.get('model_type', 'MeSAE')
     if model_type not in MODEL_REGISTRY:
         raise ValueError(f"Unknown model type: {model_type}")
     plugin = MODEL_REGISTRY[model_type]
