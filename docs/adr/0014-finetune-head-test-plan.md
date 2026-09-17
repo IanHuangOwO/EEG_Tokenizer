@@ -244,10 +244,11 @@ last-10-epoch mean.
 | `recon` concat | .52 | .43 | .68 | .48 | .23 | .33 | .63 | .61 | .47 | 0.486 | −0.009 | 0.35 | 3/9 | 0.61 |
 | `stamp_bandpow` concat | .51 | .44 | .58 | .45 | .28 | .37 | .59 | .59 | .43 | 0.470 | −0.025 | 0.22 | 2/9 | 0.61 |
 | `z_chan` concat | .44 | .37 | .54 | .30 | .23 | .24 | .36 | .55 | .53 | 0.395 | −0.100 | 0.009 | 1/9 | **0.99** |
+| `z_chan` concat, `z_proj` 2 | .42 | .39 | .62 | .26 | .20 | .33 | .43 | .60 | .48 | 0.413 | −0.081 | 0.020 | 2/9 | **0.82** |
 | `raw` spatial:8 | .61 | .47 | .80 | .40 | .34 | .49 | .60 | .70 | .51 | **0.547** | **+0.053** | 0.092 | 6/9 | 0.74 |
 | `recon` spatial:8 | .57 | .54 | .82 | .39 | .23 | .42 | .62 | .74 | .51 | **0.537** | +0.042 | 0.15 | 5/9 | — |
 
-Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469, 0.613 and 0.602.
+Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469, 0.487, 0.613 and 0.602.
 
 - **`stamp_bandpow` holds up under a trained head.** At −0.025 against `raw` (p = 0.22)
   it matches the LDA probe's −0.028 gap. Code-space features that keep stamp attribution
@@ -258,6 +259,12 @@ Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469, 0.613 and 0.602.
   needs a smaller or regularized projection (`z_proj` 2–4, weight decay, dropout) before
   it says anything about the encoder. The best-val mean (0.469) gives a sense of the
   ceiling.
+  - **Shrinking the projection to `z_proj` 2** (974 head parameters) narrows the gap
+    (train 0.82 vs val 0.41) and lifts val only slightly (0.395 → 0.413). The arm is
+    still 0.08 below `raw` (p = 0.020) and still overfits. The time-mean `z` readout
+    stays the weakest input even with a much smaller head. Before calling the encoder
+    weak, B2 still has to test per-patch nonlinearity before the time-mean, and stronger
+    regularization (weight decay, dropout).
 - **The signed spatial filter helps `raw`:** +0.053, 6/9 wins, p = 0.092. That is the
   expected CSP-like gain, but not significant at n = 9. The largest gains are on the
   weak subjects (S6 0.30 → 0.49, S5 0.24 → 0.34), and S3 reaches 0.80. The train/val gap
