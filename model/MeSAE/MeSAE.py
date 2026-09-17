@@ -419,6 +419,8 @@ class MeSAEPretrain(nn.Module):
             dense_routed=out.dense_routed,
             aux_loss=out.aux_loss,
             mp_loss=out.mp_loss,
+            # [B, C, N], same layout as bool_masked_pos (G = B*N rows were b*N + n)
+            mp_map=None if out.mp_map is None else out.mp_map.reshape(B, N, C).permute(0, 2, 1),
             ffn_lb_loss=ffn_lb_loss,
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
@@ -434,6 +436,20 @@ class MeSAEPretrain(nn.Module):
             quant_clip_frac=out.quant_clip_frac,
             quant_off_frac=out.quant_off_frac,
         )
+
+    @staticmethod
+    def _position_weights(x, bool_masked_pos, valid_channels, unmasked_weight):
+        """-> (valid, w), each [B, C, N, 1]. valid: 1 on real channels. w: the training
+        weight -- valid, times (1 on masked, unmasked_weight on visible) in the masked
+        phase. Shared by the recon MSE and mp_loss so both weight positions the same."""
+        B, C, N = x.shape[:3]
+        valid = x.new_ones(B, C, 1, 1) if valid_channels is None \
+            else valid_channels.view(B, C, 1, 1).to(x.dtype)
+        valid = valid.expand(B, C, N, 1)
+        if bool_masked_pos is None:
+            return valid, valid
+        m = bool_masked_pos.unsqueeze(-1).to(x.dtype)
+        return valid, valid * (m + unmasked_weight * (1.0 - m))
 
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None,
                     mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0):
@@ -457,13 +473,7 @@ class MeSAEPretrain(nn.Module):
         B, C, N, L = x.shape
         stride = self.patch_stride
         recon, x = recon.float(), x.float()
-        valid = x.new_ones(B, C, 1, 1) if valid_channels is None \
-            else valid_channels.view(B, C, 1, 1).float()
-        valid = valid.expand(B, C, N, 1)
-        w = valid
-        if bool_masked_pos is not None:
-            m = bool_masked_pos.unsqueeze(-1).float()  # [B, C, N, 1]
-            w = valid * (m + unmasked_weight * (1.0 - m))
+        valid, w = self._position_weights(x, bool_masked_pos, valid_channels, unmasked_weight)
 
         def wmean(err, wt):
             wt = wt.expand_as(err)
@@ -493,7 +503,7 @@ class MeSAEPretrain(nn.Module):
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03,
                  mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
-                 mp_loss=None, mp_weight=0.0):
+                 mp_loss=None, mp_weight=0.0, mp_map=None):
         """
         Returns (total, l_masked, l_unmasked).
 
@@ -544,7 +554,17 @@ class MeSAEPretrain(nn.Module):
         # job — that stage optimizes masked reconstruction, and leaving this on would
         # quietly add a second, unrelated objective to it.
         if mp_loss is not None and mp_weight and (bool_masked_pos is None or not self.stamps_frozen):
-            total = total + mp_weight * mp_loss
+            if mp_map is not None:
+                # Same position weights as the recon MSE: without this, mp_loss counts
+                # visible patches at full weight and undoes unmasked_weight.
+                _, w = self._position_weights(x, bool_masked_pos, valid_channels, unmasked_weight)
+                w = w[..., 0].to(mp_map.dtype)
+                s = w.sum()
+                mp_train = (w * mp_map).sum() / s if s > 0 else mp_map.new_zeros(())
+            else:
+                mp_train = mp_loss
+            total = total + mp_weight * mp_train
+            # logged value stays the plain valid-channel mean, comparable across phases
             self._last_pyramid_levels['mp'] = mp_loss.detach().item()
         return total, l_masked, l_unmasked
 

@@ -111,7 +111,7 @@ class MeSAETrainer(BaseTrainer):
                                unmasked_weight=hparams.get('unmasked_weight', 1.0),
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
-                               mp_loss=out.mp_loss, mp_weight=mp_weight)
+                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map)
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)

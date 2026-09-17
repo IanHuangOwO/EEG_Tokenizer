@@ -1175,6 +1175,7 @@ class StampBank(nn.Module):
         # here penalizes two atoms sharing content, only rewards atoms for covering
         # content NO ONE ELSE at a higher rank already covered.
         mp_loss = amp.new_zeros(())
+        mp_map = None  # [G, C] per-position mp error (mean over ranks and samples)
         if x_target is not None:
             L = D_sel.shape[-1]
             contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
@@ -1207,6 +1208,9 @@ class StampBank(nn.Module):
             cum_excl = contrib_ranked.detach().cumsum(dim=2) - contrib_ranked.detach()  # [G,C,n_rank,L]
             resid_all = x_target.unsqueeze(2) - cum_excl
             diff2_all = (contrib_ranked - resid_all).pow(2)                 # [G, C, n_rank, L]
+            # Unreduced per position, so get_loss can apply the same masked/unmasked
+            # position weights as the recon MSE. mp_loss below is its valid-channel mean.
+            mp_map = diff2_all.mean(dim=(2, 3))
             if vmask is not None:
                 per_rank = (diff2_all * vmask.unsqueeze(2)).sum(dim=(0, 1, 3)) \
                     / vmask.sum().clamp(min=1.0) / L
@@ -1318,7 +1322,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss,
+            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss, mp_map=mp_map,
             # None unless quantization is configured. levels [G, C, K, 2] int64
             # (amp_idx, phase_idx) is the discrete code — with idx [G, K] it forms the
             # full (stamp_id, amp_level, phase_level) symbol per (channel, patch, slot).
