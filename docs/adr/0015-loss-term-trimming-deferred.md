@@ -1,4 +1,4 @@
-# 0014 — Loss-term trimming (deferred)
+# 0015 — Loss-term trimming (deferred)
 
 Status: Deferred. Revisit only after the finetune-head work (the exposed features, the
 pooling, and the raw-baseline comparison) is settled.
