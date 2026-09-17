@@ -89,8 +89,14 @@ neighbouring patches whose errors cancel.
 3. **Revisit `aux_weight` / `ffn_lb_weight`** only if the terms above change collapse
    behaviour.
 
-Use the same small 7-dataset × 3-subject config as the v10 small runs for every
-experiment. The reference is the first small run on the weighted-mp code.
+Test protocol, identical for every run so the runs compare:
+
+- **Data:** the small 7-dataset × 3-subject config from the v10 small runs.
+- **Schedule:** `epochs` 50 with `tokenizer_epochs` 10. The 25-epoch mask ramp then
+  ends with 15 epochs of full complementary masking.
+- **Plots:** `visualize_params.pretrain.every_n_epochs: "last"`, so snapshots render
+  only at the final epoch. The reconstruction plots cost about 6 minutes per render.
+- **Reference:** the first small run on the weighted-mp code.
 
 ## Consequences
 
