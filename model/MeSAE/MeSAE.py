@@ -835,6 +835,10 @@ class MeSAEFeatureHead(nn.Module):
         else:
             zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
             feat = self._mix(zp, 1)                                                      # [B, K, P]
+        if 'spatial' not in self.head:
+            # concat keeps padded channels as columns: zero them after the log, as the probe
+            # does. Left at log(eps) = -27.6 they swamp BatchNorm until its running stats adapt.
+            feat = feat * vmask[:, :, None]
         return self.head['cls'](feat.flatten(1)), None, None
 
 

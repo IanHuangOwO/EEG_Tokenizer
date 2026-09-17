@@ -96,6 +96,8 @@ def _classification_metrics(all_labels, all_preds):
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', UserWarning)
         return {
+            # overrides the running per-batch mean, which overweights a short last batch
+            'acc':          float((labels == preds).mean()),
             'f1':           f1_score(labels, preds, average='macro', zero_division=0),
             'f1_weighted':  f1_score(labels, preds, average='weighted', zero_division=0),
             'balanced_acc': balanced_accuracy_score(labels, preds),
