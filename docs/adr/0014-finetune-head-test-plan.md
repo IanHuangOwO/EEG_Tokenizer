@@ -1,7 +1,7 @@
 # 0014 — Finetune head: what to expose, how to pool, compared to raw (draft)
 
-Status: Proposed (draft). Experiment A has partial results; experiment B has not
-started. Implements the direction decided in ADR 0012. Loss trimming (ADR 0015) waits
+Status: Proposed (draft). Experiment A has partial results; experiment B has its
+baseline (steps 2-3 pass). Implements the direction decided in ADR 0012. Loss trimming (ADR 0015) waits
 until this is settled.
 Date: 2026-09-17
 
@@ -209,6 +209,43 @@ backbone(x, bool_masked_pos=None).recon -> overlap_add_patches [B,C,T] -> valid 
 New head class. `PerChannelHeadAttn` / `MeSAEFinetune` stay as the bundled `head_z`
 reference.
 
+### Results — experiment B baseline (concat, whole trial, MI block)
+
+Backbone: `mesae_v10_small_uw01/checkpoint/last.pth` (frozen). `MeSAEFeatureHead` runs
+BCICIV2a intra-subject: 228 train / 60 val trials per subject, balanced classes (15 per
+class in val).
+
+Every number is `balanced_acc`, which equals accuracy on a balanced val set. The main
+number is the mean over each subject's last 10 epochs; best-val-epoch is listed as the
+optimistic reading.
+
+| arm | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | S9 | last-10 mean | best-val mean |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `raw` | .55 | .46 | .69 | .46 | .24 | .30 | .64 | .59 | .52 | **0.495** | 0.552 |
+| `recon` | .52 | .43 | .68 | .48 | .23 | .33 | .63 | .61 | .47 | **0.486** | 0.548 |
+
+- **Step 2 passes.** `raw` 0.495 matches the LDA probe on the same features (0.482), so
+  the head is wired correctly.
+- **Step 3 passes.** `recon − raw` = −0.009 (p = 0.35, 3/9 wins); on best-val the
+  difference is −0.004 (p = 0.75). The reconstruction path is lossless for this readout.
+- **Train/val gap is small** (last 10 epochs: train 0.61 vs val 0.49), so the linear
+  head is not memorizing.
+- **S5 and S6 sit near chance under every readout,** including LDA. Those subjects are
+  hard, not broken.
+
+**The optimizer setting matters.** The first `raw` run used the repo finetune defaults
+(lr 1e-3 cosine, 50 epochs, dropout 0.3) and reached only 0.418 on the last-10 mean.
+Train and val were both around 0.4 and val loss was still falling at the end, which is
+underfitting, not overfitting. Every experiment-B run therefore uses lr 1e-2 (min 1e-3),
+100 epochs, warmup 2, dropout 0.
+
+Also found on the way (commit `fe969f6`):
+
+- **Logged `acc` was a mean of per-batch accuracies,** which overweights a short last
+  batch. It is now computed over all predictions.
+- **Padded channels went into the head at log(eps).** That pinned val to a single class
+  until they were zeroed.
+
 ## Stamp attribution — which stamps carry task information
 
 No change to the stamps is needed. The code `(a, b)` per stamp, channel and patch
@@ -324,10 +361,10 @@ bands. A band-selectivity constraint would then make attribution cleaner.
 ## Build order (each step has one acceptance check)
 
 1. **A (done):** the feature probe above.
-2. **B baseline, `raw`:** concat + whole-trial MI block + linear.
+2. **B baseline, `raw` (done, passes):** concat + whole-trial MI block + linear.
    - Must reach about the probe's `raw` (0.48–0.51). A miss is a wiring bug (band edges,
      FFT length, valid_channels, split).
-3. **B baseline, `recon`:** must be within noise of `raw`. A miss is a recon-path bug
+3. **B baseline, `recon` (done, passes):** must be within noise of `raw`. A miss is a recon-path bug
    (overlap-add, valid mask, phase flags).
 4. **B1 channel** on `raw` and `recon`. The spatial filter must beat step 2.
 5. **B2 time,** including the post-cue window and the `z_chan` nonlinearity variants.
