@@ -850,14 +850,15 @@ class MeSAEPlotter(BasePlotter):
         loss_panels = [
             dict(title='Total Loss\n(recon + sparsity + aux + ffn_lb, weighted)', ylabel='Loss',
                  series=[dict(key='loss', color='b')]),
-            dict(title='Masked vs Unmasked MSE\n(plain time-domain, diagnostic only — not the trained objective)',
+            # One panel: masked/unmasked split only exists at patch level; mse_patch is their
+            # mix, mse_trial the overlap-added real-trial MSE (MeSAE._recon_loss). masked is a
+            # 1.0 placeholder during the tokenizer phase.
+            dict(title='Recon MSE: masked / unmasked / patch / trial\n(masked=1.0 placeholder in tokenizer phase)',
                  ylabel='MSE',
-                 series=[dict(key='masked', color='crimson'), dict(key='unmasked', color='steelblue')]),
-            dict(title='Recon: Patch vs Trial\n(mse_patch=plain per-patch time-MSE, mse_trial=overlap-added '
-                       'real-trial time-MSE — see MeSAE._recon_loss)',
-                 ylabel='Loss',
-                 series=[dict(key='mse_patch', color='steelblue', label='mse_patch', train_only=False),
-                         dict(key='mse_trial', color='crimson', label='mse_trial', train_only=False)]),
+                 series=[dict(key='masked', color='crimson'),
+                         dict(key='unmasked', color='steelblue'),
+                         dict(key='mse_patch', color='darkorchid', label='mse_patch'),
+                         dict(key='mse_trial', color='darkorange', label='mse_trial')]),
         ]
 
         stamp_health_panels = [
