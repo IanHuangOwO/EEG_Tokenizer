@@ -825,20 +825,23 @@ class MeSAEFeatureHead(nn.Module):
                     if pk is not None:
                         z = z[:, :, pk]
 
-        if self.input in ('raw', 'recon'):
-            feat = self._band_logpow(self._mix(sig, 1))                                  # [B, K, bands]
-        elif self.input == 'stamp_bandpow':
-            a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
-            pw = torch.einsum('bnks,sq->bkq', a.pow(2), self.E_D) \
-                + torch.einsum('bnks,sq->bkq', b.pow(2), self.E_H)
-            feat = torch.log(pw / a.shape[1] + 1e-12)                                    # [B, K, bands]
-        else:
-            zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
-            feat = self._mix(zp, 1)                                                      # [B, K, P]
-        if 'spatial' not in self.head:
-            # concat keeps padded channels as columns: zero them after the log, as the probe
-            # does. Left at log(eps) = -27.6 they swamp BatchNorm until its running stats adapt.
-            feat = feat * vmask[:, :, None]
+        # Feature math in fp32: under the training loop's autocast, einsum/log run in fp16,
+        # where squared amplitudes overflow and the 1e-12 epsilon rounds to 0 (NaN loss).
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            if self.input in ('raw', 'recon'):
+                feat = self._band_logpow(self._mix(sig, 1))                                  # [B, K, bands]
+            elif self.input == 'stamp_bandpow':
+                a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
+                pw = torch.einsum('bnks,sq->bkq', a.pow(2), self.E_D) \
+                    + torch.einsum('bnks,sq->bkq', b.pow(2), self.E_H)
+                feat = torch.log(pw / a.shape[1] + 1e-12)                                    # [B, K, bands]
+            else:
+                zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
+                feat = self._mix(zp, 1)                                                      # [B, K, P]
+            if 'spatial' not in self.head:
+                # concat keeps padded channels as columns: zero them after the log, as the probe
+                # does. Left at log(eps) = -27.6 they swamp BatchNorm until its running stats adapt.
+                feat = feat * vmask[:, :, None]
         return self.head['cls'](feat.flatten(1)), None, None
 
 
