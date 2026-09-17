@@ -290,6 +290,94 @@ Also found on the way (commit `fe969f6`):
 - **Padded channels went into the head at log(eps).** That pinned val to a single class
   until they were zeroed.
 
+## Experiment C — one head for every EEG paradigm (proposed)
+
+**Question.** One finetune approach for all EEG classification, which also answers
+*which stamp, at which time* carries the task information: a map over the patch (N) and
+stamp (S) axes.
+
+**Why the stamp code is the input, not encoder `z`:**
+
+- **It carries the task information.** Band-weighted, it sits about 0.03 below raw under
+  both the LDA probe and a trained head. `z_chan` sits 0.08–0.10 below raw and
+  memorizes.
+- **Its per-channel values are physical.** Stamp s's contribution at channel ch,
+  `a·D_s + b·H_s`, sums with the others into the reconstruction at that channel. So a
+  signed spatial filter applied within each stamp is valid even though the v10 encoder
+  mixed channels before the stamps, and its activation patterns are real topographies.
+  That is how channel information is captured without losing stamp identity: filter
+  channels inside each stamp, never pool stamps away first.
+- **It is complex-valued**, `c[n, ch, s] = a + i·b`. That makes it a time × channel ×
+  template decomposition, and each paradigm reads a different function of it:
+  - **Induced (MI, ERD/ERS):** `|u|²` after spatial filtering. This is what the
+    spatial:8 runs exploit.
+  - **Evoked (ERP):** the signed complex value at a latency, not its power.
+  - **Steady-state (SSVEP):** each patch's phase is measured from its own start, so a
+    stimulus at f advances by `2π·f·stride` per patch. A complex linear filter over
+    patches can match that and recover frequency far finer than the templates' 4 Hz
+    bins. Measured below.
+
+**Proposed head** (the same architecture for every task; only the weights and
+`num_classes` change):
+
+```
+c[n, ch, s]   dense a+ib, alive routed + shared stamps, valid channels
+ 1. spatial:  K signed filters shared across stamps (applied to a and b alike)  -> u[n, k, s]
+ 2a. induced: log sum_n w_ind[s, n] |u|^2        nonneg time weights             -> [k, s]
+ 2b. evoked / steady-state: sum_n T[s, n] u      complex time filter -> re, im   -> [k, s, 2]
+ 3. [k, s, 3] -> dropout -> linear(num_classes)
+```
+
+**Size control is mandatory.** The naive version has K·S·3 ≈ 600 features for about 230
+trials, which is the memorization regime `z_chan` just showed. Two constraints:
+
+- low-rank time weights: `w[s, n] = Σ_r p_r[s]·q_r[n]`, r = 1–2;
+- a group penalty over stamps, so the head selects few stamps. That selection is also
+  the interpretable output.
+
+The target is about 1k parameters, like the heads above.
+
+**Interpretable outputs:**
+
+- **time × stamp map:** `|T[s, n]|` and `w_ind[s, n]`, weighted by the classifier.
+- **topographies:** Haufe activation patterns of the K filters, plus which stamps use
+  each filter.
+- **induced vs evoked, per stamp:** whether it contributes through branch 2a or 2b.
+
+**Validation:**
+
+- **Reduction check:** with 2b off and uniform time weights, the head must reproduce
+  `stamp_bandpow` spatial:8 on BCICIV2a.
+- **Paradigms:** then each paradigm against its own `raw` baseline — MI (BCICIV2a,
+  EEGMMIdb), ERP (Inria), SSVEP (BETA).
+- **Stated risks:**
+  - shared stamps (about 70% of reconstruction energy) may dominate the importance map;
+  - the stamp ERD sign disagreed with raw, so read *which stamp, when*, not the
+    direction of the change.
+
+### Prerequisite result — SSVEP phase advance (BETA_4s)
+
+Script: `phase_probe_beta.py`. Subjects 19–30, which v10 small never saw (1920 trials,
+40 classes 8.0–15.8 Hz, chance 0.025). Stimulus window 0.64–3.5 s, 8 occipital
+channels. `z_s = Σ_{n,ch} c[n+1]·conj(c[n])` per stamp. The 4 stamps peaking at 8–16 Hz
+vote for f; the 4 peaking at 16–32 Hz vote for 2f.
+
+| readout | acc | note |
+|---|---|---|
+| stamp phase advance, `−` orientation | 0.109 | fundamental stamps only: 0.111 |
+| stamp phase advance, `+` orientation | 0.025 | chance: wrong direction |
+| raw PSDA (power at f + 2f, 3 s Hann) | 0.529 | standard baseline |
+
+- **The phase advance is in the code.** The class-mean observed advance matches the
+  expected `2π·f·0.125 s` with circular agreement **0.949** (1 = perfect; random ≈ 0.16).
+  The direction is reversed (`−`) because the quadrature partner uses a −90° convention.
+- **Single trials are noisy.** The fixed readout (occipital sum, no learned weighting,
+  4 stamps) reaches 4.4× chance, far below raw PSDA. Branch 2b is therefore worth
+  building, but a raw-level SSVEP result is not shown. A learned spatial + temporal
+  filter has to close that gap.
+- **Not measured yet:** stimulus-locked ITC per class, and the same readout on
+  `recon`/`raw`.
+
 ## Stamp attribution — which stamps carry task information
 
 No change to the stamps is needed. The code `(a, b)` per stamp, channel and patch
