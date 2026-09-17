@@ -70,12 +70,37 @@ Task blocks. The task is chosen by a config key, never inferred.
 New head class. `PerChannelHeadAttn` / `MeSAEFinetune` stay as the `head_z` comparison
 arm.
 
+## Reading from the reconstruction is not the foundation-model test
+
+The convention is to read the encoder:
+
+- **MAE:** the decoder is discarded after pretraining. Linear probing and finetuning both
+  read encoder features.
+- **BERT:** reads the CLS or pooled token.
+- **EEG foundation models (LaBraM, CBraMod and similar):** mean-pool the encoder tokens
+  into a small head, and mostly report full finetuning. As far as we recall, frozen
+  linear probing on EEG foundation models is usually much weaker.
+
+A head that reads the reconstruction evaluates the model as a **codec**: does the
+information survive compression? Its best case is about equal to raw (0.516 vs 0.513).
+It can never show that pretraining learned something beyond raw EEG. So `recon` is the
+information-preservation ceiling here, and the encoder arm `z_chan` is the actual
+foundation-model claim.
+
+`z_mean` was chance in ADR 0012 §6, but it averaged over channels, and a channel
+average cannot express a C3−C4 contrast. The conventional arm had therefore never been
+tested fairly.
+
+Caveat: after spatial attention, `z_c` already mixes information across channels. That
+is fine for decoding, but it means `z_chan` is not channel-interpretable.
+
 ## Input arms (same head, same split, same seeds)
 
-| arm | head input | answers |
+| arm | head input | role |
 |---|---|---|
-| `raw` | `x` itself (skip the backbone) | the classical floor for this head |
-| `recon` | the decoded reconstruction | does the tokenizer preserve the signal? (expected ≈ raw) |
+| `raw` | `x` itself (skip the backbone) | the floor for this head |
+| `z_chan` | encoder `z`, time-mean per channel `[B,C,D]` → signed spatial filter → linear | **primary: the conventional foundation-model arm** |
+| `recon` | the decoded reconstruction | information-preservation ceiling (expected ≈ raw) |
 | `chan_mag` | per-channel stamp magnitudes, through the same spatial filter + linear, no band power | is code space usable once the softmax pool is gone? |
 | `stamp_bandpow` | per-channel band power computed in code space from the stamp templates (below) | do the templates `D_i` carry the band information that `chan_mag` misses? |
 | `head_z` | the current `MeSAEFinetune` | the existing head, as the reference to beat |
@@ -104,8 +129,75 @@ What it leaves out is the cross-stamp terms. It also needs no decoding: it is
 Caveat: `patch_len` 50 at 200 Hz gives 4 Hz template bins. mu is only the 8 and 12 Hz
 bins, so the band edges are coarse.
 
-`raw` and `recon` go through the identical module. That comparison is the fair "does the
-tokenizer help" test, instead of setting a trained head against an LDA number.
+`raw` and `recon` go through the identical module, so their comparison is fair. It
+answers "does the tokenizer keep the information", not "did it learn a better
+representation" — that is `z_chan` against `raw`.
+
+### Where `D_i` fits
+
+`D_i` cannot be a per-stamp feature. Within one stamp, its band power is
+`amp² · E_i(band)`, which is log amplitude plus a constant. That gives LDA the same
+information as the amplitude alone. Across stamps, `D_i` is what separates the three
+code-space readouts:
+
+| input | stamp attribution | cross-stamp terms |
+|---|---|---|
+| per-stamp amplitude / phase | yes | no |
+| `stamp_bandpow` (amplitudes weighted by `E_i`, summed) | lost in the sum | no |
+| `recon` (`Σ a·D + b·H`, then band power) | lost | yes |
+
+Feeding `D_i` together with every stamp's amplitudes is therefore `recon` minus the
+cross terms. For attribution, keep the per-stamp amplitude and phase, and use `D_i` only
+to name which band a relevant stamp covers.
+
+## Stamp attribution: which stamps carry task information
+
+No change to the stamps is needed. The code `(a, b)` per stamp, channel and patch
+already separates the two kinds of event-related activity:
+
+- **Amplitude `√(a²+b²)`:** the envelope, which carries induced activity (ERD/ERS).
+- **Phase `atan2(b, a)`:** measured relative to each patch start. The trials are
+  cue-aligned (BCICIV2a cue at sample 200), so a given patch sits at the same
+  post-cue time in every trial, and consistent phase across trials means phase-locked
+  (ERP-like) activity.
+
+The hidden bottleneck (`W_down`, width 6) sits before that readout and has no physical
+meaning, so it is not used.
+
+The existing panels do not answer this question:
+
+- `event_stamp_dynamics` is cue-locked but pools all classes.
+- `pool_label_probe` decodes at the pool level (routed vs shared), not per stamp.
+
+`stamp_relevance.py` measures, for each alive routed stamp and each shared stamp.
+Baseline is the pre-cue patches; the MI window is 0.5–4 s after the cue.
+
+1. **`decod`:** per-subject shrinkage LDA on that stamp's log post-cue power per channel.
+   `decod_bl` uses dB change from baseline instead. Significance is a one-sided t-test
+   of per-subject accuracy against 0.25, with BH-FDR across stamps.
+2. **`erd_db`:** post/pre power change, which answers "event-related at all?".
+   **`lri_db`:** `[dB(C3,R) − dB(C3,L)] − [dB(C4,R) − dB(C4,L)]`. Contralateral ERD
+   makes this negative, so a significant negative value means task-specific in the
+   expected direction.
+3. **`itc`:** inter-trial phase coherence of the stamp's phase, post minus pre, max over
+   channels. This flags ERP-like stamps. The bias floor is about `1/√(trials per subject)`.
+4. **Causal importance** (once the head exists): zero stamp i in the reconstruction and
+   measure the head's accuracy drop. Measures 1–3 are correlational; this one checks
+   that the head actually uses the stamp.
+
+Each row also reports the approximate top-k selection rate (`sel`) and the template's
+peak frequency.
+
+Caveats:
+
+- **`dense_amp` is response, not use.** Read `decod` next to `sel`.
+- **v10 stamps are not clean source maps.** They trained unfrozen on spatially mixed `z`
+  (ADR 0013), so their topographies are not source maps. The rankings still hold.
+- **Templates have 4 Hz bins,** so band labels are coarse.
+- **The v10 data is small,** and BCICIV2a was not in pretraining.
+
+Changing the stamps only becomes relevant if the task-relevant stamps turn out to span
+several bands. A band-selectivity constraint would then make attribution cleaner.
 
 ## Protocol
 
@@ -129,8 +221,8 @@ tokenizer help" test, instead of setting a trained head against an LDA number.
    - Must reach about 0.51 mean.
    - A miss means a wiring bug (band edges, FFT length, valid_channels, split), not a
      design problem.
-2. **v0, arm `recon`.**
-   - Must be within noise of `raw`.
+2. **v0, arms `recon` and `z_chan`.**
+   - `recon` must be within noise of `raw`. `z_chan` is the result that matters.
    - A miss means a recon-path bug (overlap-add, valid mask, phase flags).
 3. **Spatial filter on, `raw` and `recon`.** Must beat step 1 (the CSP-like gain).
 4. **Arms `chan_mag` and `stamp_bandpow`** through the same filter. Run them only if
@@ -142,7 +234,7 @@ tokenizer help" test, instead of setting a trained head against an LDA number.
 ## Implementation notes
 
 - **Config:** `model_params.MeSAE.finetune` gets
-  - `input` (`raw | recon | chan_mag | stamp_bandpow | head_z`),
+  - `input` (`raw | z_chan | recon | chan_mag | stamp_bandpow | head_z`),
   - `task` (`mi | erp | ssvep`),
   - `spatial_filters` (0 = off).
 - **Data:** `FinetuneDataset` already yields the whole trial. The `raw` arm can take
@@ -158,7 +250,9 @@ tokenizer help" test, instead of setting a trained head against an LDA number.
 
 ## Open prerequisites
 
-- **v10 probe** (`probe_v10.py` on `mesae_v10_small_uw01`, now including `stamp_bandpow`): check that the recon > chan_mag
-  > head_z ordering still holds under the fused and unfrozen training.
+- **v10 probe** (`probe_v10.py` on `mesae_v10_small_uw01`, now including `z_chan` and
+  `stamp_bandpow`): check that the recon > chan_mag > head_z ordering still holds under
+  the fused, unfrozen training, and see where `z_chan` lands.
+- **Stamp attribution** (`stamp_relevance.py`, same run).
 - **Stamp band-selectivity:** read the stamp PSD / fingerprint panels (ADR 0012 open).
 - **SSVEP phase-coherence probe:** not run yet.
