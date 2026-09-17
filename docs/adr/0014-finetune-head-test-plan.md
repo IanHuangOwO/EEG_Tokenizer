@@ -133,7 +133,8 @@ tokenizer help" test, instead of setting a trained head against an LDA number.
    - Must be within noise of `raw`.
    - A miss means a recon-path bug (overlap-add, valid mask, phase flags).
 3. **Spatial filter on, `raw` and `recon`.** Must beat step 1 (the CSP-like gain).
-4. **Arm `chan_mag`** through the same filter.
+4. **Arms `chan_mag` and `stamp_bandpow`** through the same filter. Run them only if
+   the LDA probe shows `stamp_bandpow` above `chan_mag`; otherwise `chan_mag` alone.
 5. **ERP block.**
 6. **SSVEP block,** only after the phase-coherence probe (ADR 0012 open item) shows the
    reconstruction keeps cross-patch phase.
@@ -141,7 +142,7 @@ tokenizer help" test, instead of setting a trained head against an LDA number.
 ## Implementation notes
 
 - **Config:** `model_params.MeSAE.finetune` gets
-  - `input` (`raw | recon | chan_mag | head_z`),
+  - `input` (`raw | recon | chan_mag | stamp_bandpow | head_z`),
   - `task` (`mi | erp | ssvep`),
   - `spatial_filters` (0 = off).
 - **Data:** `FinetuneDataset` already yields the whole trial. The `raw` arm can take
