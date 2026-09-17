@@ -233,6 +233,37 @@ optimistic reading.
 - **S5 and S6 sit near chance under every readout,** including LDA. Those subjects are
   hard, not broken.
 
+#### Feature arms under the same baseline pooling, and the first pooling change
+
+Same protocol and optimizer. Paired tests are against `raw` concat, using each subject's
+last-10-epoch mean.
+
+| run | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | S9 | last-10 | Δ vs raw concat | p | wins | train last-10 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `raw` concat | .55 | .46 | .69 | .46 | .24 | .30 | .64 | .59 | .52 | 0.495 | — | — | — | 0.61 |
+| `recon` concat | .52 | .43 | .68 | .48 | .23 | .33 | .63 | .61 | .47 | 0.486 | −0.009 | 0.35 | 3/9 | 0.61 |
+| `stamp_bandpow` concat | .51 | .44 | .58 | .45 | .28 | .37 | .59 | .59 | .43 | 0.470 | −0.025 | 0.22 | 2/9 | 0.61 |
+| `z_chan` concat | .44 | .37 | .54 | .30 | .23 | .24 | .36 | .55 | .53 | 0.395 | −0.100 | 0.009 | 1/9 | **0.99** |
+| `raw` spatial:8 | .61 | .47 | .80 | .40 | .34 | .49 | .60 | .70 | .51 | **0.547** | **+0.053** | 0.092 | 6/9 | 0.74 |
+
+Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469 and 0.613.
+
+- **`stamp_bandpow` holds up under a trained head.** At −0.025 against `raw` (p = 0.22)
+  it matches the LDA probe's −0.028 gap. Code-space features that keep stamp attribution
+  cost about 0.03, and the difference is not significant with 9 subjects.
+- **The `z_chan` number is not a fair reading yet: the head memorizes.** Train is 0.99
+  while val is 0.40. The head has 3884 parameters (a 64×8 = 512-wide readout) for 228
+  trials, which is the known memorization pattern from the finetune caveats above. It
+  needs a smaller or regularized projection (`z_proj` 2–4, weight decay, dropout) before
+  it says anything about the encoder. The best-val mean (0.469) gives a sense of the
+  ceiling.
+- **The signed spatial filter helps `raw`:** +0.053, 6/9 wins, p = 0.092. That is the
+  expected CSP-like gain, but not significant at n = 9. The largest gains are on the
+  weak subjects (S6 0.30 → 0.49, S5 0.24 → 0.34), and S3 reaches 0.80. The train/val gap
+  widens (0.74 vs 0.55).
+- **`recon` spatial:8 is still running.** It answers whether the reconstruction keeps
+  the spatial contrast the filter exploits.
+
 **The optimizer setting matters.** The first `raw` run used the repo finetune defaults
 (lr 1e-3 cosine, 50 epochs, dropout 0.3) and reached only 0.418 on the last-10 mean.
 Train and val were both around 0.4 and val loss was still falling at the end, which is
