@@ -332,13 +332,15 @@ def _run_intra_subject(config, dataset_params, base_output_dir, artifact_dir, lo
         if best is None:
             logger.info(f"  {tag}: no valid epoch"); continue
         v = best['val']
-        logger.info(f"  {tag}: " + " | ".join(f"{k}={v[k]:.4f}" for k in metric_keys))
+        logger.info(f"  {tag}: " + " | ".join(f"{k}={v[k]:.4f}" for k in metric_keys)
+                    + f" | last_acc={best['last_val']['acc']:.4f}")
         for k in metric_keys:
             per_metric[k].append(v[k])
+        per_metric.setdefault('last_acc', []).append(best['last_val']['acc'])
 
     summary = {'subjects': results, 'aggregate': {}}
-    for k in metric_keys:
-        vals = per_metric[k]
+    for k in metric_keys + ['last_acc']:
+        vals = per_metric.get(k, [])
         if vals:
             mean = statistics.mean(vals)
             std = statistics.pstdev(vals) if len(vals) > 1 else 0.0
@@ -481,7 +483,11 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
             except Exception as e:
                 logger.warning(f"  Topomap viz failed (epoch {epoch}): {e}")
 
-    logger.info(f"[{fold_tag}] Finetuning Complete. Best val acc: {best_val_acc:.4f} (epoch {best_metrics['epoch'] if best_metrics else 'n/a'})")
+    logger.info(f"[{fold_tag}] Finetuning Complete. Best val acc: {best_val_acc:.4f} (epoch {best_metrics['epoch'] if best_metrics else 'n/a'}), "
+                f"last-epoch val acc: {val_metrics['acc']:.4f}")
+    if best_metrics is not None:
+        # best-val-acc epoch selection is optimistic on small val sets (ADR 0014); keep the last too
+        best_metrics['last_val'] = val_metrics
     return best_metrics
 
 

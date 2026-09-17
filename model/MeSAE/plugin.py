@@ -7,7 +7,7 @@ import random
 import numpy as np
 import torch
 
-from model.MeSAE.MeSAE import MeSAEPretrain, MeSAEFinetune
+from model.MeSAE.MeSAE import MeSAEPretrain, MeSAEFinetune, build_finetune
 from model.MeSAE.MeSAE_modules import overlap_add_patches
 from model.base_trainer import BaseTrainer
 from model.base_checker import BaseEpochChecker
@@ -924,7 +924,7 @@ class MeSAEPlotter(BasePlotter):
 
 PLUGIN = BasePlugin(
     build=build_model,
-    finetune_cls=MeSAEFinetune,
+    finetune_cls=build_finetune,
     trainer_cls=MeSAETrainer,
     checker_cls=MeSAEChecker,
     plotter_cls=MeSAEPlotter,

@@ -76,11 +76,8 @@ def build_finetune_from_config(config, num_classes, mode='finetune'):
 
     canonical_channels = resolve_canonical_channels(config['preprocess_params']['canonical_channels'])
     ft_params = config['model_params'][model_type].get('finetune', {})
+    # The whole finetune block is passed through; the plugin picks what its head takes.
     return plugin.finetune_cls(
         backbone, len(canonical_channels), num_classes,
-        hidden=ft_params.get('hidden', 128),
-        freeze_backbone=ft_params.get('freeze_backbone', False),
-        dropout=ft_params.get('dropout', 0.1),
-        **({'use_topo_feature': ft_params['use_topo_feature']}
-           if 'use_topo_feature' in ft_params else {}),
+        sample_freq=config['preprocess_params']['sample_freq'], **ft_params,
     )

@@ -658,19 +658,10 @@ class MeSAEFinetune(nn.Module):
         # (chan_attn, the softmax-over-channels weight encode_post_stamp_expert already
         # computes) as a FEATURE, instead of only consuming it as a pooling weight.
         #
-        # Measured with linear probes on v5's dictionary (600 trials/dataset, shared
-        # folds), the topography is where the class information lives on lateralized MI:
-        #                            BCICIV2a   BCICIV1_Train
-        #   pooled mag (head-ish)      0.255       0.512
-        #   chan_attn topography       0.373       0.615
-        #   raw per-channel power      0.338       0.547
-        #   topography + covariance    0.397       0.650
-        # i.e. the topography beats per-channel power AND adds on top of channel
-        # covariance, the input the Riemannian/CSP family for MI decoding is built on.
-        # Pooling integrates it out: a softmax-weighted mean cannot represent a CONTRAST
-        # (stamp A strong at C3 while stamp B is strong at C4), which is exactly the
-        # lateralization these tasks turn on. Probes also put head_z (this head's real
-        # input) at or below every alternative including chance on BCICIV1 (0.483).
+        # An earlier comment here claimed the topography beats pooled magnitude on
+        # BCICIV2a (0.373 vs 0.255). That came from trial-wise CV and was mostly
+        # subject-identity leakage (ADR 0012 §4a); do not rely on it. What survives: a
+        # softmax-weighted mean over channels cannot represent a C3-C4 contrast.
         #
         # Off by default -- it widens the head input to 2*head_dim, so it is an
         # architecture change, not a free fix. NOT universal either: on EEGMMIdb the
@@ -710,3 +701,149 @@ class MeSAEFinetune(nn.Module):
                 x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [B, N, Q, D]
         logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)
         return logits, attn_h, attn_n
+
+
+class MeSAEFeatureHead(nn.Module):
+    """ADR 0014 experiment B: one feature x one pooling choice per axis x a linear readout,
+    so each factor can be changed alone. Frozen backbone only.
+
+    input:        raw            the patched signal overlap-added back (no backbone)
+                  recon          the backbone's unmasked reconstruction, overlap-added
+                  stamp_bandpow  per-patch dense stamp amps (alive routed + shared),
+                                 band energy via each template's spectrum (exact per stamp,
+                                 see ADR 0014), no decoding
+                  z_chan         encoder z, shared Linear(D, z_proj), time-mean per channel
+    pool_channel: concat | spatial:K   (signed Linear(C, K), no softmax. For stamp_bandpow
+                  it mixes each stamp's (a, b) across channels before the power, the
+                  code-space analogue of a CSP filter.)
+    pool_time:    trial | window:lo-hi (seconds from trial start; patches fully inside)
+    task:         mi (mu/beta log power). erp/ssvep not built yet.
+
+    Padded channels are zeroed before any pooling. pad_mask is ignored: every trial in the
+    intra-subject BCICIV2a runs has the same length. Every trainable module lives under
+    self.head, because train_finetune.py only optimizes model.head.
+    Returns (logits, None, None) to match MeSAEFinetune's call signature.
+    """
+    BANDS = ((8.0, 13.0), (13.0, 30.0))
+
+    def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, input='recon',
+                 task='mi', pool_channel='concat', pool_time='trial', z_proj=8,
+                 dropout=0.1, sample_freq=200, freeze_backbone=True):
+        super().__init__()
+        if task != 'mi':
+            raise NotImplementedError(f"task={task!r}: only 'mi' is built (ADR 0014 build order)")
+        if not freeze_backbone:
+            raise NotImplementedError("MeSAEFeatureHead assumes a frozen backbone (ADR 0012)")
+        if input not in ('raw', 'recon', 'stamp_bandpow', 'z_chan'):
+            raise ValueError(f"unknown input {input!r}")
+        self.backbone, self.input, self.fs = backbone, input, float(sample_freq)
+        for p in backbone.parameters():
+            p.requires_grad_(False)
+
+        C = num_channels
+        K = C if pool_channel == 'concat' else int(pool_channel.split(':')[1])
+        self.window = None if pool_time == 'trial' else \
+            tuple(float(v) for v in pool_time.split(':')[1].split('-'))
+        head = {}
+        if pool_channel != 'concat':
+            head['spatial'] = nn.Linear(C, K, bias=False)
+        if input == 'z_chan':
+            head['z_proj'] = nn.Linear(backbone.head_dim, z_proj)
+            n_feat = K * z_proj
+        else:
+            n_feat = K * len(self.BANDS)
+        # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
+        head['cls'] = nn.Sequential(nn.BatchNorm1d(n_feat), nn.Dropout(dropout), nn.Linear(n_feat, num_classes))
+        self.head = nn.ModuleDict(head)
+
+        if input == 'stamp_bandpow':
+            st = backbone.stamps
+            alive = (st.fire_ema >= st.dead_threshold).nonzero().flatten()
+            keep = torch.cat([alive, torch.arange(st.n_routed, st.n_stamps, device=alive.device)])
+            with torch.no_grad():
+                D_tab, H_tab = (t[keep].float() for t in st._template_tables())
+                fr = torch.fft.rfftfreq(D_tab.shape[-1], 1.0 / self.fs)
+                sel = [((fr >= lo) & (fr < hi)).to(D_tab.device) for lo, hi in self.BANDS]
+                spec = lambda T: torch.stack([torch.fft.rfft(T, dim=-1).abs().pow(2)[:, m].sum(-1) for m in sel], -1)
+                self.register_buffer('E_D', spec(D_tab))                   # [S, bands]
+                self.register_buffer('E_H', spec(H_tab))
+            self.register_buffer('keep', keep)
+
+    def train(self, mode=True):
+        super().train(mode)
+        self.backbone.eval()   # frozen: no dropout noise, stable top-k
+        return self
+
+    def _band_logpow(self, s):
+        """s: [B, K, T] -> [B, K, bands], same statistic as probe_v10.py."""
+        sp = torch.fft.rfft(s.float(), dim=-1).abs().pow(2)
+        fr = torch.fft.rfftfreq(s.shape[-1], 1.0 / self.fs).to(s.device)
+        return torch.stack([torch.log(sp[..., (fr >= lo) & (fr < hi)].sum(-1) + 1e-12)
+                            for lo, hi in self.BANDS], -1)
+
+    def _patch_keep(self, N, device):
+        if self.window is None:
+            return None
+        bb = self.backbone
+        starts = torch.arange(N, device=device) * bb.patch_stride
+        lo, hi = (w * self.fs for w in self.window)
+        keep = (starts >= lo) & (starts + bb.patch_len <= hi)
+        assert keep.any(), f"window {self.window} s keeps no patch"
+        return keep
+
+    def _mix(self, t, dim):
+        """Signed spatial filter over channel axis `dim`, or identity for concat."""
+        if 'spatial' not in self.head:
+            return t
+        return torch.movedim(self.head['spatial'](torch.movedim(t, dim, -1).float()), -1, dim)
+
+    def forward(self, x, coords, time_idx=None, valid_channels=None, pad_mask=None):
+        B, C, N, L = x.shape
+        bb = self.backbone
+        vmask = (valid_channels if valid_channels is not None
+                 else x.new_ones(B, C, dtype=torch.bool)).float()
+        with torch.no_grad():
+            if self.input in ('raw', 'recon'):
+                src = x if self.input == 'raw' else \
+                    bb(x, coords, time_idx=time_idx, bool_masked_pos=None, valid_channels=valid_channels).recon
+                sig = overlap_add_patches(src.float(), bb.patch_stride) * vmask[..., None]   # [B, C, T]
+                if self.window is not None:
+                    lo, hi = (int(w * self.fs) for w in self.window)
+                    sig = sig[..., lo:hi]
+            else:
+                z, _ = bb.stage_features(x, coords, time_idx=time_idx)                # [B, C, N, D]
+                pk = self._patch_keep(N, x.device)
+                if self.input == 'stamp_bandpow':
+                    zg = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
+                    xg = x.permute(0, 2, 1, 3).reshape(B * N, C, L)
+                    amp = bb.stamps.dense_amp(zg, rms=xg.float().pow(2).mean(-1, keepdim=True).sqrt())
+                    amp = amp[:, :, self.keep].reshape(B, N, C, -1, 2).float() * vmask[:, None, :, None, None]
+                    if pk is not None:
+                        amp = amp[:, pk]
+                else:
+                    z = z.float() * vmask[..., None, None]
+                    if pk is not None:
+                        z = z[:, :, pk]
+
+        if self.input in ('raw', 'recon'):
+            feat = self._band_logpow(self._mix(sig, 1))                                  # [B, K, bands]
+        elif self.input == 'stamp_bandpow':
+            a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
+            pw = torch.einsum('bnks,sq->bkq', a.pow(2), self.E_D) \
+                + torch.einsum('bnks,sq->bkq', b.pow(2), self.E_H)
+            feat = torch.log(pw / a.shape[1] + 1e-12)                                    # [B, K, bands]
+        else:
+            zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
+            feat = self._mix(zp, 1)                                                      # [B, K, P]
+        return self.head['cls'](feat.flatten(1)), None, None
+
+
+def build_finetune(backbone, num_channels, num_classes, input='head_z', **kw):
+    """finetune_cls entry: input='head_z' is the original MeSAEFinetune (the bundled ADR 0014
+    reference); every other input is an experiment-B MeSAEFeatureHead."""
+    if input == 'head_z':
+        allowed = ('hidden', 'freeze_backbone', 'dropout', 'use_topo_feature')
+        return MeSAEFinetune(backbone, num_channels, num_classes, **{k: v for k, v in kw.items() if k in allowed})
+    allowed = ('task', 'pool_channel', 'pool_time', 'z_proj', 'dropout', 'sample_freq', 'freeze_backbone')
+    return MeSAEFeatureHead(backbone, num_channels, num_classes, input=input,
+                            **{k: v for k, v in kw.items() if k in allowed})

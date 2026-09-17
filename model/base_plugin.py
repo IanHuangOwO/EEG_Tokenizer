@@ -18,7 +18,7 @@ class BasePlugin:
     registered in model/factory.py's MODEL_REGISTRY. Bundles everything a new model needs
     to plug into the shared train_pretrain.py/train_finetune.py loops."""
     build: Callable            # (bp: dict, num_channels: int) -> nn.Module, the pretrain backbone
-    finetune_cls: type         # wraps a built+loaded backbone into a classifier
+    finetune_cls: Callable     # (backbone, num_channels, num_classes, **finetune params) -> classifier
     trainer_cls: Type[BaseTrainer]
     checker_cls: Type[BaseEpochChecker]
     plotter_cls: Type[BasePlotter]
