@@ -318,6 +318,7 @@
       "model_type": "MeSAE",
       "model_name": "mesae_pretrain_v9",
       "tokenizer_checkpoint": "output/mesae_tokenizer_v9/tokenizer/best_tokenizer.pth",
+      "freeze_stamps": true,
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,

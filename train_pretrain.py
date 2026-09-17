@@ -331,6 +331,33 @@ def main():
     trainer.on_tokenizer_start(model, logger=logger)
     trainer.on_pretrain_start(model, logger=logger)
 
+    # ponytail: reverse the hook's freeze rather than threading a flag through every
+    # model's on_pretrain_start signature. Must run BEFORE optimizer_param_groups below,
+    # or the un-frozen params never enter the optimizer.
+    #
+    # freeze_stamps=false is an EXPERIMENT, not a tuning knob, and it changes three
+    # things at once:
+    #   1. the dictionary moves during masked training (the intended change);
+    #   2. aux_loss and mp_loss come back into the total — MeSAE.get_loss gates both on
+    #      `not stamps_frozen`, so they re-enable themselves. Left on deliberately: a
+    #      dictionary that is still learning needs its anti-collapse and residual-
+    #      ordering terms, exactly as in the Tokenizer stage.
+    #   3. the stamps now see cross-channel-MIXED z, because on_pretrain_start freezes
+    #      before enable_spatial() precisely to prevent that (see MeSAEPlugin's
+    #      on_pretrain_start docstring). StampBank's mixing-column premise — the [C]
+    #      amp vector for a stamp IS that source's topomap — assumes z_c is channel c's
+    #      own signal. After spatial attention it is not, so per-stamp topography stops
+    #      being interpretable even if recon MSE improves.
+    if not train_params.get('freeze_stamps', True):
+        if not hasattr(model, 'stamps'):
+            raise SystemExit("freeze_stamps=false is MeSAE-only (no model.stamps on this model_type).")
+        for p in model.stamps.parameters():
+            p.requires_grad_(True)
+        model.stamps_frozen = False
+        logger.warning("  [Pretrain] freeze_stamps=false — StampBank TRAINS through the "
+                       "Masked stage; aux_loss and mp_loss are back ON, and the stamps now "
+                       "see spatially-mixed z. Per-stamp topography is no longer a mixing column.")
+
     logger.info("Warming up with dummy pass...")
     dummy_batch = next(iter(train_loader))
     x, coords, time_idx, bool_masked_pos, valid_channels = _unpack_batch(dummy_batch, device)
