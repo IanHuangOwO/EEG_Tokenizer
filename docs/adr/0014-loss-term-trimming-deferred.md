@@ -74,6 +74,11 @@ neighbouring patches whose errors cancel.
 
 ## Planned experiments (in order, one change per run)
 
+0. **Weighted vs unweighted `mp_loss`.** `52cda87` made `mp_loss` use the same position
+   weights, so from that commit on every run uses the weighted version.
+   `mesae_v10_small_uw01` is the only run with the old, leaky version (visible
+   positions at full weight). An A/B needs one small run on the current code to compare
+   against it. Deferred together with the rest.
 1. **`mse_trial_weight: 0.0`.**
    - Compare the logged plain `mse_trial` against the reference run. It is still logged
      when its weight is 0.
@@ -85,7 +90,7 @@ neighbouring patches whose errors cancel.
    behaviour.
 
 Use the same small 7-dataset × 3-subject config as the v10 small runs for every
-experiment, and use the fixed-mp run (`mesae_v10_small_uw01_mpw`) as the reference.
+experiment. The reference is the first small run on the weighted-mp code.
 
 ## Consequences
 
