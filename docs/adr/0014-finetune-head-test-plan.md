@@ -247,8 +247,10 @@ last-10-epoch mean.
 | `z_chan` concat, `z_proj` 2 | .42 | .39 | .62 | .26 | .20 | .33 | .43 | .60 | .48 | 0.413 | −0.081 | 0.020 | 2/9 | **0.82** |
 | `raw` spatial:8 | .61 | .47 | .80 | .40 | .34 | .49 | .60 | .70 | .51 | **0.547** | **+0.053** | 0.092 | 6/9 | 0.74 |
 | `recon` spatial:8 | .57 | .54 | .82 | .39 | .23 | .42 | .62 | .74 | .51 | **0.537** | +0.042 | 0.15 | 5/9 | — |
+| `stamp_bandpow` spatial:8 | .57 | .43 | .74 | .37 | .33 | .32 | .66 | .68 | .60 | **0.522** | +0.027 | 0.36 | 5/9 | 0.77 |
 
-Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469, 0.487, 0.613 and 0.602.
+Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469, 0.487, 0.613, 0.602 and
+0.602.
 
 - **`stamp_bandpow` holds up under a trained head.** At −0.025 against `raw` (p = 0.22)
   it matches the LDA probe's −0.028 gap. Code-space features that keep stamp attribution
@@ -273,9 +275,20 @@ Best-val means for the same runs: 0.552, 0.548, 0.541, 0.469, 0.487, 0.613 and 0
   spatial:8 is −0.011 (p = 0.59, 4/9). Against its own concat baseline, the filter adds
   +0.051 to `recon` (p = 0.093, 6/9), about the same as the +0.053 it adds to `raw`. The
   one clear loss is S5, which stays at chance with `recon` (0.23 vs 0.34).
-- **Step 4 (B1 channel) outcome:** the signed filter improves both arms by about
-  +0.05. That is consistent but not significant at n = 9, and `recon` tracks `raw`
-  throughout.
+- **The filter helps the code-space arm the same way.** `stamp_bandpow` spatial:8 gains
+  +0.052 over its own concat baseline (p = 0.104, 6/9) and lands 0.026 below `raw`
+  spatial:8 (p = 0.33, 2/9). The signed filter applied to each stamp's (a, b) across
+  channels works, which is what experiment C's spatial stage assumes.
+- **Step 4 (B1 channel) outcome:** the signed filter adds about +0.05 to every input
+  tried (`raw`, `recon`, `stamp_bandpow`). Consistent, but not significant at n = 9.
+  The three inputs stay within 0.03 of each other under the filter:
+
+  | input | concat | spatial:8 |
+  |---|---|---|
+  | `raw` | 0.495 | 0.547 |
+  | `recon` | 0.486 | 0.537 |
+  | `stamp_bandpow` | 0.470 | 0.522 |
+  | `z_chan` | 0.395 / 0.413 (overfits) | not run |
 
 **The optimizer setting matters.** The first `raw` run used the repo finetune defaults
 (lr 1e-3 cosine, 50 epochs, dropout 0.3) and reached only 0.418 on the last-10 mean.
