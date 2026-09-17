@@ -258,7 +258,7 @@ def main():
                    trial=t.get('trial'), dataset_name=t.get('dataset'))
         for t in viz_target_cfg
     ]
-    logger.info(f"Recon viz targets (subject, trial_idx): {viz_targets} every {viz_every_n} epochs")
+    logger.info(f"Recon viz targets (subject, trial_idx): {viz_targets} every_n_epochs={viz_every_n}")
 
     def _make_loader(dataset, shuffle):
         return DataLoader(dataset, batch_size=train_params['batch_size'], shuffle=shuffle,
@@ -380,7 +380,8 @@ def main():
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
         plotter.plot_pretrain()
 
-        if viz_every_n > 0 and epoch % viz_every_n == 0:
+        # every_n_epochs: int (0 = never) or "last" (final epoch only, for quick tests)
+        if epoch == total_epochs if viz_every_n == 'last' else (viz_every_n > 0 and epoch % viz_every_n == 0):
             for topo_trial_idx, topo_subject_id in viz_targets:
                 try:
                     checker.check_pretrain(
