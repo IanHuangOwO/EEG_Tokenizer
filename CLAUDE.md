@@ -8,20 +8,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies (CUDA 11.8)
 pip install -r requirements.txt
 
-# Run Tokenizer stage (unmasked, encoder+VQ/SAE trained jointly, spatial/temporal mixing enabled)
-python train_tokenizer.py --config config/config.json
-
-# Run Pretrain stage (masked reconstruction; loads training_params.pretrain.tokenizer_checkpoint,
-# freezes VQ/SAE, trains only the transformer)
+# Pretrain: one run, two phases -- unmasked tokenizer phase for
+# training_params.pretrain.tokenizer_epochs, then masked phase (docs/adr/0013)
 python train_pretrain.py --config config/config.json
 
 # Profile model
 python profile_model.py
 
-# Run Finetune stage (loads a Pretrain-stage checkpoint, trains a classification head)
+# Run Finetune stage (loads a pretrain checkpoint, trains a classification head)
 python train_finetune.py --config config/config.json
 
-# Post-training checker (checkpoint -> topo/PSD/attn snapshot per subject, MeFSQ or MeSAE;
+# Post-training checker (checkpoint -> topo/PSD/attn snapshot per subject;
 # base config auto-derived from the checkpoint's output/<model>/artifacts/config.json,
 # config/analysis.json is a small overlay; viz/extract.py, panels.py, timeseries.py,
 # topomap.py are shared primitives it and model/base_checker.py both call — not run directly)
@@ -40,7 +37,11 @@ No test suite exists. Validation runs during training.
 
 ## Architecture
 
-**MeFSQ** (Multi-head Finite Scalar Quantization) is an EEG tokenizer trained via masked reconstruction pretraining. Quantization is DeepSeekMoE-style: routed + shared Expert pools, each Expert forming its own content-based-attention-pooled **Expert View** over all channels (not one independent code per channel, and not a single shared concatenated Token — that design is retired, see `docs/adr/0002-per-expert-channel-attention.md`). See `CONTEXT.md` for canonical terms (Trial/Window/Patch/Expert View/Expert/Codebook/etc.) and `docs/adr/0001-moe-style-quantization.md` for the original MoE-quantization rationale.
+**MeSAE** is an EEG tokenizer: a TSA encoder feeding a sparse stamp dictionary
+(StampBank, top-k routed + always-on shared stamps), reconstructing patches, pretrained
+by masked reconstruction. MeFSQ (the earlier FSQ/VQ model) was removed, see
+`docs/adr/0013`. See `CONTEXT.md` for canonical terms and `docs/adr/0009` for the stamp
+dictionary.
 
 ### Data flow
 
@@ -50,15 +51,14 @@ EEG signals (raw dataset files)
   └─ cache_compile.py          # bandpass filter → resample, baked once into datas/<Name>/cache/*.npz
   └─ IO/dataset.py             # EEGDataset reads the compiled cache directly, channel-maps/pads,
   │                            # applies IO/preprocessing.py's Normalizer (zscore/robust/fixed)
-  │    └─ EEGDataset → TokenizerDataset / PretrainDataset / FinetuneDataset
-  │         ├─ assemble_trials=True (tokenizer/pretrain): flattens Trials into continuous
+  │    └─ EEGDataset → PretrainDataset / FinetuneDataset
+  │         ├─ assemble_trials=True (pretrain): flattens Trials into continuous
   │         │  signal, cuts Windows (IO/preprocessing.py's window_continuous_signal)
   │         ├─ IO/preprocessing.py's slice_patches: Window → Patches, patch_stride for overlap
   │         └─ IO/masking.py: random / complementary / random_to_complementary masking
-  │            strategies (block strategy removed) — PretrainDataset only, TokenizerDataset
-  │            is always unmasked
-  └─ train_tokenizer.py        # Tokenizer stage: unmasked, encoder+VQ/SAE joint, AdamW + cosine LR
-  └─ train_pretrain.py         # Pretrain stage: masked reconstruction, loads Tokenizer checkpoint
+  │            strategies (block strategy removed) — PretrainDataset only; masks are
+  │            ignored during the tokenizer phase
+  └─ train_pretrain.py         # tokenizer phase (unmasked) -> masked phase, one run
 ```
 
 `build_dataset_from_config` runs `sanity_check_base`/`sanity_check_wrapper` (`IO/dataset.py`)
@@ -66,44 +66,28 @@ automatically on every call — verifies the per-trial parallel arrays (labels/c
 dataset_name) stayed index-aligned through loading/padding/windowing, and that the wrapper's
 `__getitem__` produces finite tensors, before training starts.
 
-Pretraining is split into two sequential scripts/checkpoints (not two phases of one run):
-- **`train_tokenizer.py`**: builds the model, calls `trainer.on_tokenizer_start()` (enables
-  spatial + temporal mixing immediately — no waiting on masked pretrain), trains
-  encoder+VQ/SAE jointly with `bool_masked_pos=None` throughout, saves
-  `output/<tokenizer_model_name>/tokenizer/best_tokenizer.pth`.
-- **`train_pretrain.py`**: builds the same architecture, loads that tokenizer checkpoint
-  (`training_params.pretrain.tokenizer_checkpoint`), re-enables spatial/temporal (plain
-  flags, not persisted in the state dict), calls `trainer.on_pretrain_start()` to freeze
-  the VQ/SAE apparatus, then trains only the transformer against masked reconstruction.
+Pretraining is one run with two phases (`docs/adr/0013`):
+- **Tokenizer phase** (epochs 1..`tokenizer_epochs`): `MeSAEPretrain.enter_tokenizer_phase()`
+  -- only the `pool_after_blocks` encoder blocks run, temporal mixing only, no masking.
+  Encoder + StampBank train jointly on single-channel features (0003's leakage rule).
+- **Masked phase**: `enter_masked_phase(freeze_stamps)` -- all blocks, spatial attention +
+  coord embedding on, `preprocess_params.mask` curriculum starts (counted from here),
+  StampBank frozen only if `training_params.pretrain.freeze_stamps`.
+- The phase is a buffer (`masked_phase`); a `load_state_dict` post-hook restores blocks and
+  mixing flags, so no loader calls `enable_*` by hand.
 
-Each model plugs in via `model/<Name>/plugin.py`, bundling a `Trainer`/`Checker`/`Plotter`
-(subclassing `model/base_trainer.py`/`base_checker.py`/`base_plotter.py`) into a
-`BasePlugin` (`model/base_plugin.py`) registered in `model/factory.py`'s
-`MODEL_REGISTRY` — see `docs/adr/0004-model-plugin-base-classes.md` and
-`docs/agents/adding-a-model.md`. See `model/base_trainer.py`
-(`BaseTrainer.on_tokenizer_start`/`on_pretrain_start`) for the per-model training-hook
-contract.
+Each model plugs in via `model/<Name>/plugin.py` (`Trainer`/`Checker`/`Plotter` in a
+`BasePlugin`, registered in `model/factory.py`'s `MODEL_REGISTRY`) -- MeSAE is the only
+one. See `docs/adr/0004-model-plugin-base-classes.md`.
 
-### Model (`model/MeFSQ/`)
-
-- **`MeFSQ_modules.py`**:
-  - `SpatialTemporalEmbeddings`: linear patch proj + sinusoidal time pos + 3D coord MLP → `[B, C, N, D]`
-  - `TSABlock`: temporal ConvAdditiveAttn → spatial MHA (cross-channel) → ConvFFN
-  - `TSAEncoder`: stack of TSABlocks
-  - `Router`: top-k softmax router over the routed Expert pool; scaled dot-product gate scores, Switch-Transformer-style load-balance loss
-  - `MeFSQ`: projects `[M, H, D]` through per-head learnable matrix `A` → per-head sigmoid quantization → STE; tracks codebook health (perplexity, STE gap, head diversity) via EMA buffers
-  - `MultiHeadDecoder`: per-Expert nonlinear decode (down-proj → activation → up-proj), summed after decode, not before
-  - `PerChannelHeadAttn`: finetune head, three-stage learnable-query attention pooling (temporal → head → channel) — replaces the earlier per-channel concat that overparameterized the classifier and caused val-chance memorization (see `docs/agents/` / memory: finetune val-chance bug)
-- **`MeFSQ.py`** (`MeFSQPretrain`):
-  - `stage_features` runs the full `TSAEncoder` stack and returns only the last block's output `[B, C, N, D]` — no per-head multi-stage fusion (retired; superseded by `TSAEncoder`'s UNet-style `pool_after_blocks` temporal down/up skip mechanism, which gives the encoder multi-resolution access a different way)
-  - Per patch position, each Expert forms its own **Expert View** by attention-pooling all C channels' D-dim embeddings with its own learnable query (`ExpertChannelPool`) — not a single shared concatenation, so different Experts can weight channels differently for the same patch
-  - VQ: each Expert's View routed through `Router` → **Routed pool** (top-k gated Experts, specialization) and **Shared pool** (always-on Experts, down-weighted 0.2x baseline) → per-Expert `vq_proj` → `MultiHeadDecoder`
-  - `encode_pre_vq`: returns the continuous **Pre-VQ feature** per channel (broadcast to every Expert, not concatenated) — diagnostics only now; the finetune bypass mode that used to read this was retired (every Expert sees the identical broadcast vector, so the finetune head had nothing to differentiate)
-  - `encode_post_vq`: returns the **Post-VQ feature** per Expert, per channel (each Expert's own decoded output, split back per channel, before the cross-Expert sum) — genuinely Expert-differentiated; this is what `MeFSQFinetune` reads
-  - Loss: MSE split masked/unmasked; `masked_mse_weight`/`unmasked_mse_weight` scale each term explicitly; plus router load-balance loss
-  - `freeze_vq_and_decoder()` locks both Expert pools + router + fusion params — called by `MeFSQTrainer.on_pretrain_start` once `train_pretrain.py` loads the Tokenizer-stage checkpoint, leaving only the transformer trainable
-
-- **`model/factory.py`**: `build_pretrain_from_config(config, mode=...)` — dispatches on `training_params[mode].model_type` (`MeFSQ` or `MeSAE`)
+- **`model/MeSAE/MeSAE_modules.py`**: `SpatialTemporalEmbeddings`, `TSABlock` (temporal
+  attn -> spatial MHA -> MoE FFN, LayerScale 1e-4), `TSAEncoder` (UNet-style temporal
+  pool/upsample at `pool_after_blocks`, `active_blocks` bypass), `StampBank`,
+  `PerChannelHeadAttn` (finetune head).
+- **`model/MeSAE/MeSAE.py`**: `MeSAEPretrain` (phases, `get_loss`, `freeze_stamps`,
+  `encode_post_stamp_expert`), `MeSAEFinetune`.
+- **`model/factory.py`**: `build_pretrain_from_config`, `build_finetune_from_config`,
+  `optimizer_param_groups`.
 
 ### MeSAE sparsity budget — a hard ceiling, not a knob
 
@@ -114,28 +98,26 @@ reconstruction has `2 * (stamp_top_k + n_shared_stamps)` degrees of freedom agai
 Past that line the active slots alone can fit any patch exactly regardless of what the
 atoms contain, and it stops being sparse coding: measured at `top_k=24` (DOF 56 >
 patch_len 50), `recon_mse` collapsed to ~0 on every dataset at once while activation
-kurtosis fell 6.68 -> 1.17 and cross-atom correlation quadrupled. Current defaults sit
-at 32 (tokenizer) and 40 (pretrain). See `docs/adr/0011-matching-pursuit-residual-loss.md`.
+kurtosis fell 6.68 -> 1.17 and cross-atom correlation quadrupled. Current default sits
+at 32. See `docs/adr/0011-matching-pursuit-residual-loss.md`.
 
 ### Config (`config/config.json`)
 
 Key fields:
-- `model_params.MeFSQ.pretrain`: architecture hyperparams — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks`, `upsample_residual_add`, `n_routed_experts`, `n_shared_experts`, `top_k`, `routed_r`/`shared_r` (codebook size), `routed_num_discrete`/`shared_num_discrete`
+- `model_params.MeSAE.pretrain`: the one architecture block — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks` (also the tokenizer-phase block set), `moe_ffn`, `stamp_bank`, `loss`. `model_params.MeSAE.finetune`: head params
 - `preprocess_params`: `window_length`, `window_pad_threshold`, `patch_length`, `patch_stride` (patch step in samples within a Window; equal to `patch_length` for non-overlapping patches, smaller for overlapping — see `IO/preprocessing.py`'s `slice_patches`), `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `masking_strategy` (random/complementary/random_to_complementary — the last ramps random into complementary over a curriculum, see `IO/masking.py`)
-- `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — shared by both `train_tokenizer.py` and `train_pretrain.py` (same raw data, masking applied only in the Pretrain stage)
-- `training_params.tokenizer`: `model_name` (determines output dir), `epochs`, `batch_size`, `device`
-- `training_params.pretrain`: same fields plus `tokenizer_checkpoint` (path to the Tokenizer stage's `best_tokenizer.pth`)
+- `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — used by `train_pretrain.py` (masking applied only in the masked phase)
+- `training_params.pretrain`: `model_name` (output dir), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields
 - `training_params.visualize_params`: diagnostic/plotting-only params, no effect on training data — `cmap` (matplotlib colormap for topomap/PSD panels), `fft_resolution` (Hz/bin for check_model.py's diagnostic PSD panels — `model/base_checker.py`/`model/MeSAE/plugin.py`'s `n_fft = round(sample_freq / fft_resolution)`; the dead train-time `fft_patches` path in `IO/dataset.py` is unrelated and stays unwired), `psd_freq_range` (`[l, h]` or `null` — overrides the PSD panel's plotted frequency range independent of `bandpass_filter`; `null` falls back to `bandpass_filter`'s `l_freq`/`h_freq`), `bands` (Delta/Theta/Alpha/Beta/Gamma `[lo, hi]` edges for the band-filtered reconstruction time-series panel, `viz/timeseries.py`'s `_canonical_bands` — each band is still clipped to `bandpass_filter`'s range), plus per-mode `pretrain`/`finetune` sub-keys (`targets`, `every_n_epochs`)
 
 ### Outputs
 
-`output/<tokenizer_model_name>/`
-- `tokenizer/best_tokenizer.pth` — best val-loss Tokenizer-stage checkpoint
-
-`output/<pretrain_model_name>/`
-- `pretrain/best_pretrain.pth` — best val-loss Pretrain-stage checkpoint
+`output/<model_name>/`
+- `checkpoint/best.pth` — best val-loss checkpoint (reset at the phase boundary; during
+  the mask curriculum it locks onto the easiest epoch, so prefer `last.pth`)
+- `checkpoint/last.pth` — every epoch
 - `artifacts/config.json` — run snapshot
-- `visualization/` — loss plots, topomap reconstructions (generated every 10 epochs)
+- `visualization/` — loss plots, topomap reconstructions
 
 ### Dataset metadata
 

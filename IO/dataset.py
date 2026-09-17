@@ -308,7 +308,7 @@ def sanity_check_base(base_dataset: 'EEGDataset') -> None:
 def sanity_check_wrapper(dataset) -> None:
     """
     Pulls the first and last item through __getitem__ on the actual training
-    dataset (TokenizerDataset/PretrainDataset/FinetuneDataset) — catches an
+    dataset (PretrainDataset/FinetuneDataset) — catches an
     index-mapping bug in the wrapper itself (e.g. a masking-strategy resolve()
     or trial_to_coords_idx lookup gone wrong) before training starts, rather
     than a cryptic mid-epoch crash or, worse, silently wrong data with no
@@ -331,62 +331,6 @@ def _resolve_default_patch_len(base_dataset: 'EEGDataset') -> int:
     model_type = base_dataset.config.get('training_params', {}).get('pretrain', {}).get('model_type', 'MeSAE')
     preprocess = base_dataset.config.get('model_params', {}).get(model_type, {}).get('preprocess', {})
     return preprocess.get('patch_length', 200)
-
-
-class TokenizerDataset(Dataset):
-    """
-    Wraps EEGDataset for the Tokenizer stage — unmasked, patchified. Unlike
-    PretrainDataset there is no masking-strategy machinery here: bool_masked_pos
-    is always None for this stage (see train_tokenizer.py), so no mask needs
-    generating, tracking, or curriculum-swapping, and __len__ has no multiplier
-    (a masking-strategy multiplier like ComplementaryMaskingStrategy's 2x would
-    otherwise silently double "epoch" size for a mask this stage never reads).
-    Yields the same 7-tuple shape as PretrainDataset for unpack compatibility
-    (x_patches, coords, mask, time_indices, label, fft_patches, valid_channels)
-    — mask is a constant all-False placeholder, never read downstream.
-      x_patches:      [C, P, L]
-      coords:         [C, 3]
-      mask:           [C * P] bool, always False
-      time_indices:   [P]
-      label:          scalar
-      fft_patches:    [C, P, F] or empty tensor
-      valid_channels: [C] bool, True = real (not zero-padded) channel
-    """
-    def __init__(self, base_dataset: 'EEGDataset', patch_len: Optional[int] = None,
-                 patch_stride: Optional[int] = None):
-        self.base_dataset = base_dataset
-        self.patch_len = patch_len or _resolve_default_patch_len(base_dataset)
-        self.patch_stride = patch_stride or self.patch_len
-
-        total_T = base_dataset.data.shape[-1]
-        n_patches = num_patches(total_T, self.patch_len, self.patch_stride)
-
-        print(f"\n--- TokenizerDataset ---")
-        print(f"  {len(base_dataset)} trials | {n_patches} patches/trial "
-              f"(patch_len={self.patch_len}, patch_stride={self.patch_stride}) | unmasked")
-        print(f"----------------------------\n")
-
-    def __len__(self):
-        return len(self.base_dataset)
-
-    def __getitem__(self, index):
-        x, y = self.base_dataset[index]
-        x_patches, time_indices = slice_patches(x, self.patch_len, self.patch_stride)
-        C, P, _L = x_patches.shape
-        mask = torch.zeros(C * P, dtype=torch.bool)
-
-        if self.base_dataset.fft_params is not None:
-            n_fft = self.base_dataset.fft_params.get('n_fft')
-            norm  = self.base_dataset.fft_params.get('norm', 'ortho')
-            fft_patches = torch.fft.rfft(x_patches, n=n_fft, dim=-1, norm=norm)
-        else:
-            fft_patches = torch.empty(0)
-
-        coords_idx = self.base_dataset.trial_to_coords_idx[index]
-        coords     = self.base_dataset.all_coords[coords_idx]
-        valid_channels = self.base_dataset.all_valid_channels[coords_idx]
-
-        return x_patches, coords, mask, time_indices, y, fft_patches, valid_channels
 
 
 class PretrainDataset(Dataset):
@@ -651,7 +595,7 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     fft_params = None
 
     if assemble_trials is None:
-        assemble_trials = mode in ('pretrain', 'tokenizer')  # explicit override: e.g. real
+        assemble_trials = mode == 'pretrain'  # explicit override: e.g. real
         # per-trial labels for codebook diagnostics (pretrain/tokenizer normally assemble
         # trials into continuous-signal windows, which discards real labels -- see
         # IO/preprocessing.py's window_continuous_signal)
@@ -669,10 +613,6 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
 
     if mode == 'base':
         return base_dataset
-    elif mode == 'tokenizer':
-        ds = TokenizerDataset(base_dataset, patch_len=patch_len, patch_stride=patch_stride)
-        sanity_check_wrapper(ds)
-        return ds
     elif mode == 'pretrain':
         mask_pp       = pp.get('mask', {})
         strategy_name = mask_pp.get('masking_strategy', 'random')
@@ -702,4 +642,4 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         sanity_check_wrapper(ds)
         return ds
     else:
-        raise ValueError(f"Unknown mode: '{mode}'. Expected one of: base, tokenizer, pretrain, finetune.")
+        raise ValueError(f"Unknown mode: '{mode}'. Expected one of: base, pretrain, finetune.")

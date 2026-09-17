@@ -1,3 +1,9 @@
+> **Stale since `docs/adr/0013`:** `train_tokenizer.py`, `on_tokenizer_start` and
+> `on_pretrain_start` are gone. Training phases are now model methods
+> (`enter_tokenizer_phase` / `enter_masked_phase`) plus a persisted `masked_phase`
+> buffer, called directly by `train_pretrain.py`. MeSAE is the only model; update this
+> protocol when a second one is actually added.
+
 # Adding a new model
 
 Protocol for wiring a third (or Nth) tokenizer model into the shared training/viz

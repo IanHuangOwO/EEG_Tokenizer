@@ -156,7 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('--config',      default='config/analysis.json')
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
-    parser.add_argument('--mode',        default=None, choices=['tokenizer', 'pretrain', 'finetune'])
+    parser.add_argument('--mode',        default=None, choices=['pretrain', 'finetune'])
     parser.add_argument('--analysis',    default=None, choices=['snapshot', 'codebook', 'both'],
                          help='Overrides check.analysis in --config. snapshot: existing per-trial '
                               'topo/PSD/attn checker. codebook: cross-dataset codebook/vocab '

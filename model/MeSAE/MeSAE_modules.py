@@ -418,6 +418,14 @@ class TSAEncoder(nn.Module):
         self.skip_gates = nn.ParameterList([
             nn.Parameter(torch.tensor(3.0)) for _ in sorted(self.pool_after_blocks)
         ])
+        # Block indices that run; the rest pass x through untouched. None = all. The
+        # tokenizer phase runs only the pool_after_blocks blocks, which with
+        # pool_after_blocks [2,4,6,8,10] is exactly the old 5-block pool-after-every-block
+        # tokenizer encoder (see MeSAEPretrain.enter_tokenizer_phase, docs/adr/0013).
+        self.active_blocks = None
+
+    def _runs(self, i):
+        return self.active_blocks is None or i in self.active_blocks
 
     def enable_spatial(self):
         for block in self.blocks:
@@ -472,8 +480,9 @@ class TSAEncoder(nn.Module):
         ffn_lb_loss = x.new_zeros(())
         for i, block in enumerate(self.blocks):
             x_in = x
-            x, blk_ffn_lb = block(x)
-            ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
+            if self._runs(i):
+                x, blk_ffn_lb = block(x)
+                ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
                 with torch.no_grad():
                     delta = (x - x_in).norm(dim=-1).mean()
@@ -495,13 +504,14 @@ class TSAEncoder(nn.Module):
         # forward, so a simple mean is a fair per-batch summary of "how is the FFN router
         # doing across the whole encoder", not just one layer's snapshot.
         with torch.no_grad():
-            self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in self.blocks]).mean()
-            self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in self.blocks]).mean()
-            self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in self.blocks]).mean()
+            ran = [b for i, b in enumerate(self.blocks) if self._runs(i)]
+            self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in ran]).mean()
+            self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in ran]).mean()
+            self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in ran]).mean()
             # Worst interior branch magnitude anywhere in the stack (see TSABlock._watch).
             # Max, not mean: one block crossing the float ceiling takes out the whole run,
             # so an average across 12 blocks would bury exactly the signal this exists for.
-            watched = [b.last_branch_max for b in self.blocks if b.last_branch_max is not None]
+            watched = [b.last_branch_max for b in ran if b.last_branch_max is not None]
             self.last_branch_max = torch.stack(watched).max() if watched else None
 
         return x, ffn_lb_loss

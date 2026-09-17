@@ -1,6 +1,6 @@
 {
-  "checkpoint": "output/mesae_tokenizer_v5/tokenizer/best_tokenizer.pth",
-  "mode": "tokenizer",
+  "checkpoint": "output/mesae_v10/checkpoint/last.pth",
+  "mode": "pretrain",
   "dataset_params": {
     "pretrain": {
       "Dial": { "dataset_path": "datas/Dial", "subject_to_use": ["all"], "channels_to_use": ["all"] },

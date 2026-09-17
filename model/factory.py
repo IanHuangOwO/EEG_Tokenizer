@@ -27,17 +27,9 @@ def build_pretrain_from_config(config, mode='pretrain'):
     canonical_channels = resolve_canonical_channels(canonical_channels)
     num_channels = len(canonical_channels)
 
-    # mode='tokenizer' uses its own architecture block when the model config declares one
-    # (lets the Tokenizer stage run a shallower/differently-pooled encoder than Pretrain,
-    # see docs/adr/0003-mesae-two-stage-masked-training.md) — falls back to 'pretrain' for
-    # any model_type that hasn't split one out yet. mode='finetune' always uses 'pretrain':
-    # model_params.<type>.finetune is a different schema entirely (head params like
-    # hidden/freeze_backbone, not an architecture block) and build_finetune_from_config
-    # calls through here with mode='finetune' to build the backbone, not the head.
-    if mode == 'tokenizer':
-        bp = config['model_params'][model_type].get('tokenizer') or config['model_params'][model_type]['pretrain']
-    else:
-        bp = config['model_params'][model_type]['pretrain']
+    # mode only picks training_params[mode]; the architecture is always the 'pretrain'
+    # block (model_params.<type>.finetune is head params, not an architecture).
+    bp = config['model_params'][model_type]['pretrain']
     model = plugin.build(bp, num_channels)
 
     return model
@@ -79,8 +71,8 @@ def build_finetune_from_config(config, num_classes, mode='finetune'):
     backbone = build_pretrain_from_config(config, mode=mode)
     ckpt_path = train_params['pretrained_checkpoint']
     state = torch.load(ckpt_path, map_location='cpu')
+    # load_state_dict restores the checkpoint's phase flags (MeSAE _restore_phase)
     backbone.load_state_dict(state['model_state_dict'])
-    plugin.trainer_cls().on_tokenizer_start(backbone)
 
     canonical_channels = resolve_canonical_channels(config['preprocess_params']['canonical_channels'])
     ft_params = config['model_params'][model_type].get('finetune', {})

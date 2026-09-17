@@ -126,10 +126,7 @@ def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 
             print(f"  [ckpt] {len(missing)} missing keys (fresh init), e.g. {missing[0]}")
         if unexpected:
             print(f"  [ckpt] {len(unexpected)} unexpected keys, e.g. {unexpected[0]}")
-        # spatial_active/temporal_active are plain attributes, not restored by load_state_dict
-        model.enable_spatial()
-        if hasattr(model, 'enable_temporal'):
-            model.enable_temporal()
+        # phase flags (spatial/temporal/active blocks) restored by MeSAE's load post-hook
     else:
         print(f"  WARNING: checkpoint not found at {checkpoint!r}, using random weights.")
 

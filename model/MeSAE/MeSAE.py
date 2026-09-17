@@ -20,6 +20,19 @@ def _ema_update(buf, val, decay=0.99):
         buf.mul_(decay).add_(val, alpha=1 - decay)
 
 
+def _restore_phase(module, incompatible_keys):
+    """load_state_dict post-hook: re-apply the checkpoint's phase flags (plain
+    attributes, not state). A checkpoint without masked_phase predates the fused run —
+    treat it as fully enabled, the old loaders' behavior. Does not freeze anything."""
+    legacy = [k for k in incompatible_keys.missing_keys if k.endswith('masked_phase')]
+    for k in legacy:
+        incompatible_keys.missing_keys.remove(k)
+    if legacy or bool(module.masked_phase):
+        module.enter_masked_phase(freeze_stamps=False)
+    else:
+        module.enter_tokenizer_phase()
+
+
 class MeSAEPretrain(nn.Module):
     """
     Spatiotemporal stamp-dictionary EEG tokenizer — parallel to MeFSQPretrain, not a
@@ -35,15 +48,15 @@ class MeSAEPretrain(nn.Module):
     derivation and docs/adr/0007-routed-filter-gating-for-mesae.md for the routed/shared
     split.
 
-    Trains in two sequential stages (see docs/adr/0003-mesae-two-stage-masked-training.md
-    and CONTEXT.md: Tokenizer stage / Masked stage):
-    - Tokenizer stage: temporal/spatial mixing OFF (enable_temporal/enable_spatial not yet
-      called), no masking (bool_masked_pos=None) — encoder + StampBank train jointly on
-      patch-local features only, so the stamp dictionary can't be built from
-      already-context-leaked input.
-    - Masked stage: call enable_temporal(), enable_spatial(), freeze_stamps() (in that
-      order), then train with bool_masked_pos set — only embed/encoder/mask_token keep
-      learning, predicting masked patches through the now-frozen StampBank.
+    Trains in two phases of one run (train_pretrain.py; docs/adr/0013, CONTEXT.md:
+    Tokenizer stage / Masked stage):
+    - enter_tokenizer_phase(): only the pool_after_blocks blocks run, temporal mixing
+      only, no masking (bool_masked_pos=None) — encoder + StampBank train jointly on
+      single-channel features, so the stamp dictionary isn't built from
+      cross-channel-mixed input.
+    - enter_masked_phase(freeze_stamps): every block runs, spatial attention + coord
+      embedding on, bool_masked_pos set. StampBank optionally frozen.
+    The phase is a buffer, so any load_state_dict restores it (_restore_phase).
     """
     def __init__(
         self,
@@ -104,6 +117,8 @@ class MeSAEPretrain(nn.Module):
         self.n_routed_stamps = self.stamps.n_routed
         self.n_shared_stamps = self.stamps.n_shared
         self.stamps_frozen = False
+        self.register_buffer('masked_phase', torch.tensor(False))
+        self.register_load_state_dict_post_hook(_restore_phase)
 
         # EMA router-health buffers — same 3 metrics as MeFSQ's Router
         # (ema_stamp_router_entropy/ema_stamp_router_load_std/ema_stamp_gate_entropy), see
@@ -124,8 +139,7 @@ class MeSAEPretrain(nn.Module):
         """Coordinate embedding ONLY — each channel's token learns WHERE it is, with no
         cross-channel content mixing (that is enable_spatial's MHA half, below). Kept as
         a standalone manual/experimental toggle (no longer auto-called anywhere in the
-        training path — see MeSAETrainer.on_tokenizer_start's docstring for why: it
-        measurably did nothing during the Tokenizer stage, no matter how the embedding's
+        training path: it measurably did nothing during the Tokenizer stage, no matter how the embedding's
         own architecture was fixed, because per-channel content already differentiates
         channels enough for that stage's loss without it).
 
@@ -144,6 +158,22 @@ class MeSAEPretrain(nn.Module):
 
     def enable_temporal(self):
         self.encoder.enable_temporal()
+
+    def enter_tokenizer_phase(self):
+        self.masked_phase.fill_(False)
+        self.encoder.active_blocks = set(self.encoder.pool_after_blocks) or None
+        self.enable_temporal()
+
+    def enter_masked_phase(self, freeze_stamps=True):
+        """Freeze before enable_spatial: a frozen dictionary never sees mixed z. With
+        freeze_stamps=False it trains on mixed z, so per-stamp amp is no longer a
+        source topomap (aux_loss/mp_loss stay on — get_loss gates them on stamps_frozen)."""
+        self.masked_phase.fill_(True)
+        if freeze_stamps:
+            self.freeze_stamps()
+        self.encoder.active_blocks = None
+        self.enable_temporal()
+        self.enable_spatial()
 
     def freeze_stamps(self):
         """
@@ -469,7 +499,7 @@ class MeSAEPretrain(nn.Module):
 
         # Named (not index-generic anymore) so the log/dashboard keys read mse_patch/
         # mse_trial instead of mse_level_0/mse_level_1 — see MeSAETrainer.epoch_metrics
-        # / train_tokenizer.py/train_pretrain.py's getattr(model, '_last_pyramid_levels',
+        # / train_pretrain.py's getattr(model, '_last_pyramid_levels',
         # ...) and plugin.py's dashboard series (matched by the 'mse_' key prefix).
         self._last_pyramid_levels = {'patch': patch_loss.detach().item(), 'trial': trial_loss.detach().item()}
         return total, l_masked, l_unmasked

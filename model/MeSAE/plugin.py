@@ -55,7 +55,7 @@ def _run_reconstruction_sae(model, dataset, trial_idx, device):
 
 
 def build_model(bp, num_channels):
-    """bp: config['model_params']['MeSAE']['pretrain'] (or ['tokenizer'])."""
+    """bp: config['model_params']['MeSAE']['pretrain']."""
     sb = bp.get('stamp_bank', {})
     moe_ffn = bp.get('moe_ffn', {})
 
@@ -124,44 +124,6 @@ class MeSAETrainer(BaseTrainer):
         metrics['k_eff'] = out.k_eff.item() if hasattr(out.k_eff, 'item') else float(out.k_eff)
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
-
-    def on_tokenizer_start(self, model, logger=None):
-        """Override BaseTrainer's generic hook (which enables spatial+temporal
-        together): MeSAE's Tokenizer stage must train StampBank on patch-local,
-        SINGLE-CHANNEL content only. Enabling spatial mixing here would let the
-        encoder leak cross-channel signal into each (channel, patch) token before
-        StampBank ever sees it, defeating the point of per-channel stamps -- a "stamp"
-        would then just encode a mixed vector again, same failure mode flat tokens
-        were built to avoid. enable_temporal only (cross-patch, same-channel context
-        stays -- needed for the UNet pool/upsample low-frequency reconstruction path).
-
-        Coordinate embedding (enable_coord_embed) used to also fire here, gated by a
-        coord_embed_tokenizer config flag -- removed. Measured on a trained checkpoint:
-        99%+ cross-channel cosine similarity, i.e. it wasn't encoding position at all,
-        no matter how the embedding's own architecture was fixed (scale, then dropping
-        its bias). Root cause isn't capacity: per-channel content ALREADY differs
-        enough for StampBank's per-channel amp_i(z_c) to reconstruct without ever
-        needing position, so nothing in this stage's loss rewards learning it. Cross-
-        channel spatial attention (on_pretrain_start, below) is the stage where
-        position could actually matter -- attending across channels needs to know
-        where they are -- so coord embedding is deferred there too now (enable_spatial
-        already flips both switches, see MeSAEPretrain.enable_spatial)."""
-        if hasattr(model, 'enable_temporal'):
-            model.enable_temporal()
-        if logger:
-            logger.info("  [Tokenizer] temporal enabled, cross-channel attention OFF, "
-                        "coord embedding deferred to Pretrain (stamps stay single-channel)")
-
-    def on_pretrain_start(self, model, logger=None):
-        """freeze_stamps() first, then enable_spatial(): StampBank must already be
-        locked before cross-channel signal ever reaches it, so the frozen dictionary
-        never trains on (and can't be re-opened by) mixed content -- only the
-        transformer's masked-reconstruction prediction gets to use cross-channel
-        context from here on, not the stamps themselves."""
-        model.freeze_stamps()
-        model.enable_spatial()
-        if logger:
-            logger.info("  [Pretrain] StampBank frozen, spatial enabled (transformer now sees cross-channel context)")
 
 
 class MeSAEChecker(BaseEpochChecker):

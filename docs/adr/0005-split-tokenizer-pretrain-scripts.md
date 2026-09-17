@@ -1,3 +1,5 @@
+> **Note:** superseded by `docs/adr/0013-fuse-tokenizer-and-pretrain-into-one-run.md`.
+
 # Re-split train_tokenizer.py / train_pretrain.py
 
 `docs/adr/0003-mesae-two-stage-masked-training.md` merged the standalone tokenizer script

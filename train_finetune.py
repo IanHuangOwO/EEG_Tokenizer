@@ -44,8 +44,8 @@ def setup_logger(output_dir):
 
 class FinetuneCollate:
     """FinetuneDataset yields raw (x [C,T], coords [C,3], label, valid_channels [C], valid_length).
-    Patchify here via IO.preprocessing.slice_patches, the same helper PretrainDataset/
-    TokenizerDataset use, since the backbone expects [B,C,N,L].
+    Patchify here via IO.preprocessing.slice_patches, the same helper PretrainDataset
+    uses, since the backbone expects [B,C,N,L].
     valid_channels is passed through separately (backbone's own channel-attention pool masks
     zero-padded channels internally). pad_mask [B,N] (True=valid) covers only zero-padded
     trailing time (subjects shorter than the batch's max_T) so it doesn't get pooled into the

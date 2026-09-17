@@ -53,7 +53,7 @@ def _unpack_batch(batch, device):
 
 
 
-def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoch,
+def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoch, masked,
                      masked_mse_weight=1.0, unmasked_mse_weight=1.0,
                      **loss_hparams):
     model.train()
@@ -65,13 +65,17 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
 
     for batch_idx, batch in enumerate(pbar):
         x, coords, time_idx, bool_masked_pos, valid_channels = _unpack_batch(batch, device)
+        # Tokenizer phase: the dataset still generates masks, they're just not used. Must be
+        # None, not all-False — get_loss's None branch is what keeps aux_loss on.
+        if not masked:
+            bool_masked_pos = None
         optimizer.zero_grad()
 
         with torch.amp.autocast(device_type='cuda'):
             out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
             l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, masked_mse_weight,
-                                                                  unmasked_mse_weight, False, **loss_hparams)
-        # See train_tokenizer.py's copy of this guard and nonfinite_step_report:
+                                                                  unmasked_mse_weight, not masked, **loss_hparams)
+        # A non-finite loss must never reach backward (see nonfinite_step_report):
         # backwarding a non-finite loss can leave NaN parameters, which nothing recovers
         # from. update_diagnostics is skipped too — it folds `out` into EMA buffers.
         report = nonfinite_step_report(l_total, model, out)
@@ -117,7 +121,7 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
     return epoch_metrics
 
 
-def validate_one_epoch(model, trainer, data_loader, device,
+def validate_one_epoch(model, trainer, data_loader, device, masked,
                         masked_mse_weight=1.0, unmasked_mse_weight=1.0, **loss_hparams):
     model.eval()
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation",
@@ -128,11 +132,13 @@ def validate_one_epoch(model, trainer, data_loader, device,
     with torch.no_grad():
         for batch_idx, batch in enumerate(pbar):
             x, coords, time_idx, bool_masked_pos, valid_channels = _unpack_batch(batch, device)
+            if not masked:
+                bool_masked_pos = None
 
             with torch.amp.autocast(device_type='cuda'):
                 out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
                 l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, masked_mse_weight,
-                                                                      unmasked_mse_weight, False, **loss_hparams)
+                                                                      unmasked_mse_weight, not masked, **loss_hparams)
             trainer.update_diagnostics(model, out)
 
             totals["loss"]     += l_total.item()
@@ -160,9 +166,9 @@ def validate_one_epoch(model, trainer, data_loader, device,
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Masked Pretraining (MeFSQ or MeSAE, by training_params.pretrain.model_type) — '
-                                                   'loads a Tokenizer-stage checkpoint (train_tokenizer.py), freezes its VQ/SAE, '
-                                                   'and trains the encoder against masked reconstruction')
+    parser = argparse.ArgumentParser(description='MeSAE pretraining, one run, two phases: unmasked tokenizer phase '
+                                                   '(training_params.pretrain.tokenizer_epochs), then masked phase. '
+                                                   'See docs/adr/0013.')
     parser.add_argument('--config', type=str, default='config/config.json')
     args = parser.parse_args()
 
@@ -174,7 +180,7 @@ def main():
     model_name = train_params.get('model_name', 'default_run')
 
     base_output_dir = f"output/{model_name}"
-    checkpoint_dir  = os.path.join(base_output_dir, "pretrain")
+    checkpoint_dir  = os.path.join(base_output_dir, "checkpoint")
     artifact_dir    = os.path.join(base_output_dir, "artifacts")
     vis_dir         = os.path.join(base_output_dir, "visualization")
 
@@ -274,97 +280,24 @@ def main():
     logger.info(f"Initializing model for {Nc} channels (Run: {model_name})...")
     model = build_pretrain_from_config(config, mode='pretrain')
 
-    tokenizer_ckpt = train_params['tokenizer_checkpoint']
-    state = torch.load(tokenizer_ckpt, map_location='cpu')
-    # The Tokenizer stage can now run its own (e.g. shallower) encoder architecture --
-    # see model_params.<type>.tokenizer in config.json -- so its checkpoint's encoder/embed
-    # weights won't shape-match this Pretrain-stage model at all. Only the frozen VQ/SAE
-    # apparatus (filter_pool/sae/decoder/router for MeSAE, the Expert pools/router/fusion
-    # params for MeFSQ) is meant to carry over; everything else (embed/encoder/mask_token)
-    # trains fresh here anyway once on_pretrain_start freezes the former. Filtering to
-    # shape-matching keys only, rather than hardcoding submodule prefixes per model type,
-    # keeps this loader working for both without a model-type branch.
-    # encoder.*/mask_token are excluded outright, not just left to the shape filter: their
-    # per-tensor shapes (embed_dim, spatial_heads) are identical between the tokenizer and
-    # pretrain architecture blocks even when depth/pool_after_blocks differ, so shape
-    # matching alone would silently transplant e.g. Tokenizer's block-1 weights (trained
-    # already-pooled, since tokenizer pools after every block) into Pretrain's block-1
-    # (trained at full resolution, since pretrain only pools after block 2) -- same shape,
-    # wrong resolution context, worse than random init.
-    own_state = model.state_dict()
-    ckpt_state = state['model_state_dict']
-    to_load = {k: v for k, v in ckpt_state.items()
-               if k in own_state and own_state[k].shape == v.shape
-               and not k.startswith('encoder.') and k != 'mask_token'}
-    skipped = [k for k in ckpt_state if k not in to_load]
-    # A key the Pretrain model HAS but at a different shape is a config mismatch, not an
-    # architecture difference — the same parameter sized two ways — so it must be fatal.
-    # strict=False would otherwise drop it silently and on_pretrain_start would go on to
-    # FREEZE the randomly-initialized replacement, leaving the transformer to train for
-    # 50 epochs against a frozen random projection. Real instance: pretrain.embed_dim 50
-    # against a tokenizer trained at 100 dropped stamps.W_down_{routed,shared} and
-    # stamps.input_norm.* — the whole z->amp path — while every template loaded fine, so
-    # nothing downstream looked wrong. Keys MISSING from own_state entirely stay
-    # non-fatal: that is the intended cross-stage architecture freedom (depth,
-    # pool_after_blocks), which is also why encoder.*/mask_token are excluded above.
-    shape_mismatch = {k: (tuple(own_state[k].shape), tuple(v.shape)) for k, v in ckpt_state.items()
-                      if k in own_state and own_state[k].shape != v.shape
-                      and not k.startswith('encoder.') and k != 'mask_token'}
-    if shape_mismatch:
-        detail = "\n".join(f"    {k}: this model {a}, checkpoint {b}"
-                           for k, (a, b) in sorted(shape_mismatch.items()))
-        raise SystemExit(
-            f"Tokenizer checkpoint does not match this Pretrain architecture — "
-            f"{len(shape_mismatch)} tensor(s) differ in shape:\n{detail}\n"
-            f"  checkpoint: {tokenizer_ckpt}\n"
-            f"Make model_params.<model_type>.pretrain match the tokenizer stage that "
-            f"produced it (embed_dim above all — the frozen VQ/SAE apparatus consumes z "
-            f"of that width). enc_depth/pool_after_blocks may differ freely.")
-    missing, unexpected = model.load_state_dict(to_load, strict=False)
-    logger.info(f"Loaded Tokenizer-stage checkpoint from {tokenizer_ckpt} "
-                f"({len(to_load)} tensors loaded, {len(skipped)} skipped on shape/name mismatch: {skipped})")
+    tokenizer_epochs = train_params['tokenizer_epochs']
+    freeze_stamps    = train_params.get('freeze_stamps', True)
+    total_epochs     = train_params['epochs']
+    model.enter_tokenizer_phase()
     model.to(device)
-
-    # enable_spatial/enable_temporal are plain flags, not persisted in the state dict —
-    # re-enable them (same pattern as model/factory.py's build_finetune_from_config), then
-    # freeze the VQ/SAE apparatus the Tokenizer stage already trained.
-    trainer.on_tokenizer_start(model, logger=logger)
-    trainer.on_pretrain_start(model, logger=logger)
-
-    # ponytail: reverse the hook's freeze rather than threading a flag through every
-    # model's on_pretrain_start signature. Must run BEFORE optimizer_param_groups below,
-    # or the un-frozen params never enter the optimizer.
-    #
-    # freeze_stamps=false is an EXPERIMENT, not a tuning knob, and it changes three
-    # things at once:
-    #   1. the dictionary moves during masked training (the intended change);
-    #   2. aux_loss and mp_loss come back into the total — MeSAE.get_loss gates both on
-    #      `not stamps_frozen`, so they re-enable themselves. Left on deliberately: a
-    #      dictionary that is still learning needs its anti-collapse and residual-
-    #      ordering terms, exactly as in the Tokenizer stage.
-    #   3. the stamps now see cross-channel-MIXED z, because on_pretrain_start freezes
-    #      before enable_spatial() precisely to prevent that (see MeSAEPlugin's
-    #      on_pretrain_start docstring). StampBank's mixing-column premise — the [C]
-    #      amp vector for a stamp IS that source's topomap — assumes z_c is channel c's
-    #      own signal. After spatial attention it is not, so per-stamp topography stops
-    #      being interpretable even if recon MSE improves.
-    if not train_params.get('freeze_stamps', True):
-        if not hasattr(model, 'stamps'):
-            raise SystemExit("freeze_stamps=false is MeSAE-only (no model.stamps on this model_type).")
-        for p in model.stamps.parameters():
-            p.requires_grad_(True)
-        model.stamps_frozen = False
-        logger.warning("  [Pretrain] freeze_stamps=false — StampBank TRAINS through the "
-                       "Masked stage; aux_loss and mp_loss are back ON, and the stamps now "
-                       "see spatially-mixed z. Per-stamp topography is no longer a mixing column.")
+    logger.info(f"  [Tokenizer phase] epochs 1-{tokenizer_epochs}: blocks {sorted(model.encoder.pool_after_blocks)} "
+                f"only, temporal only, unmasked. Masked phase from epoch {tokenizer_epochs + 1}, "
+                f"freeze_stamps={freeze_stamps}")
 
     logger.info("Warming up with dummy pass...")
     dummy_batch = next(iter(train_loader))
     x, coords, time_idx, bool_masked_pos, valid_channels = _unpack_batch(dummy_batch, device)
     model.eval()
     with torch.no_grad():
-        model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
+        model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
 
+    # Built once, while every param is trainable: bypassed blocks and (later) frozen
+    # stamps just get grad=None, which AdamW skips.
     scaler    = torch.amp.GradScaler('cuda')
     optimizer = optim.AdamW(optimizer_param_groups(model, train_params['weight_decay']), lr=train_params['learning_rate'])
     cosine_t_max     = max(1, train_params['epochs'] - train_params['warmup_epochs'])
@@ -389,16 +322,23 @@ def main():
                     f"{mask_strategy.target_ratio} over {mask_strategy.ramp_epochs} epochs "
                     f"(step every {mask_strategy.step_every}), then switching to complementary")
 
-    best_val_loss  = float('inf')
-    total_epochs   = train_params['epochs']
-    logger.info(f"Starting {model_type} Pretraining ({total_epochs} epochs, masked)")
+    best_val_loss = float('inf')  # reset at the phase boundary: masked loss isn't comparable
+    logger.info(f"Starting {model_type} Pretraining ({total_epochs} epochs)")
 
     current_mask_state = None  # (ratio, multiplier) — tracks the last applied state
     for epoch in range(1, total_epochs + 1):
-        mask_strategy.set_epoch(epoch)
+        masked = epoch > tokenizer_epochs
+        if epoch == tokenizer_epochs + 1:
+            model.enter_masked_phase(freeze_stamps=freeze_stamps)
+            best_val_loss = float('inf')
+            logger.info(f"  [Masked phase] epoch {epoch}: all blocks, spatial attention + coord embedding on, "
+                        f"StampBank {'frozen' if freeze_stamps else 'TRAINING (aux/mp losses stay on)'}")
+        # Curriculum counts from the first masked epoch. Tokenizer-phase epochs keep the
+        # dataset's initial state (ramp start: random, 1x length) and ignore its masks.
+        mask_strategy.set_epoch(max(1, epoch - tokenizer_epochs))
         epoch_ratio = mask_strategy.effective_mask_ratio(mask_ratio)
         new_mask_state = (epoch_ratio, mask_strategy.multiplier)
-        if new_mask_state != current_mask_state:
+        if masked and new_mask_state != current_mask_state:
             train_dataset.set_masking(mask_strategy, epoch_ratio)
             val_dataset.set_masking(mask_strategy, epoch_ratio)
             # rebuild, don't just re-iterate: persistent_workers=True means worker
@@ -409,10 +349,10 @@ def main():
             logger.info(f"  [mask curriculum] epoch {epoch}: strategy={type(mask_strategy).__name__} ratio={epoch_ratio:.3f}")
             current_mask_state = new_mask_state
 
-        train_metrics = train_one_epoch(model, trainer, train_loader, optimizer, scaler, device, epoch,
+        train_metrics = train_one_epoch(model, trainer, train_loader, optimizer, scaler, device, epoch, masked,
                                         masked_mse_weight=masked_mse_weight, unmasked_mse_weight=unmasked_mse_weight,
                                         **loss_hparams)
-        val_metrics   = validate_one_epoch(model, trainer, val_loader, device,
+        val_metrics   = validate_one_epoch(model, trainer, val_loader, device, masked,
                                            masked_mse_weight=masked_mse_weight, unmasked_mse_weight=unmasked_mse_weight,
                                            **loss_hparams)
         scheduler.step()
@@ -420,7 +360,7 @@ def main():
         loss_keys = {'loss', 'masked', 'unmasked'}
         other_metrics = {k: v for k, v in train_metrics.items() if k not in loss_keys}
 
-        logging.info(f"--- Epoch {epoch}/{total_epochs} Summary ---")
+        logging.info(f"--- Epoch {epoch}/{total_epochs} ({'masked' if masked else 'tokenizer'}) Summary ---")
         logging.info(f"  [Train] " + " | ".join([f"{k}: {train_metrics.get(k, 0.0):.4f}" for k in ['loss', 'masked', 'unmasked']]))
         logging.info(f"  [Val]   " + " | ".join([f"{k}: {val_metrics.get(k, 0.0):.4f}"   for k in ['loss', 'masked', 'unmasked']]))
 
@@ -437,14 +377,15 @@ def main():
         # update again even while the model keeps genuinely improving within each step.
         # That leaves ONLY that early checkpoint on disk if training is later interrupted —
         # real instance: mesae_pretrain_v4 froze "best" at epoch 4/50, losing every epoch's
-        # progress after that when the run was stopped at epoch 32. last_pretrain.pth is the
+        # progress after that when the run was stopped at epoch 32. last.pth is the
         # insurance: whatever epoch you actually stopped at is always recoverable.
-        torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'last_pretrain.pth'))
+        torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'last.pth'))
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
-            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_pretrain.pth'))
-            logger.info("  > Saved Best Checkpoint")
+            # Tokenizer-phase best is overwritten by the first masked epoch (reset above).
+            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best.pth'))
+            logger.info(f"  > Saved Best Checkpoint ({'masked' if masked else 'tokenizer'} phase)")
 
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
         plotter.plot_pretrain()

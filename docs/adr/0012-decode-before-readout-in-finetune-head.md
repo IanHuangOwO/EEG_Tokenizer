@@ -193,6 +193,9 @@ ramp the mask). Merging optimizes the cost of a stage that has not been shown to
 Not worth the mechanism until stage 2 demonstrates a gain — which, with an MAE objective,
 it has not.
 
+*Amended 2026-09-17:* the merge was done anyway, for simplicity rather than accuracy —
+see `0013`.
+
 ## Decision
 
 **The finetune head decodes to signal space first, then extracts features.**
