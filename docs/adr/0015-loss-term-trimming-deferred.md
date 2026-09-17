@@ -92,8 +92,9 @@ neighbouring patches whose errors cancel.
 Test protocol, identical for every run so the runs compare:
 
 - **Data:** the small 7-dataset × 3-subject config from the v10 small runs.
-- **Schedule:** `epochs` 50 with `tokenizer_epochs` 10. The 25-epoch mask ramp then
-  ends with 15 epochs of full complementary masking.
+- **Schedule:** `epochs` 50 with `tokenizer_epochs` 10, then a 10-epoch mask ramp
+  (0.1 → 0.5, one step every 2 epochs), then 30 epochs of full complementary masking.
+  Complementary epochs run 2× the iterations, so this is the long part of the run.
 - **Plots:** `visualize_params.pretrain.every_n_epochs: "last"`, so snapshots render
   only at the final epoch. The reconstruction plots cost about 6 minutes per render.
 - **Reference:** the first small run on the weighted-mp code.
