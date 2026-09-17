@@ -6,7 +6,7 @@ loop has no if/elif model_type dispatch. See docs/adr/0004-model-plugin-base-cla
 class BaseTrainer:
     """One instance per model_type, stateless except for whatever the model itself holds."""
 
-    def compute_loss(self, model, x, out, mp, masked_mse_weight, unmasked_mse_weight, warmup, **hparams):
+    def compute_loss(self, model, x, out, mp, **hparams):
         """Returns (l_total, l_masked, l_unmasked). Pure loss math — does not mutate
         model state. See update_diagnostics for the per-step EMA side effect this used
         to carry."""

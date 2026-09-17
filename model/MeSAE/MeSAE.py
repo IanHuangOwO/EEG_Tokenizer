@@ -435,76 +435,63 @@ class MeSAEPretrain(nn.Module):
             quant_off_frac=out.quant_off_frac,
         )
 
-    def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None):
+    def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None,
+                    mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0):
         """Two-term recon loss, both plain time-domain MSE:
-        - patch: every raw patch against its own reconstruction, independent of the
-          other patches or their real position in the trial.
+        - patch: every raw patch against its own reconstruction.
         - trial: MSE on the REAL continuous trial, patches overlap-added back together
-          (see overlap_add_patches) instead of naively concatenated. Previously this
-          stitching only existed in the (non-differentiable) diagnostic display path
-          (model/MeSAE/plugin.py's _run_reconstruction_sae) — a plain reshape there
-          quietly duplicated every overlapped region and showed a visible seam in
-          recon wherever two patches' independent reconstructions of the same shared
-          moment disagreed. Same math here, but differentiable and inside the actual
-          loss: gradient reaches every patch through its real position in the trial,
-          which patch alone never gave it — this is the level a pooled/attended
-          representation needs real training pressure to serve well, not just the
-          *capacity* to serve it.
+          (overlap_add_patches), so gradient reaches every patch through its real
+          position in the trial. patch was once spectrally whitened, and a "window"
+          level existed between them; both dropped, see docs/adr/0011.
 
-        patch was once spectrally whitened; dropped, see docs/adr/0011.
+        Position weights (both terms): padded channels 0; in the masked phase masked
+        positions 1 and visible positions `unmasked_weight` (0 = standard MAE, loss on
+        masked patches only; 1 = every position counts equally). The trial term gets
+        the same weights overlap-added to samples. With bool_masked_pos=None (tokenizer
+        phase) every valid position is a target and unmasked_weight is unused.
 
-        The former window term (mean over the N axis into one "typical patch" shape,
-        not tied to any real point in time) is also dropped — trial now covers the
-        same "content that persists across the whole signal" role with an actual
-        physical timeline behind it, patch-local content is already patch's job, and
-        nothing was left in between that only window served.
-
-        masked/unmasked stay a plain time-domain DIAGNOSTIC split (not in `total`).
-        valid_channels: [B, C] bool — padded channels are excluded from every term.
+        Logged mse_patch/mse_trial stay the plain all-valid-position MSE, comparable
+        across phases whatever the weights. masked/unmasked are a diagnostic split.
+        Returns (weighted total, l_masked, l_unmasked).
         """
-        def _vmask_like(t):
-            if valid_channels is None:
-                return None
-            B, C = valid_channels.shape
-            return valid_channels.view(B, C, *([1] * (t.dim() - 2))).expand_as(t)
-
-        def _masked_mse(r, t):
-            vmask = _vmask_like(t)
-            if vmask is None:
-                return F.mse_loss(r, t)
-            return F.mse_loss(r[vmask].float(), t[vmask].float()) if vmask.any() else r.new_zeros(())
-
-        patch_loss = _masked_mse(recon.float(), x.float())
-
-        # Real continuous trial, patches overlap-added back together (not naively
-        # concatenated like the old display bug) — see this method's docstring and
-        # overlap_add_patches itself.
-        trial_recon = overlap_add_patches(recon.float(), self.patch_stride)  # [B, C, T]
-        trial_x     = overlap_add_patches(x.float(), self.patch_stride)      # [B, C, T]
-        trial_loss = _masked_mse(trial_recon, trial_x)
-
-        total = patch_loss + trial_loss
-
-        l_masked, l_unmasked = 1.0, patch_loss
+        B, C, N, L = x.shape
+        stride = self.patch_stride
+        recon, x = recon.float(), x.float()
+        valid = x.new_ones(B, C, 1, 1) if valid_channels is None \
+            else valid_channels.view(B, C, 1, 1).float()
+        valid = valid.expand(B, C, N, 1)
+        w = valid
         if bool_masked_pos is not None:
-            mask4 = bool_masked_pos.unsqueeze(-1).expand_as(x)
-            vmask = _vmask_like(x)
-            if vmask is not None:
-                unmasked = (~bool_masked_pos.unsqueeze(-1).expand_as(x)) & vmask
-                mask4 = mask4 & vmask
-            else:
-                unmasked = ~mask4
-            l_masked   = F.mse_loss(recon[mask4].float(),    x[mask4].float())    if mask4.any()    else recon.new_zeros(1).squeeze()
-            l_unmasked = F.mse_loss(recon[unmasked].float(), x[unmasked].float()) if unmasked.any() else recon.new_zeros(1).squeeze()
+            m = bool_masked_pos.unsqueeze(-1).float()  # [B, C, N, 1]
+            w = valid * (m + unmasked_weight * (1.0 - m))
 
-        # Named (not index-generic anymore) so the log/dashboard keys read mse_patch/
-        # mse_trial instead of mse_level_0/mse_level_1 — see MeSAETrainer.epoch_metrics
-        # / train_pretrain.py's getattr(model, '_last_pyramid_levels',
-        # ...) and plugin.py's dashboard series (matched by the 'mse_' key prefix).
-        self._last_pyramid_levels = {'patch': patch_loss.detach().item(), 'trial': trial_loss.detach().item()}
+        def wmean(err, wt):
+            wt = wt.expand_as(err)
+            s = wt.sum()
+            return (wt * err).sum() / s if s > 0 else err.new_zeros(())
+
+        def to_trial(wt):  # per-patch weight -> per-sample weight, same crossfade as recon
+            return overlap_add_patches(wt.expand(B, C, N, L), stride)
+
+        patch_err = (recon - x).pow(2)
+        trial_err = (overlap_add_patches(recon, stride) - overlap_add_patches(x, stride)).pow(2)  # [B, C, T]
+        total = mse_patch_weight * wmean(patch_err, w) + mse_trial_weight * wmean(trial_err, to_trial(w))
+
+        with torch.no_grad():
+            plain_patch = wmean(patch_err, valid)
+            plain_trial = wmean(trial_err, to_trial(valid))
+            l_masked, l_unmasked = 1.0, plain_patch
+            if bool_masked_pos is not None:
+                m = bool_masked_pos.unsqueeze(-1).float()
+                l_masked = wmean(patch_err, valid * m)
+                l_unmasked = wmean(patch_err, valid * (1.0 - m))
+        # Named so the log/dashboard keys read mse_patch/mse_trial (train_pretrain.py
+        # reads _last_pyramid_levels; plugin.py matches the 'mse_' prefix).
+        self._last_pyramid_levels = {'patch': plain_patch.item(), 'trial': plain_trial.item()}
         return total, l_masked, l_unmasked
 
-    def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03, hierarchical_mse_weight=1.0,
+    def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03,
+                 mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
                  mp_loss=None, mp_weight=0.0):
         """
@@ -515,10 +502,8 @@ class MeSAEPretrain(nn.Module):
         to the rest of the forward pass) but only added to total when mp_weight != 0,
         same "off by default, zero cost when off" convention as everything else here.
 
-        Reconstruction term is _recon_loss's two-term objective (plain time-domain
-        patch + trial MSE — see its docstring; kept the hierarchical_mse_weight
-        name/config key to avoid churning every config that sets it), scaled by
-        hierarchical_mse_weight.
+        Reconstruction term is _recon_loss's weighted patch + trial MSE (see its
+        docstring for mse_patch_weight / mse_trial_weight / unmasked_weight).
 
         Tokenizer stage (bool_masked_pos=None): plain full reconstruction, l_masked=1.0
         placeholder (nothing masked yet), aux_loss included so StampBank's dead-atom
@@ -541,9 +526,10 @@ class MeSAEPretrain(nn.Module):
         from the encoder, which keeps training through the Masked stage (freeze_stamps()
         never locks the encoder).
         """
-        recon_loss, l_masked, l_unmasked = self._recon_loss(
-            recon, x, bool_masked_pos, valid_channels=valid_channels)
-        total = hierarchical_mse_weight * recon_loss
+        total, l_masked, l_unmasked = self._recon_loss(
+            recon, x, bool_masked_pos, valid_channels=valid_channels,
+            mse_patch_weight=mse_patch_weight, mse_trial_weight=mse_trial_weight,
+            unmasked_weight=unmasked_weight)
 
         if bool_masked_pos is None or not self.stamps_frozen:
             total = total + aux_weight * aux_loss

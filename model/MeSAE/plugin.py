@@ -97,15 +97,18 @@ def build_model(bp, num_channels):
 
 
 class MeSAETrainer(BaseTrainer):
-    def compute_loss(self, model, x, out, mp, masked_mse_weight, unmasked_mse_weight, warmup, **hparams):
-        # masked_mse_weight/unmasked_mse_weight are computed generically by train_pretrain.py
-        # for every model type but MeSAE's loss no longer uses them — see get_loss.
+    def compute_loss(self, model, x, out, mp, **hparams):
+        if 'hierarchical_mse_weight' in hparams:
+            raise ValueError("loss.hierarchical_mse_weight was split into mse_patch_weight / "
+                             "mse_trial_weight (+ unmasked_weight), see MeSAE._recon_loss")
         aux_weight = hparams.get('aux_weight', 0.03)
-        hierarchical_mse_weight = hparams.get('hierarchical_mse_weight', 1.0)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         mp_weight = hparams.get('mp_weight', 0.0)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
-                               aux_weight=aux_weight, hierarchical_mse_weight=hierarchical_mse_weight,
+                               aux_weight=aux_weight,
+                               mse_patch_weight=hparams.get('mse_patch_weight', 1.0),
+                               mse_trial_weight=hparams.get('mse_trial_weight', 1.0),
+                               unmasked_weight=hparams.get('unmasked_weight', 1.0),
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
                                mp_loss=out.mp_loss, mp_weight=mp_weight)

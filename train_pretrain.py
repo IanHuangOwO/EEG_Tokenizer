@@ -54,7 +54,6 @@ def _unpack_batch(batch, device):
 
 
 def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoch, masked,
-                     masked_mse_weight=1.0, unmasked_mse_weight=1.0,
                      **loss_hparams):
     model.train()
     pbar = tqdm(data_loader, total=len(data_loader), desc=f"Epoch {epoch}",
@@ -73,8 +72,7 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
 
         with torch.amp.autocast(device_type='cuda'):
             out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
-            l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, masked_mse_weight,
-                                                                  unmasked_mse_weight, not masked, **loss_hparams)
+            l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, **loss_hparams)
         # A non-finite loss must never reach backward (see nonfinite_step_report):
         # backwarding a non-finite loss can leave NaN parameters, which nothing recovers
         # from. update_diagnostics is skipped too — it folds `out` into EMA buffers.
@@ -121,8 +119,7 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
     return epoch_metrics
 
 
-def validate_one_epoch(model, trainer, data_loader, device, masked,
-                        masked_mse_weight=1.0, unmasked_mse_weight=1.0, **loss_hparams):
+def validate_one_epoch(model, trainer, data_loader, device, masked, **loss_hparams):
     model.eval()
     pbar = tqdm(data_loader, total=len(data_loader), desc="Validation",
                 bar_format='{desc}: {percentage:3.0f}%|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
@@ -137,8 +134,7 @@ def validate_one_epoch(model, trainer, data_loader, device, masked,
 
             with torch.amp.autocast(device_type='cuda'):
                 out = model(x, coords, time_idx, bool_masked_pos=bool_masked_pos, valid_channels=valid_channels)
-                l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, masked_mse_weight,
-                                                                      unmasked_mse_weight, not masked, **loss_hparams)
+                l_total, l_masked, l_unmasked = trainer.compute_loss(model, x, out, bool_masked_pos, **loss_hparams)
             trainer.update_diagnostics(model, out)
 
             totals["loss"]     += l_total.item()
@@ -311,11 +307,8 @@ def main():
     strat_name  = pp.get('masking_strategy', 'random')
     mask_ratio  = 0.5 if strat_name in ('complementary', 'random_to_complementary') else pp.get(strat_name, {}).get('mask_ratio', 0.5)
     loss_params = config.get('model_params', {}).get(model_type, {}).get('pretrain', {}).get('loss', {})
-    masked_mse_weight   = loss_params.get('masked_mse_weight', (1.0 - mask_ratio) / mask_ratio)
-    unmasked_mse_weight = loss_params.get('unmasked_mse_weight', 1.0)
-    loss_hparams = {k: v for k, v in loss_params.items() if k not in ('masked_mse_weight', 'unmasked_mse_weight')}
-    logger.info(f"model_type={model_type}  mask_ratio={mask_ratio}  masked_mse_weight={masked_mse_weight:.4f}  "
-                f"unmasked_mse_weight={unmasked_mse_weight:.4f}  loss_hparams={loss_hparams}")
+    loss_hparams = dict(loss_params)
+    logger.info(f"model_type={model_type}  mask_ratio={mask_ratio}  loss_hparams={loss_hparams}")
     mask_strategy = build_masking_strategy_from_config(strat_name, pp)
     if strat_name == 'random_to_complementary':
         logger.info(f"  [mask curriculum] ramping random-mask ratio {mask_strategy.start_ratio} -> "
@@ -350,11 +343,8 @@ def main():
             current_mask_state = new_mask_state
 
         train_metrics = train_one_epoch(model, trainer, train_loader, optimizer, scaler, device, epoch, masked,
-                                        masked_mse_weight=masked_mse_weight, unmasked_mse_weight=unmasked_mse_weight,
                                         **loss_hparams)
-        val_metrics   = validate_one_epoch(model, trainer, val_loader, device, masked,
-                                           masked_mse_weight=masked_mse_weight, unmasked_mse_weight=unmasked_mse_weight,
-                                           **loss_hparams)
+        val_metrics   = validate_one_epoch(model, trainer, val_loader, device, masked, **loss_hparams)
         scheduler.step()
 
         loss_keys = {'loss', 'masked', 'unmasked'}

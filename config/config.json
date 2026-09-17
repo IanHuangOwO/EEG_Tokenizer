@@ -6,12 +6,7 @@
         "subject_to_use": [
           "1",
           "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8"
+          "3"
         ],
         "channels_to_use": [
           "all"
@@ -22,19 +17,7 @@
         "subject_to_use": [
           "16",
           "17",
-          "18",
-          "19",
-          "20",
-          "21",
-          "22",
-          "23",
-          "24",
-          "25",
-          "26",
-          "27",
-          "28",
-          "29",
-          "30"
+          "18"
         ],
         "channels_to_use": [
           "all"
@@ -45,16 +28,7 @@
         "subject_to_use": [
           "1",
           "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8",
-          "9",
-          "10",
-          "11",
-          "12"
+          "3"
         ],
         "channels_to_use": [
           "all"
@@ -65,12 +39,7 @@
         "subject_to_use": [
           "1",
           "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8"
+          "3"
         ],
         "channels_to_use": [
           "all"
@@ -81,11 +50,7 @@
         "subject_to_use": [
           "1",
           "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7"
+          "3"
         ],
         "channels_to_use": [
           "all"
@@ -96,20 +61,7 @@
         "subject_to_use": [
           "2",
           "6",
-          "7",
-          "11",
-          "12",
-          "13",
-          "14",
-          "16",
-          "17",
-          "18",
-          "20",
-          "21",
-          "22",
-          "23",
-          "24",
-          "26"
+          "7"
         ],
         "channels_to_use": [
           "all"
@@ -120,14 +72,7 @@
         "subject_to_use": [
           "1",
           "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8",
-          "9",
-          "10"
+          "3"
         ],
         "channels_to_use": [
           "all"
@@ -206,7 +151,9 @@
           "selection_mode": "topk"
         },
         "loss": {
-          "hierarchical_mse_weight": 1.0,
+          "mse_patch_weight": 1.0,
+          "mse_trial_weight": 1.0,
+          "unmasked_weight": 0.0,
           "ffn_lb_weight": 0.01,
           "aux_weight": 0.01,
           "mp_weight": 1.0
@@ -222,12 +169,12 @@
   "training_params": {
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_v10",
-      "tokenizer_epochs": 15,
+      "model_name": "mesae_v10_small",
+      "tokenizer_epochs": 10,
       "freeze_stamps": false,
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
-      "epochs": 50,
+      "epochs": 40,
       "warmup_epochs": 5,
       "batch_size": 16,
       "weight_decay": 0.01,
