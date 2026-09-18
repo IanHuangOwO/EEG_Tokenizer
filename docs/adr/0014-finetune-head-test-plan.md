@@ -564,36 +564,63 @@ Caveats:
 Changing the stamps only becomes relevant if relevant stamps turn out to span several
 bands. A band-selectivity constraint would then make attribution cleaner.
 
-## Protocol (experiment B)
+## Protocol
 
-- **Dataset:** BCICIV2a, `split_mode: intra_subject`. That is 9 per-subject models with
-  a class-stratified trial split, about 230 train / 58 val trials per subject.
+- **Dataset:** BCICIV2a, `split_mode: intra_subject` — 9 per-subject models, class-stratified.
 - **Backbone frozen.** Unfreezing is the last resort (ADR 0012).
-- **Reporting:**
-  - Per-subject accuracy and kappa.
-  - Paired t-test across the 9 subjects against the `raw` arm under the same pooling,
-    with a correction for multiple comparisons.
-  - Report the last-epoch value alongside best-val-acc (about 58 val trials makes
-    best-epoch selection optimistic).
+- **Splits:** A/B used one 80/20 split per subject (228 train / 60 val). **C uses 5-fold
+  CV per subject**, which makes head numbers comparable to the probe and shrinks the
+  noise that leaves ±0.05 non-significant at n = 9.
+- **Optimizer (all trained heads):** lr 1e-2 → 1e-3 cosine, 100 epochs, warmup 2,
+  dropout 0. The repo finetune defaults (lr 1e-3, 50 epochs, dropout 0.3) under-train a
+  linear head: 0.418 vs 0.495 on the same `raw` features.
+- **Reporting:** per-subject `balanced_acc` (equals accuracy on the balanced val sets)
+  and kappa; the headline number is each subject's mean over the last 10 epochs, with
+  best-val-epoch quoted separately as the optimistic reading; paired t-test across
+  subjects against the matching `raw` arm, corrected for multiple comparisons.
 - **`inter_subject` / LOSO numbers are reported separately**, never mixed with
   intra-subject numbers.
-- **Backbone:** `mesae_v10_small_uw01` for plumbing. Conclusions about the tokenizer need
-  the full-data run.
+- **Backbone:** `mesae_v10_small_uw01` for plumbing. Conclusions about the tokenizer
+  itself need the full-data run.
 
 ## Build order (each step has one acceptance check)
 
-1. **A (done):** the feature probe above.
-2. **B baseline, `raw` (done, passes):** concat + whole-trial MI block + linear.
-   - Must reach about the probe's `raw` (0.48–0.51). A miss is a wiring bug (band edges,
-     FFT length, valid_channels, split).
-3. **B baseline, `recon` (done, passes):** must be within noise of `raw`. A miss is a recon-path bug
-   (overlap-add, valid mask, phase flags).
-4. **B1 channel** on `raw` and `recon`. The spatial filter must beat step 2.
-5. **B2 time,** including the post-cue window and the `z_chan` nonlinearity variants.
-6. **B3 stamp** on `stamp_bandpow`.
-7. **Stamp attribution measure 4** (occlusion) with the best code-space head.
-8. **ERP block,** then **SSVEP** (the phase probe is done, see experiment C; it still
-   needs a learned filter to close the gap to raw PSDA).
+Done:
+
+1. **A — feature probe** (LDA, fixed pooling). `raw` 0.482, `recon` 0.490,
+   `stamp_bandpow` 0.454, `chan_mag` 0.359, `z_chan` 0.341.
+2. **B baseline `raw`** — 0.495, matches the probe: the head is wired correctly.
+3. **B baseline `recon`** — 0.486, within noise of `raw`: the recon path is lossless here.
+4. **B1 channel (spatial:8)** — about +0.05 on `raw` (0.547), `recon` (0.537) and
+   `stamp_bandpow` (0.522). Consistent, not significant at n = 9.
+5. **B feature arms** — `stamp_bandpow` −0.025 vs `raw` (not significant); `z_chan`
+   −0.10 and memorizing, `z_proj` 2 only partly helps (0.413, train 0.82).
+6. **C prerequisite — SSVEP phase advance** (`probes/phase_probe_beta.py`): present at
+   class level (circular agreement 0.949), weak per trial (0.109 vs raw PSDA 0.529).
+
+Next, in order:
+
+7. **C0 — induced branch only, flat time weights.** Must reproduce `stamp_bandpow`
+   spatial:8 (0.522). A miss is a wiring bug, not a design result.
+8. **C1 — learned time weights.** First test of "when"; the stamp analysis and the raw
+   beta lateralization both point at 0.5–2.5 s.
+9. **C2 — per-stamp features** instead of the two band sums.
+10. **C3 — phase advance (2c).**
+11. **Regime tests on the best of C0–C3:** few-shot (5/10/20/50 trials per class), LOSO,
+    then EEGMMIdb for statistical power. These decide whether the tokenizer is worth
+    anything over raw.
+12. **C4 — evoked branch (2b)**, then ERP on Inria and SSVEP on BETA against their own
+    raw baselines.
+13. **C5 — cross-stamp coupling (2d)**, which tests the 0.036 `stamp_bandpow` → `recon`
+    gap.
+14. **Stamp attribution measure 4** (occlusion) with the best code-space head, plus the
+    shared-stamp ablation and the Haufe topography check.
+
+Dropped from the earlier plan: **B2 (time) and B3 (stamp axis) as standalone runs** —
+they are C1/C2 inside the one head, which keeps the stamp axis instead of pooling it
+away first. The `z_chan` variants (per-patch nonlinearity before the mean, stronger
+regularization) stay open but are not on the critical path: the code arms are ahead of
+it by 0.10.
 
 ## Implementation notes
 
@@ -604,7 +631,9 @@ bands. A band-selectivity constraint would then make attribution cleaner.
   - `pool_time` (`trial | patch_mean | attention | window:lo-hi`),
   - `pool_stamp` (`energy | concat | linear | attention`).
 
-  Pooling is its own set of keys, so experiment B only ever edits one of them.
+  Pooling is its own set of keys, so a run only ever edits one of them. Experiment C
+  adds `pool_time` variants (low-rank learned weights) and the branch switches
+  (`induced`, `evoked`, `advance`, `coupling`).
 - **Data:** `FinetuneDataset` already yields the whole trial. The `raw` arm takes
   `[B,C,T]` directly; the other arms patchify through `FinetuneCollate`.
 - **Reconstruction:** decode inside `forward` with the backbone in eval mode under
