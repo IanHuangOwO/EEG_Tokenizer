@@ -294,7 +294,7 @@ def main():
 
     # Built once, while every param is trainable: bypassed blocks and (later) frozen
     # stamps just get grad=None, which AdamW skips.
-    scaler    = torch.amp.GradScaler('cuda')
+    scaler    = torch.cuda.amp.GradScaler()
     optimizer = optim.AdamW(optimizer_param_groups(model, train_params['weight_decay']), lr=train_params['learning_rate'])
     cosine_t_max     = max(1, train_params['epochs'] - train_params['warmup_epochs'])
     main_scheduler   = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cosine_t_max, eta_min=train_params['min_learning_rate'])
