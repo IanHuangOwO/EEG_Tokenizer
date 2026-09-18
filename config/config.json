@@ -223,7 +223,7 @@
   "training_params": {
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_v10_all_share",
+      "model_name": "mesae_v10_full_v2",
       "tokenizer_epochs": 10,
       "freeze_stamps": false,
       "learning_rate": 0.001,
