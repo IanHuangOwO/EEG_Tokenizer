@@ -248,8 +248,7 @@
       "weight_decay": 0.01,
       "device": "cuda",
       "split_mode": "intra_subject_cv",
-      "cv_folds": 5,
-      "train_val_split": 0.8
+      "cv_folds": 5
     },
     "visualize_params": {
       "cmap": "YlOrRd",
