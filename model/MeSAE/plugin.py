@@ -513,6 +513,8 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             cv = StratifiedKFold(n_splits=min(n_folds, int(counts.min())), shuffle=True, random_state=0)
             accs = {}
             for name, feats in (('routed', X[:, :n_routed]), ('shared', X[:, n_routed:]), ('both', X)):
+                if feats.shape[1] == 0:
+                    continue
                 clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000))
                 accs[name] = float(cross_val_score(clf, feats, y, cv=cv).mean())
 
