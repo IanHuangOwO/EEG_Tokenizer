@@ -305,70 +305,145 @@ Also found on the way (commit `fe969f6`):
 - **Padded channels went into the head at log(eps).** That pinned val to a single class
   until they were zeroed.
 
-## Experiment C — one head for every EEG paradigm (proposed)
+## Experiment C — one head for every EEG paradigm (proposed, revised after A and B)
 
 **Question.** One finetune approach for all EEG classification, which also answers
 *which stamp, at which time* carries the task information: a map over the patch (N) and
 stamp (S) axes.
 
-**Why the stamp code is the input, not encoder `z`:**
+### What A and B settled, and what they never varied
+
+Settled:
+
+- **Three inputs land within 0.03 of each other** once the channel filter is on: `raw`
+  0.547, `recon` 0.537, `stamp_bandpow` 0.522. The codes are not the bottleneck.
+- **Channel contrast is the only pooling choice tested so far that mattered:** about
+  +0.05 on all three inputs.
+- **Head size decides generalization:** 772-parameter heads generalize, 3884 memorize.
+  Every new feature has to fit that budget.
+- **Encoder `z` is the weak input** under a linear time-mean readout.
+
+Never varied — this is what C is actually for:
+
+1. **Time.** Every run in A and B collapsed the whole trial into one number per feature.
+   The stamp analysis found the 0.5–2.5 s window beats 0.5–4 s, and raw beta
+   lateralization is significant only early (0.5–2.5 s) and gone by 2.5–3.5 s. "When" is
+   untested and is the cheapest remaining factor.
+2. **Phase.** Every feature so far is power; `b` only ever enters through `a²+b²`. That
+   hides ERP deflections, SSVEP frequency, and — for MI too — **sub-bin frequency
+   resolution**: the phase advance locates a rhythm inside a stamp's 4 Hz bin, which is
+   where individual mu peaks differ between subjects and states.
+3. **Frequency resolution.** A and B reduce everything to two bands. Keeping the stamp
+   axis gives ~25 stamp-shaped bands. Untested whether that helps.
+4. **Cross-stamp structure.** `stamp_bandpow` drops the cross terms and sits 0.036 below
+   `recon` in the probe. That gap *is* the cross-stamp part.
+5. **Per-stamp features at all.** Everything so far summed the stamps away before the
+   classifier.
+
+Two blind spots that matter more than the head itself:
+
+6. **Within-subject with plenty of data is the regime where a foundation model has the
+   least to offer.** 228 training trials is enough for raw band power + LDA to be near
+   optimal. A **few-shot curve** (5/10/20/50 trials per class) against the same raw
+   baseline is a stronger test of the tokenizer than anything in A or B, and it is cheap.
+7. **Transfer was never tested.** Every number is a per-subject model. A shared
+   dictionary should pay off across subjects, where per-subject spatial filters do not
+   transfer. ADR 0012 puts cross-subject at 0.27–0.31 for every feature, which is exactly
+   why a real gain there would mean something.
+
+Method fix: A/B head runs used one 80/20 split per subject (60 val trials) while the
+probe used 5-fold CV, so 0.495 and 0.482 are not strictly comparable. C uses 5-fold CV
+per subject, which also shrinks the noise that leaves +0.05 non-significant at n = 9.
+
+### Why the stamp code is the input, not encoder `z`
 
 - **It carries the task information.** Band-weighted, it sits about 0.03 below raw under
-  both the LDA probe and a trained head. `z_chan` sits 0.08–0.10 below raw and
-  memorizes.
+  both the LDA probe and a trained head. `z_chan` sits 0.08–0.10 below raw and memorizes.
 - **Its per-channel values are physical.** Stamp s's contribution at channel ch,
   `a·D_s + b·H_s`, sums with the others into the reconstruction at that channel. So a
   signed spatial filter applied within each stamp is valid even though the v10 encoder
   mixed channels before the stamps, and its activation patterns are real topographies.
-  That is how channel information is captured without losing stamp identity: filter
-  channels inside each stamp, never pool stamps away first.
-- **It is complex-valued**, `c[n, ch, s] = a + i·b`. That makes it a time × channel ×
-  template decomposition, and each paradigm reads a different function of it:
-  - **Induced (MI, ERD/ERS):** `|u|²` after spatial filtering. This is what the
-    spatial:8 runs exploit.
-  - **Evoked (ERP):** the signed complex value at a latency, not its power.
-  - **Steady-state (SSVEP):** each patch's phase is measured from its own start, so a
-    stimulus at f advances by `2π·f·stride` per patch. A complex linear filter over
-    patches can match that and recover frequency far finer than the templates' 4 Hz
-    bins. Measured below.
+  That is how channel information is used without losing stamp identity: filter channels
+  inside each stamp, never pool stamps away first. B confirmed the filter works on the
+  code arm (+0.052).
+- **It is complex-valued**, `c[n, ch, s] = a + i·b`: a time × channel × template
+  decomposition, where each paradigm reads a different function of the same tensor.
 
-**Proposed head** (the same architecture for every task; only the weights and
-`num_classes` change):
+### Head
 
 ```
 c[n, ch, s]   dense a+ib, alive routed + shared stamps, valid channels
- 1. spatial:  K signed filters shared across stamps (applied to a and b alike)  -> u[n, k, s]
- 2a. induced: log sum_n w_ind[s, n] |u|^2        nonneg time weights             -> [k, s]
- 2b. evoked / steady-state: sum_n T[s, n] u      complex time filter -> re, im   -> [k, s, 2]
- 3. [k, s, 3] -> dropout -> linear(num_classes)
+ 1. spatial:   K signed filters per stamp (applied to a and b alike)      -> u[n, k, s]
+ 2a. induced:  log sum_n w[s,n] |u|^2          time weights, low-rank     -> [k, s]
+ 2b. evoked:   sum_n T[s,n] u                  complex time filter -> re, im
+ 2c. advance:  sum_n u[n+1] conj(u[n])         sub-bin frequency / rhythm steadiness
+ 2d. coupling: sum_n u[n,k,s1] conj(u[n,k,s2]) selected stamp pairs only (optional)
+ 3. features -> dropout -> linear(num_classes)
 ```
 
-**Size control is mandatory.** The naive version has K·S·3 ≈ 600 features for about 230
-trials, which is the memorization regime `z_chan` just showed. Two constraints:
+`2c` is new relative to the first draft: the BETA probe showed the advance is real, and
+it is not SSVEP-specific — it measures how steady a rhythm is and where it sits inside
+the band. `2d` is the only term that can close the `stamp_bandpow` → `recon` gap.
 
-- low-rank time weights: `w[s, n] = Σ_r p_r[s]·q_r[n]`, r = 1–2;
-- a group penalty over stamps, so the head selects few stamps. That selection is also
-  the interpretable output.
+**Size control is mandatory.** The naive version has K·S·3 ≈ 600 features for ~230
+trials, the regime where `z_chan` hit train 0.99 / val 0.41. Two constraints:
 
-The target is about 1k parameters, like the heads above.
+- low-rank time weights, `w[s,n] = Σ_r p_r[s]·q_r[n]`, r = 1–2;
+- a group penalty over stamps, so the head keeps few stamps — that selection is also the
+  interpretable output.
 
-**Interpretable outputs:**
+Target ~1k parameters, like the heads that generalized.
 
-- **time × stamp map:** `|T[s, n]|` and `w_ind[s, n]`, weighted by the classifier.
-- **topographies:** Haufe activation patterns of the K filters, plus which stamps use
-  each filter.
-- **induced vs evoked, per stamp:** whether it contributes through branch 2a or 2b.
+### Ablation ladder (one factor per run)
 
-**Validation:**
+| step | adds | must beat |
+|---|---|---|
+| C0 | induced only, flat time weights | reproduce `stamp_bandpow` spatial:8 = 0.522 (wiring check) |
+| C1 | learned time weights | C0 — tests "when" |
+| C2 | per-stamp features instead of band sums | C1 — tests frequency resolution |
+| C3 | phase advance (2c) | C2 — tests sub-bin frequency |
+| C4 | evoked branch (2b) | needed for ERP; likely neutral on MI |
+| C5 | cross-stamp coupling (2d) | tests the 0.036 recon gap |
 
-- **Reduction check:** with 2b off and uniform time weights, the head must reproduce
-  `stamp_bandpow` spatial:8 on BCICIV2a.
-- **Paradigms:** then each paradigm against its own `raw` baseline — MI (BCICIV2a,
-  EEGMMIdb), ERP (Inria), SSVEP (BETA).
-- **Stated risks:**
-  - shared stamps (about 70% of reconstruction energy) may dominate the importance map;
-  - the stamp ERD sign disagreed with raw, so read *which stamp, when*, not the
-    direction of the change.
+### Regime tests (on the best of C0–C3)
+
+| test | why |
+|---|---|
+| few-shot: 5 / 10 / 20 / 50 trials per class | where a foundation model should win |
+| leave-one-subject-out | transfer, the other place it should win |
+| EEGMMIdb (109 subjects) | statistical power; 9 subjects cannot settle ±0.05 |
+| Inria (ERP), BETA (SSVEP) | universality, each against its own raw baseline |
+
+Plus two ablations for the known confounds: run once with shared stamps excluded (they
+hold ~70% of reconstruction energy and are selected in nearly every patch), and inspect
+the Haufe patterns to check the filters look like motor topographies rather than noise.
+
+### Interpretable outputs
+
+- **time × stamp map:** `|T[s,n]|` and `w[s,n]`, weighted by the classifier.
+- **topographies:** Haufe activation patterns of the K filters, and which stamps use each.
+- **induced vs evoked vs steady, per stamp:** which branch the classifier leans on.
+
+### Predictions (recorded so they can be wrong)
+
+- C1 and C2 give small MI gains, about +0.02 to +0.04.
+- C3 helps SSVEP substantially, MI slightly.
+- **Within-subject with full data, the codes will not beat raw** — they stay within ~0.03,
+  as A and B already show.
+- **If the tokenizer wins anywhere, it is few-shot and cross-subject.** If it loses there
+  too, the honest conclusion is that this is a good codec and not yet a foundation model,
+  and the next lever is the pretraining objective (ADR 0015) or unfreezing the backbone,
+  not the head.
+
+### Risks
+
+- The SSVEP gap is large: the fixed readout gets 0.109 against raw PSDA 0.529, so the
+  learned filter has a lot to close. This is the step most likely to fail.
+- Shared stamps may dominate the importance map.
+- Stamp power's ERD *sign* disagrees with raw, so read *which stamp, when*, never the
+  direction of the change.
+- The backbone is `mesae_v10_small_uw01` (3 subjects per dataset); any conclusion about
+  the tokenizer itself needs the full-data run.
 
 ### Prerequisite result — SSVEP phase advance (BETA_4s)
 
