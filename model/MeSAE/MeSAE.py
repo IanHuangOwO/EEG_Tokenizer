@@ -714,7 +714,12 @@ class MeSAEFeatureHead(nn.Module):
                                  see ADR 0014), no decoding
                   stamp_induced  ADR 0014 experiment C, step C0: per-(channel-filter, stamp)
                                  log power, flat (uniform) time weights -- same amp tensor as
-                                 stamp_bandpow, kept per-stamp instead of band-collapsed
+                                 stamp_bandpow, kept per-stamp instead of band-collapsed. The
+                                 pre-log per-stamp powers span the same information
+                                 stamp_bandpow's band-summed powers do, but the linear readout
+                                 here runs on log-power, so it is NOT a strict superset of
+                                 stamp_bandpow's readout -- log doesn't distribute over the
+                                 band sum (log(sum w*p) != sum w*log(p))
                   z_chan         encoder z, shared Linear(D, z_proj), time-mean per channel
     pool_channel: concat | spatial:K   (signed Linear(C, K), no softmax. For stamp_bandpow
                   it mixes each stamp's (a, b) across channels before the power, the
@@ -844,9 +849,11 @@ class MeSAEFeatureHead(nn.Module):
             elif self.input == 'stamp_induced':
                 # C0 (ADR 0014 experiment C): spatial filter (step 1) + induced branch with
                 # flat time weights (step 2a, w[s,n] = 1/N) -- log mean power per (filter,
-                # stamp), no band collapse. Wiring check: must land near stamp_bandpow
-                # spatial:8's 0.522, since summing this over bands via E_D/E_H would give
-                # back exactly the stamp_bandpow feature.
+                # stamp), no band collapse. The pre-log per-stamp powers span the same
+                # information stamp_bandpow's band-summed powers do (via E_D/E_H), but this
+                # readout is on log-power, which is NOT a strict superset of stamp_bandpow's
+                # readout -- log doesn't distribute over the band sum, so this is not
+                # guaranteed to reproduce stamp_bandpow spatial:8's 0.522 exactly (ADR 0014).
                 a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
                 feat = torch.log((a.pow(2) + b.pow(2)).mean(1) + 1e-12)                      # [B, K, S]
             else:
