@@ -712,6 +712,9 @@ class MeSAEFeatureHead(nn.Module):
                   stamp_bandpow  per-patch dense stamp amps (alive routed + shared),
                                  band energy via each template's spectrum (exact per stamp,
                                  see ADR 0014), no decoding
+                  stamp_induced  ADR 0014 experiment C, step C0: per-(channel-filter, stamp)
+                                 log power, flat (uniform) time weights -- same amp tensor as
+                                 stamp_bandpow, kept per-stamp instead of band-collapsed
                   z_chan         encoder z, shared Linear(D, z_proj), time-mean per channel
     pool_channel: concat | spatial:K   (signed Linear(C, K), no softmax. For stamp_bandpow
                   it mixes each stamp's (a, b) across channels before the power, the
@@ -734,13 +737,18 @@ class MeSAEFeatureHead(nn.Module):
             raise NotImplementedError(f"task={task!r}: only 'mi' is built (ADR 0014 build order)")
         if not freeze_backbone:
             raise NotImplementedError("MeSAEFeatureHead assumes a frozen backbone (ADR 0012)")
-        if input not in ('raw', 'recon', 'stamp_bandpow', 'z_chan'):
+        if input not in ('raw', 'recon', 'stamp_bandpow', 'stamp_induced', 'z_chan'):
             raise ValueError(f"unknown input {input!r}")
         self.backbone, self.input, self.fs = backbone, input, float(sample_freq)
         for p in backbone.parameters():
             p.requires_grad_(False)
 
         C = num_channels
+        if input in ('stamp_bandpow', 'stamp_induced'):
+            st = backbone.stamps
+            alive = (st.fire_ema >= st.dead_threshold).nonzero().flatten()
+            keep = torch.cat([alive, torch.arange(st.n_routed, st.n_stamps, device=alive.device)])
+            self.register_buffer('keep', keep)
         K = C if pool_channel == 'concat' else int(pool_channel.split(':')[1])
         self.window = None if pool_time == 'trial' else \
             tuple(float(v) for v in pool_time.split(':')[1].split('-'))
@@ -750,6 +758,8 @@ class MeSAEFeatureHead(nn.Module):
         if input == 'z_chan':
             head['z_proj'] = nn.Linear(backbone.head_dim, z_proj)
             n_feat = K * z_proj
+        elif input == 'stamp_induced':
+            n_feat = K * len(keep)
         else:
             n_feat = K * len(self.BANDS)
         # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
@@ -757,9 +767,6 @@ class MeSAEFeatureHead(nn.Module):
         self.head = nn.ModuleDict(head)
 
         if input == 'stamp_bandpow':
-            st = backbone.stamps
-            alive = (st.fire_ema >= st.dead_threshold).nonzero().flatten()
-            keep = torch.cat([alive, torch.arange(st.n_routed, st.n_stamps, device=alive.device)])
             with torch.no_grad():
                 D_tab, H_tab = (t[keep].float() for t in st._template_tables())
                 fr = torch.fft.rfftfreq(D_tab.shape[-1], 1.0 / self.fs)
@@ -767,7 +774,6 @@ class MeSAEFeatureHead(nn.Module):
                 spec = lambda T: torch.stack([torch.fft.rfft(T, dim=-1).abs().pow(2)[:, m].sum(-1) for m in sel], -1)
                 self.register_buffer('E_D', spec(D_tab))                   # [S, bands]
                 self.register_buffer('E_H', spec(H_tab))
-            self.register_buffer('keep', keep)
 
     def train(self, mode=True):
         super().train(mode)
@@ -813,7 +819,7 @@ class MeSAEFeatureHead(nn.Module):
             else:
                 z, _ = bb.stage_features(x, coords, time_idx=time_idx)                # [B, C, N, D]
                 pk = self._patch_keep(N, x.device)
-                if self.input == 'stamp_bandpow':
+                if self.input in ('stamp_bandpow', 'stamp_induced'):
                     zg = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
                     xg = x.permute(0, 2, 1, 3).reshape(B * N, C, L)
                     amp = bb.stamps.dense_amp(zg, rms=xg.float().pow(2).mean(-1, keepdim=True).sqrt())
@@ -835,6 +841,14 @@ class MeSAEFeatureHead(nn.Module):
                 pw = torch.einsum('bnks,sq->bkq', a.pow(2), self.E_D) \
                     + torch.einsum('bnks,sq->bkq', b.pow(2), self.E_H)
                 feat = torch.log(pw / a.shape[1] + 1e-12)                                    # [B, K, bands]
+            elif self.input == 'stamp_induced':
+                # C0 (ADR 0014 experiment C): spatial filter (step 1) + induced branch with
+                # flat time weights (step 2a, w[s,n] = 1/N) -- log mean power per (filter,
+                # stamp), no band collapse. Wiring check: must land near stamp_bandpow
+                # spatial:8's 0.522, since summing this over bands via E_D/E_H would give
+                # back exactly the stamp_bandpow feature.
+                a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
+                feat = torch.log((a.pow(2) + b.pow(2)).mean(1) + 1e-12)                      # [B, K, S]
             else:
                 zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
                 feat = self._mix(zp, 1)                                                      # [B, K, P]
