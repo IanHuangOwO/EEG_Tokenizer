@@ -408,7 +408,7 @@ def _run_intra_subject_cv(config, dataset_params, base_output_dir, artifact_dir,
         if not valid:
             logger.info(f"  {tag}: no valid epoch"); continue
         means = {k: statistics.mean(f['val'][k] for f in valid) for k in metric_keys}
-        logger.info(f"  {tag}: " + " | ".join(f"{k}={v:.4f}" for k in metric_keys)
+        logger.info(f"  {tag}: " + " | ".join(f"{k}={means[k]:.4f}" for k in metric_keys)
                     + f" ({len(valid)}/{len(folds)} folds)")
         for k in metric_keys:
             per_metric[k].append(means[k])
