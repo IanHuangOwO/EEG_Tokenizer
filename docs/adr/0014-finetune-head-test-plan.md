@@ -1,9 +1,11 @@
 # 0014 — Finetune head: what to expose, how to pool, compared to raw (draft)
 
-Status: Proposed (draft). Experiment A has partial results; experiment B has its
-baseline (steps 2-3 pass). Implements the direction decided in ADR 0012. Loss trimming (ADR 0015) waits
-until this is settled.
-Date: 2026-09-17
+Status: Proposed (draft). Experiments A (features) and B (pooling) are measured on
+`mesae_v10_small_uw01`; experiment C (one head for every paradigm) is specified, with its
+SSVEP prerequisite measured, and not built. Implements the direction decided in ADR 0012.
+Loss trimming (ADR 0015) waits until this is settled.
+Date: 2026-09-17 (results through 2026-09-18)
+Scripts: `probes/` (see its README)
 
 ## Questions
 
@@ -515,7 +517,8 @@ bands. A band-selectivity constraint would then make attribution cleaner.
 5. **B2 time,** including the post-cue window and the `z_chan` nonlinearity variants.
 6. **B3 stamp** on `stamp_bandpow`.
 7. **Stamp attribution measure 4** (occlusion) with the best code-space head.
-8. **ERP block,** then **SSVEP** (only after the phase-coherence probe).
+8. **ERP block,** then **SSVEP** (the phase probe is done, see experiment C; it still
+   needs a learned filter to close the gap to raw PSDA).
 
 ## Implementation notes
 
@@ -543,6 +546,8 @@ bands. A band-selectivity constraint would then make attribution cleaner.
 - **Stamp band-selectivity:** read the full spectra, especially the shared stamps (63).
 - **Stamp dominance:** why about 7 routed stamps are selected almost always. Check this
   in the full-data run.
-- **SSVEP phase-coherence probe:** not run yet.
-- **Probe scripts are in the session scratchpad** (`probe_v10.py`,
-  `stamp_relevance.py`). Move them into the repo if they are kept.
+- **SSVEP phase advance:** measured (experiment C). Still open: the same readout on
+  `raw`/`recon`, and stimulus-locked ITC per class.
+- **Probe scripts live in `probes/`** (`probe_v10.py`, `stamp_relevance.py`,
+  `phase_probe_beta.py`, `ft_summary.py`); their feature caches are under
+  `output/<run>/probes/`.
