@@ -136,7 +136,11 @@ Subject-level train/val split is done by shuffling subject IDs (seed 42) at `tra
 
 ### Issue tracker
 
-Issues tracked in GitHub Issues (IanHuangOwO/CNE_Lab-NeuroRVQ) via `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues tracked in GitHub Issues (IanHuangOwO/EEG_Tokenizer) via `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
