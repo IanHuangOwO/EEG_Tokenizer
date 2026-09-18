@@ -495,7 +495,7 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     freeze_backbone = config['model_params'][model_type].get('finetune', {}).get('freeze_backbone', False)
     model.to(device)
 
-    scaler = torch.amp.GradScaler('cuda')
+    scaler = torch.cuda.amp.GradScaler()
     # backbone_lr_mult: unfrozen backbone shares gradients with a head that has orders of
     # magnitude fewer params and far less signal-to-noise (few subjects) — full-speed backbone
     # updates memorize per-subject artifacts within a handful of epochs (see finetune log:
