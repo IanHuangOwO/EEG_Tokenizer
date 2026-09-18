@@ -601,7 +601,12 @@ Done:
 Next, in order:
 
 7. **C0 — induced branch only, flat time weights.** Must reproduce `stamp_bandpow`
-   spatial:8 (0.522). A miss is a wiring bug, not a design result.
+   spatial:8 (0.522). A miss is a wiring bug, not a design result. **Attempted, not
+   passed:** `intra_subject_cv`, 9 subjects × 5-fold, tail-mean balanced_acc **0.456** —
+   a miss, not noise: 7 of 9 subjects fall below 0.522, not scattered evenly around it.
+   Cause not diagnosed (`stamp_induced` and the `intra_subject_cv` protocol both changed
+   from the B baseline at once); C1–C5 stay blocked until this is resolved. Per-subject/
+   per-fold numbers: `.superpowers/sdd/2026-09-19-experiment-c-c0/task-3-report.md`.
 8. **C1 — learned time weights.** First test of "when"; the stamp analysis and the raw
    beta lateralization both point at 0.5–2.5 s.
 9. **C2 — per-stamp features** instead of the two band sums.
