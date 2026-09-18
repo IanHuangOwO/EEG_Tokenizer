@@ -600,13 +600,59 @@ Done:
 
 Next, in order:
 
-7. **C0 — induced branch only, flat time weights.** Must reproduce `stamp_bandpow`
-   spatial:8 (0.522). A miss is a wiring bug, not a design result. **Attempted, not
-   passed:** `intra_subject_cv`, 9 subjects × 5-fold, tail-mean balanced_acc **0.456** —
-   a miss, not noise: 7 of 9 subjects fall below 0.522, not scattered evenly around it.
-   Cause not diagnosed (`stamp_induced` and the `intra_subject_cv` protocol both changed
-   from the B baseline at once); C1–C5 stay blocked until this is resolved. Per-subject/
-   per-fold numbers: `.superpowers/sdd/2026-09-19-experiment-c-c0/task-3-report.md`.
+7. **C0 — induced branch only, flat time weights.** Original acceptance check: must
+   reproduce `stamp_bandpow` spatial:8 (0.522), a miss being "a wiring bug, not a design
+   result." **Attempted, not passed:** `intra_subject_cv`, 9 subjects × 5-fold, tail-mean
+   balanced_acc **0.456** — a miss, not noise: 7 of 9 subjects fall below 0.522, not
+   scattered evenly around it. Per-subject tail means: S1 0.458, S2 0.468, S3 0.486,
+   S4 0.396, S5 0.424, S6 0.328, S7 0.532, S8 0.572, S9 0.440.
+
+   A final review dug into the miss and found the "wiring bug" framing itself was wrong,
+   on three counts:
+
+   - `stamp_induced` is not under-capacity relative to `stamp_bandpow` here — it's
+     *over*-capacity. Its feature width is `K * len(alive_stamps)` = 8 filters × 25
+     stamps (21 alive routed + 4 shared) = **200 features**, against `stamp_bandpow`'s
+     `K * len(BANDS)` = 8 × 2 = **16 features** — a 12.5x widening, trained on 230
+     trials/fold with `dropout: 0`, `weight_decay: 0.01` (hyperparameters tuned in
+     experiment B for the 16-feature head, never revisited for this one).
+   - The training log shows textbook overfitting, not a wiring failure: final-epoch train
+     `balanced_acc` reaches **1.000** (vs. B's `stamp_bandpow spatial:8` run's final train
+     `balanced_acc` of **0.79**), while val loss rises across the run instead of settling.
+   - C0's best-single-epoch val mean is **0.527** — essentially equal to the 0.522 target.
+     The feature itself carries the same class-relevant information `stamp_bandpow` does;
+     the entire 0.066 gap in the tail (last-10-epoch) metric is the overfitting tail, not
+     a missing signal.
+
+   The acceptance criterion's assumed equivalence was also mathematically wrong,
+   independent of how well this run trained. The plan (and a comment/docstring in
+   `model/MeSAE/MeSAE.py`) claimed summing `stamp_induced`'s per-stamp powers over each
+   band via the template energy tables (`E_D`/`E_H`) "would give back exactly the
+   `stamp_bandpow` feature." False once the `log` is accounted for: `stamp_induced`
+   computes `log(power)` per stamp before any band-summing could happen, and
+   `log(sum_s w_s * p_s) != sum_s w_s * log(p_s)` in general — log doesn't distribute over
+   a weighted sum. Even a perfectly-implemented, perfectly-trained `stamp_induced` head
+   was never guaranteed to reproduce `stamp_bandpow`'s exact number; the two features are
+   related but not nested/equivalent, so "a miss is a wiring bug" was never a valid test
+   design.
+
+   **Net:** the evidence points at head capacity/regularization mismatch, not a wiring
+   bug. Still not marked done — whether `stamp_induced` matches `stamp_bandpow` once
+   properly regularized is an open question. Recommended next steps, not yet run:
+
+   (a) Re-run the existing `stamp_bandpow spatial:8` config under `split_mode:
+   intra_subject_cv` (no code change, just a config swap) as a protocol-only control, to
+   confirm the CV-vs-80/20 split change alone isn't the cause — predicted to land near
+   0.52, since train-set size is identical between the two protocols (230 trials either
+   way).
+
+   (b) Re-run C0 (`stamp_induced`) with regularization matched to its larger 200-feature
+   width (non-zero dropout, and/or stronger weight decay, and/or fewer epochs/early
+   stopping) before concluding anything about `stamp_induced` as a feature.
+
+   C1–C5 stay blocked until this is resolved. Full per-subject/per-fold numbers:
+   `.superpowers/sdd/2026-09-19-experiment-c-c0/task-3-report.md` (gitignored, run-local).
+
 8. **C1 — learned time weights.** First test of "when"; the stamp analysis and the raw
    beta lateralization both point at 0.5–2.5 s.
 9. **C2 — per-stamp features** instead of the two band sums.
