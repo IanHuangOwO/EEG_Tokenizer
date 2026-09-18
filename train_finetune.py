@@ -294,6 +294,25 @@ def _intra_subject_split(dataset, subject, split_ratio, seed=42):
     return Subset(dataset, sorted(train_idx)), Subset(dataset, sorted(val_idx))
 
 
+def _intra_subject_cv_splits(dataset, subject, n_folds=5, seed=42):
+    """One subject's own trials, stratified into n_folds train/val Subset pairs
+    (sklearn StratifiedKFold — same balance guarantee _intra_subject_split's
+    per-class split gives, but partitioning instead of one fixed holdout)."""
+    from sklearn.model_selection import StratifiedKFold
+    base = dataset.base_dataset
+    subjects = base.subject_data.numpy()
+    labels = base.labels.numpy()
+    idx = np.flatnonzero(subjects == subject)
+    y = labels[idx]
+    skf = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=seed)
+    folds = []
+    for train_pos, val_pos in skf.split(idx, y):
+        train_idx = sorted(idx[train_pos].tolist())
+        val_idx = sorted(idx[val_pos].tolist())
+        folds.append((Subset(dataset, train_idx), Subset(dataset, val_idx)))
+    return folds
+
+
 def _run_intra_subject(config, dataset_params, base_output_dir, artifact_dir, logger, patch_len,
                         split_ratio):
     """INTRA-subject: one model PER SUBJECT, that subject's own trials split by class.
@@ -352,6 +371,59 @@ def _run_intra_subject(config, dataset_params, base_output_dir, artifact_dir, lo
     with open(path, 'w') as f:
         json.dump(summary, f, indent=2)
     logger.info(f"intra-subject summary written to {path}")
+
+
+def _run_intra_subject_cv(config, dataset_params, base_output_dir, artifact_dir, logger,
+                           patch_len, n_folds=5):
+    """5-fold CV per subject (ADR 0014 experiment C protocol) — replaces experiment B's
+    one 80/20 split so head numbers are comparable to probe_v10.py's 5-fold LDA and the
+    +/-0.05 gaps B left non-significant at n=9 shrink."""
+    ds_name, ds_args = next(iter(dataset_params.items()))
+    full = build_dataset_from_config(copy.deepcopy(config), transform=None, mode='finetune')
+    subjects = sorted(set(full.base_dataset.subject_data.numpy().tolist()))
+    logger.info(f"INTRA-subject CV: {len(subjects)} subjects x {n_folds} folds ({ds_name})")
+
+    per_subject_tail = {}
+    for s in subjects:
+        folds = _intra_subject_cv_splits(full, s, n_folds=n_folds)
+        fold_metrics = []
+        for k, (tr, va) in enumerate(folds):
+            fold_tag = f"{ds_name}_f{k}_S{s}"
+            logger.info(f"===== intra-subject-cv {fold_tag}: train={len(tr)} val={len(va)} =====")
+            ck = os.path.join(base_output_dir, "finetune", f"fold{k}_subj_{s}")
+            vz = os.path.join(base_output_dir, "visualization", f"fold{k}_subj_{s}")
+            os.makedirs(ck, exist_ok=True); os.makedirs(vz, exist_ok=True)
+            best = run_training_loop(config, tr, va, ck, vz, artifact_dir, logger,
+                                      patch_len, fold_tag=fold_tag)
+            fold_metrics.append(best)
+        per_subject_tail[f"{ds_name}_S{s}"] = fold_metrics
+
+    logger.info("===== INTRA-subject-CV Summary (mean over folds' best-val-acc epoch) =====")
+    metric_keys = ['acc', 'f1', 'f1_weighted', 'balanced_acc', 'kappa']
+    per_metric = {k: [] for k in metric_keys}
+    summary = {'subjects': {}, 'aggregate': {}}
+    for tag, folds in per_subject_tail.items():
+        valid = [f for f in folds if f is not None]
+        summary['subjects'][tag] = folds
+        if not valid:
+            logger.info(f"  {tag}: no valid epoch"); continue
+        means = {k: statistics.mean(f['val'][k] for f in valid) for k in metric_keys}
+        logger.info(f"  {tag}: " + " | ".join(f"{k}={v:.4f}" for k in metric_keys)
+                    + f" ({len(valid)}/{len(folds)} folds)")
+        for k in metric_keys:
+            per_metric[k].append(means[k])
+
+    for k in metric_keys:
+        vals = per_metric[k]
+        if vals:
+            mean = statistics.mean(vals)
+            std = statistics.pstdev(vals) if len(vals) > 1 else 0.0
+            summary['aggregate'][k] = {'mean': mean, 'std': std}
+            logger.info(f"  MEAN {k}: {mean:.4f} +/- {std:.4f}")
+    path = os.path.join(artifact_dir, 'intra_subject_cv_summary.json')
+    with open(path, 'w') as f:
+        json.dump(summary, f, indent=2)
+    logger.info(f"intra-subject-cv summary written to {path}")
 
 
 def _loso_fold_configs(config, dataset_params, ds_name, held_out_subject):
@@ -589,12 +661,18 @@ def main():
                            patch_len, split_ratio)
         return
 
+    if split_mode == 'intra_subject_cv':
+        n_folds = train_params.get('cv_folds', 5)
+        _run_intra_subject_cv(config, dataset_params, base_output_dir, artifact_dir, logger,
+                              patch_len, n_folds)
+        return
+
     if split_mode == 'inter_subject':
         train_dataset, val_dataset = build_subject_split_datasets(config, dataset_params, split_ratio, logger)
     else:
         raise ValueError(
             f"Unknown split_mode: {split_mode!r} "
-            "(expected 'inter_subject', 'intra_subject' or 'loso')")
+            "(expected 'inter_subject', 'intra_subject', 'intra_subject_cv' or 'loso')")
 
     logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
     run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_dir, artifact_dir, logger, patch_len, fold_tag=split_mode)
