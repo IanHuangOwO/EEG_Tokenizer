@@ -135,14 +135,10 @@
       }
     },
     "finetune": {
-      "EEGMMIdb": {
-        "dataset_path": "datas/EEGMMIdb",
-        "subject_to_use": [
-          "all"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
+      "BCICIV2a": {
+        "dataset_path": "datas/BCICIV2a",
+        "subject_to_use": ["all"],
+        "channels_to_use": ["all"]
       }
     }
   },
@@ -195,10 +191,10 @@
           "top_k": 2
         },
         "stamp_bank": {
-          "n_routed_stamps": 32,
-          "n_shared_stamps": 0,
-          "stamp_top_k": 32,
-          "stamp_hidden_width": 2,
+          "n_routed_stamps": 60,
+          "n_shared_stamps": 4,
+          "stamp_top_k": 12,
+          "stamp_hidden_width": 6,
           "stamp_shared_hidden_width": 8,
           "dead_threshold_frac": 0.1,
           "aux_k_cap_frac": null,
@@ -215,9 +211,12 @@
         }
       },
       "finetune": {
-        "hidden": 100,
-        "freeze_backbone": true,
-        "dropout": 0.3
+        "input": "stamp_induced",
+        "task": "mi",
+        "pool_channel": "spatial:8",
+        "pool_time": "trial",
+        "dropout": 0,
+        "freeze_backbone": true
       }
     }
   },
@@ -238,17 +237,18 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_v3",
-      "pretrained_checkpoint": "output/mesae_v10/checkpoint/last.pth",
-      "learning_rate": 0.001,
-      "min_learning_rate": 0.0001,
-      "backbone_lr_mult": 0.01,
-      "epochs": 50,
-      "warmup_epochs": 5,
+      "model_name": "mesae_finetune_c0",
+      "pretrained_checkpoint": "output/mesae_v10_small_uw01/checkpoint/last.pth",
+      "learning_rate": 0.01,
+      "min_learning_rate": 0.001,
+      "backbone_lr_mult": 0.0,
+      "epochs": 100,
+      "warmup_epochs": 2,
       "batch_size": 16,
       "weight_decay": 0.01,
       "device": "cuda",
-      "split_mode": "inter_subject",
+      "split_mode": "intra_subject_cv",
+      "cv_folds": 5,
       "train_val_split": 0.8
     },
     "visualize_params": {
