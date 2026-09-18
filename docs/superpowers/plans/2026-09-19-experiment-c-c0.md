@@ -256,12 +256,19 @@ Change to:
             raise ValueError(f"unknown input {input!r}")
 ```
 
-- [ ] **Step 2: Move alive-stamp bookkeeping out of the `stamp_bandpow`-only branch**
+- [ ] **Step 2: Compute `keep` (alive-stamp indices) before `n_feat`, and split it out of
+  the `stamp_bandpow`-only block**
 
-`model/MeSAE/MeSAE.py:759-770` currently builds `keep` (alive routed + shared stamp
-indices) and `E_D`/`E_H` (band-energy tables) together, gated on
-`if input == 'stamp_bandpow':`. `stamp_induced` needs `keep` (to size its per-stamp
-feature vector) but not `E_D`/`E_H` (it never collapses to bands). Split them:
+In the current file, `model/MeSAE/MeSAE.py:743-757` (the `C = num_channels` ... `self.head =
+nn.ModuleDict(head)` block, which computes `n_feat` and therefore needs `keep` already
+available) runs *before* `model/MeSAE/MeSAE.py:759-770` (the `if input == 'stamp_bandpow':`
+block that currently computes `keep` alongside `E_D`/`E_H`). Ordering must change: `keep`
+has to exist before `n_feat` is computed, and `stamp_induced` needs `keep` but not
+`E_D`/`E_H`. Do both moves as one edit:
+
+1. Insert this block immediately after `C = num_channels` (before the `K = C if
+   pool_channel == 'concat' ...` line, i.e. right at the top of `__init__`'s body where `C`
+   is first assigned):
 
 ```python
         if input in ('stamp_bandpow', 'stamp_induced'):
@@ -269,8 +276,14 @@ feature vector) but not `E_D`/`E_H` (it never collapses to bands). Split them:
             alive = (st.fire_ema >= st.dead_threshold).nonzero().flatten()
             keep = torch.cat([alive, torch.arange(st.n_routed, st.n_stamps, device=alive.device)])
             self.register_buffer('keep', keep)
+```
+
+2. Replace the existing `if input == 'stamp_bandpow':` block (`model/MeSAE/MeSAE.py:759-770`)
+   — which currently redefines `st`, `alive`, and `keep` — with just the `E_D`/`E_H` part,
+   reusing the `keep` buffer registered in step 1 above:
+
+```python
         if input == 'stamp_bandpow':
-            st = backbone.stamps
             with torch.no_grad():
                 D_tab, H_tab = (t[keep].float() for t in st._template_tables())
                 fr = torch.fft.rfftfreq(D_tab.shape[-1], 1.0 / self.fs)
@@ -279,6 +292,14 @@ feature vector) but not `E_D`/`E_H` (it never collapses to bands). Split them:
                 self.register_buffer('E_D', spec(D_tab))                   # [S, bands]
                 self.register_buffer('E_H', spec(H_tab))
 ```
+
+`st` here is the same `backbone.stamps` bound in step 1's block — since both blocks now run
+inside the same `if input in (...)` / `if input == 'stamp_bandpow':` pair in sequence, `st`
+from step 1 is still in scope in step 2 (both are plain local variables in the same
+`__init__` call, not separate closures). If your edit tool applies these as two disjoint
+`Edit` calls and `st` ends up out of scope, add `st = backbone.stamps` as the first line of
+step 2's block — either form is correct, prefer reusing step 1's `st` when the diff tool
+lets you keep it in one contiguous block.
 
 - [ ] **Step 3: Give `stamp_induced` its feature width**
 
@@ -304,11 +325,8 @@ Change to:
             n_feat = K * len(self.BANDS)
 ```
 
-(`keep` is in scope here because Step 2 registers it before this block runs — `__init__`
-already builds `head['spatial']` before this `if input == 'z_chan':` block per the existing
-line order at `model/MeSAE/MeSAE.py:748-749`; the `keep` buffer just needs to be computed by
-this point too, so make sure Step 2's insertion lands above this `n_feat` block if reordering
-becomes necessary — verify against the actual current file before editing.)
+`keep` is in scope here because Step 2 registers `self.keep` (and the plain local `keep`,
+in the same `__init__` call) before this block runs, per the reordering in Step 2.
 
 - [ ] **Step 4: Share the amp computation between `stamp_bandpow` and `stamp_induced`**
 
