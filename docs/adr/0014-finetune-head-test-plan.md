@@ -858,7 +858,7 @@ Next, in order:
     **Run, `stamp_induced spatial:8`, `pool_time=learned:2`, `include_advance=true`,
     `dropout 0.5`, 5-fold CV** (ADR 0014 Task 2 — concatenates the real/imaginary parts
     of `Σ_n u[n+1]·conj(u[n])` per stamp onto the existing induced-power features,
-    tripling head input width from `K·S` (~200) to `K·S·3` (~600); everything else
+    tripling head input width from `K·S` (200) to `K·S·3` (600); everything else
     identical to C1, same checkpoint `mesae_v10_small_uw01/checkpoint/last.pth`). Tail-mean
     balanced_acc **0.489**, **below C1's 0.536** — C3 does not beat C1, failing this
     step's acceptance bar. Per-subject tail means (C3, with C3−C1 diff): S1 0.527
@@ -870,7 +870,7 @@ Next, in order:
     methodology, significance is reported for transparency, not as the pass/fail gate;
     the plain acceptance bar ("C3 must beat C1") already fails on the point estimate
     alone. Only 1 of 9 subjects improves (S6, +0.024, itself C1's weakest subject); the
-    other 8 regress, three of them by more than 0.06 (S1, S3, S7, S8, S9 all regress,
+    other 8 regress, five of them by more than 0.06 (S1, S3, S7, S8, S9 all regress,
     S3 the worst at −0.104). Log:
     `output/mesae_finetune_c3_advance/artifacts/train_20260920_002958.log`.
 
@@ -885,7 +885,18 @@ Next, in order:
     materialize: tripling the head's feature width pushed train accuracy back toward the
     unregularized regime that `dropout: 0.5` was originally introduced (step 7) to
     suppress, and validation performance regressed in the same run, significantly, at
-    n = 9.
+    n = 9. Per the "Size control is mandatory" paragraph above, this `K·S·3` regime was
+    meant to carry two constraints together — low-rank time weights and a group penalty
+    over stamps — targeting ~1k head parameters total; this run inherited only the first
+    (low-rank time weights, via C1's `pool_time=learned:2`), and no group penalty over
+    stamps was ever implemented, here or in C0/C1 either, following the same "run first,
+    diagnose honestly" precedent those steps set — but that precedent's cost is now
+    visible in this specific failure. Measured directly off the saved checkpoints' state
+    dict (same method as step 8's 128-parameter figure), the full trainable `head`
+    sub-module holds **4,244 parameters** for C3 vs. **1,844** for C1 — roughly 4.2x and
+    1.8x the ADR's own ~1k target, respectively. So this run tested `2c` outside the
+    regularization regime the spec itself mandates for a feature width this large, with
+    only one of its two required size-control constraints in place.
 
     **What this implies for `2c`'s premise.** The data available from this run cannot
     show that sub-bin phase/frequency information helps MI decoding on top of induced
@@ -899,6 +910,21 @@ Next, in order:
     here (deliberately, per this step's own scope: one new factor vs. C1). The numbers
     as they stand are a negative result for `2c` under C1's exact regularization
     settings, not a resolved verdict on the branch's information content.
+
+    **Concrete disentangling follow-ups, cheapest first, not run here.** (a) Near-free,
+    no GPU — recommended first: a regularized linear probe on the advance features alone
+    vs. the induced features alone, matching `probes/probe_v10.py`'s existing per-subject
+    `LinearDiscriminantAnalysis(solver='lsqr', shrinkage='auto')` methodology with matched
+    dimensionality between the two arms. Runs in minutes on CPU and answers directly
+    whether phase-advance carries class-separable MI signal at all, with zero
+    head-capacity confound — no neural-net training involved, so this run's overfitting
+    can't contaminate the answer. (b) One further ~3.5h GPU run, more expensive: a
+    capacity-matched C3 rerun, either advance-only (drop induced power, keep just the
+    `2·K·S` = 400-feature advance branch) or C3 with dropout tuned to bring train accuracy
+    back down near C1's 0.843 (from C3's 0.9255) — either separates "the extra width
+    itself hurt" from "phase-advance is genuinely uninformative." (a) is recommended over
+    (b): it is both the cheaper option and the one that actually isolates the variable in
+    question, rather than just reducing the capacity confound without eliminating it.
 
     Step 10 stays out of "Done" — one run, at one dropout setting, with no size-control
     variant tried, is a first result on `2c`, not a closed question.
