@@ -571,13 +571,30 @@ bands. A band-selectivity constraint would then make attribution cleaner.
 - **Splits:** A/B used one 80/20 split per subject (228 train / 60 val). **C uses 5-fold
   CV per subject**, which makes head numbers comparable to the probe and shrinks the
   noise that leaves ±0.05 non-significant at n = 9.
-- **Optimizer (all trained heads):** lr 1e-2 → 1e-3 cosine, 100 epochs, warmup 2,
-  dropout 0. The repo finetune defaults (lr 1e-3, 50 epochs, dropout 0.3) under-train a
-  linear head: 0.418 vs 0.495 on the same `raw` features.
+- **Optimizer (all trained heads):** lr 1e-2 → 1e-3 cosine, 100 epochs, warmup 2.
+  Dropout started at 0 (A/B, and C0's original attempt); the overfitting diagnosed on
+  the 200-feature `stamp_induced` head (step 7, follow-up (b)) established `dropout: 0.5`
+  for the stamp_induced-family runs, current setting from follow-up (b) onward (follow-up
+  (b), follow-up (c), C1, and every step after). The repo finetune defaults (lr 1e-3,
+  50 epochs, dropout 0.3) under-train a linear head: 0.418 vs 0.495 on the same `raw`
+  features.
 - **Reporting:** per-subject `balanced_acc` (equals accuracy on the balanced val sets)
-  and kappa; the headline number is each subject's mean over the last 10 epochs, with
-  best-val-epoch quoted separately as the optimistic reading; paired t-test across
-  subjects against the matching `raw` arm, corrected for multiple comparisons.
+  and kappa; the headline number is each subject's mean over the last 10 epochs
+  (tail-mean), with best-val-epoch quoted separately as the optimistic reading.
+  Comparisons are single, uncorrected paired t-tests across the 9 subjects (each
+  subject's own CV folds averaged together first — folds are not independent samples,
+  never pair/test on raw per-fold rows; see `probes/ft_summary.py`). An earlier draft of
+  this line said "corrected for multiple comparisons" — that doesn't describe what's
+  actually run (one paired comparison per build-order step, not a batch of comparisons
+  needing a multiple-comparisons correction); removed.
+- **Acceptance-comparison methodology (C1 onward):** the bar for "step N beats step
+  N−1" is a pre-declared point improvement in tail-mean `balanced_acc`, reported
+  alongside its n = 9 significance statistics for transparency — but statistical
+  significance is never treated as a pass/fail gate at this sample size. Single-factor
+  experiment-C ablation steps (C1, C2, C3, ...) are underpowered by construction at
+  n = 9 subjects; demanding significance before advancing would stall the ladder
+  indefinitely, so each step reports its numbers honestly (as step 8 does for C1) and
+  moves on rather than gating on p-values.
 - **`inter_subject` / LOSO numbers are reported separately**, never mixed with
   intra-subject numbers.
 - **Backbone:** `mesae_v10_small_uw01` for plumbing. Conclusions about the tokenizer
