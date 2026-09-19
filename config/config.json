@@ -211,7 +211,7 @@
         }
       },
       "finetune": {
-        "input": "stamp_induced",
+        "input": "stamp_bandpow",
         "task": "mi",
         "pool_channel": "spatial:8",
         "pool_time": "trial",
@@ -237,7 +237,7 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_c0",
+      "model_name": "mesae_finetune_c0_control_bandpow_cv",
       "pretrained_checkpoint": "output/mesae_v10_small_uw01/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
