@@ -650,7 +650,9 @@ Next, in order:
    width (non-zero dropout, and/or stronger weight decay, and/or fewer epochs/early
    stopping) before concluding anything about `stamp_induced` as a feature.
 
-   C1–C5 stay blocked until this is resolved. Full per-subject/per-fold numbers:
+   This blocked C1–C5 pending resolution; resolved by follow-up (c) below, which
+   establishes a clean, fold-count-matched baseline that C1 (step 8) was then run
+   against — C1–C5 are no longer blocked. Full per-subject/per-fold numbers:
    `.superpowers/sdd/2026-09-19-experiment-c-c0/task-3-report.md` (gitignored, run-local).
 
    **Follow-up (a) — protocol-only control, run.** `stamp_bandpow spatial:8` under the
@@ -698,6 +700,12 @@ Next, in order:
    noisier per-subject estimates), so this reading is provisional pending a real 5-fold
    rerun of the regularized config, which is a further follow-up, not done here.
 
+   **Superseded by follow-up (c) below:** that 5-fold rerun lands at 0.495 —
+   *above* follow-up (a)'s 0.476 protocol-matched floor, not below it. The “barely
+   moved” reading above turns out to be an artifact of follow-up (b)'s 3-fold confound,
+   not a stable conclusion; treat follow-up (c)'s number as the current baseline and
+   this paragraph as superseded history, not the final word on dropout 0.5.
+
    This is evidence, not a verdict. Whether 0.522 was ever a valid target to reproduce
    exactly (see the log-of-sum-vs-sum-of-logs point above) and what to do about the
    dropout/underfitting tradeoff are open questions for whoever scopes C1 next, not
@@ -721,13 +729,22 @@ Next, in order:
    `stamp_induced` numbers and is the correct, fold-count-matched baseline for C1
    (build-order step 8) to beat.
 
+   **Evidence standard, applied consistently:** none of the four numbers above
+   (0.456/0.468/0.476/0.495) has been significance-tested at n = 9. Step 8 below runs a
+   paired t-test on its own +0.040 comparison and finds it not significant; the
+   similar-magnitude differences discussed earlier in this step — the ~0.046 split-protocol
+   cost (follow-up (a) vs the original 0.522 target) and the ~0.020 capacity residual
+   (follow-up (a) vs original C0) — were never tested and plausibly sit within the same
+   noise band step 8's analysis establishes. None of these point differences should be
+   read as more established than step 8's own (correctly hedged) result.
+
 8. **C1 — learned time weights.** First test of "when"; the stamp analysis and the raw
    beta lateralization both point at 0.5–2.5 s.
 
    **Run, `stamp_induced spatial:8`, `pool_time=learned:2`, `dropout 0.5`, 5-fold CV**
    (ADR 0014 Task 2 — low-rank, rank-`R=2`, softmax-weighted time pooling replacing
    follow-up (c)'s flat time mean; everything else identical to follow-up (c)). Tail-mean
-   balanced_acc **0.536** — beats follow-up (c)'s 0.495 baseline by +0.041, satisfying the
+   balanced_acc **0.536** — beats follow-up (c)'s 0.495 baseline by +0.040, satisfying the
    plan's literal acceptance bar ("C1 must beat C0"). Per-subject tail means: S1 0.591,
    S2 0.486, S3 0.693, S4 0.368, S5 0.366, S6 0.310, S7 0.605, S8 0.667, S9 0.733.
    Per-subject diffs (C1 − follow-up (c)): S1 +0.016, S2 +0.033, S3 +0.131, S4 −0.043,
