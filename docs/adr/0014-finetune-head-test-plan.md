@@ -796,6 +796,27 @@ Next, in order:
    distinguish those two stories, so no such interpretive claim is made here.
    Log: `output/mesae_finetune_c1_learned2/artifacts/train_20260919_192402.log`.
 
+   **Weight decay note.** `train_finetune.py` builds its `AdamW` param groups without
+   exempting low-dimensional parameters from weight decay, so `weight_decay: 0.01` also
+   shrinks `head.time.p`/`head.time.q` toward zero — and near-zero values there mean
+   near-uniform (flat) time weights, i.e. a pull toward C0's baseline, not away from it.
+   This is conservative: it means C1's measured +0.040 is if anything understated, not
+   inflated, by this detail. Worth knowing before tuning `learned:R` further (e.g. an
+   `R=1` comparison); not changed here.
+
+   **What the learned weights learned ("when"), reproduced from the saved checkpoints.**
+   Aggregating `head.time.p`/`head.time.q` across all 45 fold×subject checkpoints
+   (`w[s,n] = softmax_n(sum_r p[r,s]*q[r,n])`, the same formula the forward pass uses)
+   into five 1-second bins over the ~5.0 s trial span (39 patches, `patch_stride=25` /
+   `sample_freq=200` → 0.125 s/patch) gives mean softmax mass per bin ≈ **0.174 / 0.242 /
+   0.222 / 0.191 / 0.171** against a per-bin uniform baseline of ≈0.18–0.21 (bins hold
+   7-8 patches each) — a mild early/middle tilt, not a sharp lock. 56.5% of the 1,125
+   (stamp, checkpoint) rows have their peak weight inside the 0.5–2.5 s window that the
+   raw beta lateralization and the stamp analysis point at (chance rate ≈40% by
+   trial-duration fraction), median peak time 2.00 s. That is a real, if modest, answer
+   to this step's nominal "when" question: the learned weighting leans toward early-to-mid
+   trial content, consistent with but not sharply locked onto the 0.5–2.5 s window.
+
    **C1's tail-mean beats the baseline, but not at statistical significance (n = 9).**
    The result is directionally consistent with proceeding to C2 (per-stamp features,
    build-order step 9), but the concentration of the gain in 2 of 9 subjects is an open
