@@ -727,28 +727,50 @@ Next, in order:
    **Run, `stamp_induced spatial:8`, `pool_time=learned:2`, `dropout 0.5`, 5-fold CV**
    (ADR 0014 Task 2 — low-rank, rank-`R=2`, softmax-weighted time pooling replacing
    follow-up (c)'s flat time mean; everything else identical to follow-up (c)). Tail-mean
-   balanced_acc **0.536** — beats follow-up (c)'s 0.495 baseline by +0.041 (paired
-   per-fold across all 45 fold×subject runs: +0.040, p=0.022, wins 27/45). Per-subject
-   tail means: S1 0.591, S2 0.486, S3 0.693, S4 0.368, S5 0.366, S6 0.310, S7 0.605,
-   S8 0.667, S9 0.733 — 6 of 9 subjects improve (S1, S2, S3, S7, S8, S9), 3 regress
-   slightly (S4, S5, S6). The learned time head (`head.time.p` shape `[R, S]` +
-   `head.time.q` shape `[R, N']`) contributes **128 parameters** at this run's shape
-   (`R=2`, `S=25` alive stamps, `N'=39` patches — checked directly off the saved
-   checkpoints' state dict, consistent across all 45 fold×subject runs). Task 1's smoke
-   check reported 188 params, but at a different shape on both axes (`S=64`, all stamps
-   forced alive; `N'=30`, a synthetic trial length) — not directly comparable to this
-   run's 128, both `S` and `N'` differ. Final-epoch train `balanced_acc` mean **0.843**
-   (range 0.709–0.944) vs. follow-up (c)'s **0.736** (range 0.626–0.848) — both stay well
-   below the original unregularized C0 run's ~0.985, so `dropout 0.5` is still
-   suppressing memorization in both; C1's added capacity does reach a higher final-epoch
-   train fit than the flat-weight baseline, without losing the val-side win. Log:
-   `output/mesae_finetune_c1_learned2/artifacts/train_20260919_192402.log`.
+   balanced_acc **0.536** — beats follow-up (c)'s 0.495 baseline by +0.041, satisfying the
+   plan's literal acceptance bar ("C1 must beat C0"). Per-subject tail means: S1 0.591,
+   S2 0.486, S3 0.693, S4 0.368, S5 0.366, S6 0.310, S7 0.605, S8 0.667, S9 0.733.
+   Per-subject diffs (C1 − follow-up (c)): S1 +0.016, S2 +0.033, S3 +0.131, S4 −0.043,
+   S5 −0.021, S6 −0.045, S7 +0.032, S8 +0.002, S9 +0.257 — **paired t-test across
+   subjects, n = 9** (this ADR's own convention, Protocol section): mean diff +0.040,
+   t = 1.25, **p ≈ 0.25, not significant**. Wins 6/9 subjects (S1, S2, S3, S7, S8, S9),
+   regresses on 3 (S4, S5, S6), and the gain is concentrated in two subjects (S3 +0.131,
+   S9 +0.257 account for most of the +0.040 mean); the other four winning subjects move
+   only +0.002 to +0.033. This is not a broad, consistent effect — it is directionally
+   positive and meets the plan's beat-the-baseline bar, but not statistically
+   distinguishable from noise at n = 9. (A fold-level paired t-test over all 45
+   fold×subject rows, as `probes/ft_summary.py` computes by default, gives the same mean
+   diff +0.040 but p = 0.022 and "wins 27/45" — that treats each subject's 5 folds as
+   independent samples, which they are not, so it is pseudoreplicated and not the
+   document's unit of analysis; noted here only to flag it as the wrong statistic, not as
+   a corroborating second result.)
 
-   **C1 beats the baseline.** Consistent with proceeding to C2 (per-stamp features,
-   build-order step 9) as the next step. Possible follow-up, not run here per this
-   task's scope (one ablation factor per run): an `R=1` comparison, to see whether the
-   second rank-2 factor is pulling its weight or C1's gain would hold at `R=1` too. Step
-   8 stays out of "Done" — one run at one rank is a first result, not a settled one.
+   The learned time head (`head.time.p` shape `[R, S]` + `head.time.q` shape `[R, N']`)
+   contributes **128 parameters** at this run's shape (`R=2`, `S=25` alive stamps,
+   `N'=39` patches — checked directly off the saved checkpoints' state dict, consistent
+   across all 45 fold×subject runs). Task 1's smoke check reported 188 params, but at a
+   different shape on both axes (`S=64`, all stamps forced alive; `N'=30`, a synthetic
+   trial length) — not directly comparable to this run's 128, both `S` and `N'` differ.
+   Final-epoch train `balanced_acc` mean **0.843** (range 0.709–0.944) vs. follow-up
+   (c)'s **0.736** (range 0.626–0.848) — both observed values, and both stay well below
+   the original unregularized C0 run's ~0.985. C1's train accuracy being higher than the
+   baseline's, while still well short of the unregularized run's near-ceiling fit, is
+   consistent with `dropout 0.5` still doing meaningful regularization in both runs; it
+   does not by itself establish that C1's extra capacity is being used "productively" as
+   opposed to some milder, still-regularized increase in memorization that happens to
+   also correlate with the (non-significant) validation gain — these numbers can't
+   distinguish those two stories, so no such interpretive claim is made here.
+   Log: `output/mesae_finetune_c1_learned2/artifacts/train_20260919_192402.log`.
+
+   **C1's tail-mean beats the baseline, but not at statistical significance (n = 9).**
+   The result is directionally consistent with proceeding to C2 (per-stamp features,
+   build-order step 9), but the concentration of the gain in 2 of 9 subjects is an open
+   question this run doesn't resolve — whoever scopes C2 should treat "does learned time
+   weighting generalize" as still unsettled, not confirmed. Possible follow-up, not run
+   here per this task's scope (one ablation factor per run): an `R=1` comparison, to see
+   whether the second rank-2 factor is pulling its weight or whether a simpler `R=1` head
+   gives a similar (or more consistent) effect. Step 8 stays out of "Done" — one run at
+   one rank, without significance at n = 9, is a first result, not a settled one.
 9. **C2 — per-stamp features** instead of the two band sums.
 10. **C3 — phase advance (2c).**
 11. **Regime tests on the best of C0–C3:** few-shot (5/10/20/50 trials per class), LOSO,
