@@ -703,8 +703,52 @@ Next, in order:
    dropout/underfitting tradeoff are open questions for whoever scopes C1 next, not
    settled here. Step 7 stays out of "Done."
 
+   **Follow-up (c) — missing 5-fold/`dropout 0.5` baseline, run (ADR 0014 Task 2).**
+   Neither prior follow-up left a fold-count-matched `dropout 0.5` number: (a) used
+   `dropout 0`, (b) used 3-fold. This run is `stamp_induced spatial:8`, `dropout 0.5`,
+   full 5-fold CV, otherwise identical to the original C0 run. Tail-mean balanced_acc
+   **0.495**. Per-subject tail means: S1 0.575, S2 0.453, S3 0.562, S4 0.411, S5 0.387,
+   S6 0.355, S7 0.573, S8 0.665, S9 0.476. Final-epoch train `balanced_acc` mean
+   **0.736** (range 0.626–0.848 across all 45 fold×subject runs) — dropout is still
+   suppressing overfitting at 5-fold, similar in degree to follow-up (b)'s 3-fold 0.748.
+   Log: `output/mesae_finetune_c0_dropout05_5fold/artifacts/train_20260919_153852.log`.
+
+   All four `intra_subject_cv` numbers are now on record, settings labeled: original C0
+   (`stamp_induced`, `dropout 0`, 5-fold) **0.456**; follow-up (a) (`stamp_bandpow`,
+   `dropout 0`, 5-fold, protocol-only control) **0.476**; follow-up (b) (`stamp_induced`,
+   `dropout 0.5`, 3-fold) **0.468**; follow-up (c) (`stamp_induced`, `dropout 0.5`,
+   5-fold) **0.495**. The regularized 5-fold number is the highest of the three
+   `stamp_induced` numbers and is the correct, fold-count-matched baseline for C1
+   (build-order step 8) to beat.
+
 8. **C1 — learned time weights.** First test of "when"; the stamp analysis and the raw
    beta lateralization both point at 0.5–2.5 s.
+
+   **Run, `stamp_induced spatial:8`, `pool_time=learned:2`, `dropout 0.5`, 5-fold CV**
+   (ADR 0014 Task 2 — low-rank, rank-`R=2`, softmax-weighted time pooling replacing
+   follow-up (c)'s flat time mean; everything else identical to follow-up (c)). Tail-mean
+   balanced_acc **0.536** — beats follow-up (c)'s 0.495 baseline by +0.041 (paired
+   per-fold across all 45 fold×subject runs: +0.040, p=0.022, wins 27/45). Per-subject
+   tail means: S1 0.591, S2 0.486, S3 0.693, S4 0.368, S5 0.366, S6 0.310, S7 0.605,
+   S8 0.667, S9 0.733 — 6 of 9 subjects improve (S1, S2, S3, S7, S8, S9), 3 regress
+   slightly (S4, S5, S6). The learned time head (`head.time.p` shape `[R, S]` +
+   `head.time.q` shape `[R, N']`) contributes **128 parameters** at this run's shape
+   (`R=2`, `S=25` alive stamps, `N'=39` patches — checked directly off the saved
+   checkpoints' state dict, consistent across all 45 fold×subject runs). Task 1's smoke
+   check reported 188 params, but at a different shape on both axes (`S=64`, all stamps
+   forced alive; `N'=30`, a synthetic trial length) — not directly comparable to this
+   run's 128, both `S` and `N'` differ. Final-epoch train `balanced_acc` mean **0.843**
+   (range 0.709–0.944) vs. follow-up (c)'s **0.736** (range 0.626–0.848) — both stay well
+   below the original unregularized C0 run's ~0.985, so `dropout 0.5` is still
+   suppressing memorization in both; C1's added capacity does reach a higher final-epoch
+   train fit than the flat-weight baseline, without losing the val-side win. Log:
+   `output/mesae_finetune_c1_learned2/artifacts/train_20260919_192402.log`.
+
+   **C1 beats the baseline.** Consistent with proceeding to C2 (per-stamp features,
+   build-order step 9) as the next step. Possible follow-up, not run here per this
+   task's scope (one ablation factor per run): an `R=1` comparison, to see whether the
+   second rank-2 factor is pulling its weight or C1's gain would hold at `R=1` too. Step
+   8 stays out of "Done" — one run at one rank is a first result, not a settled one.
 9. **C2 — per-stamp features** instead of the two band sums.
 10. **C3 — phase advance (2c).**
 11. **Regime tests on the best of C0–C3:** few-shot (5/10/20/50 trials per class), LOSO,
