@@ -854,6 +854,54 @@ Next, in order:
    document. C2 is not marked "done" in the sense of a dedicated run — it's marked
    answered, by data already on record, and the next new build step is C3.
 10. **C3 — phase advance (2c).**
+
+    **Run, `stamp_induced spatial:8`, `pool_time=learned:2`, `include_advance=true`,
+    `dropout 0.5`, 5-fold CV** (ADR 0014 Task 2 — concatenates the real/imaginary parts
+    of `Σ_n u[n+1]·conj(u[n])` per stamp onto the existing induced-power features,
+    tripling head input width from `K·S` (~200) to `K·S·3` (~600); everything else
+    identical to C1, same checkpoint `mesae_v10_small_uw01/checkpoint/last.pth`). Tail-mean
+    balanced_acc **0.489**, **below C1's 0.536** — C3 does not beat C1, failing this
+    step's acceptance bar. Per-subject tail means (C3, with C3−C1 diff): S1 0.527
+    (−0.064), S2 0.437 (−0.050), S3 0.589 (−0.104), S4 0.360 (−0.009), S5 0.361 (−0.005),
+    S6 0.334 (+0.024), S7 0.540 (−0.065), S8 0.607 (−0.061), S9 0.645 (−0.088) — a paired
+    t-test across subjects, n = 9 (this ADR's own convention, Protocol section): mean diff
+    **−0.047**, t = **−3.36**, **p = 0.010**. Unlike C1's result, this one is
+    significant at n = 9 — but per the Protocol section's acceptance-comparison
+    methodology, significance is reported for transparency, not as the pass/fail gate;
+    the plain acceptance bar ("C3 must beat C1") already fails on the point estimate
+    alone. Only 1 of 9 subjects improves (S6, +0.024, itself C1's weakest subject); the
+    other 8 regress, three of them by more than 0.06 (S1, S3, S7, S8, S9 all regress,
+    S3 the worst at −0.104). Log:
+    `output/mesae_finetune_c3_advance/artifacts/train_20260920_002958.log`.
+
+    **The overfitting check.** Final-epoch train `balanced_acc` mean **0.9255** (range
+    0.874–0.983 across all 45 fold×subject runs) — compared against three prior numbers
+    on record: C1's **0.843** (range 0.709–0.944, step 8), the C0-family 5-fold
+    baseline's **~0.736–0.748** (follow-up (b)/(c), step 7/9), and the original
+    unregularized C0 run's **~0.985** (step 7). C3's 0.9255 sits well above C1's 0.843
+    and the ~0.74 baseline, and close to the unregularized run's ~0.985 ceiling — despite
+    using the *same* `dropout: 0.5` as C1. The anticipated 600-feature overfitting risk
+    this plan's own Architecture section named upfront (the `z_chan` precedent) did
+    materialize: tripling the head's feature width pushed train accuracy back toward the
+    unregularized regime that `dropout: 0.5` was originally introduced (step 7) to
+    suppress, and validation performance regressed in the same run, significantly, at
+    n = 9.
+
+    **What this implies for `2c`'s premise.** The data available from this run cannot
+    show that sub-bin phase/frequency information helps MI decoding on top of induced
+    power and learned time weights — the observed effect is a significant *regression*
+    in validation balanced_acc alongside a large rise in train accuracy toward the
+    unregularized ceiling, i.e. the added branch's capacity was used to memorize rather
+    than generalize, at this `dropout` setting. This run does not distinguish "phase
+    advance carries no useful MI signal" from "phase advance could carry useful signal
+    but needs stronger regularization (e.g. a group penalty, higher dropout, or reduced
+    stamp count) to realize it without overfitting" — no such regularization was run
+    here (deliberately, per this step's own scope: one new factor vs. C1). The numbers
+    as they stand are a negative result for `2c` under C1's exact regularization
+    settings, not a resolved verdict on the branch's information content.
+
+    Step 10 stays out of "Done" — one run, at one dropout setting, with no size-control
+    variant tried, is a first result on `2c`, not a closed question.
 11. **Regime tests on the best of C0–C3:** few-shot (5/10/20/50 trials per class), LOSO,
     then EEGMMIdb for statistical power. These decide whether the tokenizer is worth
     anything over raw.
