@@ -100,7 +100,13 @@ def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 
         if cls_key is None:
             print(f"  WARNING: no 'head.cls.weight' in checkpoint, guessing num_classes={num_classes}.")
 
-        model = build_finetune_from_config(config, num_classes, mode='finetune').to(device)
+        # num_patches is likewise dataset-dependent and only required when pool_time='learned:R'
+        # (MeSAEFeatureHead raises otherwise) — recover it from the checkpoint's own head.time.q
+        # tensor (shape [R, num_patches]) instead of touching the dataset. None for every other
+        # pool_time, which is exactly what build_finetune_from_config already expects.
+        q_key = next((k for k in sd if k.endswith('head.time.q')), None)
+        n_patches = sd[q_key].shape[-1] if q_key else None
+        model = build_finetune_from_config(config, num_classes, mode='finetune', num_patches=n_patches).to(device)
 
         if sd:
             missing, unexpected = model.load_state_dict(sd, strict=False)
