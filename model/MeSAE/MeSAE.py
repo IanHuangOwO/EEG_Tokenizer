@@ -730,8 +730,13 @@ class MeSAEFeatureHead(nn.Module):
     task:         mi (mu/beta log power). erp/ssvep not built yet.
 
     Padded channels are zeroed before any pooling. pad_mask is ignored: every trial in the
-    intra-subject BCICIV2a runs has the same length. Every trainable module lives under
-    self.head, because train_finetune.py only optimizes model.head.
+    intra-subject BCICIV2a runs has the same length. `pool_time="learned:R"` DEPENDS on
+    that invariant rather than merely tolerating it -- a flat mean degrades gracefully
+    over a padded (zeroed) patch, but nothing stops the learned softmax weights from
+    concentrating onto a padded position if ever trained on data where that occurs; a
+    future variable-length dataset needs real pad-masking added to this branch first.
+    Every trainable module lives under self.head, because train_finetune.py only
+    optimizes model.head.
     Returns (logits, None, None) to match MeSAEFinetune's call signature.
     """
     BANDS = ((8.0, 13.0), (13.0, 30.0))
