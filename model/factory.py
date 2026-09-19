@@ -54,13 +54,16 @@ def optimizer_param_groups(model, weight_decay):
     ]
 
 
-def build_finetune_from_config(config, num_classes, mode='finetune'):
+def build_finetune_from_config(config, num_classes, mode='finetune', num_patches=None):
     """
     Builds the pretrained backbone (via build_pretrain_from_config, same config section),
     loads its checkpoint, and wraps it in the classification head (dispatched via
     MODEL_REGISTRY the same way build_pretrain_from_config dispatches its backbone).
     num_classes is dataset-dependent (label set size) so it can't be read from config —
-    pass it in.
+    pass it in. num_patches is likewise dataset-dependent (trial length varies by dataset,
+    independent of preprocess_params.window_length, which is a pretrain-only concept) --
+    only required by heads whose parameter shapes depend on the patch axis length (e.g.
+    MeSAEFeatureHead's pool_time="learned:R"); every other head ignores it.
     """
     train_params = config['training_params'][mode]
     model_type   = train_params.get('model_type', 'MeSAE')
@@ -79,5 +82,6 @@ def build_finetune_from_config(config, num_classes, mode='finetune'):
     # The whole finetune block is passed through; the plugin picks what its head takes.
     return plugin.finetune_cls(
         backbone, len(canonical_channels), num_classes,
-        sample_freq=config['preprocess_params']['sample_freq'], **ft_params,
+        sample_freq=config['preprocess_params']['sample_freq'], num_patches=num_patches,
+        **ft_params,
     )

@@ -724,7 +724,9 @@ class MeSAEFeatureHead(nn.Module):
     pool_channel: concat | spatial:K   (signed Linear(C, K), no softmax. For stamp_bandpow
                   it mixes each stamp's (a, b) across channels before the power, the
                   code-space analogue of a CSP filter.)
-    pool_time:    trial | window:lo-hi (seconds from trial start; patches fully inside)
+    pool_time:    trial | window:lo-hi (seconds from trial start; patches fully inside) |
+                  learned:R (ADR 0014 C1, stamp_induced only -- low-rank softmax-weighted
+                  time pooling, R = rank; requires num_patches)
     task:         mi (mu/beta log power). erp/ssvep not built yet.
 
     Padded channels are zeroed before any pooling. pad_mask is ignored: every trial in the
@@ -736,7 +738,7 @@ class MeSAEFeatureHead(nn.Module):
 
     def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, input='recon',
                  task='mi', pool_channel='concat', pool_time='trial', z_proj=8,
-                 dropout=0.1, sample_freq=200, freeze_backbone=True):
+                 dropout=0.1, sample_freq=200, freeze_backbone=True, num_patches=None):
         super().__init__()
         if task != 'mi':
             raise NotImplementedError(f"task={task!r}: only 'mi' is built (ADR 0014 build order)")
@@ -755,11 +757,38 @@ class MeSAEFeatureHead(nn.Module):
             keep = torch.cat([alive, torch.arange(st.n_routed, st.n_stamps, device=alive.device)])
             self.register_buffer('keep', keep)
         K = C if pool_channel == 'concat' else int(pool_channel.split(':')[1])
-        self.window = None if pool_time == 'trial' else \
-            tuple(float(v) for v in pool_time.split(':')[1].split('-'))
+        self.time_rank = None
+        if pool_time == 'trial':
+            self.window = None
+        elif pool_time.startswith('learned:'):
+            if input != 'stamp_induced':
+                raise NotImplementedError(
+                    f"pool_time='learned:R' is only implemented for input='stamp_induced' "
+                    f"(ADR 0014 experiment C1), got input={input!r}")
+            if num_patches is None:
+                raise ValueError("pool_time='learned:R' requires num_patches (pass it through "
+                                  "build_finetune_from_config -- see model/factory.py)")
+            self.window = None
+            self.time_rank = int(pool_time.split(':')[1])
+        else:
+            self.window = tuple(float(v) for v in pool_time.split(':')[1].split('-'))
         head = {}
         if pool_channel != 'concat':
             head['spatial'] = nn.Linear(C, K, bias=False)
+        if self.time_rank is not None:
+            R = self.time_rank
+            S = len(keep)
+            # Small random init keeps pre-softmax logits near zero, so the learned weighting
+            # starts equivalent to C0's flat mean (uniform softmax) and only diverges from it
+            # as training proceeds -- makes "does learned beat flat" a clean ablation instead
+            # of a different starting point (ADR 0014 build-order step 8).
+            # nn.ModuleDict only accepts nn.Module values (not raw nn.Parameter), so the pair
+            # is registered as a nested nn.ParameterDict (itself an nn.Module) under one key --
+            # still lands under self.head, so model.head.parameters() still sees them.
+            head['time'] = nn.ParameterDict({
+                'p': nn.Parameter(torch.randn(R, S) * 0.02),
+                'q': nn.Parameter(torch.randn(R, num_patches) * 0.02),
+            })
         if input == 'z_chan':
             head['z_proj'] = nn.Linear(backbone.head_dim, z_proj)
             n_feat = K * z_proj
@@ -855,7 +884,18 @@ class MeSAEFeatureHead(nn.Module):
                 # readout -- log doesn't distribute over the band sum, so this is not
                 # guaranteed to reproduce stamp_bandpow spatial:8's 0.522 exactly (ADR 0014).
                 a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
-                feat = torch.log((a.pow(2) + b.pow(2)).mean(1) + 1e-12)                      # [B, K, S]
+                power = a.pow(2) + b.pow(2)                                                   # [B, N', K, S]
+                if self.time_rank is not None:
+                    # C1: learned low-rank time weights (step 2a, ADR 0014 build-order 8),
+                    # softmax-normalized over the patch axis per stamp -- w[s,n] sums to 1
+                    # over n for each stamp, so this is a weighted mean, directly comparable
+                    # to C0's uniform mean (w[s,n] = 1/N) rather than an unbounded rescaling.
+                    logits_time = torch.einsum('rs,rn->sn', self.head['time']['p'], self.head['time']['q'])  # [S, N']
+                    w = torch.softmax(logits_time, dim=-1)                                    # [S, N']
+                    pooled = torch.einsum('sn,bnks->bks', w, power)                            # [B, K, S]
+                else:
+                    pooled = power.mean(1)                                                    # [B, K, S]
+                feat = torch.log(pooled + 1e-12)                                              # [B, K, S]
             else:
                 zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
                 feat = self._mix(zp, 1)                                                      # [B, K, P]
@@ -872,6 +912,7 @@ def build_finetune(backbone, num_channels, num_classes, input='head_z', **kw):
     if input == 'head_z':
         allowed = ('hidden', 'freeze_backbone', 'dropout', 'use_topo_feature')
         return MeSAEFinetune(backbone, num_channels, num_classes, **{k: v for k, v in kw.items() if k in allowed})
-    allowed = ('task', 'pool_channel', 'pool_time', 'z_proj', 'dropout', 'sample_freq', 'freeze_backbone')
+    allowed = ('task', 'pool_channel', 'pool_time', 'z_proj', 'dropout', 'sample_freq',
+               'freeze_backbone', 'num_patches')
     return MeSAEFeatureHead(backbone, num_channels, num_classes, input=input,
                             **{k: v for k, v in kw.items() if k in allowed})

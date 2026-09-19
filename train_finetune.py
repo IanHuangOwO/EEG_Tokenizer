@@ -20,7 +20,7 @@ from tqdm import tqdm
 from sklearn.metrics import f1_score, balanced_accuracy_score, cohen_kappa_score
 
 from IO.dataset import build_dataset_from_config
-from IO.preprocessing import slice_patches
+from IO.preprocessing import slice_patches, num_patches
 from model.factory import build_finetune_from_config, MODEL_REGISTRY
 from viz import pick_trial
 
@@ -490,7 +490,9 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     checker    = entry.checker_cls()
 
     logger.info(f"[{fold_tag}] Loading pretrained backbone...")
-    model = build_finetune_from_config(config, num_classes, mode='finetune')
+    trial_T = train_dataset[0][0].shape[-1]
+    n_patches = num_patches(trial_T, patch_len, patch_stride)
+    model = build_finetune_from_config(config, num_classes, mode='finetune', num_patches=n_patches)
     logger.info(f"[{fold_tag}] Loaded backbone weights from {train_params['pretrained_checkpoint']}")
     freeze_backbone = config['model_params'][model_type].get('finetune', {}).get('freeze_backbone', False)
     model.to(device)
