@@ -727,6 +727,11 @@ class MeSAEFeatureHead(nn.Module):
     pool_time:    trial | window:lo-hi (seconds from trial start; patches fully inside) |
                   learned:R (ADR 0014 C1, stamp_induced only -- low-rank softmax-weighted
                   time pooling, R = rank; requires num_patches)
+    include_advance: bool, stamp_induced only (ADR 0014 C3) -- concatenates the phase-
+                  advance branch (2c) to the induced-power features, tripling feature
+                  width (K*S -> K*S*3). No size control beyond dropout is implemented;
+                  this is the exact K*S*3 regime ADR 0014's "Size control is mandatory"
+                  paragraph warns about, by design -- see the ADR for the reasoning.
     task:         mi (mu/beta log power). erp/ssvep not built yet.
 
     Padded channels are zeroed before any pooling. pad_mask is ignored: every trial in the
@@ -743,7 +748,8 @@ class MeSAEFeatureHead(nn.Module):
 
     def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, input='recon',
                  task='mi', pool_channel='concat', pool_time='trial', z_proj=8,
-                 dropout=0.1, sample_freq=200, freeze_backbone=True, num_patches=None):
+                 dropout=0.1, sample_freq=200, freeze_backbone=True, num_patches=None,
+                 include_advance=False):
         super().__init__()
         if task != 'mi':
             raise NotImplementedError(f"task={task!r}: only 'mi' is built (ADR 0014 build order)")
@@ -751,6 +757,11 @@ class MeSAEFeatureHead(nn.Module):
             raise NotImplementedError("MeSAEFeatureHead assumes a frozen backbone (ADR 0012)")
         if input not in ('raw', 'recon', 'stamp_bandpow', 'stamp_induced', 'z_chan'):
             raise ValueError(f"unknown input {input!r}")
+        if include_advance and input != 'stamp_induced':
+            raise NotImplementedError(
+                f"include_advance is only implemented for input='stamp_induced' "
+                f"(ADR 0014 experiment C3), got input={input!r}")
+        self.include_advance = include_advance
         self.backbone, self.input, self.fs = backbone, input, float(sample_freq)
         for p in backbone.parameters():
             p.requires_grad_(False)
@@ -798,7 +809,7 @@ class MeSAEFeatureHead(nn.Module):
             head['z_proj'] = nn.Linear(backbone.head_dim, z_proj)
             n_feat = K * z_proj
         elif input == 'stamp_induced':
-            n_feat = K * len(keep)
+            n_feat = K * len(keep) * (3 if include_advance else 1)
         else:
             n_feat = K * len(self.BANDS)
         # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
@@ -901,6 +912,21 @@ class MeSAEFeatureHead(nn.Module):
                 else:
                     pooled = power.mean(1)                                                    # [B, K, S]
                 feat = torch.log(pooled + 1e-12)                                              # [B, K, S]
+                if self.include_advance:
+                    # C3 (ADR 0014 build-order step 10): phase-advance branch (2c),
+                    # z[k,s] = sum_n u[n+1,k,s] * conj(u[n,k,s]), u = a + i*b -- the same
+                    # a, b this branch already computed, no new backbone call. Real/imag
+                    # expansion (no complex dtype): z_re captures rhythm steadiness
+                    # (magnitude-like), z_im captures sub-bin frequency (phase-like);
+                    # feeding both raw (no log -- they can be negative) lets the linear
+                    # classifier learn any function of magnitude+angle without an explicit
+                    # atan2. Not log-power-scaled like `feat`, but the shared BatchNorm1d
+                    # ahead of the classifier normalizes per-feature scale regardless.
+                    a_next, a_prev = a[:, 1:], a[:, :-1]                                       # [B, N'-1, K, S]
+                    b_next, b_prev = b[:, 1:], b[:, :-1]
+                    z_re = (a_next * a_prev + b_next * b_prev).sum(1)                          # [B, K, S]
+                    z_im = (b_next * a_prev - a_next * b_prev).sum(1)                          # [B, K, S]
+                    feat = torch.cat([feat, z_re, z_im], dim=-1)                                # [B, K, 3*S]
             else:
                 zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
                 feat = self._mix(zp, 1)                                                      # [B, K, P]
@@ -918,6 +944,6 @@ def build_finetune(backbone, num_channels, num_classes, input='head_z', **kw):
         allowed = ('hidden', 'freeze_backbone', 'dropout', 'use_topo_feature')
         return MeSAEFinetune(backbone, num_channels, num_classes, **{k: v for k, v in kw.items() if k in allowed})
     allowed = ('task', 'pool_channel', 'pool_time', 'z_proj', 'dropout', 'sample_freq',
-               'freeze_backbone', 'num_patches')
+               'freeze_backbone', 'num_patches', 'include_advance')
     return MeSAEFeatureHead(backbone, num_channels, num_classes, input=input,
                             **{k: v for k, v in kw.items() if k in allowed})
