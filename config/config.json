@@ -237,7 +237,7 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_c0_dropout05",
+      "model_name": "mesae_finetune_c0_dropout05_5fold",
       "pretrained_checkpoint": "output/mesae_v10_small_uw01/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
@@ -248,7 +248,7 @@
       "weight_decay": 0.01,
       "device": "cuda",
       "split_mode": "intra_subject_cv",
-      "cv_folds": 3
+      "cv_folds": 5
     },
     "visualize_params": {
       "cmap": "YlOrRd",
