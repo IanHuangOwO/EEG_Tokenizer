@@ -653,6 +653,56 @@ Next, in order:
    C1–C5 stay blocked until this is resolved. Full per-subject/per-fold numbers:
    `.superpowers/sdd/2026-09-19-experiment-c-c0/task-3-report.md` (gitignored, run-local).
 
+   **Follow-up (a) — protocol-only control, run.** `stamp_bandpow spatial:8` under the
+   same `intra_subject_cv` 5-fold protocol (`dropout: 0`, everything else identical to
+   the B baseline): tail-mean balanced_acc **0.476**. Per-subject tail means: S1 0.532,
+   S2 0.476, S3 0.591, S4 0.384, S5 0.274, S6 0.374, S7 0.579, S8 0.637, S9 0.435. This
+   is *not* near the predicted 0.52 — an unpredicted, important result in its own right,
+   not a null one. With the identical known-good feature and identical per-fold
+   train-set size (230 trials), swapping only the split protocol (80/20 → 5-fold
+   intra-subject CV) already costs ~0.046 off the original 0.522 baseline. So the
+   `intra_subject_cv` protocol itself is a confound, not just `stamp_induced`'s capacity
+   — the capacity-only story for C0's original 0.066 gap (0.522 → 0.456) only explains
+   the remaining ~0.020 of it (0.476 → 0.456, `stamp_bandpow`-CV vs `stamp_induced`-CV,
+   same protocol). Log: `output/mesae_finetune_c0_control_bandpow_cv/artifacts/train_20260919_082029.log`.
+
+   **Follow-up (b) — regularized C0 rerun, run.** `stamp_induced spatial:8`, `dropout:
+   0.5`, **3-fold** CV — reduced from 5 for turnaround time (a mid-task scope decision,
+   made once follow-up (a)'s result was in), so this number is *not* fold-count-comparable
+   to the original C0 run or to follow-up (a), both 5-fold; treat it as a directional
+   read, not a like-for-like replacement. Tail-mean balanced_acc **0.468**. Per-subject
+   tail means: S1 0.525, S2 0.424, S3 0.507, S4 0.366, S5 0.382, S6 0.407, S7 0.564, S8
+   0.596, S9 0.444 — a small +0.012 over the original `dropout: 0` C0 result (0.456),
+   still short of follow-up (a)'s 0.476 and further short of 0.522. Final-epoch train
+   `balanced_acc`, meaned over all 27 fold×subject runs, dropped from the original run's
+   0.985 (range 0.965–1.000 across its 45 fold×subject runs) to **0.748** (range
+   0.604–0.854) — dropout clearly worked as regularization, roughly halving the
+   train/val gap, but that reduction in overfitting barely moved validation performance.
+   Log: `output/mesae_finetune_c0_dropout05/artifacts/train_20260919_120349.log`.
+
+   **Net across both follow-ups.** The evidence does not support a clean "C0 is sound,
+   just needed regularization" story. Two things are true at once: (1) a meaningful
+   share of the original 0.066 gap (~0.046 of it) traces to the `intra_subject_cv`
+   protocol itself, not to `stamp_induced`'s capacity, so 0.522 was never an
+   apples-to-apples number to reproduce once the protocol changed; and (2) matching
+   dropout to `stamp_induced`'s width substantially fixed the overfitting symptom
+   (train `balanced_acc` 0.985 → 0.748) without closing the validation gap
+   (0.456 → 0.468, still below both follow-up (a)'s 0.476 protocol-matched floor and
+   0.522). Overfitting genuinely went down while validation performance stayed flat —
+   that combination is a more concerning signal than a pure capacity story would predict;
+   it points at something beyond head width/dropout alone (e.g. `stamp_induced`, once
+   regularized enough to stop memorizing, may simply carry less separable signal than
+   `stamp_bandpow` under this protocol, or `dropout: 0.5` traded overfitting for
+   underfitting without landing on a better middle ground). Follow-up (b)'s 3-fold count
+   is also a genuine confound on top of this (less training data per fold than 5-fold,
+   noisier per-subject estimates), so this reading is provisional pending a real 5-fold
+   rerun of the regularized config, which is a further follow-up, not done here.
+
+   This is evidence, not a verdict. Whether 0.522 was ever a valid target to reproduce
+   exactly (see the log-of-sum-vs-sum-of-logs point above) and what to do about the
+   dropout/underfitting tradeoff are open questions for whoever scopes C1 next, not
+   settled here. Step 7 stays out of "Done."
+
 8. **C1 — learned time weights.** First test of "when"; the stamp analysis and the raw
    beta lateralization both point at 0.5–2.5 s.
 9. **C2 — per-stamp features** instead of the two band sums.
