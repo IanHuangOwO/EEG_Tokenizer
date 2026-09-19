@@ -405,6 +405,10 @@ Target ~1k parameters, like the heads that generalized.
 | C4 | evoked branch (2b) | needed for ERP; likely neutral on MI |
 | C5 | cross-stamp coupling (2d) | tests the 0.036 recon gap |
 
+C3's "must beat" bar above is written as C2 per the original ladder design, but C2 was
+answered by existing data without a dedicated run (build-order step 9) — C3's operative
+bar is C1's 0.536 (build-order step 10).
+
 ### Regime tests (on the best of C0–C3)
 
 | test | why |
@@ -930,7 +934,12 @@ Next, in order:
     variant tried, is a first result on `2c`, not a closed question.
 11. **Regime tests on the best of C0–C3:** few-shot (5/10/20/50 trials per class), LOSO,
     then EEGMMIdb for statistical power. These decide whether the tokenizer is worth
-    anything over raw.
+    anything over raw. With C0–C3 all resolved (C2 without a dedicated run, C3 as a
+    negative result), "the best of C0–C3" currently means C1's exact configuration —
+    `stamp_induced spatial:8`, `pool_time=learned:2`, `include_advance` unset/false,
+    `dropout 0.5`, tail-mean **0.536** — not whatever `config/config.json` happens to be
+    pointed at when this step is picked up (it is currently pointed at C3's regressed
+    `include_advance=true` config from this session's last run).
 12. **C4 — evoked branch (2b)**, then ERP on Inria and SSVEP on BETA against their own
     raw baselines.
 13. **C5 — cross-stamp coupling (2d)**, which tests the 0.036 `stamp_bandpow` → `recon`
