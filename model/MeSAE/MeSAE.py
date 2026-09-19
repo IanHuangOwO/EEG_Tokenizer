@@ -740,6 +740,11 @@ class MeSAEFeatureHead(nn.Module):
     over a padded (zeroed) patch, but nothing stops the learned softmax weights from
     concentrating onto a padded position if ever trained on data where that occurs; a
     future variable-length dataset needs real pad-masking added to this branch first.
+    `include_advance` depends on the same fixed-length invariant a second, independent
+    way: `z_re`/`z_im` are an unnormalized sum over N'-1 patches (unlike the induced-power
+    arm, a normalized mean/softmax-weighted mean), so its feature scale grows with trial
+    length -- harmless here since every BCICIV2a trial has N'=39, but another reason a
+    variable-length dataset needs work before reusing this branch.
     Every trainable module lives under self.head, because train_finetune.py only
     optimizes model.head.
     Returns (logits, None, None) to match MeSAEFinetune's call signature.
