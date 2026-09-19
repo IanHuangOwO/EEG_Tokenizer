@@ -818,15 +818,41 @@ Next, in order:
    trial content, consistent with but not sharply locked onto the 0.5–2.5 s window.
 
    **C1's tail-mean beats the baseline, but not at statistical significance (n = 9).**
-   The result is directionally consistent with proceeding to C2 (per-stamp features,
-   build-order step 9), but the concentration of the gain in 2 of 9 subjects is an open
-   question this run doesn't resolve — whoever scopes C2 should treat "does learned time
-   weighting generalize" as still unsettled, not confirmed. Possible follow-up, not run
+   The result is directionally consistent with proceeding to the next build step —
+   see step 9 below, which found C2 already answered by existing data, so that step is
+   C3 (phase advance) in practice — but the concentration of the gain in 2 of 9
+   subjects is an open question this run doesn't resolve — whoever scopes C3 should
+   treat "does learned time weighting generalize" as still unsettled, not confirmed. Possible follow-up, not run
    here per this task's scope (one ablation factor per run): an `R=1` comparison, to see
    whether the second rank-2 factor is pulling its weight or whether a simpler `R=1` head
    gives a similar (or more consistent) effect. Step 8 stays out of "Done" — one run at
    one rank, without significance at n = 9, is a first result, not a settled one.
-9. **C2 — per-stamp features** instead of the two band sums.
+9. **C2 — per-stamp features** instead of the two band sums. **Already answered by
+   existing data, no new run needed.** The ablation ladder defines C2 as "per-stamp
+   features instead of band sums" — but `2a. induced`'s formula (`log Σ_n w[s,n]|u|²`
+   → shape `[k, s]`) has been per-stamp, never band-summed, since C0's very first
+   implementation (step 7). C0 and C1 (`stamp_induced`) already *are* the per-stamp
+   arm; there is no band-summed version of `stamp_induced` to compare against by
+   building something new. The ladder's "adds: per-stamp features" line was written
+   before the Head pseudocode's `2a` formula was finalized as per-stamp-native, and
+   was never reconciled with it once that decision was made — a planning
+   inconsistency, not a build gap.
+
+   The actual comparison C2 asks for (band-summed vs. per-stamp, everything else held
+   fixed) already exists as a side effect of step 7's follow-ups, same protocol
+   (`intra_subject_cv`, 5-fold, flat time weights, `dropout` aside — see caveat below),
+   same checkpoint: follow-up (a) (`stamp_bandpow spatial:8`, 16 band-summed features,
+   `dropout 0`) **0.476** vs. follow-up (c) (`stamp_induced`, 200 per-stamp features,
+   `dropout 0.5`) **0.495** — per-stamp ahead by +0.019. This is not a clean
+   single-factor ablation (dropout also differs between the two runs, `0` vs `0.5`,
+   because `stamp_bandpow`'s 16-feature width never needed the regularization fix
+   `stamp_induced`'s 200 features did), so treat +0.019 as a directional read, not a
+   significance-tested result (not paired-t-tested here; same underpowered-by-
+   construction caveat as everything else in this document). Consistent with step 7's
+   `stamp_bandpow`-vs-`stamp_induced` probe-level finding (ADR 0012 / experiment A):
+   per-stamp features have never measured worse than band sums anywhere in this
+   document. C2 is not marked "done" in the sense of a dedicated run — it's marked
+   answered, by data already on record, and the next new build step is C3.
 10. **C3 — phase advance (2c).**
 11. **Regime tests on the best of C0–C3:** few-shot (5/10/20/50 trials per class), LOSO,
     then EEGMMIdb for statistical power. These decide whether the tokenizer is worth
