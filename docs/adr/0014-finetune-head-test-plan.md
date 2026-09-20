@@ -1010,7 +1010,7 @@ Next, in order:
     this 16-feature head the raw signal reads better than the stamp band-power code.
     Raw beats the clean C0 baseline (0.495) by +0.034 (p = 0.087, raw wins 8/9). Versus
     C1, **C1 − raw = +0.006** (0.536 vs. 0.530), **p = 0.847**, C1 wins **4/9**
-    subjects (S3, S5, S7, S9; S9 alone is +0.205, and S4 −0.088 and S6 −0.099 go the
+    subjects (S3, S5, S7, S9; S9 alone is +0.204, and S4 −0.088 and S6 −0.099 go the
     other way).
 
     **The overfitting check.** Final-epoch train `balanced_acc` mean **0.759** (range
