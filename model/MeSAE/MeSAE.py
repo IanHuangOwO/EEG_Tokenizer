@@ -779,10 +779,6 @@ class MeSAEFeatureHead(nn.Module):
         if evoked_rank and num_patches is None:
             raise ValueError("evoked_rank requires num_patches (pass it through "
                               "build_finetune_from_config -- see model/factory.py)")
-        if evoked_rank and pool_time.startswith('window:'):
-            raise NotImplementedError(
-                "evoked_rank needs the full patch axis (N' == num_patches); it cannot be "
-                "combined with a window: pool_time, which slices patches")
         self.evoked_rank = int(evoked_rank)
         self.backbone, self.input, self.fs = backbone, input, float(sample_freq)
         for p in backbone.parameters():
@@ -810,6 +806,10 @@ class MeSAEFeatureHead(nn.Module):
             self.time_rank = int(pool_time.split(':')[1])
         else:
             self.window = tuple(float(v) for v in pool_time.split(':')[1].split('-'))
+        if evoked_rank and self.window is not None:
+            raise NotImplementedError(
+                "evoked_rank needs the full patch axis (N' == num_patches); it cannot be "
+                "combined with a window: pool_time, which slices patches")
         head = {}
         if pool_channel != 'concat':
             head['spatial'] = nn.Linear(C, K, bias=False)
