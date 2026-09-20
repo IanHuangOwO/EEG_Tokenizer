@@ -573,7 +573,7 @@ def _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, pat
 
     fold_results = {}
     for ds_name, subject in folds:
-        fold_tag = f"{ds_name}_{subject}"
+        fold_tag = f"{ds_name}_S{subject}"
         logger.info(f"===== LOSO fold {fold_tag} =====")
         train_config, val_config = _loso_fold_configs(config, dataset_params, ds_name, subject)
 
@@ -592,7 +592,8 @@ def _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, pat
         )
         fold_results[fold_tag] = best_metrics
 
-    logger.info("===== LOSO Summary (best-val-acc epoch per fold) =====")
+    logger.info("===== LOSO Summary (best-val-acc epoch per fold) -- optimistic: the epoch "
+                "is chosen on the held-out subject itself =====")
     metric_keys = ['acc', 'f1', 'f1_weighted', 'balanced_acc', 'kappa']
     per_metric = {k: [] for k in metric_keys}
     for fold_tag, best_metrics in fold_results.items():
@@ -614,6 +615,24 @@ def _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, pat
             std  = statistics.pstdev(vals) if len(vals) > 1 else 0.0
             summary['aggregate'][k] = {'mean': mean, 'std': std}
             logger.info(f"  MEAN {k}: {mean:.4f} +/- {std:.4f}")
+
+    logger.info("===== LOSO Summary (final epoch per fold) =====")
+    last_metric = {k: [] for k in metric_keys}
+    for fold_tag, best_metrics in fold_results.items():
+        if best_metrics is None:
+            continue
+        lv = best_metrics['last_val']
+        logger.info(f"  {fold_tag}: " + " | ".join(f"{k}={lv[k]:.4f}" for k in metric_keys))
+        for k in metric_keys:
+            last_metric[k].append(lv[k])
+    summary['aggregate_last'] = {}
+    for k in metric_keys:
+        vals = last_metric[k]
+        if vals:
+            mean = statistics.mean(vals)
+            std  = statistics.pstdev(vals) if len(vals) > 1 else 0.0
+            summary['aggregate_last'][k] = {'mean': mean, 'std': std}
+            logger.info(f"  MEAN {k} (final epoch): {mean:.4f} +/- {std:.4f}")
 
     summary_path = os.path.join(artifact_dir, 'loso_summary.json')
     with open(summary_path, 'w') as f:
