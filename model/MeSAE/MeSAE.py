@@ -732,6 +732,11 @@ class MeSAEFeatureHead(nn.Module):
                   width (K*S -> K*S*3). No size control beyond dropout is implemented;
                   this is the exact K*S*3 regime ADR 0014's "Size control is mandatory"
                   paragraph warns about, by design -- see the ADR for the reasoning.
+    evoked_rank:  int, stamp_induced only, 0 = off (ADR 0014 C4) -- adds the evoked branch
+                  (2b): a signed rank-R time filter T[s,n] applied linearly to the complex
+                  code (a, b), giving re/im features (+2*K*S width, K*S -> K*S*3 alone).
+                  Needs num_patches and the full patch axis (no window: pool_time). Like
+                  learned:R and include_advance, depends on fixed-length trials.
     task:         mi (mu/beta log power). erp/ssvep not built yet.
 
     Padded channels are zeroed before any pooling. pad_mask is ignored: every trial in the
@@ -754,7 +759,7 @@ class MeSAEFeatureHead(nn.Module):
     def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, input='recon',
                  task='mi', pool_channel='concat', pool_time='trial', z_proj=8,
                  dropout=0.1, sample_freq=200, freeze_backbone=True, num_patches=None,
-                 include_advance=False):
+                 include_advance=False, evoked_rank=0):
         super().__init__()
         if task != 'mi':
             raise NotImplementedError(f"task={task!r}: only 'mi' is built (ADR 0014 build order)")
@@ -767,6 +772,18 @@ class MeSAEFeatureHead(nn.Module):
                 f"include_advance is only implemented for input='stamp_induced' "
                 f"(ADR 0014 experiment C3), got input={input!r}")
         self.include_advance = include_advance
+        if evoked_rank and input != 'stamp_induced':
+            raise NotImplementedError(
+                f"evoked_rank is only implemented for input='stamp_induced' "
+                f"(ADR 0014 experiment C4), got input={input!r}")
+        if evoked_rank and num_patches is None:
+            raise ValueError("evoked_rank requires num_patches (pass it through "
+                              "build_finetune_from_config -- see model/factory.py)")
+        if evoked_rank and pool_time.startswith('window:'):
+            raise NotImplementedError(
+                "evoked_rank needs the full patch axis (N' == num_patches); it cannot be "
+                "combined with a window: pool_time, which slices patches")
+        self.evoked_rank = int(evoked_rank)
         self.backbone, self.input, self.fs = backbone, input, float(sample_freq)
         for p in backbone.parameters():
             p.requires_grad_(False)
@@ -810,11 +827,20 @@ class MeSAEFeatureHead(nn.Module):
                 'p': nn.Parameter(torch.randn(R, S) * 0.02),
                 'q': nn.Parameter(torch.randn(R, num_patches) * 0.02),
             })
+        if self.evoked_rank:
+            # Signed low-rank time filter for the evoked branch (2b), T[s,n] = 1/N' +
+            # sum_r p_r[s] q_r[n]. Small random p,q => starts as the plain trial-mean of (a,b)
+            # (the time-locked average) and learns a deviation. nn.ModuleDict rejects raw
+            # nn.Parameter values (same constraint as head['time']), hence the ParameterDict.
+            head['evoked'] = nn.ParameterDict({
+                'p': nn.Parameter(torch.randn(self.evoked_rank, len(keep)) * 0.02),
+                'q': nn.Parameter(torch.randn(self.evoked_rank, num_patches) * 0.02),
+            })
         if input == 'z_chan':
             head['z_proj'] = nn.Linear(backbone.head_dim, z_proj)
             n_feat = K * z_proj
         elif input == 'stamp_induced':
-            n_feat = K * len(keep) * (3 if include_advance else 1)
+            n_feat = K * len(keep) * (1 + 2 * bool(include_advance) + 2 * bool(self.evoked_rank))
         else:
             n_feat = K * len(self.BANDS)
         # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
@@ -932,6 +958,17 @@ class MeSAEFeatureHead(nn.Module):
                     z_re = (a_next * a_prev + b_next * b_prev).sum(1)                          # [B, K, S]
                     z_im = (b_next * a_prev - a_next * b_prev).sum(1)                          # [B, K, S]
                     feat = torch.cat([feat, z_re, z_im], dim=-1)                                # [B, K, 3*S]
+                if self.evoked_rank:
+                    # C4 (ADR 0014 build-order step 12): evoked branch (2b),
+                    # sum_n T[s,n] * u[n,k,s], u = a + i*b. T is signed and applied to a and b
+                    # LINEARLY (not to power) -- a linear functional preserves phase-locked
+                    # content, power destroys it. Same a, b as above, no new backbone call.
+                    # Fed raw (can be negative); the shared BatchNorm1d normalizes scale.
+                    T = 1.0 / a.shape[1] + torch.einsum(
+                        'rs,rn->sn', self.head['evoked']['p'], self.head['evoked']['q'])   # [S, N']
+                    ev_re = torch.einsum('sn,bnks->bks', T, a)                             # [B, K, S]
+                    ev_im = torch.einsum('sn,bnks->bks', T, b)                             # [B, K, S]
+                    feat = torch.cat([feat, ev_re, ev_im], dim=-1)
             else:
                 zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
                 feat = self._mix(zp, 1)                                                      # [B, K, P]
@@ -949,6 +986,6 @@ def build_finetune(backbone, num_channels, num_classes, input='head_z', **kw):
         allowed = ('hidden', 'freeze_backbone', 'dropout', 'use_topo_feature')
         return MeSAEFinetune(backbone, num_channels, num_classes, **{k: v for k, v in kw.items() if k in allowed})
     allowed = ('task', 'pool_channel', 'pool_time', 'z_proj', 'dropout', 'sample_freq',
-               'freeze_backbone', 'num_patches', 'include_advance')
+               'freeze_backbone', 'num_patches', 'include_advance', 'evoked_rank')
     return MeSAEFeatureHead(backbone, num_channels, num_classes, input=input,
                             **{k: v for k, v in kw.items() if k in allowed})
