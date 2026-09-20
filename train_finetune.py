@@ -460,7 +460,7 @@ def _loso_folds(dataset_params):
 
 
 def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_dir,
-                       artifact_dir, logger, patch_len, fold_tag=""):
+                       artifact_dir, logger, patch_len, fold_tag="", subject_eval=None):
     """Builds the finetune model/optimizer/scheduler and runs the full epoch loop for one
     train/val dataset pair. Returns the metrics dict (train+val) from the best-val-acc epoch."""
     train_params = config['training_params']['finetune']
@@ -529,11 +529,19 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     best_metrics = None
     total_epochs = train_params['epochs']
     logger.info(f"[{fold_tag}] Starting Finetuning ({total_epochs} epochs, freeze_backbone={freeze_backbone})")
+    tail_start = max(0, total_epochs - 10)
+    subj_hist = {}  # (group, subject) -> [balanced_acc per tail epoch]
 
     for epoch in range(1, total_epochs + 1):
         train_metrics = train_one_epoch(model, train_loader, optimizer, scaler, device, epoch, freeze_backbone=freeze_backbone)
         val_metrics   = validate_one_epoch(model, val_loader, device)
         scheduler.step()
+
+        if subject_eval is not None and epoch > tail_start:
+            for grp, subs in subject_eval.items():
+                for sid, sds in subs.items():
+                    sl = DataLoader(sds, batch_size=train_params['batch_size'], shuffle=False, num_workers=2, collate_fn=collate_fn)
+                    subj_hist.setdefault((grp, sid), []).append(validate_one_epoch(model, sl, device)['balanced_acc'])
 
         logger.info(f"--- [{fold_tag}] Epoch {epoch}/{total_epochs} Summary ---")
         logger.info(f"  [Train] loss: {train_metrics['loss']:.4f} | acc: {train_metrics['acc']:.4f} | f1: {train_metrics['f1']:.4f} | f1_w: {train_metrics['f1_weighted']:.4f} | bal_acc: {train_metrics['balanced_acc']:.4f} | kappa: {train_metrics['kappa']:.4f} | recon_mse: {train_metrics['recon_mse']:.4f}")
@@ -564,6 +572,11 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     if best_metrics is not None:
         # best-val-acc epoch selection is optimistic on small val sets (ADR 0014); keep the last too
         best_metrics['last_val'] = val_metrics
+        if subject_eval is not None:
+            best_metrics['subject_eval'] = {
+                g: {sid: {"tail": float(statistics.mean(subj_hist[(g, sid)])), "last": float(subj_hist[(g, sid)][-1]),
+                          "n_trials": len(sds)} for sid, sds in subs.items()}
+                for g, subs in subject_eval.items()}
     return best_metrics
 
 
@@ -640,6 +653,73 @@ def _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, pat
     logger.info(f"LOSO summary written to {summary_path}")
 
 
+def _subject_group_runs(train_params, dataset_params):
+    """Normalise subject_group_runs / subject_kfold into [{name, train, eval}] with int-or-str ids
+    as the dataset holds them; validates disjointness and existence."""
+    assert len(dataset_params) == 1, "subject_groups needs exactly one dataset in dataset_params.finetune"
+    ds_name, ds_args = next(iter(dataset_params.items()))
+    runs_cfg, k = train_params.get('subject_group_runs'), train_params.get('subject_kfold')
+    if (runs_cfg is None) == (k is None):
+        raise ValueError("subject_groups needs exactly one of subject_group_runs / subject_kfold")
+    avail = _resolve_all_subjects(ds_args['dataset_path'])
+    norm = lambda ids: _resolve_requested_subjects({'subject_to_use': list(ids)}, avail)
+    if k is not None:
+        subs = _resolve_requested_subjects(ds_args, avail)
+        random.Random(train_params.get('subject_kfold_seed', 42)).shuffle(subs)
+        folds = [subs[i::k] for i in range(k)]
+        runs_cfg = [{'name': f'fold{i}', 'train': [s for s in subs if s not in f], 'eval': {'heldout': f}}
+                    for i, f in enumerate(folds)]
+    runs = []
+    for r in runs_cfg:
+        train = norm(r['train'])
+        ev = {g: norm(ids) for g, ids in r['eval'].items()}
+        if len(train) != len(r['train']) or any(len(v) != len(r['eval'][g]) for g, v in ev.items()):
+            raise ValueError(f"run {r['name']}: subject(s) not found in {ds_name}")
+        overlap = set(train) & {s for v in ev.values() for s in v}
+        if overlap:
+            raise ValueError(f"run {r['name']}: train/eval subjects overlap: {sorted(overlap)}")
+        runs.append({'name': r['name'], 'train': train, 'eval': ev})
+    return ds_name, runs
+
+
+def _run_subject_groups(config, dataset_params, base_output_dir, artifact_dir, logger, patch_len):
+    train_params = config['training_params']['finetune']
+    ds_name, runs = _subject_group_runs(train_params, dataset_params)
+    result = {}
+    for r in runs:
+        tag = f"{ds_name}_{r['name']}"
+        union = sorted({s for v in r['eval'].values() for s in v}, key=str)
+        logger.info(f"===== subject_groups {tag}: train={r['train']} eval={r['eval']} =====")
+        cfgs = []
+        for subs in (r['train'], union):
+            c = copy.deepcopy(config)
+            c['dataset_params']['finetune'][ds_name]['subject_to_use'] = subs
+            cfgs.append(build_dataset_from_config(c, transform=None, mode='finetune'))
+        train_ds, val_ds = cfgs
+        logger.info(f"[{tag}] Dataset Sizes: Train={len(train_ds)}, Val={len(val_ds)}")
+        subj = val_ds.base_dataset.subject_data.numpy()
+        subject_eval = {g: {str(s): Subset(val_ds, np.flatnonzero(subj == s).tolist()) for s in v}
+                        for g, v in r['eval'].items()}
+        ck = os.path.join(base_output_dir, "finetune", f"run_{r['name']}")
+        vz = os.path.join(base_output_dir, "visualization", f"run_{r['name']}")
+        os.makedirs(ck, exist_ok=True); os.makedirs(vz, exist_ok=True)
+        best = run_training_loop(config, train_ds, val_ds, ck, vz, artifact_dir, logger, patch_len,
+                                 fold_tag=tag, subject_eval=subject_eval)
+        groups = {}
+        for g, subs in ((best or {}).get('subject_eval') or {}).items():
+            groups[g] = {'subjects': subs, 'n_subjects': len(subs),
+                         'mean_tail': statistics.mean(x['tail'] for x in subs.values()),
+                         'mean_last': statistics.mean(x['last'] for x in subs.values())}
+            logger.info(f"  [{r['name']}] group {g}: n={len(subs)} mean_tail={groups[g]['mean_tail']:.4f} "
+                        f"mean_last={groups[g]['mean_last']:.4f}")
+        result[r['name']] = {'train_subjects': [str(s) for s in r['train']], 'epochs': train_params['epochs'],
+                             'tail_epochs': min(10, train_params['epochs']), 'groups': groups}
+    path = os.path.join(artifact_dir, 'group_eval.json')
+    with open(path, 'w') as f:
+        json.dump(result, f, indent=2)
+    logger.info(f"group eval written to {path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='MeSAE Finetuning')
     parser.add_argument('--config', type=str, default='config/config.json')
@@ -677,6 +757,10 @@ def main():
         _run_loso(config, dataset_params, base_output_dir, artifact_dir, logger, patch_len)
         return
 
+    if split_mode == 'subject_groups':
+        _run_subject_groups(config, dataset_params, base_output_dir, artifact_dir, logger, patch_len)
+        return
+
     if split_mode == 'intra_subject':
         _run_intra_subject(config, dataset_params, base_output_dir, artifact_dir, logger,
                            patch_len, split_ratio)
@@ -693,7 +777,7 @@ def main():
     else:
         raise ValueError(
             f"Unknown split_mode: {split_mode!r} "
-            "(expected 'inter_subject', 'intra_subject', 'intra_subject_cv' or 'loso')")
+            "(expected 'inter_subject', 'intra_subject', 'intra_subject_cv', 'loso' or 'subject_groups')")
 
     logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
     run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_dir, artifact_dir, logger, patch_len, fold_tag=split_mode)
