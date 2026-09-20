@@ -1000,8 +1000,8 @@ Next, in order:
     computes mu/beta log band power per spatial filter, 2 bands x 8 filters = 16
     features; cross-checked against follow-up (a)'s saved `artifacts/config.json`, the
     only differences are `input` and `model_name`). Tail-mean balanced_acc **0.530**.
-    Per-subject tail means: S1 0.618, S2 0.494, S3 0.680, S4 0.456, S5 0.304, S6 0.412,
-    S7 0.602, S8 0.672, S9 0.530. Log:
+    Per-subject tail means: S1 0.618, S2 0.494, S3 0.680, S4 0.456, S5 0.305, S6 0.409,
+    S7 0.603, S8 0.674, S9 0.528. Log:
     `output/mesae_finetune_raw_control_cv/artifacts/train_20260920_173955.log`.
 
     **Paired tests** (subject level, n = 9, folds grouped within subject). Raw beats
@@ -1010,7 +1010,7 @@ Next, in order:
     this 16-feature head the raw signal reads better than the stamp band-power code.
     Raw beats the clean C0 baseline (0.495) by +0.034 (p = 0.087, raw wins 8/9). Versus
     C1, **C1 − raw = +0.006** (0.536 vs. 0.530), **p = 0.847**, C1 wins **4/9**
-    subjects (S3, S5, S7, S9; S9 alone is +0.203, and S4 −0.088 and S6 −0.102 go the
+    subjects (S3, S5, S7, S9; S9 alone is +0.205, and S4 −0.088 and S6 −0.099 go the
     other way).
 
     **The overfitting check.** Final-epoch train `balanced_acc` mean **0.759** (range
@@ -1021,13 +1021,13 @@ Next, in order:
     C1's 1,844.
 
     **Reading.** Under the same protocol, C1's 0.536 **matches** the raw signal (0.530):
-    a +0.006 point difference, well inside noise and far below the +0.05 sort of gap
-    that would count, with a non-significant paired test at n = 9 (significance is
+    a +0.006 point difference, well inside noise and inside the ~0.03 band the ADR
+    predicted, with a non-significant paired test at n = 9 (significance is
     reported, never a gate, per the Protocol section). The matched-input comparison
     goes against the stamp band-power code (−0.054). So the best code-space head, C1,
     recovers raw-level accuracy but does not exceed it, which is what the ADR predicted
-    ("within-subject with full data the codes will not beat raw", Experiment C blind
-    spot 6). Read narrowly: this is within-subject full-data, the regime where a
+    (Predictions list: "within-subject with full data, the codes will not beat raw",
+    staying within ~0.03; blind spot 6 is why that regime is a weak test). Read narrowly: this is within-subject full-data, the regime where a
     foundation model was expected to have the least to offer, so it neither refutes nor
     supports the tokenizer. Few-shot and cross-subject (step 11) remain the real tests.
     Also, "raw" here is the simple mu/beta band-power head at the same 16-feature
