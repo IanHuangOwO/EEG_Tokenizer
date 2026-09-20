@@ -942,6 +942,38 @@ Next, in order:
     `include_advance=true` config from this session's last run).
 12. **C4 — evoked branch (2b)**, then ERP on Inria and SSVEP on BETA against their own
     raw baselines.
+
+    **MI run of `2b` (first half of this step).** `stamp_induced spatial:8`,
+    `pool_time=learned:2`, `evoked_rank=2`, `include_advance` unset, `dropout 0.5`,
+    5-fold CV — C1's exact config plus the signed rank-2 evoked time filter on the code
+    `(a, b)` (2·K·S = 400 extra features, head input width `K·S` (200) -> `K·S·3` (600);
+    cross-checked against C1's saved `artifacts/config.json`, the only differences are
+    `evoked_rank` and `model_name`). Tail-mean balanced_acc **0.466**, **below C1's
+    0.536**. Per-subject tail means (C4, with C4−C1 diff): S1 0.461 (−0.130), S2 0.425
+    (−0.061), S3 0.571 (−0.122), S4 0.382 (+0.014), S5 0.343 (−0.023), S6 0.320
+    (+0.010), S7 0.476 (−0.129), S8 0.574 (−0.093), S9 0.641 (−0.092). Paired t-test
+    across subjects, n = 9: mean diff **−0.070**, t = **−3.63**, **p = 0.007**, wins
+    **2/9** (S4, S6, both by ≤ 0.014). Log:
+    `output/mesae_finetune_c4_evoked/artifacts/train_20260920_122034.log`.
+
+    **The overfitting check.** Final-epoch train `balanced_acc` mean **0.958** (range
+    0.926–0.987 across the 45 fold×subject runs) vs. C1's **0.843**, C3's **0.9255**,
+    the C0-family's **~0.74** and the unregularized run's **~0.985** — the highest of
+    any regularized arm, essentially at the unregularized ceiling. Trainable `head`
+    parameters (same method as step 10, off `fold0_subj_1/best_finetune.pth`):
+    **4,372** vs. C1's 1,844 and C3's 4,244, about 4.4x the ~1k target. Same regime as
+    C3: 600-feature head, `dropout 0.5`, no group penalty over stamps.
+
+    **Reading.** C4 does not beat C1 and is a significant regression at n = 9, with a
+    larger regression and higher train accuracy than C3. This is the outcome the ADR
+    pre-declared as likely: `2b` was expected neutral on MI, and the stamp analysis
+    found no phase-locked stamps on BCICIV2a, so there is no evoked signal for the
+    branch to read while its extra 400 features add memorization capacity. This run
+    measures `2b` **on MI**, not the branch's real test; it does not show the evoked
+    branch is useless, only that it does not help MI at C1's regularization. The real
+    next step is ERP on Inria and SSVEP on BETA against their own raw baselines, which
+    needs an ERP task block the head does not have yet (`task="mi"` only). Step 12
+    stays out of "Done" until that is run.
 13. **C5 — cross-stamp coupling (2d)**, which tests the 0.036 `stamp_bandpow` → `recon`
     gap.
 14. **Stamp attribution measure 4** (occlusion) with the best code-space head, plus the
