@@ -572,11 +572,12 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     if best_metrics is not None:
         # best-val-acc epoch selection is optimistic on small val sets (ADR 0014); keep the last too
         best_metrics['last_val'] = val_metrics
-        if subject_eval is not None:
-            best_metrics['subject_eval'] = {
-                g: {sid: {"tail": float(statistics.mean(subj_hist[(g, sid)])), "last": float(subj_hist[(g, sid)][-1]),
-                          "n_trials": len(sds)} for sid, sds in subs.items()}
-                for g, subs in subject_eval.items()}
+    if subject_eval is not None:
+        best_metrics = best_metrics or {}  # per-subject eval must survive a run whose val acc never left 0
+        best_metrics['subject_eval'] = {
+            g: {sid: {"tail": float(statistics.mean(subj_hist[(g, sid)])), "last": float(subj_hist[(g, sid)][-1]),
+                      "n_trials": len(sds)} for sid, sds in subs.items()}
+            for g, subs in subject_eval.items()}
     return best_metrics
 
 
@@ -665,12 +666,18 @@ def _subject_group_runs(train_params, dataset_params):
     norm = lambda ids: _resolve_requested_subjects({'subject_to_use': list(ids)}, avail)
     if k is not None:
         subs = _resolve_requested_subjects(ds_args, avail)
+        if not 2 <= k <= len(subs):
+            raise ValueError(f"subject_kfold must be in [2, {len(subs)}], got {k}")
         random.Random(train_params.get('subject_kfold_seed', 42)).shuffle(subs)
         folds = [subs[i::k] for i in range(k)]
         runs_cfg = [{'name': f'fold{i}', 'train': [s for s in subs if s not in f], 'eval': {'heldout': f}}
                     for i, f in enumerate(folds)]
+    if len({r['name'] for r in runs_cfg}) != len(runs_cfg):
+        raise ValueError("subject_group_runs names must be unique")
     runs = []
     for r in runs_cfg:
+        if not r['train'] or not r['eval'] or any(not ids for ids in r['eval'].values()):
+            raise ValueError(f"run {r['name']}: empty train set or eval group")
         train = norm(r['train'])
         ev = {g: norm(ids) for g, ids in r['eval'].items()}
         if len(train) != len(r['train']) or any(len(v) != len(r['eval'][g]) for g, v in ev.items()):
