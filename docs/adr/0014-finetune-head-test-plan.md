@@ -988,6 +988,50 @@ Next, in order:
     a shared width confound rather than two independent negative results. Neither run
     separates "the branch carries no MI signal" from "600 features at dropout 0.5
     overfit".
+12a. **Raw control under 5-fold CV.** The question C1 could not answer by itself: under
+    one identical protocol, does the tokenizer's code beat the raw signal? Every step
+    C0-C4 compared code-space heads only against each other under
+    `split_mode: intra_subject_cv`; the only raw numbers in this ADR (`raw spatial:8`
+    0.547, `raw concat` 0.495) came from the older single 80/20 split, and about 0.046
+    of an earlier apparent miss was traced to that protocol change alone, so they are
+    not comparable to C1's 0.536. **Run**, `input=raw`, `pool_channel=spatial:8`,
+    `pool_time=trial`, `dropout 0`, `freeze_backbone` true, 5-fold CV — differs from
+    follow-up (a) (`stamp_bandpow`, tail-mean 0.476) **only in `input`** (the raw arm
+    computes mu/beta log band power per spatial filter, 2 bands x 8 filters = 16
+    features; cross-checked against follow-up (a)'s saved `artifacts/config.json`, the
+    only differences are `input` and `model_name`). Tail-mean balanced_acc **0.530**.
+    Per-subject tail means: S1 0.618, S2 0.494, S3 0.680, S4 0.456, S5 0.304, S6 0.412,
+    S7 0.602, S8 0.672, S9 0.530. Log:
+    `output/mesae_finetune_raw_control_cv/artifacts/train_20260920_173955.log`.
+
+    **Paired tests** (subject level, n = 9, folds grouped within subject). Raw beats
+    the matched code-space head, follow-up (a) `stamp_bandpow`, by **+0.054**
+    (**p = 0.001**, raw wins **9/9** subjects) — the single-factor comparison, so on
+    this 16-feature head the raw signal reads better than the stamp band-power code.
+    Raw beats the clean C0 baseline (0.495) by +0.034 (p = 0.087, raw wins 8/9). Versus
+    C1, **C1 − raw = +0.006** (0.536 vs. 0.530), **p = 0.847**, C1 wins **4/9**
+    subjects (S3, S5, S7, S9; S9 alone is +0.203, and S4 −0.088 and S6 −0.102 go the
+    other way).
+
+    **The overfitting check.** Final-epoch train `balanced_acc` mean **0.759** (range
+    0.588–0.888 across the 45 fold×subject runs), below C1's 0.843 and near the
+    C0-family's ~0.74. Trainable `head` parameters (same method as step 10, off
+    `fold0_subj_1/best_finetune.pth`): **612** (8x64 spatial filter 512, plus the
+    16-unit BatchNorm/linear stack 16 + 16 + 64 + 4), well under the ~1k target and
+    C1's 1,844.
+
+    **Reading.** Under the same protocol, C1's 0.536 **matches** the raw signal (0.530):
+    a +0.006 point difference, well inside noise and far below the +0.05 sort of gap
+    that would count, with a non-significant paired test at n = 9 (significance is
+    reported, never a gate, per the Protocol section). The matched-input comparison
+    goes against the stamp band-power code (−0.054). So the best code-space head, C1,
+    recovers raw-level accuracy but does not exceed it, which is what the ADR predicted
+    ("within-subject with full data the codes will not beat raw", Experiment C blind
+    spot 6). Read narrowly: this is within-subject full-data, the regime where a
+    foundation model was expected to have the least to offer, so it neither refutes nor
+    supports the tokenizer. Few-shot and cross-subject (step 11) remain the real tests.
+    Also, "raw" here is the simple mu/beta band-power head at the same 16-feature
+    width, not a stronger raw baseline (e.g. the LDA or a deeper raw model).
 13. **C5 — cross-stamp coupling (2d)**, which tests the 0.036 `stamp_bandpow` → `recon`
     gap.
 14. **Stamp attribution measure 4** (occlusion) with the best code-space head, plus the
