@@ -940,6 +940,67 @@ Next, in order:
     `evoked_rank` unset, `dropout 0.5`, tail-mean **0.536** — not whatever `config/config.json` happens to be
     pointed at when this step is picked up (it is currently set to C1's config, with
     `model_name` `mesae_finetune_c1_rerun`, so regime tests can use it as-is).
+
+    **LOSO, MI core (phase 1).** The cross-subject half of step 11, on the three MI
+    datasets: does C1 beat the raw mu/beta band-power head on subjects the head never
+    trained on? **Protocol:** `split_mode: loso`, one held-out subject per fold, C1 and
+    raw each exactly as in steps 10/12a (frozen `mesae_v10_small_uw01` backbone; C1
+    `stamp_induced spatial:8 learned:2 dropout 0.5`, raw `raw spatial:8 trial dropout 0`),
+    each config cross-checked against its within-subject run's `artifacts/config.json`:
+    only dataset, `split_mode`, `epochs` and `model_name` differ. **Deviations:** 30
+    epochs, not 100 (a LOSO fold trains on ~8x more data, so 30 epochs is the same order
+    of optimizer steps); one dataset per run; BCICIV1_Train uses subjects 2, 3, 4, 5, 7
+    only (subjects 1 and 6 use a different class pair, so they cannot be pooled into one
+    left/right task); BCICIV2b has only 3 real channels (C3/Cz/C4), so `spatial:8` is
+    near-degenerate there (8 filters over 3 channels). **Pretraining overlap:** BCICIV2a
+    and BCICIV2b are fully unseen by the backbone; every BCICIV1_Train subject was in
+    its (unlabeled) pretraining, so that row is "seen". Metric is the last-10-epoch
+    tail-mean balanced_acc per held-out subject (the best-epoch numbers in
+    `loso_summary.json` `aggregate` pick the epoch on the held-out subject and are not
+    used). Logs and summaries: `output/mesae_loso_<dataset>_{c1,raw}/artifacts/`.
+
+    **BCICIV2a** (unseen, 4-class, chance 0.25, n = 9): raw **0.335**, C1 **0.379**;
+    **C1 − raw = +0.044**, t = 1.78, p = 0.112, C1 wins **7/9**. Margins over chance:
+    raw +0.085, C1 +0.129. Per-subject tails raw / C1: S1 0.47/0.39, S2 0.26/0.33,
+    S3 0.38/0.51, S4 0.37/0.38, S5 0.25/0.27, S6 0.26/0.30, S7 0.24/0.36, S8 0.38/0.50,
+    S9 0.42/0.38. **BCICIV2b** (unseen, 2-class, chance 0.50, n = 9): raw **0.594**, C1
+    **0.684**; **C1 − raw = +0.090**, t = 4.92, p = 0.001, C1 wins **9/9**. Margins:
+    raw +0.094, C1 +0.184. Per-subject tails raw / C1: S1 0.63/0.65, S2 0.54/0.64,
+    S3 0.55/0.55, S4 0.62/0.79, S5 0.62/0.71, S6 0.58/0.72, S7 0.58/0.72, S8 0.57/0.65,
+    S9 0.64/0.74. **BCICIV1_Train** (seen, 2-class, chance 0.50, n = 5): raw **0.511**,
+    C1 **0.496**; **C1 − raw = −0.014**, t = −1.11, p = 0.328, C1 wins **2/5**. Margins:
+    raw +0.011, C1 −0.004, i.e. both at chance. Per-subject tails raw / C1 (S2, S3, S4,
+    S5, S7): 0.50/0.50, 0.50/0.51, 0.50/0.50, 0.54/0.48, 0.50/0.49. The `aggregate_last`
+    (final-epoch) means agree in direction: 2a 0.328 vs 0.390, 2b 0.592 vs 0.688,
+    BCICIV1 0.537 vs 0.491 (raw vs C1).
+
+    **The overfitting check.** Final-epoch train balanced_acc mean (range over folds),
+    raw / C1: 2a 0.431 (0.40–0.45) / 0.483 (0.45–0.51), 2b 0.639 (0.63–0.65) / 0.700
+    (0.68–0.72), BCICIV1 0.678 (0.62–0.79) / 0.600 (0.57–0.62). On 2a/2b train sits
+    only 0.05–0.10 above the held-out score, so there is no sign of overfitting and
+    these heads are, if anything, still limited by capacity or epochs; on BCICIV1 the
+    raw head fits train at 0.68 while held-out stays at chance. Trainable `head`
+    parameters (from `fold_*/best_finetune.pth`, BatchNorm running buffers excluded):
+    2a raw **612**, C1 **1,844** (as in steps 10/12a); 2b and BCICIV1 raw **578**, C1
+    **1,442**, the smaller output layer of the 2-class task.
+
+    **Reading** (evidence only). On unseen subjects C1 beats the raw band-power head
+    on both unseen datasets, by +0.044 on 2a and +0.090 on 2b, the latter at p = 0.001
+    with a 9/9 sweep. This is the opposite of the within-subject result in step 12a
+    (C1 − raw = +0.006, indistinguishable), and it is the regime where this ADR
+    predicted the tokenizer could win if it wins anywhere (few-shot and cross-subject).
+    The 2b margin is also the one obtained where the geometry is worst for the head
+    (3 real channels), so the gain is not a `spatial:8` artifact. The seen BCICIV1
+    row does not show the effect: both heads sit at chance (0.511 / 0.496) and
+    C1 − raw is −0.014, so on this evidence pretraining exposure did not help. The
+    seen/unseen contrast is confounded by dataset (BCICIV1 is a different montage and
+    task, 5 subjects, and both heads including the raw one fail there), so it cannot be
+    attributed to "seen" versus "unseen". Caveats: "raw" is the simple mu/beta
+    band-power head (16 features), not a stronger raw baseline (LDA, a deeper raw
+    model); n is only 9 / 9 / 5 subjects, so significance is weak by construction and
+    the point difference is the bar (p is reported, never a gate); 30 epochs is a
+    judgment call. **Still open:** EEGMMIdb with seen/unseen subject groups, SSVEP with
+    phase-sensitive heads, ERP, and few-shot; step 11 stays out of "Done".
 12. **C4 — evoked branch (2b)**, then ERP on Inria and SSVEP on BETA against their own
     raw baselines.
 
