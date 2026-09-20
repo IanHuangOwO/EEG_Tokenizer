@@ -95,16 +95,16 @@ def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 
             sd = ckpt.get('model_state_dict', ckpt)
         # num_classes isn't in config (dataset-dependent) — infer from the checkpoint's own
         # cls layer shape, same value train_finetune.py derived from the dataset at train time.
-        cls_key = next((k for k in sd if k.endswith('head.cls.weight')), None)
+        cls_key = next((k for k in sd if k.endswith(('head.cls.weight', 'head.cls.2.weight'))), None)
         num_classes = sd[cls_key].shape[0] if cls_key else config['model_params'].get('_num_classes', 4)
         if cls_key is None:
-            print(f"  WARNING: no 'head.cls.weight' in checkpoint, guessing num_classes={num_classes}.")
+            print(f"  WARNING: no head.cls weight in checkpoint, guessing num_classes={num_classes}.")
 
         # num_patches is likewise dataset-dependent and only required when pool_time='learned:R'
-        # (MeSAEFeatureHead raises otherwise) — recover it from the checkpoint's own head.time.q
-        # tensor (shape [R, num_patches]) instead of touching the dataset. None for every other
+        # (MeSAEFeatureHead raises otherwise) — recover it from the checkpoint's own head.time.q /
+        # head.evoked.q tensor (shape [R, num_patches]) instead of touching the dataset. None for every other
         # pool_time, which is exactly what build_finetune_from_config already expects.
-        q_key = next((k for k in sd if k.endswith('head.time.q')), None)
+        q_key = next((k for k in sd if k.endswith(('head.time.q', 'head.evoked.q'))), None)
         n_patches = sd[q_key].shape[-1] if q_key else None
         model = build_finetune_from_config(config, num_classes, mode='finetune', num_patches=n_patches).to(device)
 
