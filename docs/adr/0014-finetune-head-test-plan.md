@@ -409,7 +409,7 @@ C3's "must beat" bar above is written as C2 per the original ladder design, but 
 answered by existing data without a dedicated run (build-order step 9) — C3's operative
 bar is C1's 0.536 (build-order step 10).
 
-### Regime tests (on the best of C0–C3)
+### Regime tests (on the best of C0–C4)
 
 | test | why |
 |---|---|
@@ -932,14 +932,14 @@ Next, in order:
 
     Step 10 stays out of "Done" — one run, at one dropout setting, with no size-control
     variant tried, is a first result on `2c`, not a closed question.
-11. **Regime tests on the best of C0–C3:** few-shot (5/10/20/50 trials per class), LOSO,
+11. **Regime tests on the best of C0–C4:** few-shot (5/10/20/50 trials per class), LOSO,
     then EEGMMIdb for statistical power. These decide whether the tokenizer is worth
-    anything over raw. With C0–C3 all resolved (C2 without a dedicated run, C3 as a
-    negative result), "the best of C0–C3" currently means C1's exact configuration —
+    anything over raw. With C0–C4 all resolved (C2 without a dedicated run, C3 and C4 as
+    negative results), "the best of C0–C4" currently means C1's exact configuration —
     `stamp_induced spatial:8`, `pool_time=learned:2`, `include_advance` unset/false,
-    `dropout 0.5`, tail-mean **0.536** — not whatever `config/config.json` happens to be
-    pointed at when this step is picked up (it is currently pointed at C3's regressed
-    `include_advance=true` config from this session's last run).
+    `evoked_rank` unset, `dropout 0.5`, tail-mean **0.536** — not whatever `config/config.json` happens to be
+    pointed at when this step is picked up (it is currently pointed at C4's regressed
+    `evoked_rank=2` config from this session's last run).
 12. **C4 — evoked branch (2b)**, then ERP on Inria and SSVEP on BETA against their own
     raw baselines.
 
@@ -974,6 +974,20 @@ Next, in order:
     next step is ERP on Inria and SSVEP on BETA against their own raw baselines, which
     needs an ERP task block the head does not have yet (`task="mi"` only). Step 12
     stays out of "Done" until that is run.
+
+    **Weight decay note.** As in C1, `train_finetune.py`'s `AdamW` decays the 2-D
+    `head.evoked.p`/`head.evoked.q` (`optimizer_param_groups` exempts only `ndim <= 1`),
+    but the direction differs. The evoked filter is `T = 1/N' + p^T q`, so decay only
+    shrinks the deviation and parks `T` at the constant `1/N'`, the plain trial-mean of
+    `(a, b)`, the classic time-locked average. The 400 extra evoked features therefore
+    cannot be decayed away, and decay does not make C4's regression conservative the
+    way it made C1's gain conservative. Not changed here.
+
+    **Width confound.** C3 and C4 both regress at the same 600-feature head width with
+    the same dropout-only size control (no group penalty), so the ladder currently has
+    a shared width confound rather than two independent negative results. Neither run
+    separates "the branch carries no MI signal" from "600 features at dropout 0.5
+    overfit".
 13. **C5 — cross-stamp coupling (2d)**, which tests the 0.036 `stamp_bandpow` → `recon`
     gap.
 14. **Stamp attribution measure 4** (occlusion) with the best code-space head, plus the
