@@ -217,7 +217,7 @@
         "pool_time": "learned:2",
         "dropout": 0.5,
         "freeze_backbone": true,
-        "include_advance": true
+        "evoked_rank": 2
       }
     }
   },
@@ -238,7 +238,7 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_c3_advance",
+      "model_name": "mesae_finetune_c4_evoked",
       "pretrained_checkpoint": "output/mesae_v10_small_uw01/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
