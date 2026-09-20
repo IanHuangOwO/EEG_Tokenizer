@@ -953,8 +953,10 @@ Next, in order:
     only (subjects 1 and 6 use a different class pair, so they cannot be pooled into one
     left/right task); BCICIV2b has only 3 real channels (C3/Cz/C4), so `spatial:8` is
     near-degenerate there (8 filters over 3 channels). **Pretraining overlap:** BCICIV2a
-    and BCICIV2b are fully unseen by the backbone; every BCICIV1_Train subject was in
-    its (unlabeled) pretraining, so that row is "seen". Metric is the last-10-epoch
+    and BCICIV2b are fully unseen by the backbone; BCICIV1_Train is only partly seen
+    (the pretrain config, `output/mesae_v10_small_uw01/artifacts/config.json`, used
+    subjects 1, 2, 3 only, so of the five evaluated folds S2 and S3 are seen and S4, S5,
+    S7 are unseen, though from an exposed dataset and montage). Metric is the last-10-epoch
     tail-mean balanced_acc per held-out subject (the best-epoch numbers in
     `loso_summary.json` `aggregate` pick the epoch on the held-out subject and are not
     used). Logs and summaries: `output/mesae_loso_<dataset>_{c1,raw}/artifacts/`.
@@ -967,9 +969,9 @@ Next, in order:
     **0.684**; **C1 − raw = +0.090**, t = 4.92, p = 0.001, C1 wins **9/9**. Margins:
     raw +0.094, C1 +0.184. Per-subject tails raw / C1: S1 0.63/0.65, S2 0.54/0.64,
     S3 0.55/0.55, S4 0.62/0.79, S5 0.62/0.71, S6 0.58/0.72, S7 0.58/0.72, S8 0.57/0.65,
-    S9 0.64/0.74. **BCICIV1_Train** (seen, 2-class, chance 0.50, n = 5): raw **0.511**,
+    S9 0.64/0.74. **BCICIV1_Train** (2 of 5 folds seen, 2-class, chance 0.50, n = 5): raw **0.511**,
     C1 **0.496**; **C1 − raw = −0.014**, t = −1.11, p = 0.328, C1 wins **2/5**. Margins:
-    raw +0.011, C1 −0.004, i.e. both at chance. Per-subject tails raw / C1 (S2, S3, S4,
+    raw +0.011, C1 −0.004, i.e. both at chance, so this row says nothing about seen versus unseen. Per-subject tails raw / C1 (S2, S3, S4,
     S5, S7): 0.50/0.50, 0.50/0.51, 0.50/0.50, 0.54/0.48, 0.50/0.49. The `aggregate_last`
     (final-epoch) means agree in direction: 2a 0.328 vs 0.390, 2b 0.592 vs 0.688,
     BCICIV1 0.537 vs 0.491 (raw vs C1).
@@ -977,25 +979,33 @@ Next, in order:
     **The overfitting check.** Final-epoch train balanced_acc mean (range over folds),
     raw / C1: 2a 0.431 (0.40–0.45) / 0.483 (0.45–0.51), 2b 0.639 (0.63–0.65) / 0.700
     (0.68–0.72), BCICIV1 0.678 (0.62–0.79) / 0.600 (0.57–0.62). On 2a/2b train sits
-    only 0.05–0.10 above the held-out score, so there is no sign of overfitting and
+    only 0.02–0.10 above the held-out score (gap 0.045 for 2b raw, 0.016 for 2b C1, 0.104 for 2a C1), so there is no sign of overfitting and
     these heads are, if anything, still limited by capacity or epochs; on BCICIV1 the
     raw head fits train at 0.68 while held-out stays at chance. Trainable `head`
     parameters (from `fold_*/best_finetune.pth`, BatchNorm running buffers excluded):
     2a raw **612**, C1 **1,844** (as in steps 10/12a); 2b and BCICIV1 raw **578**, C1
     **1,442**, the smaller output layer of the 2-class task.
 
-    **Reading** (evidence only). On unseen subjects C1 beats the raw band-power head
-    on both unseen datasets, by +0.044 on 2a and +0.090 on 2b, the latter at p = 0.001
+    **Reading** (evidence only). On unseen subjects C1 scores above the raw band-power head
+    on both unseen datasets, by +0.044 on 2a (trend) and +0.090 on 2b, the latter at p = 0.001
     with a 9/9 sweep. This is the opposite of the within-subject result in step 12a
     (C1 − raw = +0.006, indistinguishable), and it is the regime where this ADR
     predicted the tokenizer could win if it wins anywhere (few-shot and cross-subject).
     The 2b margin is also the one obtained where the geometry is worst for the head
-    (3 real channels), so the gain is not a `spatial:8` artifact. The seen BCICIV1
-    row does not show the effect: both heads sit at chance (0.511 / 0.496) and
-    C1 − raw is −0.014, so on this evidence pretraining exposure did not help. The
-    seen/unseen contrast is confounded by dataset (BCICIV1 is a different montage and
-    task, 5 subjects, and both heads including the raw one fail there), so it cannot be
-    attributed to "seen" versus "unseen". Caveats: "raw" is the simple mu/beta
+    (3 real channels), so the gain is not attributable to `spatial:8` alone (raw and C1
+    both use `spatial:8`, but also differ in input and dropout, 0.5 vs 0). The
+    BCICIV1 row does not show the effect: both heads sit at chance (0.511 / 0.496) and
+    C1 − raw is −0.014; with only 2 of 5 folds seen and 3 unseen, it cannot separate
+    seen from unseen. The contrast with 2a/2b is heavily confounded by dataset (a
+    different montage and task, 5 subjects, and both heads including the raw one fail
+    there), so nothing can be attributed to "seen" versus "unseen".
+    **Significance.** 2b p = 0.001 is uncorrected over three datasets (it survives
+    Bonferroni, 0.003); 2a (p = 0.112, 7/9) is a trend only, not to be lumped with 2b
+    as "beats raw on both unseen datasets". **Convergence.** The tail is still rising
+    slightly (mean epochs 11–20 → 21–30: 2a raw 0.319 → 0.335, C1 0.356 → 0.379; 2b raw
+    0.595 → 0.594, C1 0.673 → 0.684), so the point differences are not converged. A
+    100-epoch rerun of BCICIV2a (C1 and raw, `output/mesae_loso_BCICIV2a_{c1,raw}_e100`)
+    is running and will replace 30 epochs as the reference for 2a when done. Caveats: "raw" is the simple mu/beta
     band-power head (16 features), not a stronger raw baseline (LDA, a deeper raw
     model); n is only 9 / 9 / 5 subjects, so significance is weak by construction and
     the point difference is the bar (p is reported, never a gate); 30 epochs is a

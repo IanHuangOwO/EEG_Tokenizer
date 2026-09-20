@@ -63,7 +63,7 @@ def run(name, ds, pre_cfg):
         out.update(proxy=px, proxy_note='5-fold stratified shrinkage-LDA acc on log mu/beta band power',
                    stats={'all_unseen': summ(pu), 'eval_unseen': summ(pe),
                           'seen': summ([px[s] for s in seen]) if seen else None,
-                          'ks_stat': float(ks.statistic), 'ks_p': float(ks.pvalue), 'n_unseen': len(unseen)})
+                          'ks_stat': float(ks.statistic), 'ks_p': float(ks.pvalue), 'n_unseen': len(unseen), 'n_seen': len(seen)})
     else:
         ev = sorted(rng.choice(unseen, 10, replace=False).tolist(), key=int)
         rest = [s for s in unseen if s not in ev]

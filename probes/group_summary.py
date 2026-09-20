@@ -34,7 +34,9 @@ def paired(b, a):
     """b - a over shared subjects -> (n, mean diff, p, wins)"""
     subs = sorted(set(a) & set(b), key=lambda s: (len(s), s))
     x = np.array([b[s] for s in subs]); y = np.array([a[s] for s in subs])
-    p = stats.ttest_rel(x, y).pvalue if len(subs) > 1 else float('nan')
+    p = float('nan')
+    if len(subs) >= 5 and np.ptp(x - y) > 0:  # constant diffs -> NaN t-test
+        p = stats.ttest_rel(x, y).pvalue
     return len(subs), float(np.mean(x - y)) if subs else float('nan'), p, int((x > y).sum())
 
 
@@ -56,11 +58,13 @@ def main(paths):
         for g in heads[names[0]]:
             if g in heads[n]:
                 k, d, p, w = paired(heads[n][g], heads[names[0]][g])
-                print(f'{n} - {names[0]} [{g}] (tail, subject-level n={k}): {d:+.3f}  p={p:.3f}  wins {w}/{k}')
+                ps = 'descriptive only, n<5' if k < 5 else f'p={p:.3f}'
+                print(f'{n} - {names[0]} [{g}] (tail, subject-level n={k}): {d:+.3f}  {ps}  wins {w}/{k}')
     for n, pooled in heads.items():
         if 'seen' in pooled and 'unseen' in pooled:
             s, u = list(pooled['seen'].values()), list(pooled['unseen'].values())
-            print(f'{n} seen - unseen: {np.mean(s) - np.mean(u):+.3f}  Welch p={stats.ttest_ind(s, u, equal_var=False).pvalue:.3f}  (n={len(s)} vs {len(u)})')
+            w = f'Welch p={stats.ttest_ind(s, u, equal_var=False).pvalue:.3f}' if min(len(s), len(u)) >= 5 else 'descriptive only, n<5'
+            print(f'{n} seen - unseen: {np.mean(s) - np.mean(u):+.3f}  {w}  (n={len(s)} vs {len(u)})')
 
 
 if __name__ == '__main__':
