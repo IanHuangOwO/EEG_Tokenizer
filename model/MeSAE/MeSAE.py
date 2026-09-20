@@ -737,7 +737,12 @@ class MeSAEFeatureHead(nn.Module):
                   code (a, b), giving re/im features (+2*K*S width, K*S -> K*S*3 alone).
                   Needs num_patches and the full patch axis (no window: pool_time). Like
                   learned:R and include_advance, depends on fixed-length trials.
-    task:         mi (mu/beta log power). erp/ssvep not built yet.
+    task:         mi | erp | ssvep. For input='stamp_induced' (all flags) task has NO effect on
+                  the computation -- the stamp-code branches are task-agnostic. For input=
+                  'raw': mi = mu/beta log power; erp = signed spatial filter -> avg_pool1d to
+                  ~20 Hz -> flatten (no log; needs num_patches, pool_time='trial'); ssvep
+                  raises (two coarse bands cannot separate 40 frequencies -- use the PSDA
+                  baseline in probes/phase_probe_beta.py). Other inputs require mi.
 
     Padded channels are zeroed before any pooling. pad_mask is ignored: every trial in the
     intra-subject BCICIV2a runs has the same length. `pool_time="learned:R"` DEPENDS on
@@ -761,8 +766,23 @@ class MeSAEFeatureHead(nn.Module):
                  dropout=0.1, sample_freq=200, freeze_backbone=True, num_patches=None,
                  include_advance=False, evoked_rank=0):
         super().__init__()
-        if task != 'mi':
-            raise NotImplementedError(f"task={task!r}: only 'mi' is built (ADR 0014 build order)")
+        if task not in ('mi', 'erp', 'ssvep'):
+            raise ValueError(f"unknown task {task!r}")
+        if input == 'raw' and task == 'ssvep':
+            raise NotImplementedError(
+                "raw + task='ssvep': two coarse bands cannot separate 40 stimulus frequencies; "
+                "use the standard frequency-power reference (probes/phase_probe_beta.py PSDA baseline)")
+        if task != 'mi' and input != 'stamp_induced' and not (input == 'raw' and task == 'erp'):
+            raise NotImplementedError(
+                f"task={task!r} is only implemented for input='stamp_induced' (task-agnostic) "
+                f"and input='raw' (erp); got input={input!r}")
+        self.raw_erp = input == 'raw' and task == 'erp'
+        if self.raw_erp:
+            if num_patches is None:
+                raise ValueError("raw + task='erp' requires num_patches (pass it through "
+                                  "build_finetune_from_config -- see model/factory.py)")
+            if pool_time != 'trial':
+                raise ValueError("raw + task='erp' requires pool_time='trial'")
         if not freeze_backbone:
             raise NotImplementedError("MeSAEFeatureHead assumes a frozen backbone (ADR 0012)")
         if input not in ('raw', 'recon', 'stamp_bandpow', 'stamp_induced', 'z_chan'):
@@ -841,6 +861,10 @@ class MeSAEFeatureHead(nn.Module):
             n_feat = K * z_proj
         elif input == 'stamp_induced':
             n_feat = K * len(keep) * (1 + 2 * bool(include_advance) + 2 * bool(self.evoked_rank))
+        elif self.raw_erp:
+            self.erp_pool = max(1, round(self.fs / 20))
+            T = (num_patches - 1) * backbone.patch_stride + backbone.patch_len
+            n_feat = K * (T // self.erp_pool)
         else:
             n_feat = K * len(self.BANDS)
         # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
@@ -915,7 +939,11 @@ class MeSAEFeatureHead(nn.Module):
         # Feature math in fp32: under the training loop's autocast, einsum/log run in fp16,
         # where squared amplitudes overflow and the 1e-12 epsilon rounds to 0 (NaN loss).
         with torch.autocast(device_type=x.device.type, enabled=False):
-            if self.input in ('raw', 'recon'):
+            if self.raw_erp:
+                # signed, no log: spatial filter -> ~20 Hz avg-pool -> flatten (ADR 0014 Exp B)
+                feat = torch.nn.functional.avg_pool1d(
+                    self._mix(sig, 1).float(), self.erp_pool, self.erp_pool)                 # [B, K, T//pool]
+            elif self.input in ('raw', 'recon'):
                 feat = self._band_logpow(self._mix(sig, 1))                                  # [B, K, bands]
             elif self.input == 'stamp_bandpow':
                 a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
