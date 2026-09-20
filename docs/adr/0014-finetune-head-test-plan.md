@@ -938,8 +938,8 @@ Next, in order:
     negative results), "the best of C0–C4" currently means C1's exact configuration —
     `stamp_induced spatial:8`, `pool_time=learned:2`, `include_advance` unset/false,
     `evoked_rank` unset, `dropout 0.5`, tail-mean **0.536** — not whatever `config/config.json` happens to be
-    pointed at when this step is picked up (it is currently pointed at C4's regressed
-    `evoked_rank=2` config from this session's last run).
+    pointed at when this step is picked up (it is currently set to C1's config, with
+    `model_name` `mesae_finetune_c1_rerun`, so regime tests can use it as-is).
 12. **C4 — evoked branch (2b)**, then ERP on Inria and SSVEP on BETA against their own
     raw baselines.
 

@@ -211,11 +211,11 @@
         }
       },
       "finetune": {
-        "input": "raw",
+        "input": "stamp_induced",
         "task": "mi",
         "pool_channel": "spatial:8",
-        "pool_time": "trial",
-        "dropout": 0,
+        "pool_time": "learned:2",
+        "dropout": 0.5,
         "freeze_backbone": true
       }
     }
@@ -237,7 +237,7 @@
     },
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "mesae_finetune_raw_control_cv",
+      "model_name": "mesae_finetune_c1_rerun",
       "pretrained_checkpoint": "output/mesae_v10_small_uw01/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
