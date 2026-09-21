@@ -69,8 +69,8 @@ five modes to two. Config keys sit under `training_params.finetune`; `subject_to
   epochs) and `last`. Within-subject runs are named `<subject>_fold<i>` with the single
   subject in group `heldout`; the results tool pools per subject.
 - Removed: `inter_subject`, single-split `intra_subject`, the separate LOSO runner and
-  `loso_summary.json`. Old split names in a config raise an error naming the replacement.
-  Finished runs on disk are unaffected.
+  `loso_summary.json`. An unknown `split_mode` raises an error listing the two valid ones. Old
+  runs on disk are not kept working (see Risks).
 - **Environment stamp:** the run's `artifacts/config.json` gets a small `env` block: git commit
   and dirty flag, Python path, torch, mne and CUDA versions.
 - Expected size: about 500 lines. Verification: the new `within_subject` mode reproduces the
@@ -123,12 +123,13 @@ Everything below lives in a new `experiments/` folder (README included); `probes
 ## Risks and mitigations
 
 - **Behaviour drift in B** (fold composition, seeds): the equivalence checks against the old
-  runners are part of B's acceptance, run before the old runners are deleted.
-- **Old checkpoints and configs:** the head keys and state-dict names are unchanged (ADR 0016
-  constraint); the last commit with the removed code is tagged `pre-head-cleanup`.
-- **Phase 2 provenance:** the finished runs (`mesae_p2_*`) came from `config/phase2/*.json` and
-  the pre-restructure runner. Their `artifacts/config.json` files stay the record. Rerunning
-  them through a spec is optional, not required.
+  runners are part of B's acceptance, run before the old runners are deleted. They guard the
+  new code against bugs, not old outputs.
+- **Old runs are not a constraint** (user decision): the finished runs (Experiments A, B, C,
+  Phase 1 and the four Phase 2 runs) are superseded by the proper ablation. New code need not
+  load their checkpoints or configs. The state-dict names stay unchanged during this work
+  because it costs nothing; later head changes may rename them. The last commit with the
+  removed code is tagged `pre-head-cleanup` for anyone who wants to reproduce them.
 - **CRLF files** (`MeSAE.py`, `config/config.json`): edit in place, small diffs.
 
 ## Order and gating
