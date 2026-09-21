@@ -14,7 +14,7 @@
 
 - **Python env:** `/home/mamechin/anaconda3/envs/eeg_fm/bin/python` for every command (never `base`: it has no `mne`, which changes the coordinates and therefore the cache).
 - **The GPU is free.** Task 2's verification uses it briefly (BCICIV2a, two subjects); nothing else is running.
-- **Layering:** `model/` must not import from `IO/` and `IO/` must not import from `model/`. Code that joins them lives at the repo root (like `train_finetune.py`). `model/MeSAE/MeSAE_modules.py`, `model/MeSAE/MeSAE.py` and `IO/` are **not touched**; the only edit under `model/` is `load_backbone` in `factory.py`.
+- **Layering:** `model/` does not build datasets and `IO/` does not import `model/`. `model/` already imports two small helpers from `IO/` (`slice_patches` in `plugin.py`, `resolve_canonical_channels` in `factory.py`); those stay as they are. Code that builds datasets and runs the backbone over them lives at the repo root (like `train_finetune.py`). `model/MeSAE/MeSAE_modules.py`, `model/MeSAE/MeSAE.py` and `IO/` are **not touched**; the only edit under `model/` is `load_backbone` in `factory.py`.
 - **Line endings:** `cache_feature.py` is a new LF file. `model/factory.py` is LF (verify with `grep -c $'\r'` before editing and keep it LF); `model/MeSAE/MeSAE.py` and `config/config.json` are CRLF and are not touched. `CLAUDE.md` and the spec keep their own endings.
 - **No change to training, splits or any head math.** `train_finetune.py` is not touched.
 - **Cache location:** `<backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz`, where the run folder is the parent of the checkpoint's `checkpoint/` directory (`output/mesae_v10_small_uw01/` today). `output/` is git-ignored and the cache is regenerable, so nothing is committed from it.
@@ -242,7 +242,7 @@ if __name__ == '__main__':
     main()
 ```
 
-- [ ] **Step 4: Import and layering check.** `CUDA_VISIBLE_DEVICES='' PYTHONPATH=. /home/mamechin/anaconda3/envs/eeg_fm/bin/python -c "import cache_feature, model.factory, viz, train_finetune; print('ok')"` prints `ok`; `git grep -n "^from IO\|^import IO" -- model/` prints nothing (no `model/` file imports `IO`). Rerun the sub-project A equivalence script `.superpowers/sdd/2026-09-21-finetune-model-restructure-a/head_equiv.py` (`CUDA_VISIBLE_DEVICES='' PYTHONPATH=.`): 25 `OK` lines, so the `load_backbone` refactor changed nothing.
+- [ ] **Step 4: Import and layering check.** `CUDA_VISIBLE_DEVICES='' PYTHONPATH=. /home/mamechin/anaconda3/envs/eeg_fm/bin/python -c "import cache_feature, model.factory, viz, train_finetune; print('ok')"` prints `ok`; `git grep -n "build_dataset_from_config\|EEGDataset" -- model/` prints nothing (`model/` builds no datasets). Rerun the sub-project A equivalence script `.superpowers/sdd/2026-09-21-finetune-model-restructure-a/head_equiv.py` (`CUDA_VISIBLE_DEVICES='' PYTHONPATH=.`): 25 `OK` lines, so the `load_backbone` refactor changed nothing.
 
 - [ ] **Step 5: Commit** in two commits: (1) `refactor: extract load_backbone in the model factory` (`model/factory.py`); (2) `feat: cache_feature.py, stamp-amplitude cache next to the backbone` (`cache_feature.py`). `git status --short` shows nothing else.
 
