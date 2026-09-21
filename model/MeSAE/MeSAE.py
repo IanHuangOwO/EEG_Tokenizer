@@ -6,7 +6,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, StampBank,
-                                         PerChannelHeadAttn, overlap_add_patches)
+                                         PerChannelHeadAttn, overlap_add_patches,
+                                         spatial_mix, FlatTimePool, LearnedTimePool,
+                                         EvokedBranch, phase_advance)
 
 
 def _ema_update(buf, val, decay=0.99):
@@ -727,12 +729,12 @@ class MeSAEFeatureHead(nn.Module):
     pool_time:    trial | window:lo-hi (seconds from trial start; patches fully inside) |
                   learned:R (ADR 0014 C1, stamp_induced only -- low-rank softmax-weighted
                   time pooling, R = rank; requires num_patches)
-    include_advance: bool, stamp_induced only (ADR 0014 C3) -- concatenates the phase-
+    include_advance: bool, stamp_induced only (ADR 0014 C3; phase_advance in MeSAE_modules.py) -- concatenates the phase-
                   advance branch (2c) to the induced-power features, tripling feature
                   width (K*S -> K*S*3). No size control beyond dropout is implemented;
                   this is the exact K*S*3 regime ADR 0014's "Size control is mandatory"
                   paragraph warns about, by design -- see the ADR for the reasoning.
-    evoked_rank:  int, stamp_induced only, 0 = off (ADR 0014 C4) -- adds the evoked branch
+    evoked_rank:  int, stamp_induced only, 0 = off (ADR 0014 C4; EvokedBranch in MeSAE_modules.py) -- adds the evoked branch
                   (2b): a signed rank-R time filter T[s,n] applied linearly to the complex
                   code (a, b), giving re/im features (+2*K*S width, K*S -> K*S*3 alone).
                   Needs num_patches and the full patch axis (no window: pool_time). Like
@@ -836,26 +838,9 @@ class MeSAEFeatureHead(nn.Module):
         if self.time_rank is not None:
             R = self.time_rank
             S = len(keep)
-            # Small random init keeps pre-softmax logits near zero, so the learned weighting
-            # starts equivalent to C0's flat mean (uniform softmax) and only diverges from it
-            # as training proceeds -- makes "does learned beat flat" a clean ablation instead
-            # of a different starting point (ADR 0014 build-order step 8).
-            # nn.ModuleDict only accepts nn.Module values (not raw nn.Parameter), so the pair
-            # is registered as a nested nn.ParameterDict (itself an nn.Module) under one key --
-            # still lands under self.head, so model.head.parameters() still sees them.
-            head['time'] = nn.ParameterDict({
-                'p': nn.Parameter(torch.randn(R, S) * 0.02),
-                'q': nn.Parameter(torch.randn(R, num_patches) * 0.02),
-            })
+            head['time'] = LearnedTimePool(R, S, num_patches)     # small init => starts as flat mean
         if self.evoked_rank:
-            # Signed low-rank time filter for the evoked branch (2b), T[s,n] = 1/N' +
-            # sum_r p_r[s] q_r[n]. Small random p,q => starts as the plain trial-mean of (a,b)
-            # (the time-locked average) and learns a deviation. nn.ModuleDict rejects raw
-            # nn.Parameter values (same constraint as head['time']), hence the ParameterDict.
-            head['evoked'] = nn.ParameterDict({
-                'p': nn.Parameter(torch.randn(self.evoked_rank, len(keep)) * 0.02),
-                'q': nn.Parameter(torch.randn(self.evoked_rank, num_patches) * 0.02),
-            })
+            head['evoked'] = EvokedBranch(self.evoked_rank, len(keep), num_patches)
         if input == 'z_chan':
             head['z_proj'] = nn.Linear(backbone.head_dim, z_proj)
             n_feat = K * z_proj
@@ -870,6 +855,7 @@ class MeSAEFeatureHead(nn.Module):
         # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
         head['cls'] = nn.Sequential(nn.BatchNorm1d(n_feat), nn.Dropout(dropout), nn.Linear(n_feat, num_classes))
         self.head = nn.ModuleDict(head)
+        self.flat_pool = FlatTimePool()                            # parameter-free
 
         if input == 'stamp_bandpow':
             with torch.no_grad():
@@ -904,9 +890,7 @@ class MeSAEFeatureHead(nn.Module):
 
     def _mix(self, t, dim):
         """Signed spatial filter over channel axis `dim`, or identity for concat."""
-        if 'spatial' not in self.head:
-            return t
-        return torch.movedim(self.head['spatial'](torch.movedim(t, dim, -1).float()), -1, dim)
+        return spatial_mix(self.head['spatial'] if 'spatial' in self.head else None, t, dim)
 
     def forward(self, x, coords, time_idx=None, valid_channels=None, pad_mask=None):
         B, C, N, L = x.shape
@@ -960,43 +944,15 @@ class MeSAEFeatureHead(nn.Module):
                 # guaranteed to reproduce stamp_bandpow spatial:8's 0.522 exactly (ADR 0014).
                 a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
                 power = a.pow(2) + b.pow(2)                                                   # [B, N', K, S]
-                if self.time_rank is not None:
-                    # C1: learned low-rank time weights (step 2a, ADR 0014 build-order 8),
-                    # softmax-normalized over the patch axis per stamp -- w[s,n] sums to 1
-                    # over n for each stamp, so this is a weighted mean, directly comparable
-                    # to C0's uniform mean (w[s,n] = 1/N) rather than an unbounded rescaling.
-                    logits_time = torch.einsum('rs,rn->sn', self.head['time']['p'], self.head['time']['q'])  # [S, N']
-                    w = torch.softmax(logits_time, dim=-1)                                    # [S, N']
-                    pooled = torch.einsum('sn,bnks->bks', w, power)                            # [B, K, S]
-                else:
-                    pooled = power.mean(1)                                                    # [B, K, S]
-                feat = torch.log(pooled + 1e-12)                                              # [B, K, S]
+                pool = self.head['time'] if self.time_rank is not None else self.flat_pool
+                # C1 learned softmax time weights / C0 flat mean (ADR 0014); see LearnedTimePool
+                feat = torch.log(pool(power) + 1e-12)                                         # [B, K, S]
                 if self.include_advance:
-                    # C3 (ADR 0014 build-order step 10): phase-advance branch (2c),
-                    # z[k,s] = sum_n u[n+1,k,s] * conj(u[n,k,s]), u = a + i*b -- the same
-                    # a, b this branch already computed, no new backbone call. Real/imag
-                    # expansion (no complex dtype): z_re captures rhythm steadiness
-                    # (magnitude-like), z_im captures sub-bin frequency (phase-like);
-                    # feeding both raw (no log -- they can be negative) lets the linear
-                    # classifier learn any function of magnitude+angle without an explicit
-                    # atan2. Not log-power-scaled like `feat`, but the shared BatchNorm1d
-                    # ahead of the classifier normalizes per-feature scale regardless.
-                    a_next, a_prev = a[:, 1:], a[:, :-1]                                       # [B, N'-1, K, S]
-                    b_next, b_prev = b[:, 1:], b[:, :-1]
-                    z_re = (a_next * a_prev + b_next * b_prev).sum(1)                          # [B, K, S]
-                    z_im = (b_next * a_prev - a_next * b_prev).sum(1)                          # [B, K, S]
-                    feat = torch.cat([feat, z_re, z_im], dim=-1)                                # [B, K, 3*S]
+                    # C3 (ADR 0014): phase-advance branch, fed raw (BatchNorm normalises scale)
+                    feat = torch.cat([feat, phase_advance(a, b)], dim=-1)
                 if self.evoked_rank:
-                    # C4 (ADR 0014 build-order step 12): evoked branch (2b),
-                    # sum_n T[s,n] * u[n,k,s], u = a + i*b. T is signed and applied to a and b
-                    # LINEARLY (not to power) -- a linear functional preserves phase-locked
-                    # content, power destroys it. Same a, b as above, no new backbone call.
-                    # Fed raw (can be negative); the shared BatchNorm1d normalizes scale.
-                    T = 1.0 / a.shape[1] + torch.einsum(
-                        'rs,rn->sn', self.head['evoked']['p'], self.head['evoked']['q'])   # [S, N']
-                    ev_re = torch.einsum('sn,bnks->bks', T, a)                             # [B, K, S]
-                    ev_im = torch.einsum('sn,bnks->bks', T, b)                             # [B, K, S]
-                    feat = torch.cat([feat, ev_re, ev_im], dim=-1)
+                    # C4 (ADR 0014): evoked branch, fed raw (BatchNorm normalises scale)
+                    feat = torch.cat([feat, self.head['evoked'](a, b)], dim=-1)
             else:
                 zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
                 feat = self._mix(zp, 1)                                                      # [B, K, P]
