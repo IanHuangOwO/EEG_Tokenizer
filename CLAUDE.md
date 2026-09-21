@@ -121,11 +121,11 @@ Key fields:
 
 ### Outputs
 
-Finished runs are grouped by experiment set: `output/pretrain/` (all pretrain/tokenizer runs, including the
-current backbone `mesae_v10_small`), `output/experiment_b/`,
-`output/experiment_c/`, `output/loso_phase1/`; Phase 2 (`mesae_p2_*`) is in `output/phase2/`. New runs
-still write to `output/<model_name>/`; a grouped run is addressed as `<group>/<model_name>` (e.g. probes take `<run>` as a path
-under `output/`).
+`output/pretrain/` holds every pretrain/tokenizer run (the backbones, each with its `feature_cache/`).
+`output/archive/` holds the earlier finetune experiments (`experiment_b`, `experiment_c`, `loso_phase1`, `phase2`): superseded
+by the restart on the corrected pipeline, kept as the record of why the head was chosen (their stamp-head numbers ran without
+MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<model_name>/` (`model_name` may contain a
+subfolder, e.g. `baseline/BCICIV2a_intra_c1`).
 
 `output/<model_name>/`
 - `checkpoint/best.pth` — best val-loss checkpoint (reset at the phase boundary; during

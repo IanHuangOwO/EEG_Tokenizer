@@ -178,7 +178,7 @@ Run: `git show HEAD:model/MeSAE/MeSAE.py > model/MeSAE/_old_mesae_tmp.py` (CRLF 
      - `stamp_induced` with each of: `trial`; `learned:2`; `window:1.0-4.0`; `learned:2` + `include_advance`; `learned:2` + `evoked_rank=2`; `learned:2` + both
   3. Assert **before any forward** that `sorted(old.state_dict().keys()) == sorted(new.state_dict().keys())` and every tensor is equal (`torch.equal`): this proves identical parameter names, buffers and RNG order.
   4. Put both in `eval()`; on a fixed random input `x [2, 64, 39, 50]`, `coords [2, 64, 3]` (any fixed values), `valid_channels` with 22 True and 42 False, `time_idx=None`, assert `torch.allclose(old(...)[0], new(...)[0], atol=1e-6)`; also assert the backward gradient of `logits.sum()` matches for every trainable parameter (`atol=1e-6`).
-  5. Real checkpoint: load `output/experiment_c/mesae_finetune_c1_learned2/finetune/fold1_subj_8/best_finetune.pth` into both (config from `output/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json` via `viz.load_config` / `viz.load_model` style build; strict), and assert equal logits on the same input.
+  5. Real checkpoint: load `output/archive/experiment_c/mesae_finetune_c1_learned2/finetune/fold1_subj_8/best_finetune.pth` into both (config from `output/archive/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json` via `viz.load_config` / `viz.load_model` style build; strict), and assert equal logits on the same input.
   Print one line per configuration `OK <config>`.
 
 - [ ] **Step 3: Run it against the unmodified class first** (both sides are still the same code): `CUDA_VISIBLE_DEVICES='' PYTHONPATH=. /home/mamechin/anaconda3/envs/eeg_fm/bin/python .superpowers/sdd/2026-09-21-head-modules-refactor/head_equiv.py`
@@ -212,7 +212,7 @@ Expected: all `OK`. This proves the harness itself is valid before the refactor.
 
 - [ ] **Step 5: Re-run the equivalence script**
 
-Run the Step 3 command. Expected: every configuration prints `OK`, including the real-checkpoint check. Any mismatch is a bug in the refactor, not in the test: fix the refactor. Then run this smoke check (no training run is needed): `CUDA_VISIBLE_DEVICES='' PYTHONPATH=. /home/mamechin/anaconda3/envs/eeg_fm/bin/python -c "import json; from viz import load_config, load_model; import torch; c=load_config('output/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json'); m=load_model(c,'output/experiment_c/mesae_finetune_c1_learned2/finetune/fold1_subj_8/best_finetune.pth',torch.device('cpu'),mode='finetune'); print(type(m).__name__, m.head.time.p.shape, m.keep.shape)"` (expects `MeSAEFeatureHead torch.Size([2, 25]) torch.Size([25])`).
+Run the Step 3 command. Expected: every configuration prints `OK`, including the real-checkpoint check. Any mismatch is a bug in the refactor, not in the test: fix the refactor. Then run this smoke check (no training run is needed): `CUDA_VISIBLE_DEVICES='' PYTHONPATH=. /home/mamechin/anaconda3/envs/eeg_fm/bin/python -c "import json; from viz import load_config, load_model; import torch; c=load_config('output/archive/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json'); m=load_model(c,'output/archive/experiment_c/mesae_finetune_c1_learned2/finetune/fold1_subj_8/best_finetune.pth',torch.device('cpu'),mode='finetune'); print(type(m).__name__, m.head.time.p.shape, m.keep.shape)"` (expects `MeSAEFeatureHead torch.Size([2, 25]) torch.Size([25])`).
 
 - [ ] **Step 6: Clean up and commit**
 

@@ -495,7 +495,7 @@ And `training_params.finetune` to (note `cv_folds: 5`, not 3):
 Run: `python train_finetune.py --config config/config.json`. This is a real, long-running
 GPU job (9 subjects x 5 folds x 100 epochs -- budget similar order of magnitude to the
 original C0 run, ~3-4 hours). Let it run to completion. Then read the result:
-`python probes/ft_summary.py output/experiment_c/mesae_finetune_c0_dropout05_5fold/artifacts/train_<timestamp>.log`.
+`python probes/ft_summary.py output/archive/experiment_c/mesae_finetune_c0_dropout05_5fold/artifacts/train_<timestamp>.log`.
 Record the tail-mean `balanced_acc` -- this is the number C1 (Step 2 below) must beat.
 
 - [ ] **Step 2: Run C1 — `stamp_induced`, learned time weights (rank 2), 5-fold CV,
@@ -522,7 +522,7 @@ And `training_params.finetune`, changing only `model_name`:
 
 (everything else identical to Step 1's `training_params.finetune`). Run the same way, wait
 for completion, then read the result the same way:
-`python probes/ft_summary.py output/experiment_c/mesae_finetune_c1_learned2/artifacts/train_<timestamp>.log`.
+`python probes/ft_summary.py output/archive/experiment_c/mesae_finetune_c1_learned2/artifacts/train_<timestamp>.log`.
 
 **Rank choice:** use `R=2` (not 1) for this run -- the ADR's ablation ladder names R=1-2 as
 the range to try, and R=2 gives the learned weighting slightly more expressiveness (e.g. one
