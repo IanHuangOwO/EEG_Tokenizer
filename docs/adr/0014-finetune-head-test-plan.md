@@ -604,6 +604,23 @@ bands. A band-selectivity constraint would then make attribution cleaner.
 - **Backbone:** `mesae_v10_small_uw01` for plumbing. Conclusions about the tokenizer
   itself need the full-data run.
 
+### Python environment (which runs had MNE coordinates)
+
+Runs execute in one of two conda environments. `eeg_fm` has `mne`; `base` does not. Without `mne`,
+`IO/loader.py`'s `get_standard_coords` returns nothing and every channel silently gets the flat polar
+fallback from `metadata.json` (z = 0, radius up to about 1) instead of MNE's 3-D positions in meters,
+so the backbone's spatial embedding sees different coordinates. The effect on the finetune numbers was
+not measured. Marking, also recorded in the `env` column of `docs/adr/0014_attempts.csv`:
+
+- **Ran in `base`, without `mne` (confirmed** by `No module named 'mne'` in the run's stderr): C0
+  follow-ups (a) and (b), and all Phase 1 LOSO runs (30-epoch BCICIV2a/2b/BCICIV1_Train and the
+  100-epoch BCICIV2a rerun).
+- **Presumably `base`, without `mne`** (default `python` on PATH, no stderr kept): C0, C0 baseline
+  (clean), C1, C3, C4 and the raw control of Experiment C.
+- **Environment not recorded:** ADR 0012 probes and Experiments A, B, B1.
+- **`eeg_fm` (with `mne`):** Phase 2 and everything after. Do not compare absolute numbers across
+  the two groups without saying so; arms compared inside one group share the same coordinates, but whether the coordinates affect each arm equally was not measured.
+
 ## Build order (each step has one acceptance check)
 
 Done:
