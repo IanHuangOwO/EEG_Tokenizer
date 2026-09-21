@@ -492,7 +492,10 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
     logger.info(f"[{fold_tag}] Loading pretrained backbone...")
     trial_T = train_dataset[0][0].shape[-1]
     n_patches = num_patches(trial_T, patch_len, patch_stride)
-    model = build_finetune_from_config(config, num_classes, mode='finetune', num_patches=n_patches)
+    vcs = {tuple(v.tolist()) for v in train_base.all_valid_channels}
+    assert len(vcs) == 1, "finetune assumes one real-channel set per dataset"
+    channel_idx = torch.nonzero(train_base.all_valid_channels[0]).flatten().tolist()
+    model = build_finetune_from_config(config, num_classes, mode='finetune', num_patches=n_patches, channel_idx=channel_idx)
     logger.info(f"[{fold_tag}] Loaded backbone weights from {train_params['pretrained_checkpoint']}")
     freeze_backbone = config['model_params'][model_type].get('finetune', {}).get('freeze_backbone', False)
     model.to(device)
@@ -551,7 +554,7 @@ def run_training_loop(config, train_dataset, val_dataset, checkpoint_dir, vis_di
         if val_metrics['acc'] > best_val_acc:
             best_val_acc = val_metrics['acc']
             best_metrics = {'epoch': epoch, 'train': train_metrics, 'val': val_metrics}
-            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best_finetune.pth'))
+            torch.save(model.head_checkpoint(train_params['pretrained_checkpoint']), os.path.join(checkpoint_dir, 'best_finetune.pth'))
             logger.info(f"  > [{fold_tag}] Saved Best Checkpoint")
 
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)

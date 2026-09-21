@@ -6,9 +6,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, StampBank,
-                                         PerChannelHeadAttn, overlap_add_patches,
+                                         overlap_add_patches,
                                          spatial_mix, FlatTimePool, LearnedTimePool,
-                                         EvokedBranch, phase_advance)
+                                         EvokedBranch, phase_advance, StampExtractor, FeatureHead,
+                                         resolve_head_config)
 
 
 def _ema_update(buf, val, decay=0.99):
@@ -642,334 +643,67 @@ class MeSAEPretrain(nn.Module):
         return metrics
 
 
-class MeSAEFinetune(nn.Module):
-    """
-    Wraps a pretrained MeSAEPretrain backbone (unmodified) with a temporal+stamp
-    attention classification head (PerChannelHeadAttn) — same shape/rationale as
-    the removed MeFSQFinetune. Reads backbone.encode_post_stamp_expert: a
-    D-dim View per stamp per patch, every stamp densely (no top-k), channels collapsed
-    by pooling z with that stamp's own per-channel amp magnitude as the weight — see
-    encode_post_stamp_expert's docstring. The channel dim is already gone by the time
-    the head sees it, so the head only pools over patches and stamps.
-    """
-    def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, hidden=128, freeze_backbone=False,
-                 dropout=0.1, use_topo_feature=False):
+class FinetuneModel(nn.Module):
+    """Frozen MeSAE backbone + one FeatureHead (MeSAE_modules finetune section). Call signature
+    matches the old finetune classes so train_finetune.py is unchanged: forward -> (logits, None, None)."""
+    def __init__(self, backbone, head_cfg, channel_idx):
         super().__init__()
         self.backbone = backbone
-        # use_topo_feature: also hand the head each stamp's per-patch TOPOGRAPHY
-        # (chan_attn, the softmax-over-channels weight encode_post_stamp_expert already
-        # computes) as a FEATURE, instead of only consuming it as a pooling weight.
-        #
-        # An earlier comment here claimed the topography beats pooled magnitude on
-        # BCICIV2a (0.373 vs 0.255). That came from trial-wise CV and was mostly
-        # subject-identity leakage (ADR 0012 §4a); do not rely on it. What survives: a
-        # softmax-weighted mean over channels cannot represent a C3-C4 contrast.
-        #
-        # Off by default -- it widens the head input to 2*head_dim, so it is an
-        # architecture change, not a free fix. NOT universal either: on EEGMMIdb the
-        # collapsed features win (pool_mag 0.502 vs topography 0.465), so this is
-        # expected to help lateralized MI and may not help elsewhere.
-        self.use_topo_feature = use_topo_feature
-        head_dim = backbone.head_dim
-        if use_topo_feature:
-            # C -> head_dim so the topography arrives in the same space/width as z, and
-            # the two can be concatenated per (patch, stamp) without one dominating the
-            # LayerNorm inside the head.
-            self.topo_proj = nn.Linear(num_channels, head_dim)
-            head_dim = head_dim * 2
-        self.head = PerChannelHeadAttn(head_dim, num_classes, dropout=dropout)
-
-        if freeze_backbone:
-            for p in self.backbone.parameters():
-                p.requires_grad_(False)
-
-    def forward(self, x, coords, time_idx=None, valid_channels=None, pad_mask=None):
-        """
-        x: [B, C, N, L]
-        coords: [B, C, 3]
-        valid_channels: [B, C] bool, True = real (not zero-padded) channel (optional)
-        pad_mask: [B, N] bool, True = valid patch (optional, for padded trailing time)
-        returns: (logits [B, num_classes], attn_h [B, Q], attn_n [B, Q, N])
-        """
-        if self.use_topo_feature:
-            z_per_head, chan_attn = self.backbone.encode_post_stamp_expert(
-                x, coords, time_idx=time_idx, valid_channels=valid_channels,
-                return_chan_attn=True)                                    # [B,N,Q,D], [B,N,Q,C]
-            # Concatenated, not added: the head's input_norm sees one vector per
-            # (patch, stamp), and adding would let z's scale bury the topography.
-            z_per_head = torch.cat([z_per_head, self.topo_proj(chan_attn)], dim=-1)
-        else:
-            z_per_head = self.backbone.encode_post_stamp_expert(
-                x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [B, N, Q, D]
-        logits, attn_h, attn_n = self.head(z_per_head, pad_mask=pad_mask)
-        return logits, attn_h, attn_n
-
-
-class MeSAEFeatureHead(nn.Module):
-    """ADR 0014 experiment B: one feature x one pooling choice per axis x a linear readout,
-    so each factor can be changed alone. Frozen backbone only.
-
-    input:        raw            the patched signal overlap-added back (no backbone)
-                  recon          the backbone's unmasked reconstruction, overlap-added
-                  stamp_bandpow  per-patch dense stamp amps (alive routed + shared),
-                                 band energy via each template's spectrum (exact per stamp,
-                                 see ADR 0014), no decoding
-                  stamp_induced  ADR 0014 experiment C, step C0: per-(channel-filter, stamp)
-                                 log power, flat (uniform) time weights -- same amp tensor as
-                                 stamp_bandpow, kept per-stamp instead of band-collapsed. The
-                                 pre-log per-stamp powers span the same information
-                                 stamp_bandpow's band-summed powers do, but the linear readout
-                                 here runs on log-power, so it is NOT a strict superset of
-                                 stamp_bandpow's readout -- log doesn't distribute over the
-                                 band sum (log(sum w*p) != sum w*log(p))
-                  z_chan         encoder z, shared Linear(D, z_proj), time-mean per channel
-    pool_channel: concat | spatial:K   (signed Linear(C, K), no softmax. For stamp_bandpow
-                  it mixes each stamp's (a, b) across channels before the power, the
-                  code-space analogue of a CSP filter.)
-    pool_time:    trial | window:lo-hi (seconds from trial start; patches fully inside) |
-                  learned:R (ADR 0014 C1, stamp_induced only -- low-rank softmax-weighted
-                  time pooling, R = rank; requires num_patches)
-    include_advance: bool, stamp_induced only (ADR 0014 C3; phase_advance in MeSAE_modules.py) -- concatenates the phase-
-                  advance branch (2c) to the induced-power features, tripling feature
-                  width (K*S -> K*S*3). No size control beyond dropout is implemented;
-                  this is the exact K*S*3 regime ADR 0014's "Size control is mandatory"
-                  paragraph warns about, by design -- see the ADR for the reasoning.
-    evoked_rank:  int, stamp_induced only, 0 = off (ADR 0014 C4; EvokedBranch in MeSAE_modules.py) -- adds the evoked branch
-                  (2b): a signed rank-R time filter T[s,n] applied linearly to the complex
-                  code (a, b), giving re/im features (+2*K*S width, K*S -> K*S*3 alone).
-                  Needs num_patches and the full patch axis (no window: pool_time). Like
-                  learned:R and include_advance, depends on fixed-length trials.
-    task:         mi | erp | ssvep. For input='stamp_induced' (all flags) task has NO effect on
-                  the computation -- the stamp-code branches are task-agnostic. For input=
-                  'raw': mi = mu/beta log power; erp = signed spatial filter -> avg_pool1d to
-                  ~20 Hz -> flatten (no log; needs num_patches, pool_time='trial'); ssvep
-                  raises (two coarse bands cannot separate 40 frequencies -- use the PSDA
-                  baseline in probes/phase_probe_beta.py). Other inputs require mi.
-
-    Padded channels are zeroed before any pooling. pad_mask is ignored: every trial in the
-    intra-subject BCICIV2a runs has the same length. `pool_time="learned:R"` DEPENDS on
-    that invariant rather than merely tolerating it -- a flat mean degrades gracefully
-    over a padded (zeroed) patch, but nothing stops the learned softmax weights from
-    concentrating onto a padded position if ever trained on data where that occurs; a
-    future variable-length dataset needs real pad-masking added to this branch first.
-    `include_advance` depends on the same fixed-length invariant a second, independent
-    way: `z_re`/`z_im` are an unnormalized sum over N'-1 patches (unlike the induced-power
-    arm, a normalized mean/softmax-weighted mean), so its feature scale grows with trial
-    length -- harmless here since every BCICIV2a trial has N'=39, but another reason a
-    variable-length dataset needs work before reusing this branch.
-    Every trainable module lives under self.head, because train_finetune.py only
-    optimizes model.head.
-    Returns (logits, None, None) to match MeSAEFinetune's call signature.
-    """
-    BANDS = ((8.0, 13.0), (13.0, 30.0))
-
-    def __init__(self, backbone: MeSAEPretrain, num_channels, num_classes, input='recon',
-                 task='mi', pool_channel='concat', pool_time='trial', z_proj=8,
-                 dropout=0.1, sample_freq=200, freeze_backbone=True, num_patches=None,
-                 include_advance=False, evoked_rank=0):
-        super().__init__()
-        if task not in ('mi', 'erp', 'ssvep'):
-            raise ValueError(f"unknown task {task!r}")
-        if input == 'raw' and task == 'ssvep':
-            raise NotImplementedError(
-                "raw + task='ssvep': two coarse bands cannot separate 40 stimulus frequencies; "
-                "use the standard frequency-power reference (probes/phase_probe_beta.py PSDA baseline)")
-        if task != 'mi' and input != 'stamp_induced' and not (input == 'raw' and task == 'erp'):
-            raise NotImplementedError(
-                f"task={task!r} is only implemented for input='stamp_induced' (task-agnostic) "
-                f"and input='raw' (erp); got input={input!r}")
-        self.raw_erp = input == 'raw' and task == 'erp'
-        if self.raw_erp:
-            if num_patches is None:
-                raise ValueError("raw + task='erp' requires num_patches (pass it through "
-                                  "build_finetune_from_config -- see model/factory.py)")
-            if pool_time != 'trial':
-                raise ValueError("raw + task='erp' requires pool_time='trial'")
-        if not freeze_backbone:
-            raise NotImplementedError("MeSAEFeatureHead assumes a frozen backbone (ADR 0012)")
-        if input not in ('raw', 'recon', 'stamp_bandpow', 'stamp_induced', 'z_chan'):
-            raise ValueError(f"unknown input {input!r}")
-        if include_advance and input != 'stamp_induced':
-            raise NotImplementedError(
-                f"include_advance is only implemented for input='stamp_induced' "
-                f"(ADR 0014 experiment C3), got input={input!r}")
-        self.include_advance = include_advance
-        if evoked_rank and input != 'stamp_induced':
-            raise NotImplementedError(
-                f"evoked_rank is only implemented for input='stamp_induced' "
-                f"(ADR 0014 experiment C4), got input={input!r}")
-        if evoked_rank and num_patches is None:
-            raise ValueError("evoked_rank requires num_patches (pass it through "
-                              "build_finetune_from_config -- see model/factory.py)")
-        self.evoked_rank = int(evoked_rank)
-        self.backbone, self.input, self.fs = backbone, input, float(sample_freq)
         for p in backbone.parameters():
             p.requires_grad_(False)
-
-        C = num_channels
-        if input in ('stamp_bandpow', 'stamp_induced'):
-            st = backbone.stamps
-            alive = (st.fire_ema >= st.dead_threshold).nonzero().flatten()
-            keep = torch.cat([alive, torch.arange(st.n_routed, st.n_stamps, device=alive.device)])
-            self.register_buffer('keep', keep)
-        K = C if pool_channel == 'concat' else int(pool_channel.split(':')[1])
-        self.time_rank = None
-        if pool_time == 'trial':
-            self.window = None
-        elif pool_time.startswith('learned:'):
-            if input != 'stamp_induced':
-                raise NotImplementedError(
-                    f"pool_time='learned:R' is only implemented for input='stamp_induced' "
-                    f"(ADR 0014 experiment C1), got input={input!r}")
-            if num_patches is None:
-                raise ValueError("pool_time='learned:R' requires num_patches (pass it through "
-                                  "build_finetune_from_config -- see model/factory.py)")
-            self.window = None
-            self.time_rank = int(pool_time.split(':')[1])
-        else:
-            self.window = tuple(float(v) for v in pool_time.split(':')[1].split('-'))
-        if evoked_rank and self.window is not None:
-            raise NotImplementedError(
-                "evoked_rank needs the full patch axis (N' == num_patches); it cannot be "
-                "combined with a window: pool_time, which slices patches")
-        head = {}
-        if pool_channel != 'concat':
-            head['spatial'] = nn.Linear(C, K, bias=False)
-        if self.time_rank is not None:
-            R = self.time_rank
-            S = len(keep)
-            head['time'] = LearnedTimePool(R, S, num_patches)     # small init => starts as flat mean
-        if self.evoked_rank:
-            head['evoked'] = EvokedBranch(self.evoked_rank, len(keep), num_patches)
-        if input == 'z_chan':
-            head['z_proj'] = nn.Linear(backbone.head_dim, z_proj)
-            n_feat = K * z_proj
-        elif input == 'stamp_induced':
-            n_feat = K * len(keep) * (1 + 2 * bool(include_advance) + 2 * bool(self.evoked_rank))
-        elif self.raw_erp:
-            self.erp_pool = max(1, round(self.fs / 20))
-            T = (num_patches - 1) * backbone.patch_stride + backbone.patch_len
-            n_feat = K * (T // self.erp_pool)
-        else:
-            n_feat = K * len(self.BANDS)
-        # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
-        head['cls'] = nn.Sequential(nn.BatchNorm1d(n_feat), nn.Dropout(dropout), nn.Linear(n_feat, num_classes))
-        self.head = nn.ModuleDict(head)
-        self.flat_pool = FlatTimePool()                            # parameter-free
-
-        if input == 'stamp_bandpow':
-            with torch.no_grad():
-                D_tab, H_tab = (t[keep].float() for t in st._template_tables())
-                fr = torch.fft.rfftfreq(D_tab.shape[-1], 1.0 / self.fs)
-                sel = [((fr >= lo) & (fr < hi)).to(D_tab.device) for lo, hi in self.BANDS]
-                spec = lambda T: torch.stack([torch.fft.rfft(T, dim=-1).abs().pow(2)[:, m].sum(-1) for m in sel], -1)
-                self.register_buffer('E_D', spec(D_tab))                   # [S, bands]
-                self.register_buffer('E_H', spec(H_tab))
+        self.register_buffer('channel_idx', torch.as_tensor(channel_idx, dtype=torch.long))
+        self.head_cfg = head_cfg
+        stamp = head_cfg['feature'].startswith('stamp')
+        self.extractor = StampExtractor(backbone, channel_idx) if stamp else None
+        if stamp:
+            assert head_cfg['num_stamps'] == len(self.extractor.keep), "num_stamps must equal the alive stamp count"
+        self.head = FeatureHead(head_cfg)
+        if head_cfg['feature'] == 'stamp_band':
+            E_D, E_H = self.extractor.band_tables(head_cfg['sample_freq'])
+            self.head.E_D.copy_(E_D); self.head.E_H.copy_(E_H)
 
     def train(self, mode=True):
         super().train(mode)
         self.backbone.eval()   # frozen: no dropout noise, stable top-k
         return self
 
-    def _band_logpow(self, s):
-        """s: [B, K, T] -> [B, K, bands], same statistic as probe_v10.py."""
-        sp = torch.fft.rfft(s.float(), dim=-1).abs().pow(2)
-        fr = torch.fft.rfftfreq(s.shape[-1], 1.0 / self.fs).to(s.device)
-        return torch.stack([torch.log(sp[..., (fr >= lo) & (fr < hi)].sum(-1) + 1e-12)
-                            for lo, hi in self.BANDS], -1)
-
-    def _patch_keep(self, N, device):
-        if self.window is None:
-            return None
-        bb = self.backbone
-        starts = torch.arange(N, device=device) * bb.patch_stride
-        lo, hi = (w * self.fs for w in self.window)
-        keep = (starts >= lo) & (starts + bb.patch_len <= hi)
-        assert keep.any(), f"window {self.window} s keeps no patch"
-        return keep
-
-    def _mix(self, t, dim):
-        """Signed spatial filter over channel axis `dim`, or identity for concat."""
-        return spatial_mix(self.head['spatial'] if 'spatial' in self.head else None, t, dim)
-
     def forward(self, x, coords, time_idx=None, valid_channels=None, pad_mask=None):
-        B, C, N, L = x.shape
-        bb = self.backbone
-        vmask = (valid_channels if valid_channels is not None
-                 else x.new_ones(B, C, dtype=torch.bool)).float()
+        B, C = x.shape[:2]
+        vm = valid_channels if valid_channels is not None else x.new_ones(B, C, dtype=torch.bool)
         with torch.no_grad():
-            if self.input in ('raw', 'recon'):
-                src = x if self.input == 'raw' else \
-                    bb(x, coords, time_idx=time_idx, bool_masked_pos=None, valid_channels=valid_channels).recon
-                sig = overlap_add_patches(src.float(), bb.patch_stride) * vmask[..., None]   # [B, C, T]
-                if self.window is not None:
-                    lo, hi = (int(w * self.fs) for w in self.window)
-                    sig = sig[..., lo:hi]
+            if self.extractor is not None:
+                inp = self.extractor(x, coords, time_idx, vm)
             else:
-                z, _ = bb.stage_features(x, coords, time_idx=time_idx)                # [B, C, N, D]
-                pk = self._patch_keep(N, x.device)
-                if self.input in ('stamp_bandpow', 'stamp_induced'):
-                    zg = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
-                    xg = x.permute(0, 2, 1, 3).reshape(B * N, C, L)
-                    amp = bb.stamps.dense_amp(zg, rms=xg.float().pow(2).mean(-1, keepdim=True).sqrt())
-                    amp = amp[:, :, self.keep].reshape(B, N, C, -1, 2).float() * vmask[:, None, :, None, None]
-                    if pk is not None:
-                        amp = amp[:, pk]
-                else:
-                    z = z.float() * vmask[..., None, None]
-                    if pk is not None:
-                        z = z[:, :, pk]
+                inp = x[:, self.channel_idx] * vm[:, self.channel_idx].float()[:, :, None, None]
+        return self.head(inp), None, None
 
-        # Feature math in fp32: under the training loop's autocast, einsum/log run in fp16,
-        # where squared amplitudes overflow and the 1e-12 epsilon rounds to 0 (NaN loss).
-        with torch.autocast(device_type=x.device.type, enabled=False):
-            if self.raw_erp:
-                # signed, no log: spatial filter -> ~20 Hz avg-pool -> flatten (ADR 0014 Exp B)
-                feat = torch.nn.functional.avg_pool1d(
-                    self._mix(sig, 1).float(), self.erp_pool, self.erp_pool)                 # [B, K, T//pool]
-            elif self.input in ('raw', 'recon'):
-                feat = self._band_logpow(self._mix(sig, 1))                                  # [B, K, bands]
-            elif self.input == 'stamp_bandpow':
-                a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
-                pw = torch.einsum('bnks,sq->bkq', a.pow(2), self.E_D) \
-                    + torch.einsum('bnks,sq->bkq', b.pow(2), self.E_H)
-                feat = torch.log(pw / a.shape[1] + 1e-12)                                    # [B, K, bands]
-            elif self.input == 'stamp_induced':
-                # C0 (ADR 0014 experiment C): spatial filter (step 1) + induced branch with
-                # flat time weights (step 2a, w[s,n] = 1/N) -- log mean power per (filter,
-                # stamp), no band collapse. The pre-log per-stamp powers span the same
-                # information stamp_bandpow's band-summed powers do (via E_D/E_H), but this
-                # readout is on log-power, which is NOT a strict superset of stamp_bandpow's
-                # readout -- log doesn't distribute over the band sum, so this is not
-                # guaranteed to reproduce stamp_bandpow spatial:8's 0.522 exactly (ADR 0014).
-                a, b = self._mix(amp[..., 0], 2), self._mix(amp[..., 1], 2)                  # [B, N', K, S]
-                power = a.pow(2) + b.pow(2)                                                   # [B, N', K, S]
-                pool = self.head['time'] if self.time_rank is not None else self.flat_pool
-                # C1 learned softmax time weights / C0 flat mean (ADR 0014); see LearnedTimePool
-                feat = torch.log(pool(power) + 1e-12)                                         # [B, K, S]
-                if self.include_advance:
-                    # C3 (ADR 0014): phase-advance branch, fed raw (BatchNorm normalises scale)
-                    feat = torch.cat([feat, phase_advance(a, b)], dim=-1)
-                if self.evoked_rank:
-                    # C4 (ADR 0014): evoked branch, fed raw (BatchNorm normalises scale)
-                    feat = torch.cat([feat, self.head['evoked'](a, b)], dim=-1)
-            else:
-                zp = self.head['z_proj'](z).mean(2)                                          # [B, C, P]
-                feat = self._mix(zp, 1)                                                      # [B, K, P]
-            if 'spatial' not in self.head:
-                # concat keeps padded channels as columns: zero them after the log, as the probe
-                # does. Left at log(eps) = -27.6 they swamp BatchNorm until its running stats adapt.
-                feat = feat * vmask[:, :, None]
-        return self.head['cls'](feat.flatten(1)), None, None
+    def head_checkpoint(self, backbone_checkpoint):
+        cfg = dict(self.head_cfg, channel_idx=self.channel_idx.tolist(),
+                   keep=self.extractor.keep.tolist() if self.extractor is not None else None)
+        return {'model_state_dict': self.head.state_dict(), 'head_config': cfg,
+                'backbone_checkpoint': backbone_checkpoint}
+
+    @classmethod
+    def from_checkpoint(cls, backbone, ckpt):
+        cfg = dict(ckpt['head_config'])
+        channel_idx, keep = cfg.pop('channel_idx'), cfg.pop('keep')
+        model = cls(backbone, cfg, channel_idx)
+        if keep is not None and model.extractor.keep.tolist() != keep:
+            raise ValueError("backbone's alive stamps differ from the checkpoint's head_config['keep']")
+        model.head.load_state_dict(ckpt['model_state_dict'])
+        return model
 
 
-def build_finetune(backbone, num_channels, num_classes, input='head_z', **kw):
-    """finetune_cls entry: input='head_z' is the original MeSAEFinetune (the bundled ADR 0014
-    reference); every other input is an experiment-B MeSAEFeatureHead."""
-    if input == 'head_z':
-        allowed = ('hidden', 'freeze_backbone', 'dropout', 'use_topo_feature')
-        return MeSAEFinetune(backbone, num_channels, num_classes, **{k: v for k, v in kw.items() if k in allowed})
-    allowed = ('task', 'pool_channel', 'pool_time', 'z_proj', 'dropout', 'sample_freq',
-               'freeze_backbone', 'num_patches', 'include_advance', 'evoked_rank')
-    return MeSAEFeatureHead(backbone, num_channels, num_classes, input=input,
-                            **{k: v for k, v in kw.items() if k in allowed})
+def build_finetune(backbone, num_channels, num_classes, channel_idx=None, num_patches=None,
+                   sample_freq=200, **ft_params):
+    """finetune_cls entry: builds the frozen backbone + FeatureHead from the numeric head config."""
+    channel_idx = list(range(num_channels)) if channel_idx is None else list(channel_idx)
+    num_stamps = 0
+    if ft_params.get('feature', 'stamp_power').startswith('stamp'):
+        st = backbone.stamps
+        num_stamps = int((st.fire_ema >= st.dead_threshold).sum()) + (st.n_stamps - st.n_routed)
+    cfg = resolve_head_config(ft_params, num_classes=num_classes, num_patches=num_patches,
+                              num_channels=len(channel_idx), num_stamps=num_stamps,
+                              patch_len=backbone.patch_len, patch_stride=backbone.patch_stride,
+                              sample_freq=float(sample_freq))
+    return FinetuneModel(backbone, cfg, channel_idx)

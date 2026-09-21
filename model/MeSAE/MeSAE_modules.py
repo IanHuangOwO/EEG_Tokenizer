@@ -998,7 +998,7 @@ class StampBank(nn.Module):
         input_norm'd and rms-scaled the same way forward() is. Every atom's own
         matched-filter response to real content, whether or not it would win the top-k
         race — used where a stable, always-populated per-stamp axis matters more than
-        reconstruction sparsity (MeSAEFinetune.encode_post_stamp_expert's per-stamp
+        reconstruction sparsity (MeSAEPretrain.encode_post_stamp_expert's per-stamp
         channel pool). Shared by dense_probe below, which decodes this further into
         waveform space."""
         z = self.input_norm(z)
@@ -1328,80 +1328,6 @@ class StampBank(nn.Module):
             # full (stamp_id, amp_level, phase_level) symbol per (channel, patch, slot).
             levels=levels, quant_clip_frac=quant_clip_frac, quant_off_frac=quant_off_frac,
         )
-
-
-class PerChannelHeadAttn(nn.Module):
-    """
-    Two-stage attention pooling — ported from the removed MeFSQ package's
-    PerChannelHeadAttn.
-    Fully backbone-agnostic — only needs z_per_head [B, N, H, d] at forward time, so it
-    works unchanged whether H indexes MeFSQ Experts or MeSAE stamps.
-
-    The channel dim is collapsed by the backbone itself (each Filter's own
-    channel-attention View, see MeSAEPretrain.encode_post_sae_expert) before this head
-    ever sees the signal, so there's no channel stage here to re-pool (see
-    docs/agents/ / CONTEXT.md finetune val-chance bug for the overparameterization a
-    channel-concat classifier caused).
-
-    Stage 1 (temporal): a plain linear scorer over N patches, softmax-normalized.
-    Stage 2 (unit): a plain linear scorer over the H units, softmax-normalized, pooling to
-    a single [B, d] vector fed into cls. Linear(d,1) at each stage: with a fixed
-    (non-content-derived) query, a learnable-query dot-product scorer is just a
-    composition of two linear maps with no nonlinearity between them, so it adds no
-    expressiveness over a single Linear(d,1) — same capacity, fewer params.
-    """
-    def __init__(self, head_dim, num_classes, dropout=0.1):
-        super().__init__()
-        # Un-normalized-scale input (raw decoder-output EEG amplitude) starves the scorer
-        # and cls of usable gradient — normalize here so the pooler works regardless of
-        # which encode_* the caller feeds it.
-        self.input_norm = nn.LayerNorm(head_dim)
-        self.score_n = nn.Linear(head_dim, 1)
-        self.score_h = nn.Linear(head_dim, 1)
-        self.drop = nn.Dropout(dropout)
-        self.cls = nn.Linear(head_dim, num_classes)
-        # cls reads z_h's raw, un-normalized amplitude (see input_norm comment above) — that
-        # scale is unbounded by design, so default init gives large initial logits and an
-        # elevated first-epoch loss average that has nothing to do with the LR/schedule.
-        # Small init instead: predictions start near-uniform, cls is still free to grow
-        # weights as large as it needs during training.
-        nn.init.normal_(self.cls.weight, std=0.01)
-        nn.init.zeros_(self.cls.bias)
-
-    def forward(self, z_per_head, pad_mask=None):
-        """
-        z_per_head: [B, N, H, d]
-        pad_mask: [B, N] bool, True = valid (optional, for padded patches)
-        Returns (logits [B, num_classes], attn_h [B, H], attn_n [B, H, N])
-        """
-        # A gated-off routed Filter (encode_post_sae_expert already zeroes its contribution
-        # per patch, see that docstring) has z_per_head == 0 at every (n, d) for this batch
-        # item — LayerNorm can't tell "genuinely zero" from "small real signal", so
-        # score_h's bias alone would still hand it a non-trivial softmax share in stage 2
-        # (visible as spurious attention/importance for a Filter that contributed nothing).
-        # Mask those out here instead of relying on the pooled value being zero to save them.
-        alive_h = z_per_head.abs().sum(dim=(1, 3)) > 0                          # [B, H]
-
-        z_key = self.input_norm(z_per_head)
-
-        # ---- stage 1: attention pool over N (patches), per unit ----
-        logits_n = self.score_n(z_key).squeeze(-1)                              # [B, N, H]
-        if pad_mask is not None:
-            logits_n = logits_n.masked_fill(~pad_mask.unsqueeze(-1), float('-inf'))
-        attn_n = torch.softmax(logits_n, dim=1)                                 # softmax over N, per unit
-        attn_n = torch.nan_to_num(attn_n)                                       # all-invalid batch item -> nan; zero it
-        z_h = torch.einsum('bnhd,bnh->bhd', z_per_head, attn_n)                 # [B, H, d]
-        z_h_key = torch.einsum('bnhd,bnh->bhd', z_key, attn_n)                  # [B, H, d] — for stage 2 logits only
-
-        # ---- stage 2: attention pool over H (units) ----
-        logits_h = self.score_h(z_h_key).squeeze(-1)                            # [B, H]
-        logits_h = logits_h.masked_fill(~alive_h, float('-inf'))
-        attn_h = torch.softmax(logits_h, dim=1)                                 # [B, H]
-        attn_h = torch.nan_to_num(attn_h)                                       # all-dead batch item -> nan; zero it
-        pooled = (z_h * attn_h.unsqueeze(-1)).sum(dim=1)                        # [B, d]
-
-        attn_n = attn_n.permute(0, 2, 1)                                        # [B, H, N] for interpretability
-        return self.cls(self.drop(pooled)), attn_h, attn_n
 
 
 # ==========================================
