@@ -54,6 +54,15 @@ def optimizer_param_groups(model, weight_decay):
     ]
 
 
+def load_backbone(config, checkpoint_path=None, mode='finetune'):
+    """Frozen-backbone loader shared by the finetune builders and the feature cache."""
+    backbone = build_pretrain_from_config(config, mode=mode)
+    path = checkpoint_path or config['training_params'][mode]['pretrained_checkpoint']
+    # load_state_dict restores the checkpoint's phase flags (MeSAE _restore_phase)
+    backbone.load_state_dict(torch.load(path, map_location='cpu')['model_state_dict'])
+    return backbone
+
+
 def build_finetune_from_config(config, num_classes, mode='finetune', num_patches=None, channel_idx=None):
     """
     Builds the pretrained backbone (via build_pretrain_from_config, same config section),
@@ -72,11 +81,7 @@ def build_finetune_from_config(config, num_classes, mode='finetune', num_patches
         raise ValueError(f"Unknown model type: {model_type}")
     plugin = MODEL_REGISTRY[model_type]
 
-    backbone = build_pretrain_from_config(config, mode=mode)
-    ckpt_path = train_params['pretrained_checkpoint']
-    state = torch.load(ckpt_path, map_location='cpu')
-    # load_state_dict restores the checkpoint's phase flags (MeSAE _restore_phase)
-    backbone.load_state_dict(state['model_state_dict'])
+    backbone = load_backbone(config, mode=mode)
 
     canonical_channels = resolve_canonical_channels(config['preprocess_params']['canonical_channels'])
     ft_params = config['model_params'][model_type].get('finetune', {})
@@ -93,6 +98,5 @@ def load_finetune_checkpoint(config, path, device):
     head from ckpt['head_config'] (no shape inference)."""
     from model.MeSAE.MeSAE import FinetuneModel
     ckpt = torch.load(path, map_location='cpu', weights_only=False)
-    backbone = build_pretrain_from_config(config, mode='finetune')
-    backbone.load_state_dict(torch.load(ckpt['backbone_checkpoint'], map_location='cpu')['model_state_dict'])
+    backbone = load_backbone(config, ckpt['backbone_checkpoint'])
     return FinetuneModel.from_checkpoint(backbone, ckpt).to(device).eval()
