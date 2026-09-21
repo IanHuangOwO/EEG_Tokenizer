@@ -618,6 +618,14 @@ not measured. Marking, also recorded in the `env` column of `docs/adr/0014_attem
 - **Presumably `base`, without `mne`** (default `python` on PATH, no stderr kept): C0, C0 baseline
   (clean), C1, C3, C4 and the raw control of Experiment C.
 - **Environment not recorded:** ADR 0012 probes and Experiments A, B, B1.
+- **Measured effect of the coordinates (2026-09-21, restructured finetune pipeline, BCICIV2a subject 8,
+  stamp_power/learned head, 5-fold, 100 epochs, mean tail balanced accuracy):** backbone amplitudes built
+  with the real MNE coordinates give **0.788**; with the flat fallback coordinates (what `base` used) the
+  same pipeline gives **0.660**, matching the 0.667 recorded for C1 on that subject. Label-shuffle controls
+  sit at chance (0.217) and the fp16-autocast vs fp32 backbone difference is negligible (0.786 vs 0.788),
+  so the coordinates alone explain the gap. The stamp-head numbers of everything run in `base` (Experiment
+  C, Phase 1) are therefore understated relative to a correctly configured backbone; the raw band head
+  does not use the backbone and is unaffected.
 - **`eeg_fm` (with `mne`):** Phase 2 and everything after. Do not compare absolute numbers across
   the two groups without saying so; arms compared inside one group share the same coordinates, but whether the coordinates affect each arm equally was not measured.
 

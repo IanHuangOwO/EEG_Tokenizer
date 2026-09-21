@@ -122,9 +122,9 @@ Problem. Expected size: about 450 lines.
 
 - **Config keys:** a nested `split` block, separate from the optimiser settings under
   `training_params.finetune`. `subject_to_use` (in `dataset_params.finetune`) is the pool.
-  - `"split": {"mode": "within_subject", "n_folds": k}`: for each subject in the pool, k-fold
+  - `"split": {"mode": "intra_subject", "n_folds": k}`: for each subject in the pool, k-fold
     CV over that subject's own trials (seed 42 by default, key `seed`).
-  - `"split": {"mode": "cross_subject", ...}` with either `n_folds: k` (seeded partition of
+  - `"split": {"mode": "inter_subject", ...}` with either `n_folds: k` (seeded partition of
     the pool into k groups; fold i evaluates group i, trains on the rest; `k` = number of
     subjects is LOSO) or `eval_subjects` (a list of subject indices, or a dict of named
     lists such as `{"seen": [...], "unseen": [...]}`; a plain list is one group `heldout`).
@@ -147,9 +147,9 @@ Problem. Expected size: about 450 lines.
   `heldout`; the results tool pools per subject.
 - **Environment stamp:** the run's `artifacts/config.json` gets an `env` block: git commit and
   dirty flag, Python path, torch, mne and CUDA versions.
-- **Verification:** `within_subject` reproduces the fold composition of the old
+- **Verification:** `intra_subject` reproduces the fold composition of the old
   `intra_subject_cv` (same seed, same train and eval trial indices per subject and fold), and
-  `cross_subject` with `n_folds` equal to the number of subjects reproduces the old LOSO fold
+  `inter_subject` with `n_folds` equal to the number of subjects reproduces the old LOSO fold
   composition; a 2-epoch smoke run of each mode writes a valid `group_eval.json`. These check
   the new split code, not old outputs.
 

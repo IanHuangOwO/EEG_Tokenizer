@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Slim `train_finetune.py` (795 lines) to one head-only training script with two split modes (`within_subject`, `cross_subject`), training the `FeatureHead` directly on the stamp-amplitude cache (or the patched raw signal for `raw_*` features), one output format (`group_eval.json`) and an environment stamp in the saved config.
+**Goal:** Slim `train_finetune.py` (795 lines) to one head-only training script with two split modes (`intra_subject`, `inter_subject`), training the `FeatureHead` directly on the stamp-amplitude cache (or the patched raw signal for `raw_*` features), one output format (`group_eval.json`) and an environment stamp in the saved config.
 
 **Architecture:** The frozen backbone is no longer part of training. A *source* object serves batches: `StampSource` (the cache from `cache_feature.py`) or `RawSource` (the compiled dataset, real channels only). `make_runs` turns the `split` config block into runs (train indices, evaluation subjects), the training loop optimises only `FeatureHead`, and one pass over the evaluation trials per epoch yields the per-subject balanced accuracy for the tail-mean. Task 1 adds the data side next to the old code (additive, so the old runners stay available for comparison); Task 2 replaces the file; Task 3 does docs and sweeps.
 
@@ -25,10 +25,12 @@
 
 ## Config contract (what the script reads)
 
+Mode names (user decision): `intra_subject` = each subject's own trials are split (the old `intra_subject_cv`); `inter_subject` = subjects are split into training and evaluation groups (k-fold over subjects, LOSO, or explicit lists).
+
 `training_params.finetune`: `model_name` (output dir `output/<model_name>`), `model_type` (default `MeSAE`), `pretrained_checkpoint`, `learning_rate`, `min_learning_rate`, `weight_decay`, `epochs`, `warmup_epochs`, `batch_size`, `device` (default cuda if available), `seed` (default 42), and the `split` block:
 
-- `"split": {"mode": "within_subject", "n_folds": k, "seed": 42}`: for every subject of the pool, stratified k-fold over that subject's own trials (`sklearn.StratifiedKFold(shuffle=True, random_state=seed)`, the same partition as the old `intra_subject_cv`). Run names `<subject>_fold<i>`; train subjects `[subject]`; one evaluation group `heldout` holding that subject.
-- `"split": {"mode": "cross_subject", ...}` with **exactly one** of
+- `"split": {"mode": "intra_subject", "n_folds": k, "seed": 42}`: for every subject of the pool, stratified k-fold over that subject's own trials (`sklearn.StratifiedKFold(shuffle=True, random_state=seed)`, the same partition as the old `intra_subject_cv`). Run names `<subject>_fold<i>`; train subjects `[subject]`; one evaluation group `heldout` holding that subject.
+- `"split": {"mode": "inter_subject", ...}` with **exactly one** of
   - `n_folds: k` (2 <= k <= number of pool subjects): the pool is shuffled with `random.Random(seed)` (`seed` default 42) and dealt into k groups (`subs[i::k]`, the same partition as the old `subject_kfold`); run `fold<i>` evaluates group `i` (group name `heldout`) and trains on the rest of the pool (or on `train_subjects` minus the fold if given). `k` equal to the number of subjects is LOSO;
   - `eval_subjects`: a list (group `heldout`) or a dict of named lists (for example `{"seen": [...], "unseen": [...]}`): one run named `main`; trains on `train_subjects` if given, else on the pool minus all evaluation subjects.
   - optional `train_subjects` (any entry form below); training and evaluation subjects must be disjoint; empty groups or an empty training set raise `ValueError`.
@@ -86,7 +88,7 @@ def _trials_of(subject_data, subjects):
 def make_runs(split, pool, subject_data, labels):
     """split block -> runs [{name, train, train_subjects, eval}] (see the plan's contract)."""
     mode, seed = split.get('mode'), split.get('seed', 42)
-    if mode == 'within_subject':
+    if mode == 'intra_subject':
         k = int(split['n_folds'])
         runs = []
         for s in pool:
@@ -96,10 +98,10 @@ def make_runs(split, pool, subject_data, labels):
                 runs.append(dict(name=f'{s}_fold{i}', train=np.sort(idx[tr]), train_subjects=[str(s)],
                                  eval={'heldout': {str(s): np.sort(idx[va])}}))
         return runs
-    if mode != 'cross_subject':
-        raise ValueError(f"split.mode must be 'within_subject' or 'cross_subject', got {mode!r}")
+    if mode != 'inter_subject':
+        raise ValueError(f"split.mode must be 'intra_subject' or 'inter_subject', got {mode!r}")
     if ('n_folds' in split) == ('eval_subjects' in split):
-        raise ValueError("cross_subject needs exactly one of n_folds / eval_subjects")
+        raise ValueError("inter_subject needs exactly one of n_folds / eval_subjects")
     train_pool = resolve_subjects(split['train_subjects'], pool) if 'train_subjects' in split else None
     if 'n_folds' in split:
         k = int(split['n_folds'])
@@ -183,8 +185,8 @@ def iter_batches(source, idx, batch_size, device, shuffle, gen=None):
 
 - [ ] **Step 4: Write the check script** `.superpowers/sdd/2026-09-21-finetune-restructure-c/split_equiv.py` (uncommitted; CPU; `PYTHONPATH=.`). It must:
   1. Import the old file from the tag `pre-head-cleanup` as a temporary module (`git show pre-head-cleanup:train_finetune.py > _old_train_finetune_tmp.py` at the repo root; delete it in a `finally`; never commit it) to get `_intra_subject_cv_splits`, `_subject_group_runs`, `_loso_folds`, `_resolve_all_subjects`.
-  2. Build the BCICIV2a pool dataset through `RawSource` (all 9 subjects) and compare **within_subject**: for `n_folds=5, seed=42` and every subject, the new `make_runs` train/eval index arrays equal `sorted(...)` from the old `_intra_subject_cv_splits(full_dataset, subject, n_folds=5)` `Subset.indices` (build `full_dataset` with `build_dataset_from_config(config, mode='finetune')` and compare positions; both sides enumerate subjects in the same order, so global trial indices agree). Assert equal for all 9 x 5 folds and that run names are `<s>_fold<i>` in the same order.
-  3. Compare **cross_subject n_folds** with the old `_subject_group_runs({'subject_kfold': k, 'subject_kfold_seed': 42}, dataset_params)` for `k in (3, 9)`: for every fold the sets of held-out subjects and train subjects are identical (old ids may be int or str: compare via `str`). For `k == 9` also check each subject is held out exactly once and the train set is the other eight (LOSO), matching `_loso_folds`.
+  2. Build the BCICIV2a pool dataset through `RawSource` (all 9 subjects) and compare **intra_subject**: for `n_folds=5, seed=42` and every subject, the new `make_runs` train/eval index arrays equal `sorted(...)` from the old `_intra_subject_cv_splits(full_dataset, subject, n_folds=5)` `Subset.indices` (build `full_dataset` with `build_dataset_from_config(config, mode='finetune')` and compare positions; both sides enumerate subjects in the same order, so global trial indices agree). Assert equal for all 9 x 5 folds and that run names are `<s>_fold<i>` in the same order.
+  3. Compare **inter_subject n_folds** with the old `_subject_group_runs({'subject_kfold': k, 'subject_kfold_seed': 42}, dataset_params)` for `k in (3, 9)`: for every fold the sets of held-out subjects and train subjects are identical (old ids may be int or str: compare via `str`). For `k == 9` also check each subject is held out exactly once and the train set is the other eight (LOSO), matching `_loso_folds`.
   4. Check **eval_subjects**: `{"seen": ["1"], "unseen": ["8", "9"]}` with `train_subjects: ["2", "3", "4"]` gives one run `main` whose train trials are exactly the trials of subjects 2, 3, 4 and whose groups map to the right subjects; a plain list gives group `heldout`.
   5. Check **errors**: each of these raises `ValueError`: unknown mode; both `n_folds` and `eval_subjects`; neither; `n_folds` 1 and `n_folds` 10 on 9 subjects; overlapping `train_subjects` and `eval_subjects` (but with `n_folds` and `train_subjects: ["1","2","3","4"]` the fold's subjects are simply removed from the training list: check that instead); an eval subject not in the pool; an empty eval group. Check `resolve_subjects` for `"all"`, `["all"]`, an explicit list of strings against an int pool, `{"random": 3, "seed": 1}` (deterministic, sorted, 3 distinct pool members).
   6. Check the sources: `RawSource` on BCICIV2a subjects `['8', '9']` gives `get(idx)` shapes `[B, 22, 39, 50]`, `channel_idx` of length 22, `num_patches == 39`; `StampSource` (cache exists from sub-project B) gives `[B, 39, 22, 25, 2]` fp32, `keep` of length 25, and for the same trial the head applied to the stamp input is finite; `iter_batches` with `shuffle=True` and a seeded `torch.Generator` yields every index exactly once (except a trailing single trial) and is reproducible; without `shuffle` it yields indices in order.
@@ -231,7 +233,7 @@ and delete `_LEGACY_TRAINING_KEYS` and its use in `resolve_head_config` (the con
 
 The backbone never trains: stamp features come from the amplitude cache (cache_feature.py), raw
 features from the compiled dataset; only the head is optimised (fp32, batches indexed from RAM).
-training_params.finetune.split has two modes, within_subject and cross_subject (see the plan /
+training_params.finetune.split has two modes, intra_subject and inter_subject (see the plan /
 CLAUDE.md). Every run writes artifacts/group_eval.json: per-subject tail (mean of the last 10
 epochs) and last-epoch balanced accuracy."""
 import argparse, copy, json, logging, os, random, shutil, subprocess, statistics, sys, warnings
@@ -421,20 +423,20 @@ if __name__ == '__main__':
 ```
 Sanity: the file ends near 450 lines. Delete every other old function (`FinetuneCollate`, `_unpack_batch`, `_classification_metrics`, `_finalize_epoch`, `_recon_mse`, `train_one_epoch`, `validate_one_epoch`, `_underlying_base_dataset`, `_resolve_requested_subjects`, `build_subject_split_datasets`, `_intra_subject*`, `_loso*`, `run_training_loop`, `_run_loso`, `_subject_group_runs`, `_run_subject_groups`) and every import that becomes unused (`tqdm`, `DataLoader`, `Subset`, `viz.pick_trial`, `build_finetune_from_config`).
 
-- [ ] **Step 4: `config/config.json` (CRLF).** In `training_params.finetune` replace `split_mode` and `cv_folds` by `"split": {"mode": "within_subject", "n_folds": 5}` and delete `backbone_lr_mult` (and `train_val_split` if present); in `model_params.MeSAE.finetune` delete `freeze_backbone`. Keep formatting and CRLF; `git diff --stat` shows a handful of lines. Confirm `json.load` works and no other finetune key was touched.
+- [ ] **Step 4: `config/config.json` (CRLF).** In `training_params.finetune` replace `split_mode` and `cv_folds` by `"split": {"mode": "intra_subject", "n_folds": 5}` and delete `backbone_lr_mult` (and `train_val_split` if present); in `model_params.MeSAE.finetune` delete `freeze_backbone`. Keep formatting and CRLF; `git diff --stat` shows a handful of lines. Confirm `json.load` works and no other finetune key was touched.
 
 - [ ] **Step 5: static checks.** `CUDA_VISIBLE_DEVICES='' PYTHONPATH=. python -c "import train_finetune, check_model, viz, model.factory, cache_feature"` clean; `wc -l train_finetune.py` about 450 (report the real number); rerun Task 1's `split_equiv.py` **against the new file** for the checks that do not need the old runners (its old-code comparisons keep working because they import the tag, not the working tree): all `OK`; rerun the sub-project A equivalence script (25 `OK`, with the one changed assertion).
 
 - [ ] **Step 6: smoke runs on the GPU** (scratchpad configs copied from `config/config.json`, `epochs: 3`, `warmup_epochs: 1`, `dataset_params.finetune` restricted to BCICIV2a subjects, `model_name` `smoke_c_<name>`; delete `output/smoke_c_*` afterwards; the first stamp run builds or reuses the BCICIV2a cache under `output/pretrain/mesae_v10_small/feature_cache/`):
-  1. **within_subject**, subjects `["8","9"]`, `n_folds: 2`, default head (`stamp_power`, `learned`): four runs (`8_fold0`, `8_fold1`, `9_fold0`, `9_fold1`); `group_eval.json` has them with group `heldout` and one subject each; `finetune/run_8_fold0/head.pth` and `visualization/run_8_fold0/training_dashboard.png` exist.
-  2. **cross_subject LOSO**, subjects `["7","8","9"]`, `n_folds: 3`: three runs `fold0..fold2`, each with train subjects the other two and one held-out subject; every subject appears exactly once as held out across the runs.
-  3. **cross_subject eval_subjects**, pool `["1","2","3","4","8","9"]`, `train_subjects: ["2","3","4"]`, `eval_subjects: {"seen": ["1"], "unseen": ["8","9"]}`, with `feature: "raw_band"`, `time_pool: "learned"` (the `RawSource` path and a combination the old class could not build): one run `main`, groups `seen` (1 subject) and `unseen` (2 subjects), `n_trials` filled.
-  4. **Other features** (within_subject, subject `["8"]`, `n_folds: 2`): `stamp_band` with `time_pool: "flat"`; `raw_signal` with `time_pool: "none"`; `stamp_power` with `phase_advance: true`; `stamp_power` with `time_pool: "none"`. Each finishes and writes a valid `group_eval.json`.
+  1. **intra_subject**, subjects `["8","9"]`, `n_folds: 2`, default head (`stamp_power`, `learned`): four runs (`8_fold0`, `8_fold1`, `9_fold0`, `9_fold1`); `group_eval.json` has them with group `heldout` and one subject each; `finetune/run_8_fold0/head.pth` and `visualization/run_8_fold0/training_dashboard.png` exist.
+  2. **inter_subject LOSO**, subjects `["7","8","9"]`, `n_folds: 3`: three runs `fold0..fold2`, each with train subjects the other two and one held-out subject; every subject appears exactly once as held out across the runs.
+  3. **inter_subject eval_subjects**, pool `["1","2","3","4","8","9"]`, `train_subjects: ["2","3","4"]`, `eval_subjects: {"seen": ["1"], "unseen": ["8","9"]}`, with `feature: "raw_band"`, `time_pool: "learned"` (the `RawSource` path and a combination the old class could not build): one run `main`, groups `seen` (1 subject) and `unseen` (2 subjects), `n_trials` filled.
+  4. **Other features** (intra_subject, subject `["8"]`, `n_folds: 2`): `stamp_band` with `time_pool: "flat"`; `raw_signal` with `time_pool: "none"`; `stamp_power` with `phase_advance: true`; `stamp_power` with `time_pool: "none"`. Each finishes and writes a valid `group_eval.json`.
   5. **Checkpoint round trip:** for run 1's `head.pth`, `viz.load_model(cfg, path, device, mode='finetune')` returns a `FinetuneModel`, and `model.head(cached_amp)` for a few cached trials equals the logits of the trained head reloaded from the file (max abs diff 0).
-  6. **Errors:** a config with the old `split_mode` key and no `split` block raises a `KeyError` or `ValueError` that names `split` (say what you saw; a clear message is preferred: if the raw `KeyError: 'split'` is all that appears, wrap it: `raise ValueError("training_params.finetune.split is required (mode: within_subject | cross_subject)")`).
-  7. **Sanity against the old result:** subject 8, `within_subject`, `n_folds: 5`, default head, `epochs: 100` (`warmup_epochs`, learning rates as in `config/config.json`). The old C1 run on this subject (5-fold, same head family, 100 epochs) had tail-mean balanced accuracy 0.667 (per-fold 0.608, 0.738, 0.735, 0.610, 0.648). Report the new per-fold tails and mean and the seconds per epoch; a mean below 0.45 is a red flag to investigate before committing (report what you find); values within roughly +-0.1 of 0.667 are expected (fp32 training, cached fp16 amplitudes, real-channel-only spatial filter and a different RNG stream change the numbers a little).
+  6. **Errors:** a config with the old `split_mode` key and no `split` block raises a `KeyError` or `ValueError` that names `split` (say what you saw; a clear message is preferred: if the raw `KeyError: 'split'` is all that appears, wrap it: `raise ValueError("training_params.finetune.split is required (mode: intra_subject | inter_subject)")`).
+  7. **Sanity against the old result:** subject 8, `intra_subject`, `n_folds: 5`, default head, `epochs: 100` (`warmup_epochs`, learning rates as in `config/config.json`). The old C1 run on this subject (5-fold, same head family, 100 epochs) had tail-mean balanced accuracy 0.667 (per-fold 0.608, 0.738, 0.735, 0.610, 0.648). Report the new per-fold tails and mean and the seconds per epoch; a mean below 0.45 is a red flag to investigate before committing (report what you find); values within roughly +-0.1 of 0.667 are expected (fp32 training, cached fp16 amplitudes, real-channel-only spatial filter and a different RNG stream change the numbers a little).
 
-- [ ] **Step 7: commit** in two commits: (1) `refactor: head-only train_finetune.py with within_subject and cross_subject splits, group_eval output and env stamp` (`train_finetune.py`, `MeSAE_modules.py`, `MeSAE.py`, `config/config.json`); no `output/` files.
+- [ ] **Step 7: commit** in two commits: (1) `refactor: head-only train_finetune.py with intra_subject and inter_subject splits, group_eval output and env stamp` (`train_finetune.py`, `MeSAE_modules.py`, `MeSAE.py`, `config/config.json`); no `output/` files.
 
 ---
 
@@ -444,7 +446,7 @@ Sanity: the file ends near 450 lines. Delete every other old function (`Finetune
 
 - [ ] **Step 1: sweep.** `git grep -n -E "split_mode|cv_folds|train_val_split|subject_kfold|subject_group_runs|loso_summary|intra_subject|inter_subject|backbone_lr_mult|freeze_backbone|best_finetune|run_training_loop|FinetuneCollate"` and list every hit outside `docs/adr/0012*`, `docs/adr/0014*`, `docs/adr/0014_attempts.csv`, older plans under `docs/superpowers/plans/`, `config/phase2/` and `probes/` (historical records or deleted in sub-project D). Fix every other hit or list it in the report (for example `CLAUDE.md` Commands/Config text, `model/`/`viz/` docstrings that name removed modes).
 - [ ] **Step 2: docs.**
-  - `CLAUDE.md`: the Commands entry for `train_finetune.py` says it trains a head on the frozen backbone (stamp cache or raw signal) with a `split` block (`within_subject` / `cross_subject`); the Config section's `training_params.finetune` list drops `split_mode`/`cv_folds`/`freeze_backbone` and names `split` (with its keys), `seed`, `batch_size`, `epochs`, learning-rate fields; the Outputs section lists `finetune/run_<name>/head.pth` and `artifacts/group_eval.json`.
+  - `CLAUDE.md`: the Commands entry for `train_finetune.py` says it trains a head on the frozen backbone (stamp cache or raw signal) with a `split` block (`intra_subject` / `inter_subject`); the Config section's `training_params.finetune` list drops `split_mode`/`cv_folds`/`freeze_backbone` and names `split` (with its keys), `seed`, `batch_size`, `epochs`, learning-rate fields; the Outputs section lists `finetune/run_<name>/head.pth` and `artifacts/group_eval.json`.
   - Spec sub-project C: record the refinements listed in this plan's header (no `DataLoader`, fp32, one evaluation pass, bare head model, one dataset per run, missing subjects raise).
   - ADR 0016 Consequences: one sentence that the finetune script trains the head directly on the cache.
 - [ ] **Step 3: commit** `docs: describe the restructured train_finetune.py (sub-project C)`; preserve each file's line endings, small diffs.
@@ -453,7 +455,7 @@ Sanity: the file ends near 450 lines. Delete every other old function (`Finetune
 
 ## Self-Review Notes
 
-- **Spec coverage (C):** nested `split` block; `within_subject` and `cross_subject` with `n_folds` (LOSO when `k` equals the number of subjects), `eval_subjects`, `train_subjects`; subject-entry helper (`all`, list, `random`); training on the cache / raw source with only head parameters optimised; removal of `freeze_backbone`, `backbone_lr_mult`, `recon_mse`, best-validation checkpoints and the generic viz; `group_eval.json` for both modes; environment stamp; expected size about 450 lines.
+- **Spec coverage (C):** nested `split` block; `intra_subject` and `inter_subject` with `n_folds` (LOSO when `k` equals the number of subjects), `eval_subjects`, `train_subjects`; subject-entry helper (`all`, list, `random`); training on the cache / raw source with only head parameters optimised; removal of `freeze_backbone`, `backbone_lr_mult`, `recon_mse`, best-validation checkpoints and the generic viz; `group_eval.json` for both modes; environment stamp; expected size about 450 lines.
 - **Interfaces:** `make_runs` output feeds `run_one` unchanged; sources expose `labels`, `subject_data`, `channel_idx`, `keep`, `num_patches`, `num_stamps`; the head checkpoint format is the one `FinetuneModel.from_checkpoint` already reads.
 - **Behaviour vs the old script:** fold composition is checked against the old splitters (Task 1); the training numerics change deliberately (fp32, no DataLoader workers, real-channel spatial filter), so Task 2 Step 6.7 compares with the old C1 subject-8 result as a sanity check, not an equality test.
 - **Known limits:** the whole pool is held in RAM (EEGMMIdb stamp cache 6.6 GiB, raw about 8 GiB); a batch of one trial is skipped in training (BatchNorm); one dataset per run; `config/phase2/*.json` do not run any more (replaced by experiment specs in sub-project D).

@@ -247,7 +247,7 @@
       "batch_size": 16,
       "weight_decay": 0.01,
       "device": "cuda",
-      "split": {"mode": "within_subject", "n_folds": 5}
+      "split": {"mode": "intra_subject", "n_folds": 5}
     },
     "visualize_params": {
       "cmap": "YlOrRd",

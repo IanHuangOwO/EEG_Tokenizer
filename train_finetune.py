@@ -2,7 +2,7 @@
 
 The backbone never trains: stamp features come from the amplitude cache (cache_feature.py), raw
 features from the compiled dataset; only the head is optimised (fp32, batches indexed from RAM).
-training_params.finetune.split has two modes, within_subject and cross_subject (see the plan /
+training_params.finetune.split has two modes, intra_subject and inter_subject (see the plan /
 CLAUDE.md). Every run writes artifacts/group_eval.json: per-subject tail (mean of the last 10
 epochs) and last-epoch balanced accuracy."""
 import argparse, copy, json, logging, os, random, subprocess, sys, warnings
@@ -73,7 +73,7 @@ def _trials_of(subject_data, subjects):
 def make_runs(split, pool, subject_data, labels):
     """split block -> runs [{name, train, train_subjects, eval}] (see the plan's contract)."""
     mode, seed = split.get('mode'), split.get('seed', 42)
-    if mode == 'within_subject':
+    if mode == 'intra_subject':
         k = int(split['n_folds'])
         runs = []
         for s in pool:
@@ -83,10 +83,10 @@ def make_runs(split, pool, subject_data, labels):
                 runs.append(dict(name=f'{s}_fold{i}', train=np.sort(idx[tr]), train_subjects=[str(s)],
                                  eval={'heldout': {str(s): np.sort(idx[va])}}))
         return runs
-    if mode != 'cross_subject':
-        raise ValueError(f"split.mode must be 'within_subject' or 'cross_subject', got {mode!r}")
+    if mode != 'inter_subject':
+        raise ValueError(f"split.mode must be 'intra_subject' or 'inter_subject', got {mode!r}")
     if ('n_folds' in split) == ('eval_subjects' in split):
-        raise ValueError("cross_subject needs exactly one of n_folds / eval_subjects")
+        raise ValueError("inter_subject needs exactly one of n_folds / eval_subjects")
     train_pool = resolve_subjects(split['train_subjects'], pool) if 'train_subjects' in split else None
     if 'n_folds' in split:
         k = int(split['n_folds'])
@@ -290,7 +290,7 @@ def main():
         config = json.load(f)
     tp = config['training_params']['finetune']
     if 'split' not in tp:
-        raise ValueError("training_params.finetune.split is required (mode: within_subject | cross_subject)")
+        raise ValueError("training_params.finetune.split is required (mode: intra_subject | inter_subject)")
     base = f"output/{tp.get('model_name', 'default_finetune_run')}"
     artifact_dir = os.path.join(base, 'artifacts')
     os.makedirs(artifact_dir, exist_ok=True)
