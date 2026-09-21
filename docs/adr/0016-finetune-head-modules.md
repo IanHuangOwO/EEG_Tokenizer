@@ -34,8 +34,8 @@ The numbers in ADR 0014 before Phase 2 came from the `base` conda env without `m
 
 ### Modules (swappable pieces of a head)
 
-1. **Feature source:** `stamp_induced` (per-stamp log power) is the main option; raw band
-   power is the control.
+1. **Feature source:** `feature: stamp_power` (per-stamp log power; ADR 0014's `stamp_induced`)
+   is the main option; `raw_band` (raw band power) is the control.
 2. **Spatial mix:** signed `spatial:K` on the code amplitudes (a, b) before the power.
 3. **Time pooling:** `learned:R` (default), with flat (`trial`) and `window:lo-hi` as ablation
    options.
@@ -101,13 +101,19 @@ comparison the design rests on.
 
 ## Consequences
 
-- The head becomes a composition of the modules above, implemented behind the existing
-  `MeSAEFeatureHead` constructor arguments so configs and the factory keep working.
-- **Checkpoint compatibility is a hard constraint:** parameter names stay
-  `head.spatial.weight`, `head.time.p/q`, `head.evoked.p/q`, `head.cls.*`, plus the `keep`,
-  `E_D`, `E_H` buffers, because `viz.load_model` and every finished run load them.
-- The refactor is verified by numerical equivalence with the current class (same state dict,
-  same inputs, same logits), including one real saved checkpoint.
+- The head is one composable `FeatureHead` (feature front-end, spatial filter, time pooling,
+  branches, readout) plus `StampExtractor`, built from numeric config keys (`feature`,
+  `spatial_k`, `time_pool`, `time_rank`, `window`, `phase_advance`, `evoked_rank`, `dropout`).
+  `FinetuneModel` wraps the frozen backbone; `MeSAEFeatureHead`, `MeSAEFinetune` and
+  `PerChannelHeadAttn` are gone. Band power can now be combined with learned time weights
+  (`raw_band` uses a per-patch estimator, so its numbers differ from the earlier whole-trial
+  raw control).
+- The checkpoint stores `head_config`, and `viz.load_model` rebuilds the head from it.
+- **No old-run compatibility:** the state-dict names listed above changed in sub-project A
+  (`docs/superpowers/plans/2026-09-21-finetune-model-restructure-a.md`); older checkpoints and
+  finetune configs no longer load (tag `pre-head-cleanup` keeps the old code).
+- The restructure was verified by numerical equivalence with the previous class under
+  name-mapped weights (logits and gradients, nine configurations).
 - The pieces live at the end of `model/MeSAE/MeSAE_modules.py`, under a section header that
   separates them from the pretrain modules above. Code made obsolete by this ADR (the original
   `head_z` path, the `recon`/`z_chan` inputs, channel-concat pooling, the Experiment A probes) is

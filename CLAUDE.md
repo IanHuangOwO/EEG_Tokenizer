@@ -85,9 +85,12 @@ one. See `docs/adr/0004-model-plugin-base-classes.md`.
 - **`model/MeSAE/MeSAE_modules.py`**: `SpatialTemporalEmbeddings`, `TSABlock` (temporal
   attn -> spatial MHA -> MoE FFN, LayerScale 1e-4), `TSAEncoder` (UNet-style temporal
   pool/upsample at `pool_after_blocks`, `active_blocks` bypass), `StampBank`,
-  `PerChannelHeadAttn` (finetune head).
+  and the finetune pieces (ADR 0016): `StampExtractor` (frozen-backbone stamp codes
+  `[B, N', Cv, S, 2]`) and `FeatureHead` (one composable head: feature front-end, spatial
+  filter, time pooling, optional branches, readout).
 - **`model/MeSAE/MeSAE.py`**: `MeSAEPretrain` (phases, `get_loss`, `freeze_stamps`,
-  `encode_post_stamp_expert`), `MeSAEFinetune`.
+  `encode_post_stamp_expert`), `FinetuneModel` (frozen backbone + `StampExtractor` +
+  `FeatureHead`), `build_finetune`.
 - **`model/factory.py`**: `build_pretrain_from_config`, `build_finetune_from_config`,
   `optimizer_param_groups`.
 
@@ -106,7 +109,7 @@ at 32. See `docs/adr/0011-matching-pursuit-residual-loss.md`.
 ### Config (`config/config.json`)
 
 Key fields:
-- `model_params.MeSAE.pretrain`: the one architecture block — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks` (also the tokenizer-phase block set), `moe_ffn`, `stamp_bank`, `loss`. `model_params.MeSAE.finetune`: head params
+- `model_params.MeSAE.pretrain`: the one architecture block — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks` (also the tokenizer-phase block set), `moe_ffn`, `stamp_bank`, `loss`. `model_params.MeSAE.finetune`: head keys (numeric, validated at build; the checkpoint stores the resolved `head_config`) — `feature` (`stamp_power`/`stamp_band`/`raw_band`/`raw_signal`), `spatial_k`, `time_pool` (`flat`/`learned`/`window`/`none`), `time_rank`, `window` (`[lo, hi]` s), `phase_advance`, `evoked_rank`, `dropout`; defaults in `docs/adr/0016`
 - `preprocess_params`: `window_length`, `window_pad_threshold`, `patch_length`, `patch_stride` (patch step in samples within a Window; equal to `patch_length` for non-overlapping patches, smaller for overlapping — see `IO/preprocessing.py`'s `slice_patches`), `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `masking_strategy` (random/complementary/random_to_complementary — the last ramps random into complementary over a curriculum, see `IO/masking.py`)
 - `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — used by `train_pretrain.py` (masking applied only in the masked phase)
 - `training_params.pretrain`: `model_name` (output dir), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields

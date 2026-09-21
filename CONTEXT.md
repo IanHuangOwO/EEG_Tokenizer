@@ -26,7 +26,7 @@ _Avoid_: Token (for this meaning, retired)
 
 **Expert**:
 An independent FSQ quantizer unit (down-proj -> quantize -> up-proj -> decode) living in a Routed or Shared pool. Canonical term for what earlier docs called a "VQ head".
-_Avoid_: Head, VQ head (retired; "head" now means attention head only, e.g. spatial_heads, PerChannelHeadAttn)
+_Avoid_: Head, VQ head (retired; "head" now means attention head only, e.g. spatial_heads)
 
 **Routed pool**:
 A pool of Experts where a Router top-k gates which Experts fire per patch, weighted-summed over the selected ones. Each Expert is scored against its own Expert View. Buys representation specialization (every Expert still densely computed, unselected ones masked to zero — not a compute-saving sparse dispatch at this scale).
