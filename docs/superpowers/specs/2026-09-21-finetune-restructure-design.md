@@ -80,11 +80,16 @@ Replaces `MeSAEFeatureHead`, `MeSAEFinetune` and `PerChannelHeadAttn`. This abso
 Because the backbone is frozen, the stamp amplitudes of every trial are computed once and the
 head is trained on them.
 
-- **`IO/feature_cache.py`:** `get_stamp_cache(config, dataset_name, subjects) -> path`. Stores
-  per subject `amp` fp16 `[n_trials, C_valid, N', S, 2]`, `labels`, `valid_length`, under
-  `datas/<Name>/feature_cache/<key>/<subject>.npz`. Raw heads do not use the cache (they read
-  the patched raw signal from the dataset, as today, and never run the backbone).
-- **Cache key:** hash of the backbone checkpoint (path, size, mtime), the compiled data cache
+- **`model/MeSAE/feature_cache.py`** (next to `StampExtractor`, not under `IO/`):
+  `get_stamp_cache(config, dataset_name, subjects) -> path`. Stores per subject `amp` fp16
+  `[n_trials, C_valid, N', S, 2]`, `labels`, `valid_length`, under
+  `<backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz`, where the backbone run
+  folder is the parent of the checkpoint's `checkpoint/` directory (today
+  `output/mesae_v10_small_uw01/`, later `output/pretrain/mesae_v10_small_uw01/`). The cache
+  travels with the model it came from. Raw heads do not use the cache (they read the patched
+  raw signal from the dataset, as today, and never run the backbone).
+- **Cache key:** hash of the checkpoint file identity (file name, size, mtime; the folder is
+  already the model's), the compiled data cache
   files (names, sizes, mtimes), and the preprocess settings that change the patches
   (`sample_freq`, `patch_length`, `patch_stride`, `window_length`, `normalization_type`,
   `canonical_channels`, channel selection), plus `keep`. A mismatch builds a new folder; old
@@ -92,7 +97,8 @@ head is trained on them.
 - **Uniform channels:** the builder asserts that every subject of a dataset has the same real
   channel set and stores only those channels.
 - **Size:** about 0.25 MB per 62-channel trial in fp16 (EEGMMIdb about 10 GB, BETA_4s about
-  2 GB, BCICIV2a about 0.8 GB). `datas/*/feature_cache` is git-ignored.
+  2 GB, BCICIV2a about 0.8 GB). It lives under `output/`, which is already git-ignored, and is
+  regenerable, so deleting it is always safe.
 - **Acceptance:** for a fixed sample of trials, the head's logits from the cache match
   `StampExtractor` on the fly within 1e-3 (fp16 storage), and the resulting per-subject
   balanced accuracy after a 2-epoch smoke run matches the uncached path within noise.
@@ -171,8 +177,8 @@ A new `experiments/` folder (with a README); `probes/` is deleted.
 - The Phase 2 Inria runs and the ablation grid runs themselves (they run on the new runner
   once D exists).
 - Any change to pretraining, the backbone, the loss, or `MeSAEPretrain` methods.
-- The viz refactor (head diagnostics, finetune snapshots), `IO/` restructuring beyond the new
-  cache file, and the model plugin system.
+- The viz refactor (head diagnostics, finetune snapshots), any `IO/` restructuring, and the
+  model plugin system.
 - New baselines beyond PSDA; a run manifest with timings and exit statuses.
 
 ## Risks and mitigations
