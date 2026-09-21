@@ -32,7 +32,29 @@ def draw_topomap(ax, pos2d: np.ndarray, values: np.ndarray,
                  n_grid: int = 100, cmap: str = 'YlOrRd',
                  vmin=None, vmax=None, triang=None):
     """
-    Interpolated topomap on a circular head outline.
+    Topomap in MNE's default rendering (mne.viz.plot_topomap: extrapolated out to the head
+    outline, contours, nose and ears), on our unit-radius 2-D positions (sphere=1.0).
+    n_grid and triang are kept for call compatibility and only used by the fallback below,
+    which is used when mne is not installed. Returns the image artist for colorbars.
+    """
+    try:
+        import mne
+    except ImportError:
+        return _draw_topomap_delaunay(ax, pos2d, values, n_grid, cmap, vmin, vmax, triang)
+    vmin = values.min() if vmin is None else vmin
+    vmax = values.max() if vmax is None else vmax
+    if vmax <= vmin:
+        vmax = vmin + 1e-8
+    im, _ = mne.viz.plot_topomap(values, pos2d, sphere=1.0, axes=ax, cmap=cmap,
+                                 vlim=(vmin, vmax), show=False)
+    return im
+
+
+def _draw_topomap_delaunay(ax, pos2d: np.ndarray, values: np.ndarray,
+                           n_grid: int = 100, cmap: str = 'YlOrRd',
+                           vmin=None, vmax=None, triang=None):
+    """
+    Fallback (no mne): interpolated topomap on a circular head outline.
     pos2d: [C, 2], values: [C]
     triang: optional pre-built build_triangulation(pos2d) result, reused across calls that
     share the same pos2d — pass None to build it fresh (also the fallback path when a
