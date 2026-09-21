@@ -177,8 +177,8 @@ def slice_patches(x: torch.Tensor, patch_len: int, patch_stride: Optional[int] =
     strides overlap consecutive patches within the same Window. Uses unfold
     (a view, not a copy, for the non-overlap case) so it stays generic on
     leading dims. Drops any remainder < patch_len. Shared by IO/dataset.py's
-    PretrainDataset (per-sample) and train_finetune.py's
-    FinetuneCollate (batched)."""
+    PretrainDataset (per-sample) and the finetune RawSource
+    (batched)."""
     patch_stride = patch_stride or patch_len
     T = x.shape[-1]
     if T < patch_len:
