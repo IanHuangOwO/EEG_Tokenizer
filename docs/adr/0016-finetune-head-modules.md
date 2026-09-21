@@ -66,6 +66,15 @@ Cross-stamp coupling (C5), `z_chan`, `chan_mag`, `pool_mag`, `head_z`, channel-c
 pooling, softmax channel pooling, and the recon-input head (redundant with raw). The
 ADR 0014 "group penalty" for width control was never implemented and stays out.
 
+### Open item: a stronger raw control
+
+The raw band-power control (two coarse bands, 16 features) is weak. On EEGMMIdb (Phase 2, 3 classes,
+balanced accuracy) it sits at chance (0.366 unseen, 0.340 seen) with train accuracy 0.387, i.e. it
+underfits, while C1 reaches 0.539 unseen (+0.174, 10/10 subjects). That gap shows the per-stamp features
+carry far more usable signal than two band powers; it does not show the tokenizer beats a well-designed
+raw pipeline. Before the head is locked, add a stronger raw control (for example more bands, or a small
+learned filter bank on the raw signal) at a comparable feature count and dropout.
+
 ## Ablation grid
 
 Leave one out from H\*, on LOSO of BCICIV2a and BCICIV2b at 100 epochs, dropout matched, in
