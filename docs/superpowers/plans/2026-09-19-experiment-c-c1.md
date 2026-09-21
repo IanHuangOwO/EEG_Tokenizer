@@ -45,7 +45,7 @@ form a clean baseline).
 ## Global Constraints
 
 - Backbone stays frozen (ADR 0012) — do not touch `freeze_backbone`.
-- Backbone checkpoint: `output/mesae_v10_small_uw01/checkpoint/last.pth` (same as every prior
+- Backbone checkpoint: `output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth` (same as every prior
   C-experiment measurement; conclusions about the tokenizer itself need the full-data run,
   not in scope here).
 - Optimizer/protocol (ADR 0014 §Protocol, carried forward from C0): `learning_rate: 0.01`,
@@ -478,7 +478,7 @@ And `training_params.finetune` to (note `cv_folds: 5`, not 3):
     "finetune": {
       "model_type": "MeSAE",
       "model_name": "mesae_finetune_c0_dropout05_5fold",
-      "pretrained_checkpoint": "output/mesae_v10_small_uw01/checkpoint/last.pth",
+      "pretrained_checkpoint": "output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
       "backbone_lr_mult": 0.0,

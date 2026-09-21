@@ -971,7 +971,7 @@ Next, in order:
     left/right task); BCICIV2b has only 3 real channels (C3/Cz/C4), so `spatial:8` is
     near-degenerate there (8 filters over 3 channels). **Pretraining overlap:** BCICIV2a
     and BCICIV2b are fully unseen by the backbone; BCICIV1_Train is only partly seen
-    (the pretrain config, `output/mesae_v10_small_uw01/artifacts/config.json`, used
+    (the pretrain config, `output/pretrain/mesae_v10_small_uw01/artifacts/config.json`, used
     subjects 1, 2, 3 only, so of the five evaluated folds S2 and S3 are seen and S4, S5,
     S7 are unseen, though from an exposed dataset and montage). Metric is the last-10-epoch
     tail-mean balanced_acc per held-out subject (the best-epoch numbers in

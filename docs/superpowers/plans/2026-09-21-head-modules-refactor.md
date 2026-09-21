@@ -171,7 +171,7 @@ git commit -m "feat: swappable finetune head pieces (spatial mix, time pool, evo
 Run: `git show HEAD:model/MeSAE/MeSAE.py > model/MeSAE/_old_mesae_tmp.py` (CRLF preserved; this temp file is never committed and is deleted in Step 6). Confirm `python -c "import model.MeSAE._old_mesae_tmp"` imports (it uses the same relative imports as `MeSAE.py`).
 
 - [ ] **Step 2: Write the equivalence script** at `.superpowers/sdd/2026-09-21-head-modules-refactor/head_equiv.py`. It must:
-  1. Build the real backbone once: `build_pretrain_from_config` from `output/mesae_v10_small_uw01/artifacts/config.json`, load `output/mesae_v10_small_uw01/checkpoint/last.pth` (strict=False), eval, CPU.
+  1. Build the real backbone once: `build_pretrain_from_config` from `output/pretrain/mesae_v10_small_uw01/artifacts/config.json`, load `output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth` (strict=False), eval, CPU.
   2. For each config in this list build the old class (`model.MeSAE._old_mesae_tmp.MeSAEFeatureHead`) and the new class (`model.MeSAE.MeSAE.MeSAEFeatureHead`) with `torch.manual_seed(0)` before each construction, `num_channels=64`, `num_classes=4`, `num_patches=39`, `dropout=0.5`:
      - `raw`, mi, `concat`, `trial`; `raw`, mi, `spatial:8`, `trial`; `raw`, erp, `spatial:8`, `trial`
      - `recon`, mi, `spatial:8`, `trial`; `stamp_bandpow`, mi, `spatial:8`, `trial`; `z_chan`, mi, `spatial:8`, `trial`

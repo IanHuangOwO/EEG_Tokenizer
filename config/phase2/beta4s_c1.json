@@ -242,7 +242,7 @@
   "finetune": {
    "model_type": "MeSAE",
    "model_name": "mesae_p2_beta4s_c1",
-   "pretrained_checkpoint": "output/mesae_v10_small_uw01/checkpoint/last.pth",
+   "pretrained_checkpoint": "output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth",
    "learning_rate": 0.01,
    "min_learning_rate": 0.001,
    "backbone_lr_mult": 0.0,

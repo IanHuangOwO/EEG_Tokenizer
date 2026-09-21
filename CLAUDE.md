@@ -121,8 +121,8 @@ Key fields:
 
 ### Outputs
 
-Finished runs are grouped by experiment set: `output/pretrain/` (all pretrain/tokenizer runs except the
-current backbone `mesae_v10_small_uw01`, which stays at the top level because configs point to it), `output/experiment_b/`,
+Finished runs are grouped by experiment set: `output/pretrain/` (all pretrain/tokenizer runs, including the
+current backbone `mesae_v10_small_uw01`), `output/experiment_b/`,
 `output/experiment_c/`, `output/loso_phase1/`; Phase 2 (`mesae_p2_*`) moves to `output/phase2/` once its runs finish. New runs
 still write to `output/<model_name>/`; a grouped run is addressed as `<group>/<model_name>` (e.g. probes take `<run>` as a path
 under `output/`).

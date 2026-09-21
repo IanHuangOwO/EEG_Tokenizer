@@ -96,7 +96,7 @@ head is trained on them.
   `[n_trials, N', C_valid, S, 2]`, `labels`, `valid_length`, under
   `<backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz`, where the backbone run
   folder is the parent of the checkpoint's `checkpoint/` directory (today
-  `output/mesae_v10_small_uw01/`, later `output/pretrain/mesae_v10_small_uw01/`). The cache
+  `output/pretrain/mesae_v10_small_uw01/`, later `output/pretrain/mesae_v10_small_uw01/`). The cache
   travels with the model it came from. Raw heads do not use the cache (they read the patched
   raw signal from the dataset, as today, and never run the backbone).
 - **Cache key:** the folder key hashes the checkpoint file identity (name, size, mtime), the
