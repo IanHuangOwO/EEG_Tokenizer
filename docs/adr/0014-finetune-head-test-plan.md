@@ -976,7 +976,7 @@ Next, in order:
     S7 are unseen, though from an exposed dataset and montage). Metric is the last-10-epoch
     tail-mean balanced_acc per held-out subject (the best-epoch numbers in
     `loso_summary.json` `aggregate` pick the epoch on the held-out subject and are not
-    used). Logs and summaries: `output/mesae_loso_<dataset>_{c1,raw}/artifacts/`.
+    used). Logs and summaries: `output/loso_phase1/mesae_loso_<dataset>_{c1,raw}/artifacts/`.
 
     **BCICIV2a** (unseen, 4-class, chance 0.25, n = 9): raw **0.335**, C1 **0.379**;
     **C1 − raw = +0.044**, t = 1.78, p = 0.112, C1 wins **7/9**. Margins over chance:
@@ -1021,7 +1021,7 @@ Next, in order:
     as "beats raw on both unseen datasets". **Convergence.** The tail is still rising
     slightly (mean epochs 11–20 → 21–30: 2a raw 0.319 → 0.335, C1 0.356 → 0.379; 2b raw
     0.595 → 0.594, C1 0.673 → 0.684), so the point differences are not converged. A
-    100-epoch rerun of BCICIV2a (C1 and raw, `output/mesae_loso_BCICIV2a_{c1,raw}_e100`)
+    100-epoch rerun of BCICIV2a (C1 and raw, `output/loso_phase1/mesae_loso_BCICIV2a_{c1,raw}_e100`)
     finished and replaces 30 epochs as the reference for 2a: tail-mean over epochs 91-100, C1 **0.396**, raw **0.342**, C1 - raw **+0.054**, paired p = 0.007 over 9 subjects, C1 wins 8/9 (30 epochs: 0.379 / 0.335 / +0.044 / p = 0.112 / 7/9). C1 gained 0.017 from the extra epochs and raw only 0.007; C1's curve is flat by epochs 81-100 (last 10 vs previous 10: +0.001). As in the 30-epoch runs raw used dropout 0 and C1 dropout 0.5, so the gap mixes input and dropout; this is left as is. Both reruns ran in `base` without `mne` (see Python environment). Caveats: "raw" is the simple mu/beta
     band-power head (16 features), not a stronger raw baseline (LDA, a deeper raw
     model); n is only 9 / 9 / 5 subjects, so significance is weak by construction and
