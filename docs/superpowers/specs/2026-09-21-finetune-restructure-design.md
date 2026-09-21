@@ -1,138 +1,193 @@
-# Finetune restructure: one head class, two split modes, experiment specs
+# Finetune restructure: head classes, feature cache, two split modes, experiment specs
 
-Date: 2026-09-21. Status: design for review. Builds on ADR 0016 (head modules) and ADR 0014
-(test plan and Protocol).
+Date: 2026-09-21. Status: design for review (revised after the structure check). Builds on
+ADR 0016 (head modules) and ADR 0014 (test plan and Protocol).
 
 ## Problem
 
-The finetune ablation work is spread thin. Adding a head option touches the head class flags,
-the factory, the config and a config generator. `train_finetune.py` (795 lines) mixes batching
-and metrics, dataset and split building, the training loop, five split runners and reporting.
-The analysis scripts in `probes/` overlap (three summary scripts, two dead Experiment A
-probes, a config generator). Run folders, config names and environment notes are assembled by
-hand per experiment set, which let a missing `mne` in the `base` env go unnoticed.
+The finetune ablation work is spread thin.
+- Adding a head option touches the head class flags, the factory, the config and a config
+  generator. Numbers are encoded inside strings (`pool_channel: "spatial:8"`, `pool_time:
+  "learned:2"`), which makes a sweep over K or R awkward.
+- One class (`MeSAEFeatureHead`) serves three different heads through `input` and `task`
+  flags, and `viz.load_model` guesses `num_classes` and `num_patches` from tensor shapes.
+- The backbone is frozen, yet every epoch of every ablation reruns it. The raw control costs
+  0.71x of C1 only because the backbone still runs.
+- `train_finetune.py` (795 lines) mixes batching and metrics, dataset and split building, the
+  training loop, five split runners and reporting, plus optimistic best-validation checkpoints,
+  `recon_mse` logging and freeze options that no reported number uses.
+- The analysis scripts in `probes/` overlap (three summary scripts, two dead Experiment A
+  probes, a config generator). Run folders and environment notes are assembled by hand, which
+  let a missing `mne` in the `base` env go unnoticed.
 
 ## Decisions (agreed in the design discussion)
 
-1. **Three sub-projects, in order, each with its own plan.** A: model. B: `train_finetune.py`.
-   C: experiments and results tooling. Files keep their names; nothing moves into a new
-   package except the new `experiments/` folder.
-2. **The finetune model is `MeSAEFeatureHead`.** The original `MeSAEFinetune` head with
-   `PerChannelHeadAttn` is removed. The head config keeps today's flat keys.
-3. **`train_finetune.py` stays one file with two split modes** (below).
+1. **Four sub-projects, in order, each with its own plan and review.** A: model. B: feature
+   cache. C: `train_finetune.py`. D: experiments and results tooling. Files keep their names
+   except where stated; the only new folder is `experiments/`.
+2. **No compatibility or reproducibility promise for old runs** (user decision). The finished
+   runs stay in `output/` as the record of why the head was chosen; they are not maintained.
+   The last commit with the removed code is tagged `pre-head-cleanup`.
+3. **`train_finetune.py` stays one file, with two split modes** and a slimmer loop.
 4. **One experiment spec file per ablation set and one runner.** No manifest, exit-status or
-   timing tracking: the spec and each run's `config.json` show what was run. One exception:
-   a small environment stamp inside each run's config snapshot (kept unless the reviewer
-   objects).
+   timing tracking: the spec and each run's saved config show what was run. One exception: a
+   small environment stamp in each run's saved config.
 5. **`probes/` is dissolved into `experiments/`.**
+6. **Finetune-run viz is removed from the training loop for now** (training on cached
+   features has no raw signal or backbone at hand). Head diagnostics (spatial-filter
+   topomaps, time-weight maps) come back with the separate viz refactor.
 
 ## Sub-project A: model
 
-Scope: `docs/superpowers/plans/2026-09-21-head-modules-refactor.md` Task 3 (Task 2 has landed). Concretely:
-- Delete `MeSAEFinetune`, `PerChannelHeadAttn`, `build_finetune`'s `head_z` branch,
-  `render_finetune_attn` and the dead `check_finetune` branches, the `recon` and `z_chan`
-  inputs with `z_proj`, and channel-concat pooling. Keep `raw`, `stamp_bandpow`,
-  `stamp_induced`, `spatial:K`, `learned:R`, `window:lo-hi`, `include_advance`, `evoked_rank`,
-  `task`. Keep every `MeSAEPretrain` method.
-- `MeSAEFeatureHead` defaults become `input='stamp_induced'`, `pool_channel='spatial:8'`.
-- Head config keys stay flat: `input`, `task`, `pool_channel`, `pool_time`, `include_advance`,
-  `evoked_rank`, `dropout`, `freeze_backbone`. A short table of them goes in the class
-  docstring; `config/config.json` holds the example.
-- Verification: the equivalence script (`.superpowers/sdd/2026-09-21-head-modules-refactor/
-  head_equiv.py`) against the class at tag `pre-head-cleanup`, restricted to the kept
-  configurations plus the real C1 checkpoint; `viz.load_model` smoke check; base config head
-  builds.
+Replaces `MeSAEFeatureHead`, `MeSAEFinetune` and `PerChannelHeadAttn`. This absorbs Task 3 of
+`docs/superpowers/plans/2026-09-21-head-modules-refactor.md`; Task 2 (the head pieces in
+`MeSAE_modules.py`) has landed.
 
-## Sub-project B: `train_finetune.py`
+- **Feature extractor** `StampExtractor(backbone)`: `forward(x, coords, time_idx,
+  valid_channels) -> amp [B, C_valid, N', S, 2]` (the stamp code (a, b) scaled by patch RMS,
+  alive routed and shared stamps only, padded channels dropped). It also exposes the `keep`
+  stamp indices and the template spectra tables. It owns everything that needs the backbone.
+- **Head classes**, chosen by a `head` key, none of which touch the backbone:
+  - `StampHead`: input `amp`; modules spatial mix, time pool, optional phase-advance and
+    evoked branches (the ADR 0016 pieces); readout `BatchNorm1d -> Dropout -> Linear`. A
+    `granularity` key selects per-stamp log power (default) or band-summed power (the
+    ADR 0014 `stamp_bandpow` arm, flat time pooling only).
+  - `RawBandHead`: input the patched raw signal; spatial mix, mu/beta log band power, readout.
+  - `RawErpHead`: input the patched raw signal; spatial mix, ~20 Hz average pooling, readout.
+- **Head config, numeric keys** (`model_params.MeSAE.finetune`): `head`, `granularity`,
+  `spatial_k`, `time_pool` (`flat` | `learned` | `window`), `time_rank`, `window` (`[lo, hi]`
+  seconds), `phase_advance` (bool), `evoked_rank` (0 = off), `dropout`. `task` is no longer a
+  model argument (it only selected the raw ERP variant). Invalid combinations (for example
+  `granularity: band` with `time_pool: learned`) raise a `ValueError` naming the keys.
+- **Checkpoint format:** `{"model_state_dict": <head only>, "head_config": {resolved keys plus
+  num_classes, num_patches, num_channels, num_stamps, keep}, "backbone_checkpoint": <path>}`.
+  Loading builds the head from `head_config`; no shape inference. Only the head is saved
+  (the backbone is frozen and loaded from `backbone_checkpoint`).
+- **Kept unchanged:** every `MeSAEPretrain` method; the ADR 0016 pieces (`spatial_mix`,
+  `FlatTimePool`, `LearnedTimePool`, `EvokedBranch`, `phase_advance`) inside
+  `MeSAE_modules.py` under the finetune section header. Spatial mix now runs over the dataset's
+  real channels only (`spatial_k` filters over `C_valid`).
+- **Removed:** `MeSAEFinetune`, `PerChannelHeadAttn`, `head_z`, the `recon` and `z_chan`
+  inputs with `z_proj`, channel-concat pooling, `render_finetune_attn` and the dead
+  `check_finetune` branches, `freeze_backbone`.
+- **Verification:** for each kept head configuration, `StampExtractor + StampHead` matches the
+  previous `MeSAEFeatureHead` (taken from tag `pre-head-cleanup`) numerically when the new head
+  is given the same weights, copied across by name and restricted to the real channels (the old padded channels were zero, so dropping them changes no output) (logits and gradients, atol 1e-6, on a fixed input); a checkpoint
+  save/load round trip reproduces logits; the base config builds.
 
-The file keeps the training loop, collate, metrics and viz calls. The split logic goes from
-five modes to two. Config keys sit under `training_params.finetune`; `subject_to_use` (in
-`dataset_params.finetune`) is the subject pool.
+## Sub-project B: feature cache
 
-- **`split_mode: "within_subject"`** with `n_folds`: for each subject in the pool, k-fold CV
-  over that subject's own trials (today's `intra_subject_cv`, seed 42 by default).
-- **`split_mode: "cross_subject"`** with either:
-  - `n_folds: k`: seeded partition of the pool into k groups; fold i evaluates group i and
-    trains on the rest. `k` equal to the number of subjects is LOSO; or
-  - `eval_subjects`: a list of subject indices, or a dict of named lists such as
-    `{"seen": [...], "unseen": [...]}` (a plain list is one group named `heldout`): one run.
-  - `train_subjects` (optional list): restricts the training subjects; default is the pool
-    minus the fold's or run's evaluation subjects. Training and evaluation subjects must be
-    disjoint.
-  - Exactly one of `n_folds` and `eval_subjects` is given.
+Because the backbone is frozen, the stamp amplitudes of every trial are computed once and the
+head is trained on them.
+
+- **`IO/feature_cache.py`:** `get_stamp_cache(config, dataset_name, subjects) -> path`. Stores
+  per subject `amp` fp16 `[n_trials, C_valid, N', S, 2]`, `labels`, `valid_length`, under
+  `datas/<Name>/feature_cache/<key>/<subject>.npz`. Raw heads do not use the cache (they read
+  the patched raw signal from the dataset, as today, and never run the backbone).
+- **Cache key:** hash of the backbone checkpoint (path, size, mtime), the compiled data cache
+  files (names, sizes, mtimes), and the preprocess settings that change the patches
+  (`sample_freq`, `patch_length`, `patch_stride`, `window_length`, `normalization_type`,
+  `canonical_channels`, channel selection), plus `keep`. A mismatch builds a new folder; old
+  folders are never trusted or repaired.
+- **Uniform channels:** the builder asserts that every subject of a dataset has the same real
+  channel set and stores only those channels.
+- **Size:** about 0.25 MB per 62-channel trial in fp16 (EEGMMIdb about 10 GB, BETA_4s about
+  2 GB, BCICIV2a about 0.8 GB). `datas/*/feature_cache` is git-ignored.
+- **Acceptance:** for a fixed sample of trials, the head's logits from the cache match
+  `StampExtractor` on the fly within 1e-3 (fp16 storage), and the resulting per-subject
+  balanced accuracy after a 2-epoch smoke run matches the uncached path within noise.
+
+## Sub-project C: `train_finetune.py`
+
+One file. It keeps the training loop, metrics and collate; it loses everything listed under
+Problem. Expected size: about 450 lines.
+
+- **Config keys:** a nested `split` block, separate from the optimiser settings under
+  `training_params.finetune`. `subject_to_use` (in `dataset_params.finetune`) is the pool.
+  - `"split": {"mode": "within_subject", "n_folds": k}`: for each subject in the pool, k-fold
+    CV over that subject's own trials (seed 42 by default, key `seed`).
+  - `"split": {"mode": "cross_subject", ...}` with either `n_folds: k` (seeded partition of
+    the pool into k groups; fold i evaluates group i, trains on the rest; `k` = number of
+    subjects is LOSO) or `eval_subjects` (a list of subject indices, or a dict of named
+    lists such as `{"seen": [...], "unseen": [...]}`; a plain list is one group `heldout`).
+    Optional `train_subjects` restricts the training subjects (default: the pool minus the
+    fold's or run's evaluation subjects). Training and evaluation subjects must be disjoint;
+    exactly one of `n_folds` and `eval_subjects` is given.
+  - An unknown mode raises an error listing the two valid ones.
 - **Subject list helper** inside `train_finetune.py`: a subject entry may be an explicit list,
   `"all"`, or `{"random": n, "seed": s}`. The old difficulty-proxy selector
   (`probes/select_eval_subsets.py`) is dropped; the chosen lists stay in
-  `config/subject_groups/*.json` (with seed and statistics) and are pasted into specs.
+  `config/subject_groups/*.json` (seed and statistics included) and are pasted into specs.
+- **Training on the cache:** the dataset returns the cached `amp` (stamp heads) or the patched
+  raw signal (raw heads); the head is the only trainable module and the optimiser sees only
+  head parameters. Removed: `freeze_backbone`, `backbone_lr_mult`, `recon_mse` logging, the
+  best-validation checkpoint (only the last head checkpoint plus `head_config` is saved), and
+  the generic viz calls.
 - **One output format for both modes:** `artifacts/group_eval.json` (schema of ADR 0014's
-  Protocol / commit 71f952d): per run, per group, per subject `tail` (mean of the last 10
-  epochs) and `last`. Within-subject runs are named `<subject>_fold<i>` with the single
-  subject in group `heldout`; the results tool pools per subject.
-- Removed: `inter_subject`, single-split `intra_subject`, the separate LOSO runner and
-  `loso_summary.json`. An unknown `split_mode` raises an error listing the two valid ones. Old
-  runs on disk are not kept working (see Risks).
-- **Environment stamp:** the run's `artifacts/config.json` gets a small `env` block: git commit
-  and dirty flag, Python path, torch, mne and CUDA versions.
-- Expected size: about 500 lines. Verification: the new `within_subject` mode reproduces the
-  fold composition of the old `intra_subject_cv` (same seeds, same train and eval trial
-  indices per subject and fold), and `cross_subject` with `n_folds = number of subjects`
-  reproduces the old LOSO fold composition; a two-epoch smoke run of each mode writes a valid
-  `group_eval.json`.
+  Protocol): per run, per group, per subject `tail` (mean of the last 10 epochs) and `last`.
+  Within-subject runs are named `<subject>_fold<i>` with the single subject in group
+  `heldout`; the results tool pools per subject.
+- **Environment stamp:** the run's `artifacts/config.json` gets an `env` block: git commit and
+  dirty flag, Python path, torch, mne and CUDA versions.
+- **Verification:** `within_subject` reproduces the fold composition of the old
+  `intra_subject_cv` (same seed, same train and eval trial indices per subject and fold), and
+  `cross_subject` with `n_folds` equal to the number of subjects reproduces the old LOSO fold
+  composition; a 2-epoch smoke run of each mode writes a valid `group_eval.json`. These check
+  the new split code, not old outputs.
 
-## Sub-project C: experiments and results
+## Sub-project D: experiments and results
 
-Everything below lives in a new `experiments/` folder (README included); `probes/` is deleted.
+A new `experiments/` folder (with a README); `probes/` is deleted.
 
-- **Spec file** `experiments/specs/<set>.json`: dataset and task, backbone checkpoint, split
-  block (the B keys above), epochs, batch size and learning rate, a `base_head` (flat head
-  keys), `variants` (name to override dict), and an optional `sweep` block for one-factor-at-a-
-  time ablations: `{"pool_channel": ["spatial:4", "spatial:8", "spatial:16"], "dropout":
-  [0.3, 0.5, 0.7]}` yields one variant per value against the base (the ADR 0016 grid). A
-  variant may instead be `{"baseline": "psda"}`.
-- **`experiments/run.py`:** `python -m experiments.run --spec experiments/specs/<set>.json`
-  [`--only <variant>`] [`--resume`]. Builds each variant's full config from
-  `config/config.json` defaults plus the spec, runs each as a fresh `train_finetune.py`
-  process in the Python that launched it, one after another, into `output/<set>/<variant>/`
-  (`artifacts`, `finetune`, `visualization`). `--resume` skips variants that already have
-  `group_eval.json`.
+- **Spec file** `experiments/specs/<set>.json`: dataset, backbone checkpoint, `split` block
+  (the C keys), epochs, batch size and learning rate, a `base_head` (the numeric head keys),
+  `variants` (name to override dict), and an optional `sweep` block for one-factor-at-a-time
+  ablations: `{"spatial_k": [4, 8, 16], "time_rank": [1, 2, 4], "dropout": [0.3, 0.5, 0.7]}`
+  yields one variant per value against the base (the ADR 0016 grid). A variant may instead be
+  `{"baseline": "psda"}`.
+- **`experiments/run.py`:** `python -m experiments.run --spec <file>` [`--only <variant>`]
+  [`--resume`]. Builds each variant's full config from `config/config.json` defaults plus the
+  spec, builds the feature cache once, then runs each variant as a fresh `train_finetune.py`
+  process in the Python that launched it, one after another, into
+  `output/<set>/<variant>/`. `--resume` skips variants that already have `group_eval.json`.
 - **`experiments/results.py`:** `python -m experiments.results output/<set> --ref <variant>`.
-  Merges `probes/group_summary.py`, `ft_summary.py` and `epoch_curve.py`: per-subject tails,
-  paired difference against the reference (subject-level, point difference first, p reported
-  never gated, `descriptive only, n<5` for small groups), seen-versus-unseen where groups
-  exist, the convergence check (last 10 epochs against the previous 10, from the logs), and
+  Merges `group_summary.py`, `ft_summary.py` and `epoch_curve.py`: per-subject tails, paired
+  difference against the reference (subject level, point difference first, p reported never
+  gated, `descriptive only, n<5` for small groups), seen-versus-unseen where groups exist, the
+  convergence check (last 10 epochs against the previous 10, from the logs), and
   `results.csv` in the set folder.
 - **`experiments/baselines.py`:** registry of non-model baselines with one entry, `psda`
-  (from `probes/phase_probe_beta.py`, SSVEP power-spectral peak picking on BETA_4s). It writes
-  the same `group_eval.json` format so it appears as a variant. CSP+LDA (MI) and xDAWN (ERP)
-  would be added as functions when needed, not before.
-- **Deleted:** `probes/probe_v10.py`, `stamp_relevance.py`, `select_eval_subsets.py`,
-  `make_phase2_configs.py`, `ft_summary.py`, `group_summary.py`, `epoch_curve.py`,
-  `phase_probe_beta.py` (absorbed), `probes/README.md`. `config/phase2/*.json` are replaced by
-  `experiments/specs/`.
-- Docs: the Commands section of `CLAUDE.md` names `run.py`, `results.py`, the two split
-  modes and the `eeg_fm` environment.
+  (from `probes/phase_probe_beta.py`: SSVEP power-spectral peak picking). It writes the same
+  `group_eval.json` format so it appears as a variant. Further baselines (CSP+LDA for MI,
+  xDAWN for ERP) are added as functions when needed, not before.
+- **Deleted:** all of `probes/` (`probe_v10.py`, `stamp_relevance.py`,
+  `select_eval_subsets.py`, `make_phase2_configs.py`, `ft_summary.py`, `group_summary.py`,
+  `epoch_curve.py`, `phase_probe_beta.py`, `README.md`) and `config/phase2/*.json`.
+- Docs: the Commands section of `CLAUDE.md` names `run.py`, `results.py`, the split modes, the
+  feature cache and the `eeg_fm` environment.
 
 ## Out of scope
 
-- The Phase 2 Inria runs and the ablation grid runs themselves (they resume on the new
-  runner once C exists).
+- The Phase 2 Inria runs and the ablation grid runs themselves (they run on the new runner
+  once D exists).
 - Any change to pretraining, the backbone, the loss, or `MeSAEPretrain` methods.
-- Renaming or restructuring `IO/`, `viz/` or the model plugin system.
+- The viz refactor (head diagnostics, finetune snapshots), `IO/` restructuring beyond the new
+  cache file, and the model plugin system.
 - New baselines beyond PSDA; a run manifest with timings and exit statuses.
 
 ## Risks and mitigations
 
-- **Behaviour drift in B** (fold composition, seeds): the equivalence checks against the old
-  runners are part of B's acceptance, run before the old runners are deleted. They guard the
-  new code against bugs, not old outputs.
-- **Old runs are not a constraint** (user decision): the finished runs (Experiments A, B, C,
-  Phase 1 and the four Phase 2 runs) are superseded by the proper ablation. New code need not
-  load their checkpoints or configs. The state-dict names stay unchanged during this work
-  because it costs nothing; later head changes may rename them. The last commit with the
-  removed code is tagged `pre-head-cleanup` for anyone who wants to reproduce them.
+- **Behaviour drift in A and C** (head math, fold composition): the equivalence checks against
+  the tagged old code are each sub-project's acceptance and run before the old code is
+  deleted. They guard the new code against bugs, not old outputs.
+- **Cache staleness:** the key covers backbone file identity, data cache files and the
+  preprocess settings that change patches; a changed input yields a new folder, never a
+  silent reuse. Disk use is a few GB per dataset (EEGMMIdb about 10 GB).
+- **fp16 storage** could clip large amplitudes: the builder asserts all stored values are
+  finite and checks the maximum absolute value against the fp16 range.
 - **CRLF files** (`MeSAE.py`, `config/config.json`): edit in place, small diffs.
 
 ## Order and gating
 
-A, then B, then C, each a separate plan reviewed before the next starts. No experiment runs
-while A or B are edited (the GPU stays idle; the Phase 2 Inria runs wait).
+A, then B, then C, then D, each a separate plan reviewed before the next starts. No experiment
+runs while A to C are edited (the GPU stays idle; the Phase 2 Inria runs wait for D).
