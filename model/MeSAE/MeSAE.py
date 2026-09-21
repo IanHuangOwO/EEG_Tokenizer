@@ -9,7 +9,7 @@ from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, St
                                          overlap_add_patches,
                                          spatial_mix, FlatTimePool, LearnedTimePool,
                                          EvokedBranch, phase_advance, StampExtractor, FeatureHead,
-                                         resolve_head_config)
+                                         resolve_head_config, make_head_checkpoint)
 
 
 def _ema_update(buf, val, decay=0.99):
@@ -678,10 +678,9 @@ class FinetuneModel(nn.Module):
         return self.head(inp), None, None
 
     def head_checkpoint(self, backbone_checkpoint):
-        cfg = dict(self.head_cfg, channel_idx=self.channel_idx.tolist(),
-                   keep=self.extractor.keep.tolist() if self.extractor is not None else None)
-        return {'model_state_dict': self.head.state_dict(), 'head_config': cfg,
-                'backbone_checkpoint': backbone_checkpoint}
+        return make_head_checkpoint(self.head, self.head_cfg, self.channel_idx.tolist(),
+                                    self.extractor.keep.tolist() if self.extractor is not None else None,
+                                    backbone_checkpoint)
 
     @classmethod
     def from_checkpoint(cls, backbone, ckpt):

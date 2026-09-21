@@ -217,8 +217,7 @@
         "time_rank": 2,
         "phase_advance": false,
         "evoked_rank": 0,
-        "dropout": 0.5,
-        "freeze_backbone": true
+        "dropout": 0.5
       }
     }
   },
@@ -243,14 +242,12 @@
       "pretrained_checkpoint": "output/pretrain/mesae_v10_small/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
-      "backbone_lr_mult": 0.0,
       "epochs": 100,
       "warmup_epochs": 2,
       "batch_size": 16,
       "weight_decay": 0.01,
       "device": "cuda",
-      "split_mode": "intra_subject_cv",
-      "cv_folds": 5
+      "split": {"mode": "within_subject", "n_folds": 5}
     },
     "visualize_params": {
       "cmap": "YlOrRd",

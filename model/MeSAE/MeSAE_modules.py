@@ -1424,12 +1424,19 @@ BANDS = ((8.0, 13.0), (13.0, 30.0))   # mu, beta
 FEATURES = ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal')
 _HEAD_DEFAULTS = dict(feature='stamp_power', spatial_k=8, time_pool='learned', time_rank=2,
                       window=None, phase_advance=False, evoked_rank=0, dropout=0.5)
-_LEGACY_TRAINING_KEYS = ('freeze_backbone', 'backbone_lr_mult')   # removed in sub-project C
+
+
+def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint):
+    """Head-only checkpoint: state, resolved config (plus the real channels and alive stamps it was
+    built for) and the frozen backbone it belongs to. Loaded by FinetuneModel.from_checkpoint."""
+    return {'model_state_dict': head.state_dict(),
+            'head_config': dict(head_cfg, channel_idx=list(channel_idx), keep=None if keep is None else list(keep)),
+            'backbone_checkpoint': backbone_checkpoint}
 
 
 def resolve_head_config(ft_params, **derived):
     """Head config = defaults + user keys + derived shapes, validated (see the plan's contract)."""
-    user = {k: v for k, v in ft_params.items() if k not in _LEGACY_TRAINING_KEYS}
+    user = dict(ft_params)
     unknown = set(user) - set(_HEAD_DEFAULTS)
     if unknown:
         raise ValueError(f"unknown head keys {sorted(unknown)}; valid: {sorted(_HEAD_DEFAULTS)}")
