@@ -109,3 +109,4 @@ comparison the design rests on.
   Experiments A/B need in order to be re-run.
 - Rows in ADR 0014 stay as measured; this ADR only decides what is kept and how the head is
   organised.
+- Implemented at the end of `model/MeSAE/MeSAE_modules.py` (finetune section); equivalence with the previous class verified on 12 configurations plus a saved C1 checkpoint.
