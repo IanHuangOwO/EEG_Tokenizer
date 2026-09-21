@@ -1,4 +1,4 @@
-# Finetune restructure: head classes, feature cache, two split modes, experiment specs
+# Finetune restructure: one feature head, feature cache, two split modes, experiment specs
 
 Date: 2026-09-21. Status: design for review (revised after the structure check). Builds on
 ADR 0016 (head modules) and ADR 0014 (test plan and Protocol).
@@ -9,8 +9,9 @@ The finetune ablation work is spread thin.
 - Adding a head option touches the head class flags, the factory, the config and a config
   generator. Numbers are encoded inside strings (`pool_channel: "spatial:8"`, `pool_time:
   "learned:2"`), which makes a sweep over K or R awkward.
-- One class (`MeSAEFeatureHead`) serves three different heads through `input` and `task`
-  flags, and `viz.load_model` guesses `num_classes` and `num_patches` from tensor shapes.
+- One class (`MeSAEFeatureHead`) serves several heads through `input` and `task` flags whose
+  combinations are hard-coded (for example learned time weights only exist for one feature),
+  and `viz.load_model` guesses `num_classes` and `num_patches` from tensor shapes.
 - The backbone is frozen, yet every epoch of every ablation reruns it. The raw control costs
   0.71x of C1 only because the backbone still runs.
 - `train_finetune.py` (795 lines) mixes batching and metrics, dataset and split building, the
@@ -47,18 +48,26 @@ Replaces `MeSAEFeatureHead`, `MeSAEFinetune` and `PerChannelHeadAttn`. This abso
   valid_channels) -> amp [B, N', C_valid, S, 2]` (the stamp code (a, b) scaled by patch RMS,
   alive routed and shared stamps only, padded channels dropped). It also exposes the `keep`
   stamp indices and the template spectra tables. It owns everything that needs the backbone.
-- **Head classes**, chosen by a `head` key, none of which touch the backbone:
-  - `StampHead`: input `amp`; modules spatial mix, time pool, optional phase-advance and
-    evoked branches (the ADR 0016 pieces); readout `BatchNorm1d -> Dropout -> Linear`. A
-    `granularity` key selects per-stamp log power (default) or band-summed power (the
-    ADR 0014 `stamp_bandpow` arm, flat time pooling only).
-  - `RawBandHead`: input the patched raw signal; spatial mix, mu/beta log band power, readout.
-  - `RawErpHead`: input the patched raw signal; spatial mix, ~20 Hz average pooling, readout.
-- **Head config, numeric keys** (`model_params.MeSAE.finetune`): `head`, `granularity`,
-  `spatial_k`, `time_pool` (`flat` | `learned` | `window`), `time_rank`, `window` (`[lo, hi]`
-  seconds), `phase_advance` (bool), `evoked_rank` (0 = off), `dropout`. `task` is no longer a
-  model argument (it only selected the raw ERP variant). Invalid combinations (for example
-  `granularity: band` with `time_pool: learned`) raise a `ValueError` naming the keys.
+- **One `FeatureHead` class** (no backbone inside) composed from swappable slots, pipeline
+  `feature front-end -> spatial filter -> time pooling -> (optional branches) -> readout`:
+  - `feature` (front-end): `stamp_power` (per-stamp log power, K x S features), `stamp_band`
+    (template mu/beta energy of the stamp code, the old `stamp_bandpow`), `raw_band` (mu/beta
+    power of the raw signal, computed per 50-sample patch so it has the same time axis as the
+    stamp features), `raw_signal` (signed time samples averaged to ~20 Hz, the ERP baseline).
+    `stamp_*` read the extractor's amplitudes; `raw_*` read the patched raw signal.
+  - `spatial_k`: number of signed spatial filters over the real channels.
+  - `time_pool`: `flat`, `learned` (weights per feature dimension, rank `time_rank`),
+    `window` (`[lo, hi]` seconds, then flat), or `none` (keep the patch axis as features).
+  - `phase_advance` and `evoked_rank` branches, on `stamp_power` only.
+  - readout `BatchNorm1d -> Dropout -> Linear`, `dropout` configurable.
+  The backbone-dependent part is `StampExtractor`; `FinetuneModel` prepares the input for the
+  chosen feature. Any combination not excluded by the rules in the plan works, for example
+  band power with a spatial filter and learned time weights.
+- **Head config, numeric keys** (`model_params.MeSAE.finetune`): `feature`, `spatial_k`,
+  `time_pool`, `time_rank`, `window`, `phase_advance`, `evoked_rank`, `dropout`. `task` is no
+  longer a model argument. Invalid combinations (for example `raw_signal` with anything but
+  `time_pool: none`, branches on a non-`stamp_power` feature) raise a `ValueError` naming the
+  keys.
 - **Checkpoint format:** `{"model_state_dict": <head only>, "head_config": {resolved keys plus
   num_classes, num_patches, num_channels, num_stamps, keep}, "backbone_checkpoint": <path>}`.
   Loading builds the head from `head_config`; no shape inference. Only the head is saved
@@ -70,10 +79,11 @@ Replaces `MeSAEFeatureHead`, `MeSAEFinetune` and `PerChannelHeadAttn`. This abso
 - **Removed:** `MeSAEFinetune`, `PerChannelHeadAttn`, `head_z`, the `recon` and `z_chan`
   inputs with `z_proj`, channel-concat pooling, `render_finetune_attn` and the dead
   `check_finetune` branches, `freeze_backbone`.
-- **Verification:** for each kept head configuration, `StampExtractor + StampHead` matches the
+- **Verification:** for each kept head configuration, `StampExtractor + FeatureHead` matches the
   previous `MeSAEFeatureHead` (taken from tag `pre-head-cleanup`) numerically when the new head
-  is given the same weights, copied across by name and restricted to the real channels (the old padded channels were zero, so dropping them changes no output) (logits and gradients, atol 1e-6, on a fixed input); a checkpoint
-  save/load round trip reproduces logits; the base config builds.
+  is given the same weights, copied across by name and restricted to the real channels (the old padded channels were zero, so dropping them changes no output) (logits and gradients, atol 1e-6, on a fixed input); `raw_band` uses a new per-patch estimator, so it is checked against an explicit per-patch
+  FFT reference instead of the old whole-trial estimator; a checkpoint save/load round trip
+  reproduces logits; the base config builds.
 
 ## Sub-project B: feature cache
 
