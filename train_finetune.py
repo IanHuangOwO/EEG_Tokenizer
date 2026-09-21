@@ -14,14 +14,18 @@ matplotlib.use('Agg')
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
+from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import f1_score, balanced_accuracy_score, cohen_kappa_score
 
+from cache_feature import CachedStampDataset, get_stamp_cache
 from IO.dataset import build_dataset_from_config
 from IO.preprocessing import slice_patches, num_patches
-from model.factory import build_finetune_from_config, MODEL_REGISTRY
+from model.factory import build_finetune_from_config, load_backbone, MODEL_REGISTRY
+from model.MeSAE.MeSAE_modules import FeatureHead, StampExtractor, resolve_head_config
 from viz import pick_trial
 
 torch.set_float32_matmul_precision('high')
@@ -728,6 +732,121 @@ def _run_subject_groups(config, dataset_params, base_output_dir, artifact_dir, l
     with open(path, 'w') as f:
         json.dump(result, f, indent=2)
     logger.info(f"group eval written to {path}")
+
+
+def resolve_subjects(entry, pool):
+    """Subject entry -> list of pool subjects: 'all' | ['all'] | explicit list | {'random': n, 'seed': s}."""
+    if entry in ('all', ['all']):
+        return list(pool)
+    if isinstance(entry, dict):
+        return sorted(random.Random(entry.get('seed', 42)).sample(list(pool), entry['random']))
+    by_str = {str(s): s for s in pool}
+    missing = [s for s in entry if str(s) not in by_str]
+    if missing:
+        raise ValueError(f"subjects {missing} are not in the pool {sorted(by_str, key=str)}")
+    return [by_str[str(s)] for s in entry]
+
+
+def _trials_of(subject_data, subjects):
+    return np.flatnonzero(np.isin(subject_data, [int(s) for s in subjects]))
+
+
+def make_runs(split, pool, subject_data, labels):
+    """split block -> runs [{name, train, train_subjects, eval}] (see the plan's contract)."""
+    mode, seed = split.get('mode'), split.get('seed', 42)
+    if mode == 'within_subject':
+        k = int(split['n_folds'])
+        runs = []
+        for s in pool:
+            idx = np.flatnonzero(subject_data == int(s))
+            skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
+            for i, (tr, va) in enumerate(skf.split(idx, labels[idx])):
+                runs.append(dict(name=f'{s}_fold{i}', train=np.sort(idx[tr]), train_subjects=[str(s)],
+                                 eval={'heldout': {str(s): np.sort(idx[va])}}))
+        return runs
+    if mode != 'cross_subject':
+        raise ValueError(f"split.mode must be 'within_subject' or 'cross_subject', got {mode!r}")
+    if ('n_folds' in split) == ('eval_subjects' in split):
+        raise ValueError("cross_subject needs exactly one of n_folds / eval_subjects")
+    train_pool = resolve_subjects(split['train_subjects'], pool) if 'train_subjects' in split else None
+    if 'n_folds' in split:
+        k = int(split['n_folds'])
+        if not 2 <= k <= len(pool):
+            raise ValueError(f"n_folds must be in [2, {len(pool)}], got {k}")
+        subs = list(pool)
+        random.Random(seed).shuffle(subs)
+        evals = [(f'fold{i}', {'heldout': subs[i::k]}) for i in range(k)]
+    else:
+        ev = split['eval_subjects']
+        ev = {'heldout': ev} if not isinstance(ev, dict) or 'random' in ev else ev
+        evals = [('main', {g: resolve_subjects(v, pool) for g, v in ev.items()})]
+    runs = []
+    for name, groups in evals:
+        ev_subs = {s for v in groups.values() for s in v}
+        train_subs = [s for s in (train_pool if train_pool is not None else pool) if s not in ev_subs]
+        if not train_subs or any(not v for v in groups.values()):
+            raise ValueError(f"run {name}: empty training set or evaluation group")
+        if 'eval_subjects' in split and train_pool is not None and set(train_pool) & ev_subs:   # n_folds: the fold is subtracted instead
+            raise ValueError(f"run {name}: train_subjects and evaluation subjects overlap: {sorted(set(train_pool) & ev_subs)}")
+        runs.append(dict(name=name, train=_trials_of(subject_data, train_subs), train_subjects=[str(s) for s in train_subs],
+                         eval={g: {str(s): _trials_of(subject_data, [s]) for s in v} for g, v in groups.items()}))
+    return runs
+
+
+class StampSource:
+    """Cached stamp amplitudes of the pool (cache_feature.py), in RAM."""
+    kind = 'stamp'
+
+    def __init__(self, config, ds_name, pool, device):
+        subs = [str(s) for s in pool]
+        self.data = CachedStampDataset(get_stamp_cache(config, ds_name, subs, device=device), subs)
+        self.labels, self.subject_data = self.data.labels, self.data.subject_data
+        self.channel_idx, self.keep = self.data.channel_idx, self.data.keep
+        self.num_patches, self.num_stamps = self.data.num_patches, self.data.num_stamps
+
+    def get(self, idx):
+        return self.data.amp[idx].float(), self.labels[idx]
+
+
+class RawSource:
+    """Compiled raw trials of the pool, real channels only; patched on the fly."""
+    kind = 'raw'
+
+    def __init__(self, config, ds_name, pool):
+        cfg = copy.deepcopy(config)
+        cfg['dataset_params']['finetune'] = {ds_name: {**config['dataset_params']['finetune'][ds_name],
+                                                       'subject_to_use': list(pool)}}
+        base = build_dataset_from_config(cfg, mode='finetune').base_dataset
+        assert len({tuple(v.tolist()) for v in base.all_valid_channels}) == 1, "one real-channel set per dataset"
+        self.channel_idx = torch.nonzero(base.all_valid_channels[0]).flatten().tolist()
+        self.x = base.data[:, self.channel_idx].contiguous()                  # [N, C_valid, T]
+        self.labels, self.subject_data = base.labels.long(), base.subject_data.long()
+        pp = config['preprocess_params']
+        self.patch_len = pp.get('patch_length', 100)
+        self.patch_stride = pp.get('patch_stride', self.patch_len)
+        self.num_patches = num_patches(self.x.shape[-1], self.patch_len, self.patch_stride)
+        self.num_stamps, self.keep = 0, None
+
+    def get(self, idx):
+        xp, _ = slice_patches(self.x[idx], self.patch_len, self.patch_stride)  # [B, C_valid, N', L]
+        return xp, self.labels[idx]
+
+
+def make_source(config, ds_name, pool, device):
+    feature = config['model_params']['MeSAE']['finetune'].get('feature', 'stamp_power')
+    return StampSource(config, ds_name, pool, device) if feature.startswith('stamp') else RawSource(config, ds_name, pool)
+
+
+def iter_batches(source, idx, batch_size, device, shuffle, gen=None):
+    idx = torch.as_tensor(idx, dtype=torch.long)
+    if shuffle:
+        idx = idx[torch.randperm(len(idx), generator=gen)]
+    for i in range(0, len(idx), batch_size):
+        j = idx[i:i + batch_size]
+        if shuffle and len(j) < 2:
+            continue
+        x, y = source.get(j)
+        yield x.to(device), y.to(device)
 
 
 def main():
