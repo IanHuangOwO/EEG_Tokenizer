@@ -7,7 +7,7 @@ import random
 import numpy as np
 import torch
 
-from model.MeSAE.MeSAE import MeSAEPretrain, MeSAEFinetune, build_finetune
+from model.MeSAE.MeSAE import MeSAEPretrain, build_finetune
 from model.MeSAE.MeSAE_modules import overlap_add_patches
 from model.base_trainer import BaseTrainer
 from model.base_checker import BaseEpochChecker
@@ -267,54 +267,6 @@ class MeSAEChecker(BaseEpochChecker):
             iclabel_probs=iclabel_probs,
         )
         print(f"  [epoch] -> {gallery_path}")
-
-    def render_finetune_attn(self, model, x_in, c_in, t_in, vc_in, valid_channels, valid_length,
-                              P, patch_len, viz_dir, epoch_tag, subject_id, trial_idx,
-                              pos2d, channel_names, unit_colors):
-        """MeSAEFinetune's head has no channel dim (already collapsed into each stamp's
-        View by the backbone's own channel-attention pool) — so the topomaps read that real
-        channel attention straight from the backbone as-is, not scaled by each stamp's
-        own stamp-attention score: with many low-importance stamps sharing one color
-        scale, that scaling crushes most topomaps toward the scale's dark end instead of
-        making them "visually comparable". Topo values are averaged uniformly
-        over patches — NOT weighted by the head's temporal attention (attn_n) — since a
-        topomap has no time axis to justify a time-weighted average. The big heatmap
-        instead shows attn_n (Patch x Stamp), replacing the base class's Channel x Unit
-        heatmap.
-
-        Uses encode_used_stamps, NOT encode_post_stamp_expert directly: both return a
-        stable per-stamp axis, but encode_post_stamp_expert's is the full n_stamps
-        (dense, no top-k) — rendering every one regardless of relevance would swamp the
-        panels. encode_used_stamps caps that to the <=100 stamps with the largest
-        trial-summed View magnitude (see its docstring). The `unit_colors` param (from
-        check_finetune's own, separate `backbone(...)`
-        forward pass) is ignored — colors are recomputed here from THIS call's own
-        used_ids so they're guaranteed to match, rather than trusting two independent
-        forward passes to agree on ranking/order."""
-        pad_mask = self._build_pad_mask_time(valid_length, P, patch_len).to(x_in.device)
-        backbone = model.backbone
-        z_h, chan_attn, used_ids = backbone.encode_used_stamps(
-            x_in, c_in, time_idx=t_in, valid_channels=vc_in, max_stamps=100)  # [1,N,Qu,D], [1,N,Qu,C], [Qu]
-        chan_attn = chan_attn[0].mean(dim=0).detach().cpu().numpy()  # [Qu, C] — uniform mean over N, no temporal weight
-        colors = ['red' if i >= backbone.n_routed_stamps else 'black' for i in used_ids.tolist()]
-
-        # feed the head directly instead of re-running model(...) — that would repeat the
-        # same backbone forward pass we just did to get chan_attn above
-        _, attn_h, attn_n = model.head(z_h, pad_mask=pad_mask)
-        importance = attn_h[0].detach().cpu().numpy()          # [Qu] — per-stamp stamp-attention score
-        patch_filter_attn = attn_n[0].detach().cpu().numpy()   # [Qu, N] — per-stamp temporal attention
-
-        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_attn_topo.png")
-        render_attn_topo(
-            out_path, pos2d, chan_attn, importance, channel_names,
-            valid_channels=valid_channels.numpy(),
-            subject_id=subject_id, trial_idx=trial_idx, epoch_tag=f'{epoch_tag} [finetune]',
-            unit_label=self.unit_label, unit_colors=colors,
-            heatmap_attn=patch_filter_attn, heatmap_ylabels=list(range(patch_filter_attn.shape[1])),
-            heatmap_ylabel='Patch (time)', heatmap_title=f'Patch x {self.unit_label} Attention',
-            heatmap_transpose=False,
-        )
-        print(f"  [epoch] -> {out_path}")
 
 
 class MeSAECodebookChecker(BaseCodebookChecker):

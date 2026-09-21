@@ -130,7 +130,7 @@ def run(config, output_dir, model, dataset, trial_idx, mode='pretrain', subject_
         return checker.check_finetune(
             config, output_dir, model, dataset, trial_idx,
             subject_id=subject_id, epoch=epoch, cmap=cmap,
-            plot_recon=plot_recon, plot_topo_psd=plot_topo_psd, plot_attn_topo=plot_attn_topo,
+            plot_recon=plot_recon, plot_topo_psd=plot_topo_psd,
             trainer=trainer, tag=tag,
         )
     return checker.check_pretrain(

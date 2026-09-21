@@ -394,33 +394,10 @@ class BaseEpochChecker:
         n_valid_patches = min(valid_length // patch_len, P)
         return (torch.arange(P) < n_valid_patches).unsqueeze(0)
 
-    def render_finetune_attn(self, model, x_in, c_in, t_in, vc_in, valid_channels, valid_length,
-                              P, patch_len, viz_dir, epoch_tag, subject_id, trial_idx,
-                              pos2d, channel_names, unit_colors):
-        """Fallback for a finetune head that still pools over channels itself (4-tuple
-        forward output with a channel dim in attn_h/attn_c) — renders the old Channel x
-        Unit attn-topo panel. Both current models (MeFSQChecker, MeSAEChecker) override
-        this: their heads no longer have a channel dim (already collapsed by the backbone's
-        own per-Expert/per-Stamp channel-attention pool), so they plot Patch x Unit
-        attention instead. Kept as the base-class default for any future model whose head
-        still does its own channel pooling."""
-        pad_mask = self._build_pad_mask_time(valid_length, P, patch_len).to(x_in.device)
-        _, attn_h, attn_n, attn_c = model(x_in, c_in, time_idx=t_in, valid_channels=vc_in, pad_mask=pad_mask)
-        attn_np = attn_h[0].detach().cpu().numpy()
-        importance = attn_np.sum(axis=0)
-        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_attn_topo.png")
-        render_attn_topo(
-            out_path, pos2d, attn_np.T, importance, channel_names,
-            valid_channels=valid_channels.numpy(),
-            subject_id=subject_id, trial_idx=trial_idx, epoch_tag=f'{epoch_tag} [finetune]',
-            unit_label=self.unit_label, unit_colors=unit_colors,
-        )
-        print(f"  [epoch] -> {out_path}")
-
     @torch.no_grad()
     def check_finetune(self, config, output_dir, model, dataset, trial_idx,
                         subject_id=None, epoch=None, patch_len=None, cmap='YlOrRd',
-                        plot_recon=True, plot_topo_psd=True, plot_attn_topo=True, trainer=None,
+                        plot_recon=True, plot_topo_psd=True, trainer=None,
                         tag=''):
         """tag: extra filename/title suffix (e.g. '_target2_Feet_correct') — folded into
         the same epoch_tag every filename already derives from, so passing one requires no
@@ -452,17 +429,6 @@ class BaseEpochChecker:
                                            float(np.mean((raw_cnl - recon_cnl) ** 2)))
 
             unit_colors, _used_ids = self.compute_unit_colors(backbone, out)
-
-            if plot_attn_topo:
-                try:
-                    viz_dir = os.path.join(output_dir, 'recon')
-                    os.makedirs(viz_dir, exist_ok=True)
-                    epoch_tag = (f'_ep{epoch:04d}' if epoch is not None else '') + tag
-                    self.render_finetune_attn(
-                        model, x_in, c_in, t_in, vc_in, valid_channels, valid_length, N, patch_len,
-                        viz_dir, epoch_tag, subject_id, trial_idx, pos2d, channel_names, unit_colors)
-                except Exception as e:
-                    print(f"  [epoch] finetune attn panel failed: {e}")
 
             bundle = SnapshotBundle(
                 x_in=x_in, c_in=c_in, t_in=t_in, vc_in=vc_in, psd_model=backbone,
