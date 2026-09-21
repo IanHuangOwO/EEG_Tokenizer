@@ -109,6 +109,7 @@ comparison the design rests on.
   (`raw_band` uses a per-patch estimator, so its numbers differ from the earlier whole-trial
   raw control).
 - The checkpoint stores `head_config`, and `viz.load_model` rebuilds the head from it.
+- `train_finetune.py` trains the bare `FeatureHead` directly on the stamp-amplitude cache (or the patched raw signal), without running the backbone.
 - **No old-run compatibility:** the state-dict names listed above changed in sub-project A
   (`docs/superpowers/plans/2026-09-21-finetune-model-restructure-a.md`); older checkpoints and
   finetune configs no longer load (tag `pre-head-cleanup` keeps the old code).

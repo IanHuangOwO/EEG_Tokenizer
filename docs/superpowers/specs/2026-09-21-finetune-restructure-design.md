@@ -147,6 +147,12 @@ Problem. Expected size: about 450 lines.
   `heldout`; the results tool pools per subject.
 - **Environment stamp:** the run's `artifacts/config.json` gets an `env` block: git commit and
   dirty flag, Python path, torch, mne and CUDA versions.
+- **Refinements made in implementation:** no `DataLoader` and no autocast/GradScaler (the head
+  is tiny and all inputs are already in RAM, so batches are indexed directly and the head
+  trains in fp32); one evaluation pass per epoch serves both the validation metrics and the
+  per-subject tail history (no per-subject loaders); the model trained is the bare
+  `FeatureHead`, not `FinetuneModel`; one dataset per run; a subject listed but missing from
+  the pool raises instead of being dropped silently.
 - **Verification:** `intra_subject` reproduces the fold composition of the old
   `intra_subject_cv` (same seed, same train and eval trial indices per subject and fold), and
   `inter_subject` with `n_folds` equal to the number of subjects reproduces the old LOSO fold

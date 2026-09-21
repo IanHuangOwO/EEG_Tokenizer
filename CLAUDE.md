@@ -17,7 +17,8 @@ python train_pretrain.py --config config/config.json
 # Profile model
 python profile_model.py
 
-# Run Finetune stage (loads a pretrain checkpoint, trains a classification head)
+# Run Finetune stage: trains only the head on the frozen backbone's stamp-amplitude cache (or the
+# patched raw signal for raw_* features); training_params.finetune.split picks intra_subject / inter_subject
 python train_finetune.py --config config/config.json
 
 # Post-training checker (checkpoint -> topo/PSD/attn snapshot per subject;
@@ -117,6 +118,7 @@ Key fields:
 - `preprocess_params`: `window_length`, `window_pad_threshold`, `patch_length`, `patch_stride` (patch step in samples within a Window; equal to `patch_length` for non-overlapping patches, smaller for overlapping — see `IO/preprocessing.py`'s `slice_patches`), `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `masking_strategy` (random/complementary/random_to_complementary — the last ramps random into complementary over a curriculum, see `IO/masking.py`)
 - `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — used by `train_pretrain.py` (masking applied only in the masked phase)
 - `training_params.pretrain`: `model_name` (output dir), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields
+- `dataset_params.finetune` (exactly one dataset per run) / `training_params.finetune`: `model_name`, `pretrained_checkpoint`, `learning_rate`, `min_learning_rate`, `weight_decay`, `epochs`, `warmup_epochs`, `batch_size`, `device`, `seed`, and the `split` block — `{"mode": "intra_subject", "n_folds": k}` (per-subject k-fold over that subject's own trials) or `{"mode": "inter_subject", ...}` with exactly one of `n_folds` (subject k-fold; k = number of subjects is LOSO) or `eval_subjects` (list, or dict of named groups), plus optional `train_subjects` and `seed`. Old keys (`split_mode`, `cv_folds`, `train_val_split`, `freeze_backbone`, `backbone_lr_mult`) are gone; see `docs/superpowers/plans/2026-09-21-finetune-restructure-c-train-finetune.md`
 - `training_params.visualize_params`: diagnostic/plotting-only params, no effect on training data — `cmap` (matplotlib colormap for topomap/PSD panels), `fft_resolution` (Hz/bin for check_model.py's diagnostic PSD panels — `model/base_checker.py`/`model/MeSAE/plugin.py`'s `n_fft = round(sample_freq / fft_resolution)`; the dead train-time `fft_patches` path in `IO/dataset.py` is unrelated and stays unwired), `psd_freq_range` (`[l, h]` or `null` — overrides the PSD panel's plotted frequency range independent of `bandpass_filter`; `null` falls back to `bandpass_filter`'s `l_freq`/`h_freq`), `bands` (Delta/Theta/Alpha/Beta/Gamma `[lo, hi]` edges for the band-filtered reconstruction time-series panel, `viz/timeseries.py`'s `_canonical_bands` — each band is still clipped to `bandpass_filter`'s range), plus per-mode `pretrain`/`finetune` sub-keys (`targets`, `every_n_epochs`)
 
 ### Outputs
@@ -127,7 +129,7 @@ by the restart on the corrected pipeline, kept as the record of why the head was
 MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<model_name>/` (`model_name` may contain a
 subfolder, e.g. `baseline/BCICIV2a_intra_c1`).
 
-`output/<model_name>/`
+`output/<model_name>/` (pretrain runs; a finetune run instead writes `finetune/run_<name>/head.pth` (head checkpoint), `artifacts/group_eval.json` (per-subject tail/last balanced accuracy), `artifacts/config_<timestamp>.json` (config plus `env` stamp) and `visualization/run_<name>/training_dashboard.png`)
 - `checkpoint/best.pth` — best val-loss checkpoint (reset at the phase boundary; during
   the mask curriculum it locks onto the easiest epoch, so prefer `last.pth`)
 - `checkpoint/last.pth` — every epoch
@@ -142,7 +144,7 @@ Each dataset under `datas/<name>/metadata.json` uses a unified schema:
 - `data_metadata.channels` — 1-indexed dict with `label` + `coordinates` (polar angle/radius, converted to 3D for spatial embedding — see `IO/loader.py`'s `load_coords_from_metadata`)
 - `data_structure` — per-subject file references, `raw/`-prefixed (relative to `datas/<name>/`)
 
-Subject-level train/val split is done by shuffling subject IDs (seed 42) at `train_val_split` ratio — **data never leaks between subjects**.
+Pretrain's subject-level train/val split is done by shuffling subject IDs (seed 42) at `train_val_split` ratio — **data never leaks between subjects**.
 
 ### Multi-dataset training
 
