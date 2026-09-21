@@ -31,6 +31,8 @@ def build(base, ds, short, groups_key, task, split, tag, epochs):
     cfg['model_params']['MeSAE']['finetune'] = dict(HEADS[tag], task=task)
     tp = cfg['training_params']['finetune']
     tp.pop('cv_folds', None)
+    # visualize once, at the last epoch (viz fires when epoch % every_n_epochs == 0)
+    cfg['training_params']['visualize_params']['finetune']['every_n_epochs'] = EPOCHS.get(short, epochs)
     tp.update(model_name=f'mesae_p2_{short}_{tag}', epochs=EPOCHS.get(short, epochs),
               split_mode='subject_groups')
     if split == 'groups':

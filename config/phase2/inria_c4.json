@@ -307,7 +307,7 @@
     "every_n_epochs": 10
    },
    "finetune": {
-    "every_n_epochs": 10
+    "every_n_epochs": 30
    }
   }
  },
