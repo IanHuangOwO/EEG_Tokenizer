@@ -28,7 +28,7 @@ python check_model.py --config config/analysis.json --checkpoint <path>
 
 # Compile raw datasets into per-subject bandpass+resample-baked .npz caches (run once, or
 # after changing sample_freq/bandpass_filter — see config/compile.json, docs/agents/adding-a-dataset.md)
-python cache_compile.py --config config/compile.json
+python cache_dataset.py --config config/compile.json
 
 # Sanity-check a compiled cache (shape/labels/dead-channels/bandpass-rolloff, --deep for a
 # raw-vs-cache diff)
@@ -50,7 +50,7 @@ dictionary.
 ```
 EEG signals (raw dataset files)
   └─ datas/<Name>/loader.py    # dataset-specific loader, compile-time only (never runs at train time)
-  └─ cache_compile.py          # bandpass filter → resample, baked once into datas/<Name>/cache/*.npz
+  └─ cache_dataset.py          # bandpass filter → resample, baked once into datas/<Name>/cache/*.npz
   └─ IO/dataset.py             # EEGDataset reads the compiled cache directly, channel-maps/pads,
   │                            # applies IO/preprocessing.py's Normalizer (zscore/robust/fixed)
   │    └─ EEGDataset → PretrainDataset / FinetuneDataset
@@ -133,7 +133,7 @@ under `output/`).
 ### Dataset metadata
 
 Each dataset under `datas/<name>/metadata.json` uses a unified schema:
-- `data_metadata.acquisition.sample_frequency` — used for compiling (`cache_compile.py`)
+- `data_metadata.acquisition.sample_frequency` — used for compiling (`cache_dataset.py`)
 - `data_metadata.channels` — 1-indexed dict with `label` + `coordinates` (polar angle/radius, converted to 3D for spatial embedding — see `IO/loader.py`'s `load_coords_from_metadata`)
 - `data_structure` — per-subject file references, `raw/`-prefixed (relative to `datas/<name>/`)
 
@@ -167,7 +167,7 @@ wiring a new tokenizer model into the shared plugin architecture (see
 
 Step-by-step protocol for converting a raw EEG dataset into the standard `datas/<name>/`
 layout (`loader.py`, `gen_metadata.py`, `raw/`) and compiling it into the per-subject
-cache `cache_compile.py` reads — no registry to edit, directory presence is the
+cache `cache_dataset.py` reads — no registry to edit, directory presence is the
 registration. See `docs/agents/adding-a-dataset.md`.
 
 ### Adding a montage

@@ -57,7 +57,7 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
         if len(dead) > 0:
             problems.append(f"channels with ~zero variance (possible zero-pad/misindex): {dead.tolist()}")
 
-    # valid_start/valid_end (see IO/loader.py's cut_event_window / cache_compile.py):
+    # valid_start/valid_end (see IO/loader.py's cut_event_window / cache_dataset.py):
     # marks real vs zero-padded content per trial. Absent entirely means an older cache
     # from before this existed -- only a real problem once pre/post_event_seconds is
     # actually in use (0/0 means every loader falls back to full validity anyway, so an
@@ -65,7 +65,7 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
     has_valid_range = 'valid_start' in npz and 'valid_end' in npz
     if not has_valid_range and (pre_event_seconds or post_event_seconds):
         problems.append("cache predates valid_start/valid_end (pre/post_event_seconds is "
-                         "configured, but this cache has neither key) — rerun cache_compile.py")
+                         "configured, but this cache has neither key) — rerun cache_dataset.py")
     elif has_valid_range:
         vs, ve = npz['valid_start'], npz['valid_end']
         if len(vs) != N or len(ve) != N:
@@ -136,11 +136,11 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
             recomputed = transform(subject_data['data']).numpy()
             if recomputed.shape != data.shape:
                 problems.append(f"deep check: recompute shape {recomputed.shape} != cache shape {data.shape} "
-                                 f"— cache is stale, rerun cache_compile.py")
+                                 f"— cache is stale, rerun cache_dataset.py")
             elif not np.allclose(recomputed, data, atol=1e-4):
                 max_diff = np.abs(recomputed - data).max()
                 problems.append(f"deep check: recompute differs from cache (max abs diff={max_diff:.4g}) "
-                                 f"— cache is stale, rerun cache_compile.py")
+                                 f"— cache is stale, rerun cache_dataset.py")
             if not np.array_equal(subject_data['labels'].astype(np.int64), labels):
                 problems.append("deep check: recomputed labels differ from cached labels")
 

@@ -25,14 +25,14 @@ class BaseSubjectLoader(ABC):
         self.standard_window = acquisition.get('window_size_seconds', None)
         self.target_points = int(self.standard_window * self.sample_freq) if self.standard_window else None
         # Global compile-time setting (config/compile.json's compile_params, passed into
-        # every loader's dataset_params by cache_compile.py -- same mechanism dataset_path
+        # every loader's dataset_params by cache_dataset.py -- same mechanism dataset_path
         # already uses). 0.0 default = old behavior (window starts exactly at the event,
         # zero-length post) for every loader that hasn't opted in. Only meaningful for a
         # trigger/annotation-anchored loader that actually reads it (BCICIV1_Train,
         # BCICIV2a, Inria_Train as of this comment) -- see docs/model-analysis-checklist.md
         # for the per-dataset headroom measured before enabling this. In NATIVE sample-rate
         # samples wherever a loader converts to pts (self.sample_freq, not the compile
-        # target) -- cache_compile.py rescales the resulting valid_ranges to the compiled
+        # target) -- cache_dataset.py rescales the resulting valid_ranges to the compiled
         # rate itself, see get_subject_data.
         self.pre_event_seconds = self.dataset_params.get('pre_event_seconds', 0.0)
         self.post_event_seconds = self.dataset_params.get('post_event_seconds', 0.0)
@@ -134,7 +134,7 @@ class BaseSubjectLoader(ABC):
             'labels': labels.astype(np.int64),
             'coords': self._load_coords().astype(np.float32),
             'subject_id': self.subject_id,
-            # NATIVE-rate (self.sample_freq) sample indices -- cache_compile.py rescales
+            # NATIVE-rate (self.sample_freq) sample indices -- cache_dataset.py rescales
             # to the compiled rate before saving (see BandpassResample changing sample
             # count). [(0, T)]*n (every trial fully real) for every loader that doesn't
             # set self._last_valid_ranges -- i.e. all of them except the event-anchored
@@ -193,7 +193,7 @@ def load_coords_from_metadata(data_metadata: Dict, channel_indices: List[int]) -
 
 def resolve_dataset_loader(dataset_path: str):
     """Dynamically imports datas/<Name>/loader.py's `Loader` class — used only
-    by cache_compile.py; train-time reads the compiled cache directly in
+    by cache_dataset.py; train-time reads the compiled cache directly in
     IO/dataset.py, no loader class involved. Directory presence of loader.py
     IS the registration; there is no separate registry to keep in sync."""
     import importlib.util

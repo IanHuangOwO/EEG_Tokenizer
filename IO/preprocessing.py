@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 
 class BandpassResample:
-    """Compile-time only (cache_compile.py) — bandpass filter + resample to a
+    """Compile-time only (cache_dataset.py) — bandpass filter + resample to a
     fixed sample_freq. Baked into the cache once; never runs at train time."""
     def __init__(self, original_freq, sample_freq=200, l_freq=None, h_freq=None, notch_freq=None):
         self.original_freq = original_freq
@@ -113,14 +113,14 @@ def build_bandpass_resample_from_config(config: dict, fs_orig: Optional[float] =
 def cache_suffix(sample_freq, bandpass_filter: dict, pre_event_seconds: float = 0.0,
                   post_event_seconds: float = 0.0) -> str:
     """Derives the compiled-cache filename suffix from the params baked into it —
-    shared by cache_compile.py (writes) and IO/dataset.py (reads), so a config
+    shared by cache_dataset.py (writes) and IO/dataset.py (reads), so a config
     change that alters either just misses the cache instead of silently reading
     stale data. pre_event_seconds/post_event_seconds only add to the suffix when
     either is nonzero (the default 0/0 keeps existing filenames — and existing
     caches — untouched); once set, EVERY dataset's cache filename changes, same as
     a bandpass_filter change would, even datasets whose own loader ignores these
     params (they're a global compile-time setting, not a per-dataset one — see
-    cache_compile.py / IO/loader.py's cut_event_window)."""
+    cache_dataset.py / IO/loader.py's cut_event_window)."""
     l_freq, h_freq = bandpass_filter['l_freq'], bandpass_filter['h_freq']
     suffix = f"fs{sample_freq}_bp{l_freq}-{h_freq}"
     if pre_event_seconds or post_event_seconds:

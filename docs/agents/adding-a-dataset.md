@@ -12,7 +12,7 @@ coordinates), `BCICIV2a`/`BCICIV2b` (GDF, event-marker driven),
 pretrain-only label).
 
 Training never reads these raw files directly — a separate **compile step**
-(`cache_compile.py`, see Step 7) bandpass-filters/resamples each subject once
+(`cache_dataset.py`, see Step 7) bandpass-filters/resamples each subject once
 and writes a per-subject `.npz` cache; `IO/dataset.py` reads only that cache
 at train time. Everything through Step 6 below is about getting the raw
 format wired up for that compile step, not about wiring into training
@@ -85,7 +85,7 @@ datas/<DatasetName>/
     loader.py              # dataset-specific loader, see Step 6
     gen_metadata.py        # metadata.json generator, see Step 3
     raw/                   # extracted raw files, any sub-layout
-    cache/                 # cache_compile.py output, see Step 7 — not committed
+    cache/                 # cache_dataset.py output, see Step 7 — not committed
 ```
 
 `metadata.json` is the only required file at the top level.
@@ -372,7 +372,7 @@ it by directory convention). Instead, run the compile step:
    cache won't be found at train time.)
 2. Run it:
    ```bash
-   python cache_compile.py --config config/compile.json
+   python cache_dataset.py --config config/compile.json
    ```
 3. Confirm `datas/MyDataset/cache/<subject>_fs<...>_bp<...>.npz` files were
    written, one per subject with real data.

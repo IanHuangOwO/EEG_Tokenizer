@@ -122,7 +122,7 @@ class EEGDataset(Dataset):
 
         ds_indices, target_pos = self._map_channels(desired_channels, ds_config['data_metadata']['channels'])
 
-        # Train-time read: compiled cache only (see cache_compile.py) — dataset-specific
+        # Train-time read: compiled cache only (see cache_dataset.py) — dataset-specific
         # loading code (datas/<Name>/loader.py) never runs at train time. The cached
         # array holds ALL native channels in metadata.json's index order (compile time
         # keeps every channel, no target-channel subsetting), so ds_indices indexes
@@ -132,7 +132,7 @@ class EEGDataset(Dataset):
         if not os.path.exists(cache_path):
             raise FileNotFoundError(
                 f"No compiled cache at {cache_path}. Run "
-                f"`python cache_compile.py --config config/compile.json` first "
+                f"`python cache_dataset.py --config config/compile.json` first "
                 f"(and make sure compile.json's sample_freq/bandpass_filter match "
                 f"this config's preprocess_params)."
             )
@@ -144,7 +144,7 @@ class EEGDataset(Dataset):
 
         raw_data = torch.from_numpy(data_np.astype(np.float32))  # (N, C, T)
         N, _, T = raw_data.shape
-        # Per-trial real-content bounds, compiled-rate samples (see cache_compile.py /
+        # Per-trial real-content bounds, compiled-rate samples (see cache_dataset.py /
         # IO/loader.py's get_subject_data) -- 'valid_start'/'valid_end' absent (an older
         # cache from before this existed) means "every trial fully real", same default
         # get_subject_data itself uses.

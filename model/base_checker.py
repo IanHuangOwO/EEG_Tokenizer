@@ -115,7 +115,7 @@ class BaseEpochChecker:
         """(valid_start, valid_end) sample indices into raw_t/recon_t's T axis, from
         IO/dataset.py's row_valid_start/row_valid_end -- real content lies in
         [valid_start, valid_end), everything outside is compile-time zero-pad (see
-        cache_compile.py's post-filter re-zero). Unlike _lookup_event_onset this stays
+        cache_dataset.py's post-filter re-zero). Unlike _lookup_event_onset this stays
         meaningful for assemble_trials=True too (an assembled window can still trail into
         pad at a subject's last window), so no assemble_trials gate here."""
         base_dataset = dataset.base_dataset

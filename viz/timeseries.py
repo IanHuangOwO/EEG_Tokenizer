@@ -62,11 +62,11 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     it's falsy.
     valid_start/valid_end: sample indices (see BaseEpochChecker._lookup_valid_range) —
     real content lies in [valid_start, valid_end), everything outside is compile-time
-    zero-pad. orig is already exactly zero there (cache_compile.py re-zeros post-filter),
+    zero-pad. orig is already exactly zero there (cache_dataset.py re-zeros post-filter),
     but recon is the model's own output, which has no reason to be zero on pad it was
     never trained to reconstruct meaningfully — and both get re-filtered per band here
     (_band_filter), which would ring across that zero/nonzero edge same as the cache-time
-    bug this mirrors (see cache_compile.py's re-zero comment) if not re-zeroed AFTER
+    bug this mirrors (see cache_dataset.py's re-zero comment) if not re-zeroed AFTER
     filtering, not before. When given, both orig and recon are forced flat (zero) outside
     [valid_start, valid_end) on every band column, pre- and post-pad alike, symmetric.
     """

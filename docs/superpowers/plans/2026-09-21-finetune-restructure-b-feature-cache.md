@@ -4,7 +4,7 @@
 
 **Goal:** Compute the frozen backbone's stamp amplitudes once per (backbone checkpoint, dataset, preprocessing) and store them next to the backbone, so a stamp-feature head can later be trained on the cache without rerunning the backbone every epoch (sub-project C consumes it).
 
-**Architecture:** One new top-level module `cache_feature.py` (repo root, beside `cache_compile.py` and `train_finetune.py`, because it is glue between the data pipeline and the model and `model/` must not depend on `IO/`) with `get_stamp_cache(...)` (build missing per-subject files, return the folder), `CachedStampDataset` (in-RAM dataset over those files) and a small CLI. `model/` changes by one builder only: `load_backbone` in `model/factory.py`. The cache reuses `StampExtractor` from sub-project A, so it stores exactly what the head consumes: fp16 `amp [n_trials, N', C_valid, S, 2]`. Training itself is not changed here.
+**Architecture:** One new top-level module `cache_feature.py` (repo root, beside `cache_dataset.py` and `train_finetune.py`, because it is glue between the data pipeline and the model and `model/` must not depend on `IO/`) with `get_stamp_cache(...)` (build missing per-subject files, return the folder), `CachedStampDataset` (in-RAM dataset over those files) and a small CLI. `model/` changes by one builder only: `load_backbone` in `model/factory.py`. The cache reuses `StampExtractor` from sub-project A, so it stores exactly what the head consumes: fp16 `amp [n_trials, N', C_valid, S, 2]`. Training itself is not changed here.
 
 **Tech Stack:** PyTorch (`eeg_fm` env), numpy `.npz`, existing `IO/dataset.py` (`build_dataset_from_config`), `IO/preprocessing.py` (`slice_patches`, `cache_suffix`), `model/factory.py`, `model/MeSAE/MeSAE_modules.py` (`StampExtractor`, read only).
 
@@ -42,7 +42,7 @@
 - Modify: `model/factory.py` (add `load_backbone`; use it in `build_finetune_from_config` and `load_finetune_checkpoint`)
 - Create: `cache_feature.py` (repo root)
 
-- [ ] **Step 1: Read first.** Read `cache_compile.py` (style of a root pipeline script and its CLI), `model/factory.py` (`build_finetune_from_config`, `load_finetune_checkpoint`), `StampExtractor` in `MeSAE_modules.py`, `IO/dataset.py` (`build_dataset_from_config`, `FinetuneDataset`, the `_load_task` cache path `dataset_path/cache/{subject}_{cache_suffix}.npz`), `IO/preprocessing.py` (`slice_patches`, `cache_suffix`), and `IO/loader.py` (`get_standard_coords`). Check the line endings of `factory.py`. If any name, signature or path below differs from the real code, the real code wins; say so in the report.
+- [ ] **Step 1: Read first.** Read `cache_dataset.py` (style of a root pipeline script and its CLI), `model/factory.py` (`build_finetune_from_config`, `load_finetune_checkpoint`), `StampExtractor` in `MeSAE_modules.py`, `IO/dataset.py` (`build_dataset_from_config`, `FinetuneDataset`, the `_load_task` cache path `dataset_path/cache/{subject}_{cache_suffix}.npz`), `IO/preprocessing.py` (`slice_patches`, `cache_suffix`), and `IO/loader.py` (`get_standard_coords`). Check the line endings of `factory.py`. If any name, signature or path below differs from the real code, the real code wins; say so in the report.
 
 - [ ] **Step 2: `load_backbone`.** In `model/factory.py` add
 
@@ -61,7 +61,7 @@ and replace the duplicated build-and-load lines in `build_finetune_from_config` 
 
 ```python
 """Stamp-amplitude cache for the frozen backbone (finetune restructure, sub-project B).
-Pipeline stage between the compiled data (cache_compile.py) and the finetune head, hence a root script:
+Pipeline stage between the compiled data (cache_dataset.py) and the finetune head, hence a root script:
     python cache_feature.py --config config/config.json
 
 The backbone never changes during finetuning, so its stamp amplitudes are computed once per
@@ -334,15 +334,15 @@ Remove the temporary subject-7 file afterwards if you like; the cache is regener
 - [ ] **Step 3: Timing note for the big datasets.** Time the build of one BETA_4s subject (`get_stamp_cache` with `dataset_name='BETA_4s'`, `subjects=['19']`, batch size 64) and report seconds per trial and MiB per trial; extrapolate to EEGMMIdb (39,569 trials) and BETA_4s (8,800 trials) in the report. Delete the test folders' extra subjects afterwards only if disk is a concern.
 
 - [ ] **Step 4: Docs.**
-  - Spec sub-project B: the module is the repo-root `cache_feature.py` (a pipeline stage like `cache_compile.py`; `model/` must not import `IO/`), not `model/MeSAE/feature_cache.py`; replace the cache-key sentence and the "Uniform channels" bullet with: the folder key hashes the checkpoint file identity (name, size, mtime), the `keep` stamp set, the whole `preprocess_params` block, the dataset entry (minus `subject_to_use`), `metadata.json` and `config/montages.json` fingerprints and the `mne` version (electrode coordinates depend on it); each subject file additionally stores the fingerprint of the compiled data file it was built from and is rebuilt when it changes, so adding subjects never invalidates existing files; `CachedStampDataset` asserts all subjects share `channel_idx` and `keep`. Over-invalidation (for example a changed masking setting) only costs a rebuild.
-  - `CLAUDE.md`: Commands section, add `python cache_feature.py --config config/config.json` next to the `cache_compile.py` lines (build the stamp-amplitude cache of the finetune datasets; the runner will do this automatically); Outputs section, add one line `<backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz` = regenerable cache built by `cache_feature.py`, safe to delete.
+  - Spec sub-project B: the module is the repo-root `cache_feature.py` (a pipeline stage like `cache_dataset.py`; `model/` must not import `IO/`), not `model/MeSAE/feature_cache.py`; replace the cache-key sentence and the "Uniform channels" bullet with: the folder key hashes the checkpoint file identity (name, size, mtime), the `keep` stamp set, the whole `preprocess_params` block, the dataset entry (minus `subject_to_use`), `metadata.json` and `config/montages.json` fingerprints and the `mne` version (electrode coordinates depend on it); each subject file additionally stores the fingerprint of the compiled data file it was built from and is rebuilt when it changes, so adding subjects never invalidates existing files; `CachedStampDataset` asserts all subjects share `channel_idx` and `keep`. Over-invalidation (for example a changed masking setting) only costs a rebuild.
+  - `CLAUDE.md`: Commands section, add `python cache_feature.py --config config/config.json` next to the `cache_dataset.py` lines (build the stamp-amplitude cache of the finetune datasets; the runner will do this automatically); Outputs section, add one line `<backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz` = regenerable cache built by `cache_feature.py`, safe to delete.
 - [ ] **Step 5: Commit** `docs: feature cache key and per-subject validation (sub-project B)` (spec and `CLAUDE.md`). Preserve each file's line endings; `git diff --stat` small.
 
 ---
 
 ## Self-Review Notes
 
-- **Spec coverage (B):** `cache_feature.py` at the repo root (name consistent with `cache_compile.py`), cache next to the backbone, fp16 real-channel-only storage, uniform-channel assertion, fp16 range check, key over checkpoint/preprocessing/data, acceptance against the on-the-fly extractor (Task 2 step 3: amplitudes within 1e-3 of the max, logits within 1e-2 and identical argmax, plus exact agreement between `FinetuneModel` and `extractor + head`), reuse and invalidation checks.
+- **Spec coverage (B):** `cache_feature.py` at the repo root (name consistent with `cache_dataset.py`), cache next to the backbone, fp16 real-channel-only storage, uniform-channel assertion, fp16 range check, key over checkpoint/preprocessing/data, acceptance against the on-the-fly extractor (Task 2 step 3: amplitudes within 1e-3 of the max, logits within 1e-2 and identical argmax, plus exact agreement between `FinetuneModel` and `extractor + head`), reuse and invalidation checks.
 - **Interfaces:** `get_stamp_cache` and `CachedStampDataset` attributes are exactly what sub-project C's split code and training loop need (`labels`, `subject_data`, `amp`, `channel_idx`, `keep`, `num_patches`, `num_stamps`); `load_backbone` deduplicates the factory code used by A and B.
 - **Known limits:** the cache is computed in fp32 while the old training path ran the backbone under fp16 autocast, so cached features are slightly more accurate than what the previous runs saw; fp16 storage costs about 1e-3 relative error; the whole cache of a run is loaded into RAM (EEGMMIdb about 10 GB).
 - **Deliberately not done here:** using the cache in training and dropping `freeze_backbone`/`recon_mse` (sub-project C), the experiment runner that builds the cache before a set (D).
