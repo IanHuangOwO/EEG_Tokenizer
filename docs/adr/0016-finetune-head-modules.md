@@ -7,7 +7,7 @@ Date: 2026-09-21
 ## Context
 
 ADR 0014 ran the finetune head as one class (`MeSAEFeatureHead`) with flags, changing one
-factor at a time on a frozen `mesae_v10_small_uw01` backbone. The evidence so far, all
+factor at a time on a frozen `mesae_v10_small` backbone. The evidence so far, all
 balanced accuracy on BCICIV2a unless noted:
 
 - **Spatial mix.** A signed `spatial:K` filter beat channel concat by about +0.05 on every

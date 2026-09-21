@@ -17,7 +17,7 @@ Classifiers (per trial; stimulus window 0.64-3.5 s; occipital channels):
              which may flip the direction); the better one is reported and named.
   raw_psda   standard power-spectral peak picking on raw EEG (stimulus window, Hann):
              power at f + power at 2f, argmax.
-Result on mesae_v10_small_uw01: the '-' orientation is the right one (the quadrature
+Result on mesae_v10_small: the '-' orientation is the right one (the quadrature
 partner's -90 deg convention reverses the advance). ANG is collected but not yet scored.
 
 Usage: python phase_probe_beta.py <run_name>

@@ -70,7 +70,7 @@ not the base), 12 (C4 itself).
 ## Global Constraints
 
 - Backbone stays frozen (ADR 0012) — do not touch `freeze_backbone`.
-- Backbone checkpoint: `output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth`.
+- Backbone checkpoint: `output/pretrain/mesae_v10_small/checkpoint/last.pth`.
 - Protocol (ADR 0014 §Protocol): `learning_rate: 0.01`, `min_learning_rate: 0.001`,
   `epochs: 100`, `warmup_epochs: 2`, `split_mode: "intra_subject_cv"`, `cv_folds: 5`.
 - Head `dropout: 0.5` — unchanged from C1. Do NOT change dropout, weight decay, epochs, or
@@ -313,7 +313,7 @@ Set `model_params.MeSAE.finetune` to exactly:
 This **removes `include_advance`** (present and `true` from the C3 run). Set
 `training_params.finetune.model_name` to `"mesae_finetune_c4_evoked"`; every other field
 stays as it is (it already equals C1's protocol: 5-fold, lr 0.01/0.001, 100 epochs, warmup
-2, checkpoint `mesae_v10_small_uw01`). Verify against
+2, checkpoint `mesae_v10_small`). Verify against
 `output/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json` (the config C1 actually ran with)
 that the only differences are `evoked_rank: 2` and `model_name`.
 

@@ -10,7 +10,7 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import StratifiedKFold, cross_val_score
 from IO.dataset import build_dataset_from_config
 
-RUN = 'output/pretrain/mesae_v10_small_uw01/artifacts/config.json'
+RUN = 'output/pretrain/mesae_v10_small/artifacts/config.json'
 SEED, BANDS = 42, ((8, 13), (13, 30))
 DATASETS = {'eegmmidb': 'EEGMMIdb', 'beta4s': 'BETA_4s'}
 

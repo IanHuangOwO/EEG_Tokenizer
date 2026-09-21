@@ -34,7 +34,7 @@ p=0.85).
 
 ## Global Constraints
 
-- Frozen backbone `output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth` (do not touch
+- Frozen backbone `output/pretrain/mesae_v10_small/checkpoint/last.pth` (do not touch
   `model_params.MeSAE.pretrain.stamp_bank`, must stay `60/4/12/6`). Resampling to 200 Hz,
   patch 50 / stride 25, canonical channels 10-10: all from `config/config.json`, unchanged.
 - Heads (identical to the within-subject runs they mirror):

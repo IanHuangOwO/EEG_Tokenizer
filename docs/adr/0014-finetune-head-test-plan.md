@@ -1,7 +1,7 @@
 # 0014 — Finetune head: what to expose, how to pool, compared to raw (draft)
 
 Status: Proposed (draft). Experiments A (features) and B (pooling) are measured on
-`mesae_v10_small_uw01`; experiment C (one head for every paradigm) is specified, with its
+`mesae_v10_small`; experiment C (one head for every paradigm) is specified, with its
 SSVEP prerequisite measured, and not built. Implements the direction decided in ADR 0012.
 Loss trimming (ADR 0015) waits until this is settled.
 Date: 2026-09-17 (results through 2026-09-18)
@@ -130,7 +130,7 @@ Feeding `D_i` together with every stamp's amplitudes amounts to `recon` minus th
 terms. For attribution, keep the per-stamp amplitude and phase, and use `D_i` only to
 name a stamp's band.
 
-### Results — `mesae_v10_small_uw01/checkpoint/last.pth`
+### Results — `mesae_v10_small/checkpoint/last.pth`
 
 Run context: `last.pth`, 7 datasets × 3 subjects, fused run, stamps unfrozen, leaky
 `mp_loss`. 21 of 60 routed stamps are alive. BCICIV2a (not in pretraining), 2592
@@ -213,7 +213,7 @@ reference.
 
 ### Results — experiment B baseline (concat, whole trial, MI block)
 
-Backbone: `mesae_v10_small_uw01/checkpoint/last.pth` (frozen). `MeSAEFeatureHead` runs
+Backbone: `mesae_v10_small/checkpoint/last.pth` (frozen). `MeSAEFeatureHead` runs
 BCICIV2a intra-subject: 228 train / 60 val trials per subject, balanced classes (15 per
 class in val).
 
@@ -446,7 +446,7 @@ the Haufe patterns to check the filters look like motor topographies rather than
 - Shared stamps may dominate the importance map.
 - Stamp power's ERD *sign* disagrees with raw, so read *which stamp, when*, never the
   direction of the change.
-- The backbone is `mesae_v10_small_uw01` (3 subjects per dataset); any conclusion about
+- The backbone is `mesae_v10_small` (3 subjects per dataset); any conclusion about
   the tokenizer itself needs the full-data run.
 
 ### Prerequisite result — SSVEP phase advance (BETA_4s)
@@ -601,7 +601,7 @@ bands. A band-selectivity constraint would then make attribution cleaner.
   moves on rather than gating on p-values.
 - **`inter_subject` / LOSO numbers are reported separately**, never mixed with
   intra-subject numbers.
-- **Backbone:** `mesae_v10_small_uw01` for plumbing. Conclusions about the tokenizer
+- **Backbone:** `mesae_v10_small` for plumbing. Conclusions about the tokenizer
   itself need the full-data run.
 
 ### Python environment (which runs had MNE coordinates)
@@ -880,7 +880,7 @@ Next, in order:
     `dropout 0.5`, 5-fold CV** (ADR 0014 Task 2 — concatenates the real/imaginary parts
     of `Σ_n u[n+1]·conj(u[n])` per stamp onto the existing induced-power features,
     tripling head input width from `K·S` (200) to `K·S·3` (600); everything else
-    identical to C1, same checkpoint `mesae_v10_small_uw01/checkpoint/last.pth`). Tail-mean
+    identical to C1, same checkpoint `mesae_v10_small/checkpoint/last.pth`). Tail-mean
     balanced_acc **0.489**, **below C1's 0.536** — C3 does not beat C1, failing this
     step's acceptance bar. Per-subject tail means (C3, with C3−C1 diff): S1 0.527
     (−0.064), S2 0.437 (−0.050), S3 0.589 (−0.104), S4 0.360 (−0.009), S5 0.361 (−0.005),
@@ -961,7 +961,7 @@ Next, in order:
     **LOSO, MI core (phase 1).** The cross-subject half of step 11, on the three MI
     datasets: does C1 beat the raw mu/beta band-power head on subjects the head never
     trained on? **Protocol:** `split_mode: loso`, one held-out subject per fold, C1 and
-    raw each exactly as in steps 10/12a (frozen `mesae_v10_small_uw01` backbone; C1
+    raw each exactly as in steps 10/12a (frozen `mesae_v10_small` backbone; C1
     `stamp_induced spatial:8 learned:2 dropout 0.5`, raw `raw spatial:8 trial dropout 0`),
     each config cross-checked against its within-subject run's `artifacts/config.json`:
     only dataset, `split_mode`, `epochs` and `model_name` differ. **Deviations:** 30
@@ -971,7 +971,7 @@ Next, in order:
     left/right task); BCICIV2b has only 3 real channels (C3/Cz/C4), so `spatial:8` is
     near-degenerate there (8 filters over 3 channels). **Pretraining overlap:** BCICIV2a
     and BCICIV2b are fully unseen by the backbone; BCICIV1_Train is only partly seen
-    (the pretrain config, `output/pretrain/mesae_v10_small_uw01/artifacts/config.json`, used
+    (the pretrain config, `output/pretrain/mesae_v10_small/artifacts/config.json`, used
     subjects 1, 2, 3 only, so of the five evaluated folds S2 and S3 are seen and S4, S5,
     S7 are unseen, though from an exposed dataset and montage). Metric is the last-10-epoch
     tail-mean balanced_acc per held-out subject (the best-epoch numbers in

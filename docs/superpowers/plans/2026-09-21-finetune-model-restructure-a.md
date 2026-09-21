@@ -241,9 +241,9 @@ sub = subprocess.check_output(['git', 'show', 'pre-head-cleanup:model/MeSAE/MeSA
 open('model/MeSAE/_old_mesae_tmp.py', 'w', newline='').write(sub)
 from model.MeSAE._old_mesae_tmp import MeSAEFeatureHead as Old
 try:
-    cfgp = load_config('output/pretrain/mesae_v10_small_uw01/artifacts/config.json')
+    cfgp = load_config('output/pretrain/mesae_v10_small/artifacts/config.json')
     bb = build_pretrain_from_config(cfgp)
-    bb.load_state_dict(torch.load('output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth', map_location='cpu')['model_state_dict'])
+    bb.load_state_dict(torch.load('output/pretrain/mesae_v10_small/checkpoint/last.pth', map_location='cpu')['model_state_dict'])
     bb.eval()
     C, N, L, NC = 64, 39, 50, 4
     idx = torch.arange(0, 64, 3)[:22]                       # 22 "real" channels
@@ -478,7 +478,7 @@ def load_finetune_checkpoint(config, path, device):
 - [ ] **Step 8: verify.**
   - `CUDA_VISIBLE_DEVICES='' PYTHONPATH=. python -c "import train_finetune, check_model, viz, model.factory"` imports cleanly.
   - Extend `head_equiv.py` with a second check per case in `CASES`: build the new model through the real entry point, `fm = build_finetune(bb, C, NC, channel_idx=idx.tolist(), num_patches=N, sample_freq=200, **nkw)`, load the same name-mapped state with `fm.head.load_state_dict(to_new_state(old.state_dict()))`, put `fm` in `eval()`, and assert `fm(x, coords, valid_channels=vc)[0]` equals the old logits at atol 1e-6 (for `stamp_band` cases `FinetuneModel` fills `E_D/E_H` itself, and the mapped state overwrites them with identical values). Rerun the script: nine `OK` lines for the Task 1 check and nine for this one.
-  - Checkpoint round trip (add to the script): `torch.save(fm.head_checkpoint('output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth'), tmp)`, then `load_finetune_checkpoint(cfgp, tmp, 'cpu')` (with `cfgp['training_params']['finetune']['pretrained_checkpoint']` set as the factory expects) reproduces the logits exactly, for one `stamp_power`, one `stamp_band` and one `raw_signal` model.
+  - Checkpoint round trip (add to the script): `torch.save(fm.head_checkpoint('output/pretrain/mesae_v10_small/checkpoint/last.pth'), tmp)`, then `load_finetune_checkpoint(cfgp, tmp, 'cpu')` (with `cfgp['training_params']['finetune']['pretrained_checkpoint']` set as the factory expects) reproduces the logits exactly, for one `stamp_power`, one `stamp_band` and one `raw_signal` model.
   - Bad-config errors: `build_finetune` with `time_pool='learned'` and `num_patches=None` raises `ValueError`.
   - Base config builds: `build_finetune_from_config(load_config('config/config.json'), 4, 'finetune', num_patches=39, channel_idx=list(range(22)))` succeeds; print `sum(p.numel() for p in model.head.parameters())` and expect 1,508 (the old C1 head's 1,844 with its 8 x 64 spatial weight replaced by 8 x 22).
   - GPU smoke (2 epochs, about 2 minutes): copy `config/config.json` to the scratchpad with `split_mode: "intra_subject_cv"`, `cv_folds: 2`, `epochs: 2`, `dataset_params.finetune.BCICIV2a.subject_to_use: ["8"]`, `model_name: "smoke_a"`; run `python train_finetune.py --config <copy>`; it must finish without error and write `output/smoke_a/finetune/*/best_finetune.pth`. Load that checkpoint with `viz.load_model(cfg, path, device, mode='finetune')` and print the class and head parameter count. Repeat once with `feature: "raw_band"`, `time_pool: "learned"` in the copy to prove a new combination trains. Then delete `output/smoke_a`.

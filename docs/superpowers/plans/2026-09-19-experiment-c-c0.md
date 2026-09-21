@@ -28,7 +28,7 @@ every EEG paradigm", "Protocol", "Implementation notes", and build-order steps 7
 ## Global Constraints
 
 - Backbone stays frozen (ADR 0012); C0 must not touch `freeze_backbone`.
-- Backbone checkpoint for every C measurement is `output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth`
+- Backbone checkpoint for every C measurement is `output/pretrain/mesae_v10_small/checkpoint/last.pth`
   (ADR 0014 §Protocol: "for plumbing"; conclusions about the tokenizer itself need the
   full-data run, not in scope here).
 - Optimizer for every trained head (ADR 0014 §Protocol): `learning_rate: 0.01`,
@@ -459,7 +459,7 @@ Edit `config/config.json`'s `training_params.finetune` block
     "finetune": {
       "model_type": "MeSAE",
       "model_name": "mesae_finetune_c0",
-      "pretrained_checkpoint": "output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth",
+      "pretrained_checkpoint": "output/pretrain/mesae_v10_small/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
       "backbone_lr_mult": 0.0,

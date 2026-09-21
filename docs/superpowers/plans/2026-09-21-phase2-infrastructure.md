@@ -183,7 +183,7 @@ and `config/subject_groups/beta4s.json` (generated, tracked); add one line to
 `probes/README.md` describing the script.
 
 **Behaviour** (seed 42 everywhere; pure CPU; no model needed):
-- **Pretraining membership:** read `output/pretrain/mesae_v10_small_uw01/artifacts/config.json`
+- **Pretraining membership:** read `output/pretrain/mesae_v10_small/artifacts/config.json`
   (`dataset_params.pretrain`) to get, per dataset, the subject ids the backbone saw. If the
   file is unavailable, fail loudly (do not guess).
 - **EEGMMIdb** (109 subjects, 3-class): `seen` = pretrained subjects; `unseen` = the rest

@@ -45,7 +45,7 @@ form a clean baseline).
 ## Global Constraints
 
 - Backbone stays frozen (ADR 0012) — do not touch `freeze_backbone`.
-- Backbone checkpoint: `output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth` (same as every prior
+- Backbone checkpoint: `output/pretrain/mesae_v10_small/checkpoint/last.pth` (same as every prior
   C-experiment measurement; conclusions about the tokenizer itself need the full-data run,
   not in scope here).
 - Optimizer/protocol (ADR 0014 §Protocol, carried forward from C0): `learning_rate: 0.01`,
@@ -61,7 +61,7 @@ form a clean baseline).
   check for Task 1 (no training run needed to prove the plumbing works), then the real
   training runs for Task 2.
 - Do not touch `model_params.MeSAE.pretrain.stamp_bank` (must stay `60/4/12/6`, matching the
-  `mesae_v10_small_uw01` checkpoint — a prior session's mistake here cost a full rerun).
+  `mesae_v10_small` checkpoint — a prior session's mistake here cost a full rerun).
 - Do not touch `dataset_params.finetune` (already correctly points at BCICIV2a).
 - `input="raw"`, `"recon"`, `"stamp_bandpow"`, and `"z_chan"`'s existing behavior must be
   completely unaffected by this plan — `num_patches` is optional/unused for those arms, and
@@ -478,7 +478,7 @@ And `training_params.finetune` to (note `cv_folds: 5`, not 3):
     "finetune": {
       "model_type": "MeSAE",
       "model_name": "mesae_finetune_c0_dropout05_5fold",
-      "pretrained_checkpoint": "output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth",
+      "pretrained_checkpoint": "output/pretrain/mesae_v10_small/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
       "backbone_lr_mult": 0.0,

@@ -60,7 +60,7 @@ gate).
 ## Global Constraints
 
 - Backbone stays frozen (ADR 0012) — do not touch `freeze_backbone`.
-- Backbone checkpoint: `output/pretrain/mesae_v10_small_uw01/checkpoint/last.pth` (same as every
+- Backbone checkpoint: `output/pretrain/mesae_v10_small/checkpoint/last.pth` (same as every
   prior C-experiment measurement).
 - Optimizer/protocol (ADR 0014 §Protocol): `learning_rate: 0.01`, `min_learning_rate:
   0.001`, `epochs: 100`, `warmup_epochs: 2`, `split_mode: "intra_subject_cv"`,

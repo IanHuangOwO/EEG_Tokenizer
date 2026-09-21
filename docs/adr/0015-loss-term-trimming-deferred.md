@@ -59,7 +59,7 @@ The overlap-added trial is a crossfaded average of overlapping patches:
 - If every patch is perfect, trial error is 0.
 - Trial error is at most the weighted patch error. That is why the logged `mse_trial`
   sits below `mse_patch` (for example 0.020 vs 0.037 at the end of the tokenizer phase
-  in `mesae_v10_small_uw01`).
+  in `mesae_v10_small`).
 
 Beyond patch MSE, trial MSE adds two things: it down-weights patch edges, and it rewards
 neighbouring patches whose errors cancel.
@@ -76,7 +76,7 @@ neighbouring patches whose errors cancel.
 
 0. **Weighted vs unweighted `mp_loss`.** `52cda87` made `mp_loss` use the same position
    weights, so from that commit on every run uses the weighted version.
-   `mesae_v10_small_uw01` is the only run with the old, leaky version (visible
+   `mesae_v10_small` is the only run with the old, leaky version (visible
    positions at full weight). An A/B needs one small run on the current code to compare
    against it. Deferred together with the rest.
 1. **`mse_trial_weight: 0.0`.**
