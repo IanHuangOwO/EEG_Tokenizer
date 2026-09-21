@@ -40,7 +40,13 @@ The numbers in ADR 0014 before Phase 2 came from the `base` conda env without `m
 3. **Time pooling:** `learned:R` (default), with flat (`trial`) and `window:lo-hi` as ablation
    options.
 4. **Optional branches:** phase advance (SSVEP only) and the evoked branch (ERP only). Each
-   is kept only if Phase 2 supports it on its own dataset.
+   is kept only if Phase 2 supports it on its own dataset. **Phase advance is supported:** on
+   BETA_4s (40 classes, 30 training subjects, tail-mean accuracy, 50 epochs) C1 plus phase
+   advance reaches 0.386 on the 10 unseen subjects against 0.195 for C1 alone (+0.192,
+   p < 0.001, 10/10 subjects; seen subjects 16-18, n = 3: 0.306 vs 0.122, descriptive
+   only). It overfits more (train 0.508 vs validation 0.368), and the PSDA reference has not
+   been run yet, so it is not known how far this is from the standard method. The evoked
+   branch awaits the Inria ERP result.
 
 ### Parameters, not modules
 
