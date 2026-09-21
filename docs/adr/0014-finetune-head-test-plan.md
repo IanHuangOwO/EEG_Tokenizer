@@ -1,5 +1,12 @@
 # 0014 — Finetune head: what to expose, how to pool, compared to raw (draft)
 
+> **Status note (2026-09-22): historical record.** The results below were produced with the old finetune
+> pipeline. Finetune runs in the `base` conda env had no `mne`, so the backbone read flat fallback electrode
+> coordinates instead of MNE positions (the stamp head on BCICIV2a subject 8 gives 0.660 that way and 0.788 with
+> the real coordinates); the raw control also ran without dropout in Phase 1. The finetune work was restarted
+> on the restructured pipeline and is recorded in ADR 0017; the old runs are in `output/archive/`. The Protocol
+> section of this ADR still applies.
+
 Status: Proposed (draft). Experiments A (features) and B (pooling) are measured on
 `mesae_v10_small`; experiment C (one head for every paradigm) is specified, with its
 SSVEP prerequisite measured, and not built. Implements the direction decided in ADR 0012.
