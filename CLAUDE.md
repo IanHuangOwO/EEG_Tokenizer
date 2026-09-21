@@ -30,6 +30,10 @@ python check_model.py --config config/analysis.json --checkpoint <path>
 # after changing sample_freq/bandpass_filter — see config/compile.json, docs/agents/adding-a-dataset.md)
 python cache_dataset.py --config config/compile.json
 
+# Build the stamp-amplitude cache of the finetune datasets (frozen backbone run once per subject;
+# the runner will do this automatically)
+python cache_feature.py --config config/config.json
+
 # Sanity-check a compiled cache (shape/labels/dead-channels/bandpass-rolloff, --deep for a
 # raw-vs-cache diff)
 python cache_verify.py --config config/compile.json
@@ -129,6 +133,7 @@ under `output/`).
 - `checkpoint/last.pth` — every epoch
 - `artifacts/config.json` — run snapshot
 - `visualization/` — loss plots, topomap reconstructions
+- `feature_cache/<dataset>/<key>/<subject>.npz` — regenerable stamp-amplitude cache built by `cache_feature.py`, safe to delete
 
 ### Dataset metadata
 

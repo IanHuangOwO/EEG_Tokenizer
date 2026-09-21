@@ -90,7 +90,8 @@ Replaces `MeSAEFeatureHead`, `MeSAEFinetune` and `PerChannelHeadAttn`. This abso
 Because the backbone is frozen, the stamp amplitudes of every trial are computed once and the
 head is trained on them.
 
-- **`model/MeSAE/feature_cache.py`** (next to `StampExtractor`, not under `IO/`):
+- **`cache_feature.py`** (repo root, a pipeline stage like `cache_dataset.py`: it builds datasets
+  and runs the backbone over them, which `model/` does not do):
   `get_stamp_cache(config, dataset_name, subjects) -> path`. Stores per subject `amp` fp16
   `[n_trials, N', C_valid, S, 2]`, `labels`, `valid_length`, under
   `<backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz`, where the backbone run
@@ -98,14 +99,15 @@ head is trained on them.
   `output/mesae_v10_small_uw01/`, later `output/pretrain/mesae_v10_small_uw01/`). The cache
   travels with the model it came from. Raw heads do not use the cache (they read the patched
   raw signal from the dataset, as today, and never run the backbone).
-- **Cache key:** hash of the checkpoint file identity (file name, size, mtime; the folder is
-  already the model's), the compiled data cache
-  files (names, sizes, mtimes), and the preprocess settings that change the patches
-  (`sample_freq`, `patch_length`, `patch_stride`, `window_length`, `normalization_type`,
-  `canonical_channels`, channel selection), plus `keep`. A mismatch builds a new folder; old
-  folders are never trusted or repaired.
-- **Uniform channels:** the builder asserts that every subject of a dataset has the same real
-  channel set and stores only those channels.
+- **Cache key:** the folder key hashes the checkpoint file identity (name, size, mtime), the
+  `keep` stamp set, the whole `preprocess_params` block, the dataset entry (minus
+  `subject_to_use`), the `metadata.json` and `config/montages.json` fingerprints and the `mne`
+  version (electrode coordinates depend on it). Each subject file additionally stores the
+  fingerprint of the compiled data file it was built from and is rebuilt when it changes, so
+  adding subjects never invalidates existing files. Over-invalidation (for example a changed
+  masking setting) only costs a rebuild.
+- **Uniform channels:** `CachedStampDataset` asserts that all subjects share `channel_idx` and
+  `keep`; only the real channels are stored.
 - **Size:** about 0.25 MB per 62-channel trial in fp16 (EEGMMIdb about 10 GB, BETA_4s about
   2 GB, BCICIV2a about 0.8 GB). It lives under `output/`, which is already git-ignored, and is
   regenerable, so deleting it is always safe.
