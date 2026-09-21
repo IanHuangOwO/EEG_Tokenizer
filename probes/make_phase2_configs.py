@@ -2,7 +2,7 @@
 Usage: python probes/make_phase2_configs.py [--out config/phase2] [--epochs 50]
 (--epochs is the default; EPOCHS below overrides it per dataset)
 Each config = config/config.json with the finetune dataset, head, and split replaced."""
-import argparse, copy, json, os
+import argparse, copy, json, os, random
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -15,7 +15,8 @@ HEADS = {
     'raw': dict(input='raw', pool_channel='spatial:8', pool_time='trial', dropout=0.5,
                 freeze_backbone=True),
 }
-EPOCHS = {'inria': 30}  # shorter to save GPU time; convergence is checked afterwards
+EPOCHS = {}  # per-dataset epoch override (short name -> epochs); default is --epochs
+N_SUBJECTS = {'inria': 12}  # use a seeded random subset of this many subjects (less data)
 # (dataset dir, short name, subject_groups json or None, task, split, head tags)
 PLAN = [
     ('EEGMMIdb', 'eegmmidb', 'eegmmidb', 'mi', 'groups', ['c1', 'raw']),
@@ -26,8 +27,14 @@ PLAN = [
 
 def build(base, ds, short, groups_key, task, split, tag, epochs):
     cfg = copy.deepcopy(base)
+    subjects = ['all']
+    if short in N_SUBJECTS:
+        import train_finetune as tf
+        avail = sorted(tf._resolve_all_subjects(f'datas/{ds}'), key=str)
+        subjects = [str(x) for x in sorted(random.Random(42).sample(avail, N_SUBJECTS[short]),
+                                            key=lambda v: int(v) if str(v).isdigit() else str(v))]
     cfg['dataset_params']['finetune'] = {
-        ds: {'dataset_path': f'datas/{ds}', 'subject_to_use': ['all'], 'channels_to_use': ['all']}}
+        ds: {'dataset_path': f'datas/{ds}', 'subject_to_use': subjects, 'channels_to_use': ['all']}}
     cfg['model_params']['MeSAE']['finetune'] = dict(HEADS[tag], task=task)
     tp = cfg['training_params']['finetune']
     tp.pop('cv_folds', None)

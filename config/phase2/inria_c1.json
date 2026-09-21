@@ -138,7 +138,18 @@
    "Inria_Train": {
     "dataset_path": "datas/Inria_Train",
     "subject_to_use": [
-     "all"
+     "6",
+     "7",
+     "11",
+     "12",
+     "13",
+     "14",
+     "16",
+     "20",
+     "22",
+     "23",
+     "24",
+     "26"
     ],
     "channels_to_use": [
      "all"
@@ -246,7 +257,7 @@
    "learning_rate": 0.01,
    "min_learning_rate": 0.001,
    "backbone_lr_mult": 0.0,
-   "epochs": 30,
+   "epochs": 50,
    "warmup_epochs": 2,
    "batch_size": 16,
    "weight_decay": 0.01,
@@ -306,7 +317,7 @@
     "every_n_epochs": 10
    },
    "finetune": {
-    "every_n_epochs": 30
+    "every_n_epochs": 50
    }
   }
  },
