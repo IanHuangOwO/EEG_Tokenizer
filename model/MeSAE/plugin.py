@@ -16,7 +16,7 @@ from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
 from viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch,
                           extract_flat_stamp_gallery, extract_filter_spectra)
-from viz.panels import (plot_attn_topo as render_attn_topo, plot_stamp_by_patch,
+from viz.panels import (plot_stamp_by_patch,
                          plot_stamp_gallery, plot_event_stamp_dynamics)
 from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
                            plot_stamp_identity_consistency, plot_fingerprint_similarity,
@@ -142,7 +142,7 @@ class MeSAEChecker(BaseEpochChecker):
         MeSAEPretrain.used_stamp_ids) — with n_stamps=800 and hard top-k selection, showing
         every stamp regardless of whether this trial ever touched it is mostly noise, and
         the per-patch top-k axis has no stable cross-patch identity to color consistently
-        in the first place (see docs/adr/0009 / render_finetune_attn's docstring)."""
+        in the first place (see docs/adr/0009)."""
         used_ids = model.used_stamp_ids(out, max_stamps=100)
         colors = ['red' if i >= model.n_routed_stamps else 'black' for i in used_ids.tolist()]
         return colors, used_ids

@@ -257,7 +257,7 @@ class MeSAEPretrain(nn.Module):
     # below.
 
     def encode_post_stamp_expert(self, x, coords, time_idx=None, valid_channels=None, return_chan_attn=False):
-        """Per-stamp channel View for MeSAEFinetune: unlike MeFSQ's Experts (already
+        """Per-stamp channel View for the finetune StampExtractor: unlike MeFSQ's Experts (already
         channel-free via ExpertChannelPool before quantization), a StampBank stamp's
         response is inherently per-channel — its amp IS a topomap. Collapse channels
         here the same way, but for free: pool z's C channels for stamp i weighted by
@@ -273,7 +273,7 @@ class MeSAEPretrain(nn.Module):
         axis gives every stamp a stable identity across patches for free (no
         zero-dilution bookkeeping needed).
 
-        Returns z_per_head [B, N, n_stamps, D] (feed straight into PerChannelHeadAttn),
+        Returns z_per_head [B, N, n_stamps, D] (the per-stamp view a finetune head consumes),
         plus chan_attn [B, N, n_stamps, C] (the pooling weights, i.e. each stamp's
         per-patch topomap) if return_chan_attn=True.
         """
@@ -332,7 +332,7 @@ class MeSAEPretrain(nn.Module):
         """Viz-only convenience over encode_post_stamp_expert: same z_per_head/chan_attn,
         capped to the max_stamps stamps with the largest trial-summed View magnitude —
         at n_stamps up to a few hundred, rendering every one regardless of relevance
-        would swamp the panels (see render_finetune_attn). Ranked by real magnitude
+        would swamp the panels (a viz-only concern). Ranked by real magnitude
         here, not selection frequency: unlike the Tokenizer/Pretrain path, nothing here
         goes through top-k, so there's no "selected" notion to rank by in the first
         place. Returns (z_per_head [B, N, Qu, D], chan_attn [B, N, Qu, C],

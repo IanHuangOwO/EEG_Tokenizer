@@ -1335,7 +1335,7 @@ class StampBank(nn.Module):
 # Everything above this line is the pretrain side.
 # Shapes: a, b are the spatially mixed code amplitudes [B, N', K, S] (B trials, N' patches,
 # K spatial filters, S alive stamps); power = a^2 + b^2. Parameter names (p, q) and init match
-# the pre-refactor MeSAEFeatureHead so saved checkpoints load unchanged.
+# the ADR 0014 MeSAEFeatureHead so saved checkpoints load unchanged.
 # ==========================================
 
 def spatial_mix(spatial, t, dim):

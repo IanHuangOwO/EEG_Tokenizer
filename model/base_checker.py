@@ -39,7 +39,7 @@ class SnapshotBundle:
     raw_cnl: np.ndarray          # [C, N, L] raw patches, for the raw/recon FFT rows
     recon_cnl: np.ndarray        # [C, N, L] reconstruction patches
     attn: Optional[np.ndarray]   # attention map ready for plot_attn_topo, or None (check_finetune
-                                  # renders its own attn panel via render_finetune_attn instead)
+                                  # draws no attn panel)
     coords: np.ndarray           # [C, 3]
     channel_names: List[str]
     valid_channels: np.ndarray   # [C] bool
@@ -384,15 +384,6 @@ class BaseEpochChecker:
         x_patches = x[:, :P * patch_len].reshape(C, P, patch_len).unsqueeze(0)
         time_idx = torch.arange(P, dtype=torch.long).unsqueeze(0)
         return x_patches, time_idx
-
-    @staticmethod
-    def _build_pad_mask_time(valid_length, P, patch_len):
-        """[1, N] bool, True = patch fully inside the real (non-padded) length. Channel
-        validity is handled inside the backbone's own channel-attention pool instead (see
-        MeFSQPretrain.encode_post_vq_expert)."""
-        valid_length = valid_length.item() if torch.is_tensor(valid_length) else valid_length
-        n_valid_patches = min(valid_length // patch_len, P)
-        return (torch.arange(P) < n_valid_patches).unsqueeze(0)
 
     @torch.no_grad()
     def check_finetune(self, config, output_dir, model, dataset, trial_idx,
