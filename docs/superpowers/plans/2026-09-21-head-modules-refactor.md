@@ -4,7 +4,7 @@
 
 **Goal:** Split `MeSAEFeatureHead`'s feature math into the swappable pieces decided in ADR 0016 (spatial mix, time pooling, phase-advance branch, evoked branch) without changing any behaviour, parameter name, buffer, RNG order or checkpoint.
 
-**Architecture:** New file `model/MeSAE/head_modules.py` holds the pieces as small `nn.Module`s and functions whose parameter names equal the current ones (`p`, `q`). `MeSAEFeatureHead` keeps its constructor, attributes and state-dict keys and delegates to the pieces. Task 1 is additive and safe while experiments run; Task 2 edits `MeSAE.py` and is gated on the Phase 2 queue finishing.
+**Architecture:** The pieces are small `nn.Module`s and functions whose parameter names equal the current ones (`p`, `q`). They end up at the end of `model/MeSAE/MeSAE_modules.py`, under a section header that separates them from the pretrain modules above (user decision). `MeSAEFeatureHead` (in `MeSAE.py`) keeps its constructor, attributes and state-dict keys and delegates to the pieces. Task 1 writes the pieces in a temporary new file `model/MeSAE/head_modules.py` (additive, safe while experiments run, since every queued run imports `MeSAE_modules.py`); Task 2 moves them into `MeSAE_modules.py` and rewires the head; Task 3 removes the code made obsolete by ADR 0016. Tasks 2 and 3 are gated on the Phase 2 queue finishing.
 
 **Tech Stack:** PyTorch (`eeg_fm` env), existing `model/factory.py`, `viz/__init__.py`.
 
@@ -152,9 +152,11 @@ git commit -m "feat: swappable finetune head pieces (spatial mix, time pool, evo
 
 ---
 
-## Task 2: Wire `MeSAEFeatureHead` to the pieces (gated on `ALLDONE`)
+## Task 2: Move the pieces into `MeSAE_modules.py` and wire `MeSAEFeatureHead` to them (gated on `ALLDONE`)
 
 **Files:**
+- Modify: `model/MeSAE/MeSAE_modules.py` (LF, 1404 lines; append the pieces at the end)
+- Delete: `model/MeSAE/head_modules.py`
 - Modify: `model/MeSAE/MeSAE.py` (CRLF; class `MeSAEFeatureHead` only)
 - Create (not committed): `.superpowers/sdd/2026-09-21-head-modules-refactor/head_equiv.py`
 
@@ -183,7 +185,15 @@ Run: `git show HEAD:model/MeSAE/MeSAE.py > model/MeSAE/_old_mesae_tmp.py` (CRLF 
 Expected: all `OK`. This proves the harness itself is valid before the refactor.
 
 - [ ] **Step 4: Refactor `MeSAEFeatureHead`** in `model/MeSAE/MeSAE.py` (CRLF, in place, small edits only):
-  - import: `from .head_modules import spatial_mix, FlatTimePool, LearnedTimePool, EvokedBranch, phase_advance` next to the other relative imports.
+  - **Move the pieces (do this first).** Append the contents of `head_modules.py` (everything except its `__main__` self-check and module docstring, whose imports already exist in `MeSAE_modules.py`) to the end of `model/MeSAE/MeSAE_modules.py`, after `StampBank`/`PerChannelHeadAttn`, under this section header in the file's existing style:
+    ```
+    # ==========================================
+    # FINETUNE HEAD MODULES (ADR 0016)
+    # Everything above this line is the pretrain side.
+    # ==========================================
+    ```
+    Keep the self-check as a short runnable block inside a `_selfcheck_head_modules()` function at the bottom of that section (not run on import), run it once via `python -c "from model.MeSAE.MeSAE_modules import _selfcheck_head_modules as f; f()"` and expect `head_modules self-check OK`. Then `git rm model/MeSAE/head_modules.py`.
+  - import: `from .MeSAE_modules import spatial_mix, FlatTimePool, LearnedTimePool, EvokedBranch, phase_advance` (extend the existing `from .MeSAE_modules import ...` line).
   - In `__init__`: replace the `head['time'] = nn.ParameterDict({...})` block with `head['time'] = LearnedTimePool(R, S, num_patches)` and the `head['evoked'] = nn.ParameterDict({...})` block with `head['evoked'] = EvokedBranch(self.evoked_rank, len(keep), num_patches)`. Keep the surrounding comments that explain the small init (move the sentences into the two classes' docstrings only if they are not already there). The construction order must not change.
   - Add `self.flat_pool = FlatTimePool()` (parameter-free; adds no state-dict keys).
   - `_mix`: `return spatial_mix(self.head['spatial'] if 'spatial' in self.head else None, t, dim)`.
@@ -206,14 +216,39 @@ Run the Step 3 command. Expected: every configuration prints `OK`, including the
 
 - [ ] **Step 6: Clean up and commit**
 
-Delete `model/MeSAE/_old_mesae_tmp.py`. `git status --short` must show only `M model/MeSAE/MeSAE.py`. Commit:
+Delete `model/MeSAE/_old_mesae_tmp.py`. `git status --short` must show only `M model/MeSAE/MeSAE.py`, `M model/MeSAE/MeSAE_modules.py` and `D model/MeSAE/head_modules.py`. Commit:
 ```bash
-git add model/MeSAE/MeSAE.py
+git add model/MeSAE/MeSAE.py model/MeSAE/MeSAE_modules.py
+git rm --cached -q model/MeSAE/head_modules.py 2>/dev/null || true
 git commit -m "refactor: MeSAEFeatureHead delegates to head_modules pieces (behaviour and checkpoints unchanged)"
 ```
 (with the two attribution lines)
 
-- [ ] **Step 7: Note in ADR 0016** (LF): under Consequences add one sentence: "Implemented in `model/MeSAE/head_modules.py`; equivalence with the previous class verified on 12 configurations plus a saved C1 checkpoint." and change nothing else. Commit separately: `docs: ADR 0016 notes the head modules refactor landed`.
+- [ ] **Step 7: Note in ADR 0016** (LF): under Consequences add one sentence: "Implemented at the end of `model/MeSAE/MeSAE_modules.py` (finetune section); equivalence with the previous class verified on 12 configurations plus a saved C1 checkpoint." and change nothing else. Commit separately: `docs: ADR 0016 notes the head modules refactor landed`.
+
+---
+
+## Task 3: Remove code made obsolete by ADR 0016 (gated: after Task 2 is committed)
+
+Scope decided by the user: the original `head_z` head path and the `MeSAEFeatureHead` options ADR 0016 drops; the old Experiment A probes are deleted; pretrain-side methods stay. The last commit that still contains all of it is tagged `pre-head-cleanup` (already pushed); reproducing Experiments A/B or loading their checkpoints needs that tag.
+
+**Files:**
+- Modify: `model/MeSAE/MeSAE.py` (CRLF): delete class `MeSAEFeatureHead` options `input in ('recon', 'z_chan')`, the `z_proj` parameter and branch, and channel-concat pooling (`pool_channel` must be `spatial:K`, else `ValueError`; also delete the concat-only "zero padded channels after the log" block in `forward`); make the constructor defaults `input='stamp_induced'`, `pool_channel='spatial:8'`; delete class `MeSAEFinetune`; drop `PerChannelHeadAttn` from the import; make `build_finetune` build only `MeSAEFeatureHead` (default `input='stamp_induced'`, remove the `head_z` branch, remove `z_proj` from `allowed`); fix docstrings that mention the removed pieces. Keep `raw` (band power and erp), `stamp_bandpow`, `stamp_induced`, `learned:R`, `window:lo-hi`, `include_advance`, `evoked_rank`, `task`. Keep every `MeSAEPretrain` method (`encode_post_stamp_expert`, `encode_used_stamps`, ...): the pretrain viz uses them.
+- Modify: `model/MeSAE/MeSAE_modules.py` (LF): delete class `PerChannelHeadAttn` (the section header from Task 2 stays directly after `StampBank`); update the comment at about line 1001 that mentions `MeSAEFinetune.encode_post_stamp_expert`.
+- Modify: `model/MeSAE/plugin.py` (CRLF check first): drop `MeSAEFinetune` from the import; delete `render_finetune_attn` and the code that only exists for it, and any `check_finetune` path in `model/base_checker.py` that depends on `MeSAEFinetune`'s attention output (`MeSAEFeatureHead.forward` already returns `(logits, None, None)`, so those branches are dead); keep `check_finetune` working for `MeSAEFeatureHead` (read `check_model.py:130`, `train_finetune.py:562`, `base_checker.py` first; if removing a branch would change what `train_finetune.py` calls, stop and report).
+- Delete: `probes/probe_v10.py`, `probes/stamp_relevance.py`, and their rows in `probes/README.md`.
+- Modify: `CLAUDE.md` (Architecture bullets that name `PerChannelHeadAttn` and `MeSAEFinetune`, lines about 88 to 90), `CONTEXT.md` line 29 (drop the `PerChannelHeadAttn` example), `docs/adr/0016-finetune-head-modules.md` (Consequences: one sentence "Obsolete paths removed; the last commit with them is tagged `pre-head-cleanup`").
+- Not touched: ADR 0012/0014 text and `docs/adr/0014_attempts.csv` (historical record), `output/`.
+
+- [ ] **Step 1: Confirm the surface.** Run `git grep -n -E "MeSAEFinetune|PerChannelHeadAttn|head_z|z_chan|z_proj|use_topo_feature|'recon'|\"recon\""` and list every hit outside `docs/`, `output/`, `CLAUDE.md`; every code hit must be either deleted by this task or unrelated (`recon` outputs of the pretrain model are unrelated).
+- [ ] **Step 2: Make the edits above.** Preserve CRLF in `MeSAE.py` (and `plugin.py`/`base_checker.py` if CRLF); `git diff --stat` must show deletions, not whole-file rewrites.
+- [ ] **Step 3: Verify.**
+  - `python -c "import train_finetune, check_model, viz, model.factory"` (eeg_fm, CPU) imports cleanly.
+  - `git grep -n -E "MeSAEFinetune|PerChannelHeadAttn|head_z|z_proj|use_topo_feature"` shows no hits outside `docs/`, `CLAUDE.md`, `CONTEXT.md` history text.
+  - Re-run `head_equiv.py` from Task 2 with its old class taken from the tag (`git show pre-head-cleanup:model/MeSAE/MeSAE.py`), dropping the configurations for the removed options (`recon`, `z_chan`, `concat`): every remaining configuration and the real C1 checkpoint still print `OK`.
+  - `viz.load_model` smoke check from Task 2 Step 5 still prints `MeSAEFeatureHead torch.Size([2, 25]) torch.Size([25])`.
+  - Build the base config's head: `build_finetune_from_config` on `config/config.json` (a `stamp_induced` head, `num_classes=4`, `num_patches=39`) succeeds.
+- [ ] **Step 4: Commit** in two commits: `refactor: remove the head_z path (MeSAEFinetune, PerChannelHeadAttn, render_finetune_attn)` and `refactor: drop recon, z_chan and channel-concat options from MeSAEFeatureHead; delete Experiment A probes`, each with the two attribution lines.
 
 ---
 

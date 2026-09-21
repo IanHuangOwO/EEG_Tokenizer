@@ -102,5 +102,10 @@ comparison the design rests on.
   `E_D`, `E_H` buffers, because `viz.load_model` and every finished run load them.
 - The refactor is verified by numerical equivalence with the current class (same state dict,
   same inputs, same logits), including one real saved checkpoint.
+- The pieces live at the end of `model/MeSAE/MeSAE_modules.py`, under a section header that
+  separates them from the pretrain modules above. Code made obsolete by this ADR (the original
+  `head_z` path, the `recon`/`z_chan` inputs, channel-concat pooling, the Experiment A probes) is
+  removed after the refactor; the last commit with it is tagged `pre-head-cleanup`, which
+  Experiments A/B need in order to be re-run.
 - Rows in ADR 0014 stay as measured; this ADR only decides what is kept and how the head is
   organised.
