@@ -314,7 +314,7 @@ This **removes `include_advance`** (present and `true` from the C3 run). Set
 `training_params.finetune.model_name` to `"mesae_finetune_c4_evoked"`; every other field
 stays as it is (it already equals C1's protocol: 5-fold, lr 0.01/0.001, 100 epochs, warmup
 2, checkpoint `mesae_v10_small_uw01`). Verify against
-`output/mesae_finetune_c1_learned2/artifacts/config.json` (the config C1 actually ran with)
+`output/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json` (the config C1 actually ran with)
 that the only differences are `evoked_rank: 2` and `model_name`.
 
 - [ ] **Step 2: Run C4**
@@ -324,7 +324,7 @@ python train_finetune.py --config config/config.json
 ```
 
 Real GPU job, 9 subjects × 5 folds × 100 epochs (~3h40m as C1/C3). Let it finish. Then:
-`python probes/ft_summary.py output/mesae_finetune_c1_learned2/artifacts/train_20260919_192402.log output/mesae_finetune_c4_evoked/artifacts/train_<timestamp>.log`
+`python probes/ft_summary.py output/experiment_c/mesae_finetune_c1_learned2/artifacts/train_20260919_192402.log output/experiment_c/mesae_finetune_c4_evoked/artifacts/train_<timestamp>.log`
 (C1 first so the printed paired line is C4 − C1; the script groups by subject).
 Extract final-epoch train `balanced_acc` over the 45 runs (e.g. `grep "\[Train\]" <log> | awk` every 100th, or a one-off script) and the trainable head parameter count from a saved
 checkpoint (`sum(v.numel() for k,v in sd.items() if k.startswith('head.'))` excluding BN

@@ -704,7 +704,7 @@ Next, in order:
    `intra_subject_cv` protocol itself is a confound, not just `stamp_induced`'s capacity
    — the capacity-only story for C0's original 0.066 gap (0.522 → 0.456) only explains
    the remaining ~0.020 of it (0.476 → 0.456, `stamp_bandpow`-CV vs `stamp_induced`-CV,
-   same protocol). Log: `output/mesae_finetune_c0_control_bandpow_cv/artifacts/train_20260919_082029.log`.
+   same protocol). Log: `output/experiment_c/mesae_finetune_c0_control_bandpow_cv/artifacts/train_20260919_082029.log`.
 
    **Follow-up (b) — regularized C0 rerun, run.** `stamp_induced spatial:8`, `dropout:
    0.5`, **3-fold** CV — reduced from 5 for turnaround time (a mid-task scope decision,
@@ -757,7 +757,7 @@ Next, in order:
    S6 0.355, S7 0.573, S8 0.665, S9 0.476. Final-epoch train `balanced_acc` mean
    **0.736** (range 0.626–0.848 across all 45 fold×subject runs) — dropout is still
    suppressing overfitting at 5-fold, similar in degree to follow-up (b)'s 3-fold 0.748.
-   Log: `output/mesae_finetune_c0_dropout05_5fold/artifacts/train_20260919_153852.log`.
+   Log: `output/experiment_c/mesae_finetune_c0_dropout05_5fold/artifacts/train_20260919_153852.log`.
 
    All four `intra_subject_cv` numbers are now on record, settings labeled: original C0
    (`stamp_induced`, `dropout 0`, 5-fold) **0.456**; follow-up (a) (`stamp_bandpow`,
@@ -815,7 +815,7 @@ Next, in order:
    opposed to some milder, still-regularized increase in memorization that happens to
    also correlate with the (non-significant) validation gain — these numbers can't
    distinguish those two stories, so no such interpretive claim is made here.
-   Log: `output/mesae_finetune_c1_learned2/artifacts/train_20260919_192402.log`.
+   Log: `output/experiment_c/mesae_finetune_c1_learned2/artifacts/train_20260919_192402.log`.
 
    **Weight decay note.** `train_finetune.py` builds its `AdamW` param groups without
    exempting low-dimensional parameters from weight decay, so `weight_decay: 0.01` also
@@ -893,7 +893,7 @@ Next, in order:
     alone. Only 1 of 9 subjects improves (S6, +0.024, itself C1's weakest subject); the
     other 8 regress, five of them by more than 0.06 (S1, S3, S7, S8, S9 all regress,
     S3 the worst at −0.104). Log:
-    `output/mesae_finetune_c3_advance/artifacts/train_20260920_002958.log`.
+    `output/experiment_c/mesae_finetune_c3_advance/artifacts/train_20260920_002958.log`.
 
     **The overfitting check.** Final-epoch train `balanced_acc` mean **0.9255** (range
     0.874–0.983 across all 45 fold×subject runs) — compared against three prior numbers
@@ -1042,7 +1042,7 @@ Next, in order:
     (+0.010), S7 0.476 (−0.129), S8 0.574 (−0.093), S9 0.641 (−0.092). Paired t-test
     across subjects, n = 9: mean diff **−0.070**, t = **−3.63**, **p = 0.007**, wins
     **2/9** (S4, S6, both by ≤ 0.014). Log:
-    `output/mesae_finetune_c4_evoked/artifacts/train_20260920_122034.log`.
+    `output/experiment_c/mesae_finetune_c4_evoked/artifacts/train_20260920_122034.log`.
 
     **The overfitting check.** Final-epoch train `balanced_acc` mean **0.958** (range
     0.926–0.987 across the 45 fold×subject runs) vs. C1's **0.843**, C3's **0.9255**,
@@ -1090,7 +1090,7 @@ Next, in order:
     only differences are `input` and `model_name`). Tail-mean balanced_acc **0.530**.
     Per-subject tail means: S1 0.618, S2 0.494, S3 0.680, S4 0.456, S5 0.305, S6 0.409,
     S7 0.603, S8 0.674, S9 0.528. Log:
-    `output/mesae_finetune_raw_control_cv/artifacts/train_20260920_173955.log`.
+    `output/experiment_c/mesae_finetune_raw_control_cv/artifacts/train_20260920_173955.log`.
 
     **Paired tests** (subject level, n = 9, folds grouped within subject). Raw beats
     the matched code-space head, follow-up (a) `stamp_bandpow`, by **+0.054**

@@ -490,12 +490,12 @@ python train_finetune.py --config config/config.json
 
 This trains 9 subjects x 5 folds = 45 per-subject-fold models (frozen backbone, ~1-2k
 parameter head, 100 epochs each) and writes
-`output/mesae_finetune_c0/artifacts/train_<timestamp>.log`.
+`output/experiment_c/mesae_finetune_c0/artifacts/train_<timestamp>.log`.
 
 - [ ] **Step 4: Read the headline number**
 
 ```bash
-python probes/ft_summary.py output/mesae_finetune_c0/artifacts/train_<timestamp>.log
+python probes/ft_summary.py output/experiment_c/mesae_finetune_c0/artifacts/train_<timestamp>.log
 ```
 
 Expected: the printed `tail` mean (last-10-epoch `balanced_acc`, averaged over all 45

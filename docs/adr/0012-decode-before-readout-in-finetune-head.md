@@ -2,7 +2,7 @@
 
 Status: Accepted (design direction), pending implementation
 Date: 2026-09-17
-Model under test: `mesae_tokenizer_v5` (`output/mesae_tokenizer_v5/tokenizer/best_tokenizer.pth`)
+Model under test: `mesae_tokenizer_v5` (`output/pretrain/mesae_tokenizer_v5/tokenizer/best_tokenizer.pth`)
 Probe dataset: BCICIV2a, 2592 trials, 9 subjects, 4 classes, chance 0.250
 Secondary: EEGMMIdb, 39569 trials, 109 subjects, k=3 subset, chance 0.333
 

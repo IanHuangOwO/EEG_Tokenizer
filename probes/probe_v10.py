@@ -117,7 +117,7 @@ print('per-stamp dump saved', flush=True)
 
 # Optional: the v9 tokenizer/pretrain feature cache written by the older pretrain_probe.py.
 # Without it the v9 comparison columns are skipped.
-V9 = os.path.join('output', 'mesae_pretrain_v9', 'probes', 'pretrain_probe_feats.npz')
+V9 = os.path.join('output', 'pretrain', 'mesae_pretrain_v9', 'probes', 'pretrain_probe_feats.npz')
 old = np.load(V9) if os.path.exists(V9) else None
 if old is None:
     print(f'(no v9 cache at {V9}: v9 comparison columns skipped)')

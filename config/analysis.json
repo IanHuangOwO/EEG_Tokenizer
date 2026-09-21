@@ -1,5 +1,5 @@
 {
-  "checkpoint": "output/mesae_v10_all_share/checkpoint/last.pth",
+  "checkpoint": "output/pretrain/mesae_v10_all_share/checkpoint/last.pth",
   "mode": "pretrain",
   "dataset_params": {
     "pretrain": {

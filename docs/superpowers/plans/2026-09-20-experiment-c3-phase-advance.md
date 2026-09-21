@@ -372,7 +372,7 @@ Real, long-running GPU job — 9 subjects × 5 folds × 100 epochs, budget simil
 magnitude to prior 5-fold `stamp_induced` runs (~3-4 hours; the advance branch adds
 negligible compute — it's a cheap elementwise reduction over already-computed tensors,
 not a new backbone pass). Let it run to completion — do not treat a long runtime as a
-failure. Once done, find the log (`output/mesae_finetune_c3_advance/artifacts/
+failure. Once done, find the log (`output/experiment_c/mesae_finetune_c3_advance/artifacts/
 train_<timestamp>.log`) and run `python probes/ft_summary.py <that log path>` — this
 script already groups by subject before its paired t-test (fixed during the C1 plan), so
 its printed `p=`/`wins` figures are directly usable, no hand-recomputation needed this
