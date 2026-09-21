@@ -44,7 +44,7 @@ Replaces `MeSAEFeatureHead`, `MeSAEFinetune` and `PerChannelHeadAttn`. This abso
 `MeSAE_modules.py`) has landed.
 
 - **Feature extractor** `StampExtractor(backbone)`: `forward(x, coords, time_idx,
-  valid_channels) -> amp [B, C_valid, N', S, 2]` (the stamp code (a, b) scaled by patch RMS,
+  valid_channels) -> amp [B, N', C_valid, S, 2]` (the stamp code (a, b) scaled by patch RMS,
   alive routed and shared stamps only, padded channels dropped). It also exposes the `keep`
   stamp indices and the template spectra tables. It owns everything that needs the backbone.
 - **Head classes**, chosen by a `head` key, none of which touch the backbone:
@@ -82,7 +82,7 @@ head is trained on them.
 
 - **`model/MeSAE/feature_cache.py`** (next to `StampExtractor`, not under `IO/`):
   `get_stamp_cache(config, dataset_name, subjects) -> path`. Stores per subject `amp` fp16
-  `[n_trials, C_valid, N', S, 2]`, `labels`, `valid_length`, under
+  `[n_trials, N', C_valid, S, 2]`, `labels`, `valid_length`, under
   `<backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz`, where the backbone run
   folder is the parent of the checkpoint's `checkpoint/` directory (today
   `output/mesae_v10_small_uw01/`, later `output/pretrain/mesae_v10_small_uw01/`). The cache
