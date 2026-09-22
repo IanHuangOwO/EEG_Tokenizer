@@ -27,7 +27,8 @@
       "EEGMAT": { "dataset_path": "datas/finetune/EEGMAT" },
       "BCMI_MusicEmotion": { "dataset_path": "datas/pretrain/BCMI_MusicEmotion" },
       "BNCI2014009": { "dataset_path": "datas/finetune/BNCI2014009" },
-      "BNCI2014008": { "dataset_path": "datas/finetune/BNCI2014008" }
+      "BNCI2014008": { "dataset_path": "datas/finetune/BNCI2014008" },
+      "BNCI2015001": { "dataset_path": "datas/finetune/BNCI2015001" }
     }
   }
 }

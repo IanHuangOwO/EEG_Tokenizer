@@ -1,0 +1,150 @@
+{
+    "data_metadata": {
+        "dataset_name": "BNCI2015001",
+        "dataset_info": {
+            "source_url": "http://bnci-horizon-2020.eu/database/data-sets/001-2015",
+            "file_format": "MATLAB (.mat)",
+            "description": "12 subjects, 13ch EEG, 2-class motor imagery (right hand vs both feet), synchronous Graz BCI paradigm, 2-3 sessions/subject on different days.",
+            "task_type": "motor_imagery",
+            "reference": "Faller J, Vidaurre C, Solis-Escalante T, Neuper C, Scherer R (2012). Autocalibration and recurrent adaptation: Towards a plug and play online ERD-BCI. IEEE Trans Neural Syst Rehabil Eng. 20(3):313-319. doi:10.1109/tnsre.2012.2189584",
+            "contact": "Reinhold Scherer (reini.scherer@gmail.com), Josef Faller (josef.faller@gmx.at)",
+            "notes": "2 sessions/subject (S01-S07, S12) or 3 (S08-S11, a 3rd was recorded for subjects who hadn't reached the 70% criterion after 2) -- confirmed via real HTTP probes of every subject/session combination, not assumed from the paper text alone. Real trial label from each file's `y` array (1=right hand, 2=both feet). Epoch window hardcoded in loader.py to offset 3.0s/duration 5.0s post-trial-onset (the cue-to-end-of-imagery window, description.pdf Figure 1), NOT compile.json's global pre/post_event_seconds."
+        },
+        "acquisition": {
+            "sample_frequency": 512,
+            "window_size_seconds": 5.0,
+            "num_subjects": 12
+        },
+        "targets": {
+            "count": 2,
+            "type": "motor_imagery",
+            "0": {
+                "label": "right hand"
+            },
+            "1": {
+                "label": "both feet"
+            }
+        },
+        "channels": {
+            "count": 13,
+            "system": "10-20 International System (10-10)",
+            "1": {
+                "label": "FC3"
+            },
+            "2": {
+                "label": "FCz"
+            },
+            "3": {
+                "label": "FC4"
+            },
+            "4": {
+                "label": "C5"
+            },
+            "5": {
+                "label": "C3"
+            },
+            "6": {
+                "label": "C1"
+            },
+            "7": {
+                "label": "Cz"
+            },
+            "8": {
+                "label": "C2"
+            },
+            "9": {
+                "label": "C4"
+            },
+            "10": {
+                "label": "C6"
+            },
+            "11": {
+                "label": "CP3"
+            },
+            "12": {
+                "label": "CPz"
+            },
+            "13": {
+                "label": "CP4"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "files": [
+                "raw/S01A.mat",
+                "raw/S01B.mat"
+            ]
+        },
+        "2": {
+            "files": [
+                "raw/S02A.mat",
+                "raw/S02B.mat"
+            ]
+        },
+        "3": {
+            "files": [
+                "raw/S03A.mat",
+                "raw/S03B.mat"
+            ]
+        },
+        "4": {
+            "files": [
+                "raw/S04A.mat",
+                "raw/S04B.mat"
+            ]
+        },
+        "5": {
+            "files": [
+                "raw/S05A.mat",
+                "raw/S05B.mat"
+            ]
+        },
+        "6": {
+            "files": [
+                "raw/S06A.mat",
+                "raw/S06B.mat"
+            ]
+        },
+        "7": {
+            "files": [
+                "raw/S07A.mat",
+                "raw/S07B.mat"
+            ]
+        },
+        "8": {
+            "files": [
+                "raw/S08A.mat",
+                "raw/S08B.mat",
+                "raw/S08C.mat"
+            ]
+        },
+        "9": {
+            "files": [
+                "raw/S09A.mat",
+                "raw/S09B.mat",
+                "raw/S09C.mat"
+            ]
+        },
+        "10": {
+            "files": [
+                "raw/S10A.mat",
+                "raw/S10B.mat",
+                "raw/S10C.mat"
+            ]
+        },
+        "11": {
+            "files": [
+                "raw/S11A.mat",
+                "raw/S11B.mat",
+                "raw/S11C.mat"
+            ]
+        },
+        "12": {
+            "files": [
+                "raw/S12A.mat",
+                "raw/S12B.mat"
+            ]
+        }
+    }
+}
