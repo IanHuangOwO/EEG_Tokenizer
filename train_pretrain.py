@@ -19,6 +19,8 @@ from IO.masking import build_masking_strategy_from_config
 from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
 from tools.analysis import pick_trial
+from tools.analysis.snapshot import build_pretrain_bundle
+from tools.panels import PanelContext, run_panels
 
 torch.set_float32_matmul_precision('high')
 
@@ -233,9 +235,10 @@ def main():
     # Separate assemble_trials=False dataset just for periodic snapshot viz -- val_dataset
     # itself stays assembled (assemble_trials=True, continuous windows) for real
     # train/val loss. A snapshot built from an assembled window mixes multiple real
-    # trials with no single event to mark, so _lookup_event_onset (model/base_checker.py)
-    # silently drops the recon_signal/stamp_by_patch onset line whenever it's handed one.
-    # Same assemble_trials=False dataset check_model.py's own snapshot path already uses.
+    # trials with no single event to mark, so _lookup_event_onset
+    # (tools/analysis/snapshot.py) silently drops the recon_signal/stamp_by_patch onset
+    # line whenever it's handed one. Same assemble_trials=False dataset
+    # analysis_pretrain.py's own snapshot path already uses.
     logger.info("Building Viz Snapshot Dataset (assemble_trials=False)...")
     viz_dataset = build_dataset_from_config(val_config, transform=None, mode='pretrain', assemble_trials=False)
 
@@ -270,7 +273,6 @@ def main():
     model_type = train_params.get('model_type', 'MeSAE')
     entry      = MODEL_REGISTRY[model_type]
     trainer    = entry.trainer_cls()
-    checker    = entry.checker_cls()
 
     Nc = train_dataset.base_dataset.Nc
     logger.info(f"Initializing model for {Nc} channels (Run: {model_name})...")
@@ -384,11 +386,14 @@ def main():
         if epoch == total_epochs if viz_every_n == 'last' else (viz_every_n > 0 and epoch % viz_every_n == 0):
             for topo_trial_idx, topo_subject_id in viz_targets:
                 try:
-                    checker.check_pretrain(
-                        config, vis_dir, model, viz_dataset,
-                        topo_trial_idx, subject_id=topo_subject_id, epoch=epoch,
-                        cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'),
-                    )
+                    bundle, _metrics = build_pretrain_bundle(
+                        model, viz_dataset, topo_trial_idx, config, device,
+                        subject_id=topo_subject_id, epoch=epoch)
+                    panel_ctx = PanelContext(
+                        config=config, output_dir=vis_dir, device=device, args=None,
+                        model=model, dataset=viz_dataset, bundle=bundle,
+                        cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'))
+                    run_panels(['recon_signal', 'stamp_by_patch', 'stamp_gallery'], 'pretrain', panel_ctx)
                 except Exception as e:
                     logger.warning(f"  Topomap viz failed (epoch {epoch}, subject={topo_subject_id}, trial_idx={topo_trial_idx}): {e}")
 
