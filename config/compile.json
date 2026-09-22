@@ -23,7 +23,8 @@
       "SRM_RestingState": { "dataset_path": "datas/pretrain/SRM_RestingState" },
       "SPIS": { "dataset_path": "datas/pretrain/SPIS" },
       "ERP_Longitudinal": { "dataset_path": "datas/pretrain/ERP_Longitudinal" },
-      "EmotionVideo": { "dataset_path": "datas/pretrain/EmotionVideo" }
+      "EmotionVideo": { "dataset_path": "datas/pretrain/EmotionVideo" },
+      "EEGMAT": { "dataset_path": "datas/finetune/EEGMAT" }
     }
   }
 }

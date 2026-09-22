@@ -1,0 +1,235 @@
+{
+    "data_metadata": {
+        "dataset_name": "EEGMAT",
+        "dataset_info": {
+            "source_url": "https://physionet.org/content/eegmat/1.0.0/",
+            "file_format": "EDF",
+            "description": "36 subjects, 19ch EEG (10-20 system), resting baseline (_1) and mental-arithmetic task (_2) recordings, serial-subtraction task used to classify workload/performance quality.",
+            "task_type": "mental_workload",
+            "reference": "Zyma I, Tukaev S, Seleznov I, Kiyono K, Popov A, Chernykh M, Shpenkov O (2019). Electroencephalograms during Mental Arithmetic Task Performance. Data 4(1):14. doi:10.3390/data4010014",
+            "notes": "Label (0=low/Group B, 1=high/Group G workload-handling quality) comes from subject-info.csv's 'Count quality' column, applied only to _2 (task) recordings -- _1 (baseline) is present on disk but unlabelled/unused, see this file's module docstring. 500 Hz sample rate confirmed directly from an EDF header (not stated in the PhysioNet README). Channels 'A2-A1' (ear reference) and 'ECG' dropped, only the 19 'EEG <name>'-prefixed columns used."
+        },
+        "acquisition": {
+            "sample_frequency": 500,
+            "window_size_seconds": 4.0,
+            "num_subjects": 36
+        },
+        "targets": {
+            "count": 2,
+            "type": "mental_workload",
+            "0": {
+                "label": "low workload-handling quality (Group B, 'bad' counters)"
+            },
+            "1": {
+                "label": "high workload-handling quality (Group G, 'good' counters)"
+            }
+        },
+        "channels": {
+            "count": 19,
+            "system": "10-20 International System",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "Fp2"
+            },
+            "3": {
+                "label": "F3"
+            },
+            "4": {
+                "label": "F4"
+            },
+            "5": {
+                "label": "F7"
+            },
+            "6": {
+                "label": "F8"
+            },
+            "7": {
+                "label": "T3"
+            },
+            "8": {
+                "label": "T4"
+            },
+            "9": {
+                "label": "C3"
+            },
+            "10": {
+                "label": "C4"
+            },
+            "11": {
+                "label": "T5"
+            },
+            "12": {
+                "label": "T6"
+            },
+            "13": {
+                "label": "P3"
+            },
+            "14": {
+                "label": "P4"
+            },
+            "15": {
+                "label": "O1"
+            },
+            "16": {
+                "label": "O2"
+            },
+            "17": {
+                "label": "Fz"
+            },
+            "18": {
+                "label": "Cz"
+            },
+            "19": {
+                "label": "Pz"
+            }
+        }
+    },
+    "data_structure": {
+        "0": {
+            "file": "raw/Subject00_2.edf",
+            "label": 0
+        },
+        "1": {
+            "file": "raw/Subject01_2.edf",
+            "label": 1
+        },
+        "2": {
+            "file": "raw/Subject02_2.edf",
+            "label": 1
+        },
+        "3": {
+            "file": "raw/Subject03_2.edf",
+            "label": 1
+        },
+        "4": {
+            "file": "raw/Subject04_2.edf",
+            "label": 0
+        },
+        "5": {
+            "file": "raw/Subject05_2.edf",
+            "label": 1
+        },
+        "6": {
+            "file": "raw/Subject06_2.edf",
+            "label": 0
+        },
+        "7": {
+            "file": "raw/Subject07_2.edf",
+            "label": 1
+        },
+        "8": {
+            "file": "raw/Subject08_2.edf",
+            "label": 1
+        },
+        "9": {
+            "file": "raw/Subject09_2.edf",
+            "label": 0
+        },
+        "10": {
+            "file": "raw/Subject10_2.edf",
+            "label": 0
+        },
+        "11": {
+            "file": "raw/Subject11_2.edf",
+            "label": 1
+        },
+        "12": {
+            "file": "raw/Subject12_2.edf",
+            "label": 1
+        },
+        "13": {
+            "file": "raw/Subject13_2.edf",
+            "label": 1
+        },
+        "14": {
+            "file": "raw/Subject14_2.edf",
+            "label": 0
+        },
+        "15": {
+            "file": "raw/Subject15_2.edf",
+            "label": 1
+        },
+        "16": {
+            "file": "raw/Subject16_2.edf",
+            "label": 1
+        },
+        "17": {
+            "file": "raw/Subject17_2.edf",
+            "label": 1
+        },
+        "18": {
+            "file": "raw/Subject18_2.edf",
+            "label": 1
+        },
+        "19": {
+            "file": "raw/Subject19_2.edf",
+            "label": 0
+        },
+        "20": {
+            "file": "raw/Subject20_2.edf",
+            "label": 1
+        },
+        "21": {
+            "file": "raw/Subject21_2.edf",
+            "label": 0
+        },
+        "22": {
+            "file": "raw/Subject22_2.edf",
+            "label": 0
+        },
+        "23": {
+            "file": "raw/Subject23_2.edf",
+            "label": 1
+        },
+        "24": {
+            "file": "raw/Subject24_2.edf",
+            "label": 1
+        },
+        "25": {
+            "file": "raw/Subject25_2.edf",
+            "label": 1
+        },
+        "26": {
+            "file": "raw/Subject26_2.edf",
+            "label": 1
+        },
+        "27": {
+            "file": "raw/Subject27_2.edf",
+            "label": 1
+        },
+        "28": {
+            "file": "raw/Subject28_2.edf",
+            "label": 1
+        },
+        "29": {
+            "file": "raw/Subject29_2.edf",
+            "label": 1
+        },
+        "30": {
+            "file": "raw/Subject30_2.edf",
+            "label": 0
+        },
+        "31": {
+            "file": "raw/Subject31_2.edf",
+            "label": 1
+        },
+        "32": {
+            "file": "raw/Subject32_2.edf",
+            "label": 1
+        },
+        "33": {
+            "file": "raw/Subject33_2.edf",
+            "label": 1
+        },
+        "34": {
+            "file": "raw/Subject34_2.edf",
+            "label": 1
+        },
+        "35": {
+            "file": "raw/Subject35_2.edf",
+            "label": 1
+        }
+    }
+}
