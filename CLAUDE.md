@@ -21,11 +21,17 @@ python profile_model.py
 # patched raw signal for raw_* features); training_params.finetune.split picks intra_subject / inter_subject
 python train_finetune.py --config config/config.json
 
-# Post-training checker (checkpoint -> topo/PSD/attn snapshot per subject;
-# base config auto-derived from the checkpoint's output/<model>/artifacts/config.json,
-# config/analysis.json is a small overlay; viz/extract.py, panels.py, timeseries.py,
-# topomap.py are shared primitives it and model/base_checker.py both call — not run directly)
-python check_model.py --config config/analysis.json --checkpoint <path>
+# Post-training checker, PRETRAIN stage (checkpoint -> topo/PSD/attn snapshot per subject,
+# plus cross-dataset codebook/vocab diagnostics; base config auto-derived from the
+# checkpoint's output/<model>/artifacts/config.json, config/analysis.json is a small
+# overlay; viz/extract.py, panels.py, timeseries.py, topomap.py are shared primitives it
+# and model/base_checker.py both call — not run directly)
+python analysis_pretrain.py --config config/analysis.json --checkpoint <path>
+
+# Post-training checker, FINETUNE stage (checkpoint -> per-class correct/wrong snapshot
+# pairs; --base-config is required, a finetune run's artifacts/config_<timestamp>.json
+# has no fixed name to auto-derive)
+python analysis_finetune.py --config <overlay.json> --base-config <path/to/artifacts/config.json> --checkpoint <head.pth>
 
 # Compile raw datasets into per-subject bandpass+resample-baked .npz caches (run once, or
 # after changing sample_freq/bandpass_filter — see config/compile.json, docs/agents/adding-a-dataset.md).
@@ -118,7 +124,7 @@ Key fields:
 - `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — used by `train_pretrain.py` (masking applied only in the masked phase)
 - `training_params.pretrain`: `model_name` (output dir), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields
 - `dataset_params.finetune` (exactly one dataset per run) / `training_params.finetune`: `model_name`, `pretrained_checkpoint`, `learning_rate`, `min_learning_rate`, `weight_decay`, `epochs`, `warmup_epochs`, `batch_size`, `device`, `seed`, and the `split` block — `{"mode": "intra_subject", "n_folds": k}` (per-subject k-fold over that subject's own trials) or `{"mode": "inter_subject", ...}` with exactly one of `n_folds` (subject k-fold; k = number of subjects is LOSO) or `eval_subjects` (list, or dict of named groups), plus optional `train_subjects` and `seed`. Old keys (`split_mode`, `cv_folds`, `train_val_split`, `freeze_backbone`, `backbone_lr_mult`) are gone; see `docs/superpowers/plans/2026-09-21-finetune-restructure-c-train-finetune.md`
-- `training_params.visualize_params`: diagnostic/plotting-only params, no effect on training data — `cmap` (matplotlib colormap for topomap/PSD panels), `fft_resolution` (Hz/bin for check_model.py's diagnostic PSD panels — `model/base_checker.py`/`model/MeSAE/plugin.py`'s `n_fft = round(sample_freq / fft_resolution)`; the dead train-time `fft_patches` path in `IO/dataset.py` is unrelated and stays unwired), `psd_freq_range` (`[l, h]` or `null` — overrides the PSD panel's plotted frequency range independent of `bandpass_filter`; `null` falls back to `bandpass_filter`'s `l_freq`/`h_freq`), `bands` (Delta/Theta/Alpha/Beta/Gamma `[lo, hi]` edges for the band-filtered reconstruction time-series panel, `viz/timeseries.py`'s `_canonical_bands` — each band is still clipped to `bandpass_filter`'s range), plus per-mode `pretrain`/`finetune` sub-keys (`targets`, `every_n_epochs`)
+- `training_params.visualize_params`: diagnostic/plotting-only params, no effect on training data — `cmap` (matplotlib colormap for topomap/PSD panels), `fft_resolution` (Hz/bin for analysis_pretrain.py's/analysis_finetune.py's diagnostic PSD panels — `model/base_checker.py`/`model/MeSAE/plugin.py`'s `n_fft = round(sample_freq / fft_resolution)`; the dead train-time `fft_patches` path in `IO/dataset.py` is unrelated and stays unwired), `psd_freq_range` (`[l, h]` or `null` — overrides the PSD panel's plotted frequency range independent of `bandpass_filter`; `null` falls back to `bandpass_filter`'s `l_freq`/`h_freq`), `bands` (Delta/Theta/Alpha/Beta/Gamma `[lo, hi]` edges for the band-filtered reconstruction time-series panel, `viz/timeseries.py`'s `_canonical_bands` — each band is still clipped to `bandpass_filter`'s range), plus per-mode `pretrain`/`finetune` sub-keys (`targets`, `every_n_epochs`)
 
 ### Outputs
 
