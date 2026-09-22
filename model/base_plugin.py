@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Callable, Optional, Type
 
 from model.base_trainer import BaseTrainer
-from model.base_checker import BaseEpochChecker
 from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 
@@ -20,7 +19,6 @@ class BasePlugin:
     build: Callable            # (bp: dict, num_channels: int) -> nn.Module, the pretrain backbone
     finetune_cls: Callable     # (backbone, num_channels, num_classes, **finetune params) -> classifier
     trainer_cls: Type[BaseTrainer]
-    checker_cls: Type[BaseEpochChecker]
     plotter_cls: Type[BasePlotter]
     # cross-dataset codebook/vocab diagnostics (analysis_pretrain.py --analysis codebook only, see
     # model/base_codebook_checker.py) — optional, None until a model implements it.

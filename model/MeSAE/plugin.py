@@ -10,48 +10,17 @@ import torch
 from model.MeSAE.MeSAE import MeSAEPretrain, build_finetune
 from model.MeSAE.MeSAE_modules import overlap_add_patches
 from model.base_trainer import BaseTrainer
-from model.base_checker import BaseEpochChecker
 from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
-from tools.viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch,
-                          extract_flat_stamp_gallery, extract_filter_spectra)
-from tools.viz.panels import (plot_stamp_by_patch,
-                         plot_stamp_gallery, plot_event_stamp_dynamics)
+from tools.viz.extract import extract_flat_stamp_psd_by_patch, extract_flat_stamp_gallery
+from tools.viz.panels import plot_event_stamp_dynamics
 from tools.viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
                            plot_stamp_identity_consistency, plot_fingerprint_similarity,
                            plot_pool_energy_share, plot_stamp_energy_rank,
                            plot_stamp_phase_consistency, plot_topography_distance,
                            plot_pool_ablation, plot_pool_label_probe)
 from IO.preprocessing import slice_patches
-
-
-@torch.no_grad()
-def _run_reconstruction_sae(model, dataset, trial_idx, device):
-    """Always runs unmasked (bool_masked_pos not passed) for a clean reconstruction
-    snapshot, regardless of whether the model is currently in the Masked training stage."""
-    x_patches, coords, _, time_indices, _, _, valid_channels = dataset[trial_idx]
-    C, N, L = x_patches.shape
-    pp = dataset.base_dataset.config['preprocess_params']
-    fs = pp['sample_freq']
-    stride = pp.get('patch_stride', L)
-
-    x_in      = x_patches.unsqueeze(0).to(device)
-    coords_in = coords.unsqueeze(0).to(device)
-    t_in      = time_indices.unsqueeze(0).to(device)
-    vc_in     = valid_channels.unsqueeze(0).to(device)
-
-    out = model(x_in, coords=coords_in, time_idx=t_in, valid_channels=vc_in)
-    raw_stitched   = overlap_add_patches(x_patches.to(device), stride)     # [C, T]
-    recon_stitched = overlap_add_patches(out.recon[0], stride)             # [C, T]
-    T_total = raw_stitched.shape[-1]
-
-    return {
-        'raw':    raw_stitched.cpu().numpy(),
-        'recon':  recon_stitched.cpu().numpy(),
-        'coords': coords.numpy(),
-        'T': T_total, 'N': N, 'L': L, 'fs': fs,
-    }
 
 
 def build_model(bp, num_channels):
@@ -127,146 +96,6 @@ class MeSAETrainer(BaseTrainer):
         metrics['k_eff'] = out.k_eff.item() if hasattr(out.k_eff, 'item') else float(out.k_eff)
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
-
-
-class MeSAEChecker(BaseEpochChecker):
-    unit_label = 'Stamp'
-    # Flat-token StampBank has no cross-channel pool left to produce a channel-attention
-    # map from (see MeSAE_modules.StampBank class docstring) — the topo_psd_by_stamp panel
-    # (_render_topo_psd override below) now covers per-stamp channel topography instead.
-    has_attn_topo = False
-
-    def compute_unit_colors(self, model, out):
-        """red = shared stamp (always-on, structural). black = routed stamp. Restricted to
-        stamps actually used somewhere in this trial, capped at 100 (see
-        MeSAEPretrain.used_stamp_ids) — with n_stamps=800 and hard top-k selection, showing
-        every stamp regardless of whether this trial ever touched it is mostly noise, and
-        the per-patch top-k axis has no stable cross-patch identity to color consistently
-        in the first place (see docs/adr/0009)."""
-        used_ids = model.used_stamp_ids(out, max_stamps=100)
-        colors = ['red' if i >= model.n_routed_stamps else 'black' for i in used_ids.tolist()]
-        return colors, used_ids
-
-    def extract_psd(self, model, x_in, c_in, t_in, vc_in):
-        return extract_flat_stamp_psd(model, x_in, c_in, t_in, vc_in)
-
-    def extract_spectra(self, model, x_in, c_in, t_in, vc_in, fs, freq_resolution):
-        # Unreachable while has_attn_topo=False (its only caller, _render_stamp_panel, is
-        # gated off in base_checker.py) — still points at MeSAE's pooled-channel version,
-        # which would hit the same missing-_pool_channels crash extract_psd used to if
-        # this ever gets called. Needs the same flat-token treatment before has_attn_topo
-        # could safely flip back on.
-        return extract_filter_spectra(model, x_in, c_in, t_in, vc_in, fs=fs, freq_resolution=freq_resolution)
-
-    def run_reconstruction(self, model, dataset, trial_idx, device):
-        return _run_reconstruction_sae(model, dataset, trial_idx, device)
-
-    def _render_topo_psd(self, bundle, pos2d, viz_dir, subject_id, trial_idx, epoch_tag,
-                          tagged_epoch_tag, cmap, fs, l_freq, h_freq, psd_ch_x, importance,
-                          fft_resolution=0.2):
-        """Overrides BaseEpochChecker's default (per-stamp trial-wide dedup, topo_psd_filter.png)
-        with two panels instead of the base's one:
-        - stamp_by_patch.png — the real per-patch grid (every patch_stride-th patch's
-          own union of stamps its C channels individually selected, zero-filled per
-          channel that didn't pick a given displayed stamp — see
-          viz.extract.extract_flat_stamp_psd_by_patch). The trial-wide dedup can't tell
-          "this stamp fired on 1 patch" from "fired on every patch" apart; the per-patch
-          grid can.
-        - stamp_gallery.png — the whole-trial Raw/Full-Recon view plus every stamp used
-          SOMEWHERE in this trial (trial-wide dedup, see
-          viz.extract.extract_flat_stamp_gallery), the piece the base default's
-          topo_psd_filter.png would have covered — split into its own file rather than
-          folded into stamp_by_patch's header, since it's a different (trial-wide, not
-          per-patch) view. psd_ch_x/importance (from extract_psd, via _render_snapshot)
-          are still computed upstream since _render_snapshot uses that call to gate
-          whether to attempt this panel at all, but this method recomputes its own
-          (used_ids-carrying) copy via extract_flat_stamp_gallery rather than reusing
-          those — see that function's docstring for why."""
-        model = bundle.psd_model
-        grid = extract_flat_stamp_psd_by_patch(
-            model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
-            fs=fs, freq_resolution=fft_resolution, patch_stride=5)
-
-        # Same raw/recon full-trial FFT as the base default, see BaseEpochChecker._render_topo_psd
-        # AND its _compute_spectra: n_fft here MUST equal grid.freqs' own n_fft (extract_flat_
-        # stamp_psd_by_patch's, patch_len-driven, effectively round(fs/fft_resolution) — the `band`
-        # mask below is built from grid.freqs and applied to psd_raw/psd_recon too). Previously this
-        # used max(T, round(fs/fft_resolution)) — a real (assemble_trials=False) trial longer than
-        # that target gave psd_raw/psd_recon a bigger n_fft than grid.freqs, and `psd_raw[:, band]`
-        # crashed ("boolean index did not match... size of axis is 751 but ... axis is 501"). Same
-        # bug, independently duplicated here — BaseEpochChecker's own _compute_spectra was fixed
-        # first, but MeSAEChecker overrides _render_topo_psd entirely, so that fix never covered
-        # this method. rfft's `n=` transparently zero-pads short trials, truncates long ones.
-        raw_t   = bundle.raw_t[0].numpy()
-        recon_t = bundle.recon_t[0].numpy()
-        T = raw_t.shape[-1]
-        n_fft = int(round(fs / fft_resolution)) if fs else T
-
-        def _demean_hann_rfft_np(x):
-            x = x - x.mean(axis=-1, keepdims=True)
-            win = np.hanning(x.shape[-1])
-            return np.fft.rfft(x * win, n=n_fft, axis=-1)
-
-        fft_raw   = _demean_hann_rfft_np(raw_t)
-        fft_recon = _demean_hann_rfft_np(recon_t)
-        psd_raw   = fft_raw.real**2   + fft_raw.imag**2
-        psd_recon = fft_recon.real**2 + fft_recon.imag**2
-
-        # grid.freqs and raw/recon's freqs share the same n_fft target (freq_resolution=0.2
-        # drives both, see extract_flat_stamp_psd_by_patch), so one shared band-crop applies.
-        freqs = grid.freqs
-        band = None
-        if l_freq is not None and h_freq is not None:
-            band = (freqs >= l_freq) & (freqs <= h_freq)
-            grid.freqs = freqs[band]
-            grid.psd = grid.psd[:, :, :, band]
-            grid.recon_psd = grid.recon_psd[:, :, band]
-            grid.raw_psd = grid.raw_psd[:, :, band]
-            psd_raw, psd_recon = psd_raw[:, band], psd_recon[:, band]
-
-        raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
-        recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
-
-        # Real-trial event marker (see BaseEpochChecker._lookup_event_onset): convert the
-        # onset from seconds to a displayed-COLUMN index. grid.patch_ids holds the raw
-        # patch-n each displayed column represents; patch n's own start time is
-        # n * model.patch_stride / fs (same convention slice_patches/time_indices use) --
-        # searchsorted finds the first displayed column at or after the onset, i.e. the
-        # pre/post boundary. None (the normal case: an assembled continuous window has no
-        # single event) draws nothing, see plot_stamp_by_patch's onset_col docstring.
-        onset_col = None
-        if bundle.event_onset_sec is not None and fs:
-            onset_patch_n = bundle.event_onset_sec * fs / model.patch_stride
-            onset_col = int(np.searchsorted(grid.patch_ids, onset_patch_n))
-
-        out_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_stamp_by_patch.png")
-        plot_stamp_by_patch(
-            out_path, pos2d, grid, cmap=cmap,
-            subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
-            unit_label=self.unit_label, n_routed=model.n_routed_stamps,
-            signed_stamps=True,  # grid.topo is signed amp (mixing columns), see extract_flat_stamp_psd_by_patch
-            onset_col=onset_col,
-        )
-        print(f"  [epoch] -> {out_path}")
-
-        (used_ids, gal_importance, psd_ch_x_g, psd_x_g, gal_freqs, phase_ch_x_g,
-         waveforms_g, iclabel_probs) = extract_flat_stamp_gallery(
-            model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
-            fs=fs, freq_resolution=fft_resolution)
-        if band is not None:
-            gal_freqs = gal_freqs[band]
-            psd_x_g = psd_x_g[:, :, band]
-
-        gallery_path = os.path.join(viz_dir, f"sub{subject_id}_trial{trial_idx}{epoch_tag}_stamp_gallery.png")
-        plot_stamp_gallery(
-            gallery_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
-            psd_ch_x_g, psd_x_g, gal_freqs, gal_importance, cmap=cmap,
-            phase_ch_x=phase_ch_x_g, waveforms=waveforms_g,
-            subject_id=subject_id, trial_idx=trial_idx, epoch_tag=tagged_epoch_tag,
-            unit_label=self.unit_label, unit_ids=used_ids, n_routed=model.n_routed_stamps,
-            iclabel_probs=iclabel_probs,
-        )
-        print(f"  [epoch] -> {gallery_path}")
 
 
 class MeSAECodebookChecker(BaseCodebookChecker):
@@ -880,7 +709,6 @@ PLUGIN = BasePlugin(
     build=build_model,
     finetune_cls=build_finetune,
     trainer_cls=MeSAETrainer,
-    checker_cls=MeSAEChecker,
     plotter_cls=MeSAEPlotter,
     codebook_checker_cls=MeSAECodebookChecker,
 )
