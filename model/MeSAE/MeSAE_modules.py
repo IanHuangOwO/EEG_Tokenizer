@@ -1417,13 +1417,52 @@ def _selfcheck_head_modules():
     t = torch.randn(B, N, 64, S)
     assert spatial_mix(lin, t, 2).shape == (B, N, K, S) and spatial_mix(None, t, 2) is t
     assert [n for n, _ in ltp.named_parameters()] == ['p', 'q'] and [n for n, _ in ev.named_parameters()] == ['p', 'q']
+
+    # -- features list resolution (Task 1) --
+    base = dict(num_channels=22, num_stamps=25, sample_freq=200.0, patch_len=50, patch_stride=50)
+    old_style = resolve_head_config(dict(feature='stamp_power', spatial_k=8, time_pool='learned',
+                                          time_rank=2, dropout=0.5), num_patches=16, **base)
+    assert old_style['features'] == ['stamp_power'], old_style['features']
+    new_style = resolve_head_config(dict(features=['stamp_power'], spatial_k=8, time_pool='learned',
+                                          time_rank=2, dropout=0.5), num_patches=16, **base)
+    assert feature_dim(old_style) == feature_dim(new_style)
+    both_raw_stamp = resolve_head_config(dict(features=['stamp_power', 'raw_band'], spatial_k=8,
+                                               time_pool='flat', dropout=0.5), num_patches=16, **base)
+    assert needs_stamp(both_raw_stamp) and needs_raw(both_raw_stamp)
+    assert feature_dim(both_raw_stamp) == _entry_dim(both_raw_stamp, 'stamp_power') + _entry_dim(both_raw_stamp, 'raw_band')
+    with_branch = resolve_head_config(dict(features=['stamp_power', 'phase_advance', 'evoked'],
+                                           spatial_k=8, time_pool='learned', time_rank=2,
+                                           evoked_rank=2, dropout=0.5), num_patches=16, **base)
+    assert needs_stamp(with_branch) and not needs_raw(with_branch)
+    try:
+        resolve_head_config(dict(features=['phase_advance'], spatial_k=8, dropout=0.5), num_patches=16, **base)
+        assert False, "phase_advance with no stamp primary should have raised"
+    except ValueError:
+        pass
+    try:
+        resolve_head_config(dict(features=['stamp_power', 'stamp_power'], spatial_k=8, dropout=0.5),
+                             num_patches=16, **base)
+        assert False, "duplicate feature entry should have raised"
+    except ValueError:
+        pass
+    overridden = resolve_head_config(dict(features=['stamp_power', 'raw_band'], spatial_k=8,
+                                          time_pool='learned', time_rank=2,
+                                          overrides={'raw_band': {'time_pool': 'flat'}}, dropout=0.5),
+                                     num_patches=16, **base)
+    assert _entry_cfg(overridden, 'stamp_power')['time_pool'] == 'learned'
+    assert _entry_cfg(overridden, 'raw_band')['time_pool'] == 'flat'
+
     print('head_modules self-check OK')
 
 
 BANDS = ((8.0, 13.0), (13.0, 30.0))   # mu, beta
-FEATURES = ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal')
-_HEAD_DEFAULTS = dict(feature='stamp_power', spatial_k=8, time_pool='learned', time_rank=2,
-                      window=None, phase_advance=False, evoked_rank=0, dropout=0.5)
+FEATURES_ALL = ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal', 'phase_advance', 'evoked')
+_PRIMARY_FEATURES = ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal')
+_STAMP_ENTRIES = frozenset({'stamp_power', 'stamp_band', 'phase_advance', 'evoked'})
+_RAW_ENTRIES = frozenset({'raw_band', 'raw_signal'})
+_ENTRY_OVERRIDE_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank')
+_HEAD_DEFAULTS = dict(features=['stamp_power'], spatial_k=8, time_pool='learned', time_rank=2,
+                      window=None, evoked_rank=0, overrides={}, dropout=0.5)
 
 
 def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint):
@@ -1434,33 +1473,92 @@ def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint)
             'backbone_checkpoint': backbone_checkpoint}
 
 
+def _normalize_features(cfg):
+    """In-place: old bare `feature: "<name>"` (single string, pre-list-features configs
+    and every existing on-disk checkpoint's baked-in head_config) -> `features: ["<name>"]`.
+    Called at both places a head config can enter the system unresolved: resolve_head_config
+    (fresh training-time config) and FinetuneModel.__init__ (an already-resolved config
+    loaded straight from an old checkpoint's head_config, which never passes through
+    resolve_head_config again) -- see FinetuneModel.from_checkpoint in MeSAE.py. Raises if
+    both keys are present (ambiguous, never legal)."""
+    has_old, has_new = 'feature' in cfg, 'features' in cfg
+    if has_old and has_new:
+        raise ValueError("head config has both 'feature' (old) and 'features' (new) -- use only 'features'")
+    if has_old:
+        cfg['features'] = [cfg.pop('feature')]
+
+
 def resolve_head_config(ft_params, **derived):
     """Head config = defaults + user keys + derived shapes, validated (see the plan's contract)."""
     user = dict(ft_params)
+    _normalize_features(user)
     unknown = set(user) - set(_HEAD_DEFAULTS)
     if unknown:
         raise ValueError(f"unknown head keys {sorted(unknown)}; valid: {sorted(_HEAD_DEFAULTS)}")
     cfg = {**_HEAD_DEFAULTS, **user, **derived}
-    f, tp = cfg['feature'], cfg['time_pool']
-    if f not in FEATURES:
-        raise ValueError(f"feature must be one of {FEATURES}, got {f!r}")
+    feats, tp = cfg['features'], cfg['time_pool']
+    if not feats:
+        raise ValueError("features must be a non-empty list")
+    if len(feats) != len(set(feats)):
+        raise ValueError(f"features has duplicate entries: {feats}")
+    bad = [f for f in feats if f not in FEATURES_ALL]
+    if bad:
+        raise ValueError(f"features entries must be one of {FEATURES_ALL}, got {bad}")
+    primaries = [f for f in feats if f in ('stamp_power', 'stamp_band')]
+    for branch in ('phase_advance', 'evoked'):
+        if branch in feats and len(primaries) != 1:
+            raise ValueError(f"'{branch}' requires exactly one of stamp_power/stamp_band in "
+                              f"features, got primaries={primaries}")
     if tp not in ('flat', 'learned', 'window', 'none'):
         raise ValueError(f"time_pool must be flat|learned|window|none, got {tp!r}")
-    if f == 'raw_signal' and tp != 'none':
-        raise ValueError("feature='raw_signal' requires time_pool='none'")
-    if (cfg['phase_advance'] or cfg['evoked_rank']) and f != 'stamp_power':
-        raise ValueError("phase_advance/evoked_rank require feature='stamp_power'")
-    if tp == 'window' and not cfg['window']:
-        raise ValueError("time_pool='window' requires window=[lo, hi]")
-    if tp == 'learned' and int(cfg['time_rank']) < 1:
-        raise ValueError("time_pool='learned' requires time_rank >= 1")
-    if cfg['evoked_rank'] and tp == 'window':
-        raise ValueError("evoked_rank needs the full patch axis, not time_pool='window'")
-    if (f == 'raw_signal' or tp in ('learned', 'none') or cfg['evoked_rank']) and cfg.get('num_patches') is None:
-        raise ValueError("this configuration needs num_patches (trial length in patches)")
     if cfg['spatial_k'] not in (None, 0) and not (isinstance(cfg['spatial_k'], int) and cfg['spatial_k'] > 0):
         raise ValueError(f"spatial_k must be a positive int, or null/0 for no spatial mixing (channel concat), got {cfg['spatial_k']!r}")
+    overrides = cfg.get('overrides') or {}
+    bad_ov = set(overrides) - set(feats)
+    if bad_ov:
+        raise ValueError(f"overrides keys must name an entry present in features, got {sorted(bad_ov)}")
+    needs_np = False
+    for name in feats:
+        e = _entry_cfg(cfg, name)
+        etp = e['time_pool']
+        if etp not in ('flat', 'learned', 'window', 'none'):
+            raise ValueError(f"features['{name}'] effective time_pool must be flat|learned|window|none, got {etp!r}")
+        if name == 'raw_signal' and etp != 'none':
+            raise ValueError(f"features entry 'raw_signal' requires effective time_pool='none', got {etp!r}")
+        if name == 'evoked' and etp == 'window':
+            raise ValueError("features entry 'evoked' needs the full patch axis, not time_pool='window'")
+        if etp == 'window' and not e['window']:
+            raise ValueError(f"features['{name}'] effective time_pool='window' requires a window=[lo, hi]")
+        if etp == 'learned' and int(e['time_rank']) < 1:
+            raise ValueError(f"features['{name}'] effective time_pool='learned' requires time_rank >= 1")
+        if name == 'evoked' and int(e['evoked_rank']) < 1:
+            raise ValueError("features entry 'evoked' requires evoked_rank >= 1 (effective)")
+        if name == 'raw_signal' or etp in ('learned', 'none') or name == 'evoked':
+            needs_np = True
+    if needs_np and cfg.get('num_patches') is None:
+        raise ValueError("this configuration needs num_patches (trial length in patches)")
     return cfg
+
+
+def _entry_cfg(cfg, name):
+    """Effective per-entry time_pool/time_rank/window/evoked_rank (top-level default,
+    overrides[name] wins) plus the shape/derived keys every entry needs -- single source of
+    truth for both FeatureHead's submodule construction (Task 2) and feature_dim below."""
+    eff = {k: cfg[k] for k in _ENTRY_OVERRIDE_KEYS}
+    eff.update((cfg.get('overrides') or {}).get(name, {}))
+    for k in ('num_patches', 'num_stamps', 'sample_freq', 'patch_stride', 'patch_len', 'num_channels'):
+        eff[k] = cfg.get(k)
+    return eff
+
+
+def needs_stamp(cfg):
+    """Whether any entry in cfg['features'] needs the frozen-backbone stamp extractor."""
+    return any(f in _STAMP_ENTRIES for f in cfg['features'])
+
+
+def needs_raw(cfg):
+    """Whether any entry in cfg['features'] needs the compiled raw signal."""
+    return any(f in _RAW_ENTRIES for f in cfg['features'])
 
 
 def spatial_width(cfg):
@@ -1468,15 +1566,23 @@ def spatial_width(cfg):
     return cfg['spatial_k'] or cfg['num_channels']
 
 
-def feature_dim(cfg):
-    """Width of the feature vector entering the readout."""
-    K, N, f = spatial_width(cfg), cfg.get('num_patches'), cfg['feature']
-    if f == 'raw_signal':
+def _entry_dim(cfg, name):
+    """Feature-vector width contributed by one features[] entry."""
+    K = spatial_width(cfg)
+    e = _entry_cfg(cfg, name)
+    if name == 'raw_signal':
         pool = max(1, round(cfg['sample_freq'] / 20))
-        return K * (((N - 1) * cfg['patch_stride'] + cfg['patch_len']) // pool)
-    F_ = cfg['num_stamps'] if f == 'stamp_power' else len(BANDS)
-    width = (N if cfg['time_pool'] == 'none' else 1) * K * F_
-    return width + 2 * K * F_ * (bool(cfg['phase_advance']) + bool(cfg['evoked_rank']))
+        return K * (((cfg['num_patches'] - 1) * cfg['patch_stride'] + cfg['patch_len']) // pool)
+    if name in ('phase_advance', 'evoked'):
+        return 2 * K * cfg['num_stamps']   # z_re/z_im (or a/b) over every alive stamp
+    F_ = cfg['num_stamps'] if name == 'stamp_power' else len(BANDS)
+    N = cfg.get('num_patches')
+    return (N if e['time_pool'] == 'none' else 1) * K * F_
+
+
+def feature_dim(cfg):
+    """Width of the concatenated feature vector entering the readout."""
+    return sum(_entry_dim(cfg, name) for name in cfg['features'])
 
 
 class StampExtractor(nn.Module):
