@@ -1,0 +1,83 @@
+{
+    "data_metadata": {
+        "dataset_name": "BNCI2014008",
+        "dataset_info": {
+            "source_url": "http://bnci-horizon-2020.eu/database/data-sets/008-2014",
+            "file_format": "MATLAB (.mat)",
+            "description": "8 subjects with ALS, 8ch EEG, P300 matrix speller (6x6, row/column intensification) target-vs-non-target classification.",
+            "task_type": "P300 (Event-Related Potential)",
+            "reference": "Riccio A, Simione L, Schettini F, Pizzimenti A, Inghilleri M, Belardinelli MO, Mattia D, Cincotti F. Attention and P300-based BCI performance in people with amyotrophic lateral sclerosis. Front Hum Neurosci. 2013;7:732.",
+            "contact": "BNCI Horizon 2020, http://bnci-horizon-2020.eu",
+            "notes": "Real per-flash target/non-target label from `y`'s rising edges (see this file's module docstring). Epoch window hardcoded in loader.py to -0.2s/+0.8s (P300 scale, matches Table 14's 1.0s trial length exactly), not compile.json's global pre/post_event_seconds (tuned for ~5s motor-imagery trials). Clinical metadata (age/gender/ALSfrs-R/onset site) present in the raw .mat but not carried into this pipeline."
+        },
+        "acquisition": {
+            "sample_frequency": 256,
+            "window_size_seconds": 1.0,
+            "num_subjects": 8
+        },
+        "targets": {
+            "count": 2,
+            "type": "p300",
+            "0": {
+                "label": "non-target"
+            },
+            "1": {
+                "label": "target"
+            }
+        },
+        "channels": {
+            "count": 8,
+            "system": "10-20 International System (10-10)",
+            "1": {
+                "label": "Fz"
+            },
+            "2": {
+                "label": "Cz"
+            },
+            "3": {
+                "label": "Pz"
+            },
+            "4": {
+                "label": "Oz"
+            },
+            "5": {
+                "label": "P3"
+            },
+            "6": {
+                "label": "P4"
+            },
+            "7": {
+                "label": "PO7"
+            },
+            "8": {
+                "label": "PO8"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "file": "raw/A01.mat"
+        },
+        "2": {
+            "file": "raw/A02.mat"
+        },
+        "3": {
+            "file": "raw/A03.mat"
+        },
+        "4": {
+            "file": "raw/A04.mat"
+        },
+        "5": {
+            "file": "raw/A05.mat"
+        },
+        "6": {
+            "file": "raw/A06.mat"
+        },
+        "7": {
+            "file": "raw/A07.mat"
+        },
+        "8": {
+            "file": "raw/A08.mat"
+        }
+    }
+}
