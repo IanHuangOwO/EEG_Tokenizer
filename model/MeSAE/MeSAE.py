@@ -10,7 +10,8 @@ from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, St
                                          spatial_mix, FlatTimePool, LearnedTimePool,
                                          EvokedBranch, phase_advance, StampExtractor, FeatureHead,
                                          resolve_head_config, make_head_checkpoint,
-                                         needs_stamp, needs_raw, _normalize_features)
+                                         needs_stamp, needs_raw, _normalize_features,
+                                         remap_old_head_state_dict)
 
 
 def _ema_update(buf, val, decay=0.99):
@@ -690,10 +691,14 @@ class FinetuneModel(nn.Module):
     def from_checkpoint(cls, backbone, ckpt):
         cfg = dict(ckpt['head_config'])
         channel_idx, keep = cfg.pop('channel_idx'), cfg.pop('keep')
+        old_primary = cfg.get('feature')   # capture before cls(...) -> __init__ -> _normalize_features pops it
         model = cls(backbone, cfg, channel_idx)
         if keep is not None and model.extractor.keep.tolist() != keep:
             raise ValueError("backbone's alive stamps differ from the checkpoint's head_config['keep']")
-        model.head.load_state_dict(ckpt['model_state_dict'])
+        sd = ckpt['model_state_dict']
+        if old_primary is not None:
+            sd = remap_old_head_state_dict(sd, old_primary)
+        model.head.load_state_dict(sd)
         return model
 
 

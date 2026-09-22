@@ -1470,6 +1470,30 @@ def _selfcheck_head_modules():
     out2 = head2({'stamp': stamp_in})
     assert out2.shape == (B_, 3), out2.shape
 
+    # -- old-checkpoint backward compat: flag folding + state_dict remap --
+    old_evoked_cfg = dict(feature='stamp_power', spatial_k=4, time_pool='learned', time_rank=2,
+                          phase_advance=False, evoked_rank=2, dropout=0.0)
+    _normalize_features(old_evoked_cfg)
+    assert old_evoked_cfg['features'] == ['stamp_power', 'evoked'], old_evoked_cfg['features']
+    assert 'phase_advance' not in old_evoked_cfg and 'feature' not in old_evoked_cfg
+    old_advance_cfg = dict(feature='stamp_power', spatial_k=4, time_pool='learned', time_rank=2,
+                           phase_advance=True, evoked_rank=0, dropout=0.0)
+    _normalize_features(old_advance_cfg)
+    assert old_advance_cfg['features'] == ['stamp_power', 'phase_advance'], old_advance_cfg['features']
+
+    old_style_head = FeatureHead(resolve_head_config(dict(feature='stamp_power', spatial_k=4,
+                                                          time_pool='learned', time_rank=2, dropout=0.0),
+                                                     num_patches=8, num_channels=6, num_classes=3,
+                                                     num_stamps=S, sample_freq=200.0, patch_len=50,
+                                                     patch_stride=50))
+    old_sd = {'spatial.weight': torch.randn(4, 6), 'time.p': torch.randn(2, S), 'time.q': torch.randn(2, 8),
+             'cls.0.weight': torch.randn(4 * S), 'cls.0.bias': torch.randn(4 * S),
+             'cls.0.running_mean': torch.zeros(4 * S), 'cls.0.running_var': torch.ones(4 * S),
+             'cls.0.num_batches_tracked': torch.tensor(0),
+             'cls.2.weight': torch.randn(3, 4 * S), 'cls.2.bias': torch.randn(3)}
+    remapped = remap_old_head_state_dict(old_sd, 'stamp_power')
+    old_style_head.load_state_dict(remapped)   # raises on any remaining key mismatch
+
     print('head_modules self-check OK')
 
 
@@ -1493,17 +1517,47 @@ def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint)
 
 def _normalize_features(cfg):
     """In-place: old bare `feature: "<name>"` (single string, pre-list-features configs
-    and every existing on-disk checkpoint's baked-in head_config) -> `features: ["<name>"]`.
-    Called at both places a head config can enter the system unresolved: resolve_head_config
-    (fresh training-time config) and FinetuneModel.__init__ (an already-resolved config
-    loaded straight from an old checkpoint's head_config, which never passes through
-    resolve_head_config again) -- see FinetuneModel.from_checkpoint in MeSAE.py. Raises if
-    both keys are present (ambiguous, never legal)."""
+    and every existing on-disk checkpoint's baked-in head_config) -> `features: ["<name>"]`,
+    folding the old separate `phase_advance` (bool) / `evoked_rank` (int, used as a flag)
+    keys into the list too -- old checkpoints always carry `phase_advance: false` even when
+    unused, so the pop-with-default handles both. `evoked_rank` itself is NOT popped: it
+    stays a valid key (the branch's rank), only its old flag-like "presence" role is now
+    expressed as `'evoked' in features` instead. Called at both places a head config can
+    enter the system unresolved: resolve_head_config (fresh training-time config) and
+    FinetuneModel.__init__ (an already-resolved config loaded straight from an old
+    checkpoint's head_config, which never passes through resolve_head_config again) -- see
+    FinetuneModel.from_checkpoint in MeSAE.py. Raises if both keys are present (ambiguous,
+    never legal)."""
     has_old, has_new = 'feature' in cfg, 'features' in cfg
     if has_old and has_new:
         raise ValueError("head config has both 'feature' (old) and 'features' (new) -- use only 'features'")
     if has_old:
-        cfg['features'] = [cfg.pop('feature')]
+        feats = [cfg.pop('feature')]
+        if cfg.pop('phase_advance', False):
+            feats.append('phase_advance')
+        if cfg.get('evoked_rank'):
+            feats.append('evoked')
+        cfg['features'] = feats
+
+
+def remap_old_head_state_dict(sd, primary):
+    """Old (pre-features-list) FeatureHead.state_dict() -> the new per-entry nn.ModuleDict
+    layout (Task 2). Old keys: 'spatial.*' and 'cls.*' unchanged; 'time.*' belonged to the
+    one primary feature -> 'entries.<primary>.time.*'; 'evoked.*' -> the new _EvokedEntry's
+    own EvokedBranch submodule -> 'entries.evoked.branch.*'; 'E_D'/'E_H' (stamp_band only)
+    -> 'entries.stamp_band.E_D'/'.E_H'. `primary` is the checkpoint's OLD `feature` value
+    (capture it before _normalize_features pops it -- see FinetuneModel.from_checkpoint)."""
+    new_sd = {}
+    for k, v in sd.items():
+        if k.startswith('time.'):
+            new_sd[f'entries.{primary}.{k}'] = v
+        elif k.startswith('evoked.'):
+            new_sd[f'entries.evoked.branch.{k[len("evoked."):]}'] = v
+        elif k in ('E_D', 'E_H'):
+            new_sd[f'entries.{primary}.{k}'] = v
+        else:
+            new_sd[k] = v
+    return new_sd
 
 
 def resolve_head_config(ft_params, **derived):
