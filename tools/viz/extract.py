@@ -529,7 +529,7 @@ def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     # is what used to leave most stamps unclassified. Those zeros were never part of the
     # source anyway. Lengths therefore differ per stamp, which viz.iclabel handles by
     # extracting features one stamp at a time.
-    from viz.iclabel import stamp_iclabel_probs
+    from tools.viz.iclabel import stamp_iclabel_probs
     D_all, H_all = model.stamps._template_tables()          # [n_stamps, L]
     N, K = sel.idx.shape
     L = D_all.shape[1]

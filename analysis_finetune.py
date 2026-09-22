@@ -92,7 +92,7 @@ if __name__ == '__main__':
     import copy
     import torch
     from IO.dataset import build_dataset_from_config
-    from analysis import _deep_merge, load_model, resolve_output_dir
+    from tools.analysis import _deep_merge, load_model, resolve_output_dir
 
     parser = argparse.ArgumentParser(description='Post-training EEG finetune checker (MeSAE)')
     parser.add_argument('--config',      required=True)

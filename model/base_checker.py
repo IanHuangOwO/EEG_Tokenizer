@@ -18,10 +18,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from viz.extract import PsdResult, SpectraResult
-from viz.topomap import project_coords_2d
-from viz.panels import plot_topo_psd_filter, plot_attn_topo as render_attn_topo, plot_stamp_panel
-from viz.timeseries import visualize_reconstruction
+from tools.viz.extract import PsdResult, SpectraResult
+from tools.viz.topomap import project_coords_2d
+from tools.viz.panels import plot_topo_psd_filter, plot_attn_topo as render_attn_topo, plot_stamp_panel
+from tools.viz.timeseries import visualize_reconstruction
 
 
 @dataclass

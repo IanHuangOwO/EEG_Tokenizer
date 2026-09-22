@@ -10,7 +10,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 
-from viz.topomap import draw_topomap, build_triangulation
+from tools.viz.topomap import draw_topomap, build_triangulation
 
 
 def plot_topo_psd_filter(out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
@@ -445,7 +445,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         # 7-class ICLabel distribution bar (see viz/iclabel.py, incl. its caveat) —
         # best class named in the title, its bar highlighted. Spans the block's full
         # width (both the topo and psd/phase sub-columns).
-        from viz.iclabel import ICLABEL_CLASSES
+        from tools.viz.iclabel import ICLABEL_CLASSES
         topo_col = block_col * 2
         ax = fig.add_subplot(gs[row, topo_col:topo_col + 2])
         if probs_q is None or not np.all(np.isfinite(probs_q)):

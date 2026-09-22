@@ -94,7 +94,7 @@ if __name__ == '__main__':
     import json
     import torch
     from IO.dataset import build_dataset_from_config
-    from analysis import (
+    from tools.analysis import (
         _deep_merge, load_model,
         select_subject_dataset, filter_config_to_subject, pick_trial, resolve_output_dir,
     )

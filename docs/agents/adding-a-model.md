@@ -69,7 +69,7 @@ def get_metrics(self, *detached_tensors):
     summarize (already .detach()'d by the caller)."""
 
 def enable_spatial(self):
-    """Turns on cross-channel mixing. Called at construction-time load (analysis/__init__.py
+    """Turns on cross-channel mixing. Called at construction-time load (tools/analysis/__init__.py
     load_model), at the start of train_tokenizer.py (BaseTrainer.on_tokenizer_start), and
     again at the start of train_pretrain.py (same hook, re-enabling after checkpoint load
     since this is a plain flag, not persisted in the state dict)."""
@@ -159,14 +159,14 @@ class MeXXXChecker(BaseEpochChecker):
     unit_label = 'Unit'  # or whatever this model calls its per-patch quantity
 
     def extract_psd(self, model, x_in, c_in, t_in, vc_in) -> PsdResult:
-        """Returns viz/extract.py's PsdResult(psd_ch_x, norms, affinity, importance) —
+        """Returns tools/viz/extract.py's PsdResult(psd_ch_x, norms, affinity, importance) —
         see extract_head_psd/extract_filter_psd for the shape contract. Reuse one of
         those if your forward pass matches (per-Unit decode -> per-channel activation
-        norm), or write a MeXXX-specific one in viz/extract.py returning the same
+        norm), or write a MeXXX-specific one in tools/viz/extract.py returning the same
         PsdResult dataclass."""
 
     def extract_spectra(self, model, x_in, c_in, t_in, vc_in, fs, freq_resolution) -> SpectraResult:
-        """Returns viz/extract.py's SpectraResult(psd [Q, C, F], freqs [F], importance [Q])."""
+        """Returns tools/viz/extract.py's SpectraResult(psd [Q, C, F], freqs [F], importance [Q])."""
 
     def run_reconstruction(self, model, dataset, trial_idx, device):
         return _run_reconstruction(model, dataset, trial_idx, device)

@@ -14,11 +14,11 @@ from model.base_checker import BaseEpochChecker
 from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
-from viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch,
+from tools.viz.extract import (extract_flat_stamp_psd, extract_flat_stamp_psd_by_patch,
                           extract_flat_stamp_gallery, extract_filter_spectra)
-from viz.panels import (plot_stamp_by_patch,
+from tools.viz.panels import (plot_stamp_by_patch,
                          plot_stamp_gallery, plot_event_stamp_dynamics)
-from viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
+from tools.viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
                            plot_stamp_identity_consistency, plot_fingerprint_similarity,
                            plot_pool_energy_share, plot_stamp_energy_rank,
                            plot_stamp_phase_consistency, plot_topography_distance,
@@ -557,8 +557,8 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         viz.codebook.plot_stamp_identity_consistency for the metric's construction (and
         the two biases it has to avoid)."""
         from collections import defaultdict
-        from viz.codebook import plot_stamp_identity_consistency
-        from viz.iclabel import ICLABEL_CLASSES
+        from tools.viz.codebook import plot_stamp_identity_consistency
+        from tools.viz.iclabel import ICLABEL_CLASSES
 
         # Keyed by (dataset, stamp id): channel-validity differs per dataset (e.g. Nakanishi2015
         # maps 8 of 64 channels, BETA_4s 58), so mixing columns from different datasets

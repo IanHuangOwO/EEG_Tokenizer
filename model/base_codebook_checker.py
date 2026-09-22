@@ -14,7 +14,7 @@ import random
 import numpy as np
 import torch
 
-from viz.codebook import (
+from tools.viz.codebook import (
     plot_usage_and_activity, plot_embedding_scatter_by_dataset, plot_embedding_scatter_by_target,
     plot_patch_similarity_hierarchy,
     plot_patch_position_consistency, plot_dataset_relation, plot_unit_freedom,
