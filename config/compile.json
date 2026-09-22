@@ -21,7 +21,8 @@
       "GraspAndLift_Test": { "dataset_path": "datas/GraspAndLift_Test" },
       "DEAP": { "dataset_path": "datas/DEAP" },
       "SRM_RestingState": { "dataset_path": "datas/SRM_RestingState" },
-      "SPIS": { "dataset_path": "datas/SPIS" }
+      "SPIS": { "dataset_path": "datas/SPIS" },
+      "ERP_Longitudinal": { "dataset_path": "datas/ERP_Longitudinal" }
     }
   }
 }

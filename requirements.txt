@@ -4,5 +4,6 @@ numpy
 pandas
 scikit-learn
 scipy
+h5py
 mne
 mne-icalabel==0.9.0
