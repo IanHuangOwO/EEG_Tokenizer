@@ -44,11 +44,11 @@ induced (and, if enabled, advance) features.
 **Known, pre-declared expectation (not an oversight):**
 - ADR 0014 itself calls this step "needed for ERP; likely neutral on MI" (ablation
   ladder), and the stamp-relevance analysis found inter-trial phase coherence at or below
-  the bias floor for every stamp on BCICIV2a — i.e. no phase-locked stamps for MI.
+  the bias floor for every stamp on BNCI2014001 — i.e. no phase-locked stamps for MI.
 - The branch adds `2·K·S` = 400 features → head input width `K·S·3` = **600**, the same
   regime C3 overfit in (train acc 0.9255, significantly worse validation). No group
   penalty is implemented (C0/C1/C3 precedent; `dropout: 0.5` alone).
-- So the most likely outcome on BCICIV2a MI is **no gain or a C3-like regression** — a
+- So the most likely outcome on BNCI2014001 MI is **no gain or a C3-like regression** — a
   measurement of "the cost of 400 extra features carrying no MI signal," not of evoked
   information. That is an acceptable, honest result to record; it is *not* a reason to
   change dropout/epochs to rescue the number. **The real evaluation of `2b` is ERP

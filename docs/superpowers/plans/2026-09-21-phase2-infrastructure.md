@@ -113,12 +113,12 @@ balanced_acc on the model as it was at each of those epochs; `last` = final epoc
   `_resolve_*`, `run_training_loop`, `validate_one_epoch`, `FinetuneCollate`, `main`).
 - [ ] **Step 2:** Implement as above.
 - [ ] **Step 3: Smoke (GPU, short).** Throwaway configs in the scratchpad (NOT
-  `config/config.json`), BCICIV2b, raw head (`input raw`, `pool_channel spatial:8`,
+  `config/config.json`), BNCI2014004, raw head (`input raw`, `pool_channel spatial:8`,
   `pool_time trial`, `dropout 0`), `epochs 12`, `warmup_epochs 1`, `batch_size 16`:
   (a) `subject_group_runs` = one run `{"name": "smoke", "train": [1,2,3,4], "eval": {"a":
   [5,6], "b": [7]}}`; confirm exit 0, `artifacts/group_eval.json` has groups a and b with
   per-subject `tail`/`last`/`n_trials` and group means, and the run still logs the normal
-  `--- [BCICIV2b_smoke] Epoch ...` blocks; (b) `subject_kfold: 3` on 9 subjects
+  `--- [BNCI2014004_smoke] Epoch ...` blocks; (b) `subject_kfold: 3` on 9 subjects
   (`epochs 12`): three runs `fold0..fold2`, each eval group `heldout` with 3 disjoint subjects
   covering all 9 across folds; (c) error cases: both/neither of the two config keys,
   overlapping train/eval subjects → clear exceptions. Also confirm an existing mode still

@@ -110,7 +110,7 @@ head is trained on them.
 - **Uniform channels:** `CachedStampDataset` asserts that all subjects share `channel_idx` and
   `keep`; only the real channels are stored.
 - **Size:** about 0.25 MB per 62-channel trial in fp16 (EEGMMIdb about 10 GB, BETA_4s about
-  2 GB, BCICIV2a about 0.8 GB). It lives under `output/`, which is already git-ignored, and is
+  2 GB, BNCI2014001 about 0.8 GB). It lives under `output/`, which is already git-ignored, and is
   regenerable, so deleting it is always safe.
 - **Acceptance:** for a fixed sample of trials, the head's logits from the cache match
   `StampExtractor` on the fly within 1e-3 (fp16 storage), and the resulting per-subject

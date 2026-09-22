@@ -84,7 +84,7 @@ gate).
   smoke check for Task 1 (no training run needed), then the real training run for
   Task 2.
 - Do not touch `model_params.MeSAE.pretrain.stamp_bank` (must stay `60/4/12/6`).
-- Do not touch `dataset_params.finetune` (already correctly points at BCICIV2a).
+- Do not touch `dataset_params.finetune` (already correctly points at BNCI2014001).
 - `input="raw"`, `"recon"`, `"stamp_bandpow"`, `"z_chan"`, and `stamp_induced` with
   `include_advance` unset/false must be completely unaffected by this plan — this is an
   additive, opt-in flag, not a rewrite of the existing forward path.

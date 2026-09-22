@@ -18,7 +18,7 @@ one factor (learned vs. flat time weights), not a confound with a different star
 Implementing this requires knowing the patch count `N` at model-construction time (to size
 the `time_q` factor as an `nn.Parameter`, which must exist before `train_finetune.py` builds
 the optimizer's param groups — a parameter built lazily on first `forward()` would be
-invisible to the optimizer). `N` is dataset-dependent (BCICIV2a's trial length is not the
+invisible to the optimizer). `N` is dataset-dependent (BNCI2014001's trial length is not the
 same as `preprocess_params.window_length`, which is a pretrain-only concept), so it must be
 computed from the actual dataset and threaded through `build_finetune_from_config` →
 `build_finetune` → `MeSAEFeatureHead.__init__`, none of which currently take it.
@@ -62,7 +62,7 @@ form a clean baseline).
   training runs for Task 2.
 - Do not touch `model_params.MeSAE.pretrain.stamp_bank` (must stay `60/4/12/6`, matching the
   `mesae_v10_small` checkpoint — a prior session's mistake here cost a full rerun).
-- Do not touch `dataset_params.finetune` (already correctly points at BCICIV2a).
+- Do not touch `dataset_params.finetune` (already correctly points at BNCI2014001).
 - `input="raw"`, `"recon"`, `"stamp_bandpow"`, and `"z_chan"`'s existing behavior must be
   completely unaffected by this plan — `num_patches` is optional/unused for those arms, and
   the new `pool_time="learned:R"` branch must raise clearly if used with any input other than

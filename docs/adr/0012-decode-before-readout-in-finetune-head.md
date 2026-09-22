@@ -3,7 +3,7 @@
 Status: Accepted (design direction), pending implementation
 Date: 2026-09-17
 Model under test: `mesae_tokenizer_v5` (`output/pretrain/mesae_tokenizer_v5/tokenizer/best_tokenizer.pth`)
-Probe dataset: BCICIV2a, 2592 trials, 9 subjects, 4 classes, chance 0.250
+Probe dataset: BNCI2014001, 2592 trials, 9 subjects, 4 classes, chance 0.250
 Secondary: EEGMMIdb, 39569 trials, 109 subjects, k=3 subset, chance 0.333
 
 ## Context
@@ -31,7 +31,7 @@ session scratchpad: `diagnose_pipeline.py`, `recon_lda.py`, `stamp_lda.py`,
 | cache vs loader label sequence | byte-identical (`True`) |
 | per-subject mu+beta log-power LDA | **0.513** mean (0.385–0.674 per subject) |
 
-0.513 is squarely in the published BCICIV2a within-subject range. **No data/label
+0.513 is squarely in the published BNCI2014001 within-subject range. **No data/label
 misalignment.** The earlier 0.27–0.30 numbers came from cross-subject pooling, not from
 a broken loader.
 

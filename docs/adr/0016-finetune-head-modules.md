@@ -8,15 +8,15 @@ Date: 2026-09-21
 
 ADR 0014 ran the finetune head as one class (`MeSAEFeatureHead`) with flags, changing one
 factor at a time on a frozen `mesae_v10_small` backbone. The evidence so far, all
-balanced accuracy on BCICIV2a unless noted:
+balanced accuracy on BNCI2014001 unless noted:
 
 - **Spatial mix.** A signed `spatial:K` filter beat channel concat by about +0.05 on every
   feature (Experiment B1); a convex (softmax) channel pool cannot represent a contrast (ADR
   0012). The learned filters are not stable across folds (mean matched |cosine| 0.55
   within-subject, 0.65 in LOSO).
 - **Feature source.** Within-subject, raw band power (0.530) and C1 (0.536) tie. Cross-subject
-  (LOSO, unseen subjects), C1 beats raw: BCICIV2a at 100 epochs 0.396 vs 0.342 (p = 0.007,
-  8/9), BCICIV2b at 30 epochs 0.684 vs 0.594 (p = 0.001, 9/9). `z_chan`, `chan_mag`,
+  (LOSO, unseen subjects), C1 beats raw: BNCI2014001 at 100 epochs 0.396 vs 0.342 (p = 0.007,
+  8/9), BNCI2014004 at 30 epochs 0.684 vs 0.594 (p = 0.001, 9/9). `z_chan`, `chan_mag`,
   `pool_mag` and `head_z` were poor or overfit.
 - **Time pooling.** Learned `learned:2` weights 0.536 vs flat 0.495 within-subject (not
   significant). The learned LOSO weights share one shape (peak near 1.4 s after the event),
@@ -85,7 +85,7 @@ learned filter bank on the raw signal) at a comparable feature count and dropout
 
 ## Ablation grid
 
-Leave one out from H\*, on LOSO of BCICIV2a and BCICIV2b at 100 epochs, dropout matched, in
+Leave one out from H\*, on LOSO of BNCI2014001 and BNCI2014004 at 100 epochs, dropout matched, in
 `eeg_fm`, subject as the unit of analysis (ADR 0014 Protocol; point difference is the bar, p
 reported not gated):
 
@@ -97,7 +97,7 @@ reported not gated):
 
 ## Step 0 before this ADR is Accepted
 
-Rerun BCICIV2a LOSO C1 vs the raw control at 100 epochs in `eeg_fm` with matched dropout
+Rerun BNCI2014001 LOSO C1 vs the raw control at 100 epochs in `eeg_fm` with matched dropout
 (0.5 on both). This removes the environment and dropout confounds from the headline
 comparison the design rests on.
 

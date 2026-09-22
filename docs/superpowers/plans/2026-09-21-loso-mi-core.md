@@ -4,7 +4,7 @@
 
 **Goal:** Measure whether C1 (the best stamp-code head, within-subject tail-mean 0.536) and
 the raw-signal control head transfer to **unseen subjects** (leave-one-subject-out) on the
-motor-imagery datasets that are clean for it: BCICIV2a, BCICIV2b, BCICIV1 (5 subjects).
+motor-imagery datasets that are clean for it: BNCI2014001, BNCI2014004, BCICIV1 (5 subjects).
 This is ADR 0014 build-order step 11's LOSO regime test, first tier. Every number so far
 (C0–C4, raw control) is within-subject; ADR 0014 names cross-subject transfer as the place a
 shared pretrained dictionary should beat a per-subject classifier, and it was never tested.
@@ -55,9 +55,9 @@ p=0.85).
   Comparison unit: held-out subject (n = number of subjects). Point difference is the bar;
   p-values reported, never a gate (Protocol section).
 - Datasets and subjects (exact; chance in parentheses):
-  - `BCICIV2a`: subjects all 9, 4-class MI (0.25). 22 real channels. Fully unseen by the
+  - `BNCI2014001`: subjects all 9, 4-class MI (0.25). 22 real channels. Fully unseen by the
     backbone's pretraining.
-  - `BCICIV2b`: all 9, 2-class MI (0.50). Only 3 real channels (C3/Cz/C4), so a `spatial:8`
+  - `BNCI2014004`: all 9, 2-class MI (0.50). Only 3 real channels (C3/Cz/C4), so a `spatial:8`
     filter on 64 mostly-zero channels is near-degenerate — run as is, and say so in the ADR.
     Fully unseen.
   - `BCICIV1_Train`: subjects **2, 3, 4, 5, 7 only**, 2-class left/right MI (0.50). Subjects
@@ -135,11 +135,11 @@ add after the existing aggregate loop:
 
 - [ ] **Step 4: Smoke run (GPU, ~minutes).** Build a throwaway config in the scratchpad
 (NOT config/config.json): copy `config/config.json`, set `dataset_params.finetune` to
-`{"BCICIV2b": {"dataset_path": "datas/BCICIV2b", "subject_to_use": [1, 2, 3], "channels_to_use": ["all"]}}`,
+`{"BNCI2014004": {"dataset_path": "datas/BNCI2014004", "subject_to_use": [1, 2, 3], "channels_to_use": ["all"]}}`,
 `model_params.MeSAE.finetune` to the raw control head (cheap), `training_params.finetune`:
 `split_mode "loso"`, `epochs 2`, `warmup_epochs 1`, `model_name "smoke_loso"`, rest unchanged;
 run `python train_finetune.py --config <that file>`. Expect 3 folds with tags
-`BCICIV2b_S1..S3`, no crash, `output/smoke_loso/artifacts/loso_summary.json` containing both
+`BNCI2014004_S1..S3`, no crash, `output/smoke_loso/artifacts/loso_summary.json` containing both
 `aggregate` and `aggregate_last`; then `python probes/ft_summary.py <its log>` prints 3
 columns S1–S3 (tail over only 2 epochs is fine, just confirm parsing). Delete
 `output/smoke_loso` afterwards.
@@ -164,15 +164,15 @@ e.g. `fix: LOSO fold tags compatible with ft_summary, add final-epoch aggregate`
 `dataset_params.finetune` (one dataset per config, `channels_to_use ["all"]`,
 `subject_to_use` per Global Constraints), `training_params.finetune`: `split_mode "loso"`,
 `epochs 30`, `model_name` `mesae_loso_<dataset>_<head>` where `<head>` ∈ {`c1`, `raw`}, and for
-the raw runs `model_params.MeSAE.finetune` = raw control head. Datasets: `BCICIV2a`,
-`BCICIV2b`, `BCICIV1_Train`. Verify each config against the within-subject run it mirrors
+the raw runs `model_params.MeSAE.finetune` = raw control head. Datasets: `BNCI2014001`,
+`BNCI2014004`, `BCICIV1_Train`. Verify each config against the within-subject run it mirrors
 (`output/archive/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json`,
 `output/archive/experiment_c/mesae_finetune_raw_control_cv/artifacts/config.json`): only dataset, split_mode,
 epochs, model_name (and cv_folds/train_val_split irrelevance) may differ; report the check.
 
 - [ ] **Step 2: Run sequentially** (single GPU; never in parallel):
-`python train_finetune.py --config <cfg>` for, in this order, `BCICIV2a c1`, `BCICIV2a raw`,
-`BCICIV2b c1`, `BCICIV2b raw`, `BCICIV1_Train c1`, `BCICIV1_Train raw`. Estimated wall time
+`python train_finetune.py --config <cfg>` for, in this order, `BNCI2014001 c1`, `BNCI2014001 raw`,
+`BNCI2014004 c1`, `BNCI2014004 raw`, `BCICIV1_Train c1`, `BCICIV1_Train raw`. Estimated wall time
 (cost model 10.2 ms per sample-epoch for C1, ~0.71x for raw): 2a 2.0 h + 1.4 h, 2b 2.8 h +
 2.0 h, BCICIV1 0.5 h + 0.35 h, ~9 GPU-hours total. A crash for an environment/config reason:
 diagnose and report; never change what is measured (epochs, heads, subjects). A narrow new
@@ -208,5 +208,5 @@ done.
   calls need; `aggregate_last` reads `best_metrics['last_val']`, which `run_training_loop`
   already returns.
 - **Known risks (stated, not defects):** 30 epochs is a judgment call (final-epoch train acc
-  reported per run); BCICIV2b's 3-channel geometry; LOSO n is only 9 / 9 / 5 subjects, so
+  reported per run); BNCI2014004's 3-channel geometry; LOSO n is only 9 / 9 / 5 subjects, so
   significance is weak by construction (point difference is the bar).

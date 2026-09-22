@@ -111,7 +111,7 @@ reflects the masked-prediction task's difficulty, not the architecture's raw cap
 
 Checked directly: loaded the final trained checkpoint (epoch 40, masked-phase weights, spatial
 attention on) and ran one forward pass with `bool_masked_pos=None` (no masking at all, same
-weights). Result: `mse_patch = 0.0119` on BCICIV2a subject 9 (not in this backbone's
+weights). Result: `mse_patch = 0.0119` on BNCI2014001 subject 9 (not in this backbone's
 pretraining set). For reference, three numbers from the same run:
 
 | Setting | `mse_patch` |

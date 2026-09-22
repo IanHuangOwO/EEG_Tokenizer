@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **Python env:** `/home/mamechin/anaconda3/envs/eeg_fm/bin/python` for every command (never `base`: it has no `mne`, which changes the coordinates and therefore the cache).
-- **The GPU is free.** Task 2's verification uses it briefly (BCICIV2a, two subjects); nothing else is running.
+- **The GPU is free.** Task 2's verification uses it briefly (BNCI2014001, two subjects); nothing else is running.
 - **Layering:** `model/` does not build datasets and `IO/` does not import `model/`. `model/` already imports two small helpers from `IO/` (`slice_patches` in `plugin.py`, `resolve_canonical_channels` in `factory.py`); those stay as they are. Code that builds datasets and runs the backbone over them lives at the repo root (like `train_finetune.py`). `model/MeSAE/MeSAE_modules.py`, `model/MeSAE/MeSAE.py` and `IO/` are **not touched**; the only edit under `model/` is `load_backbone` in `factory.py`.
 - **Line endings:** `cache_feature.py` is a new LF file. `model/factory.py` is LF (verify with `grep -c $'\r'` before editing and keep it LF); `model/MeSAE/MeSAE.py` and `config/config.json` are CRLF and are not touched. `CLAUDE.md` and the spec keep their own endings.
 - **No change to training, splits or any head math.** `train_finetune.py` is not touched.
@@ -268,7 +268,7 @@ from IO.preprocessing import slice_patches
 
 cfg = load_config('config/config.json')
 dev = 'cuda' if torch.cuda.is_available() else 'cpu'
-ds_name, subs = 'BCICIV2a', ['8', '9']
+ds_name, subs = 'BNCI2014001', ['8', '9']
 cfg['dataset_params']['finetune'] = {ds_name: {**cfg['dataset_params']['finetune'][ds_name], 'subject_to_use': subs}}
 
 # 1. build, then reuse

@@ -4,8 +4,8 @@ Date: 2026-09-22. Status: not scheduled, parked for later. No code written.
 
 ## The idea
 
-`output/baseline/BCICIV2a_intra_c1_learned/analysis/stamp_distributions_subj9.png` plots, for
-BCICIV2a subject 9 (best C1 intra-subject result, tail 0.824), the distribution of `a`, `b`,
+`output/baseline/BNCI2014001_intra_c1_learned/analysis/stamp_distributions_subj9.png` plots, for
+BNCI2014001 subject 9 (best C1 intra-subject result, tail 0.824), the distribution of `a`, `b`,
 amplitude and phase per stamp, pooled over all trials, patches and channels. `a` and `b` have
 clean, roughly symmetric, well-behaved marginal distributions. The question raised: could you
 sample `a, b` from those marginals and decode them to generate new, plausible EEG for this

@@ -16,7 +16,7 @@ patch, and a phase discontinuity between consecutive patches, since each patch's
 atom is fit independently with no shared notion of absolute time.
 
 Line-noise frequencies were verified per dataset before acting (windowed FFT +
-peak sharpness + cross-channel uniformity): BCICIV2a and Inria_Train carry real
+peak sharpness + cross-channel uniformity): BNCI2014001 and Inria_Train carry real
 50Hz, EEGMMIdb carries real 60Hz, BETA_4s has no real line noise.
 
 ## Decision (later reversed)
@@ -75,7 +75,7 @@ Two reasons, both structural:
    already claimed. A small claim protects little, so routed atoms keep the rest.
 2. **Line noise is dataset-conditional; shared atoms are unconditional.** 50Hz is
    strong in BCICIV1_Train and Inria_Train, absent in EEGMMIdb, BETA_4s and
-   BCICIV2a (verified model-free: peak sharpness vs a local ring baseline, plus
+   BNCI2014001 (verified model-free: peak sharpness vs a local ring baseline, plus
    cross-channel uniformity). An always-on shared atom specialising on 50Hz would be
    actively wrong wherever 50Hz is absent, so gradient will not let it. A routed
    atom, selected only when relevant, is the structurally correct home.

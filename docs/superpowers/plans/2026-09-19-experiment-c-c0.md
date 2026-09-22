@@ -394,7 +394,7 @@ with open('config/config.json') as f:
     config = json.load(f)
 backbone = build_pretrain_from_config(config, mode='finetune')
 backbone.eval()
-num_channels = 22  # BCICIV2a channel count; adjust if canonical_channels differs
+num_channels = 22  # BNCI2014001 channel count; adjust if canonical_channels differs
 model = build_finetune(backbone, num_channels, num_classes=4, input='stamp_induced',
                         pool_channel='spatial:8', task='mi',
                         sample_freq=config['preprocess_params']['sample_freq'])
@@ -478,7 +478,7 @@ Edit `config/config.json`'s `training_params.finetune` block
 backbone's `requires_grad`, but setting it to 0 keeps the optimizer's param-group list from
 ever picking up backbone params if that flag is ever flipped without updating this value too.)
 
-Confirm `dataset_params.finetune` already points at BCICIV2a with `subject_to_use: ["all"]`
+Confirm `dataset_params.finetune` already points at BNCI2014001 with `subject_to_use: ["all"]`
 (ADR 0014 §Protocol) — read the existing block and adjust only if it targets a different
 dataset; do not change channel/subject selection otherwise.
 

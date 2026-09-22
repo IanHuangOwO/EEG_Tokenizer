@@ -11,7 +11,7 @@ the old finetune pipeline. Three problems came to light while restructuring it:
 
 1. **Wrong electrode coordinates for the backbone.** Those runs executed in the `base` conda env, which has no
    `mne`, so `IO/loader.py`'s `get_standard_coords` silently returned nothing and the backbone read flat polar
-   fallback coordinates instead of MNE 3-D positions. Measured on BCICIV2a subject 8 (stamp head, 5-fold, 100
+   fallback coordinates instead of MNE 3-D positions. Measured on BNCI2014001 subject 8 (stamp head, 5-fold, 100
    epochs, restructured pipeline): real MNE coordinates give **0.788**, fallback coordinates **0.660** (the old
    record for that subject was 0.667). A label-shuffle control sits at chance (0.217), train and evaluation
    trials never overlap, and running the backbone under fp16 autocast instead of fp32 changes nothing (0.786).
@@ -63,8 +63,8 @@ Datasets and splits:
 
 | Dataset | `intra_subject` (5-fold per subject) | `inter_subject` |
 |---|---|---|
-| BCICIV2a (9 subjects, 4 classes) | all 9 | LOSO (9 folds) |
-| BCICIV2b (9, 2 classes) | all 9 | LOSO (9 folds) |
+| BNCI2014001 (9 subjects, 4 classes) | all 9 | LOSO (9 folds) |
+| BNCI2014004 (9, 2 classes) | all 9 | LOSO (9 folds) |
 | BCICIV1_Train (subjects 2, 3, 4, 5, 7; left/right) | all 5 | LOSO (5 folds) |
 | Inria_Train (16, error-related potential) | all 16 | LOSO (16 folds) |
 | BETA_4s (55, 40-class SSVEP) | all 55 | grouped 5-fold over subjects |
@@ -92,7 +92,7 @@ folds averaged within a subject first, then across subjects (`n` in each table h
 across subjects (mean of per-subject differences); wins = subjects where the row beats the comparator;
 p-values are paired t-tests across subjects, reported as description not a gate (ADR 0014's protocol).
 
-### BCICIV2a (9 subjects, 4 classes, chance 0.250)
+### BNCI2014001 (9 subjects, 4 classes, chance 0.250)
 
 | Head | intra mean | intra vs raw_band | inter mean | inter vs raw_band |
 |---|---|---|---|---|
@@ -103,7 +103,7 @@ p-values are paired t-tests across subjects, reported as description not a gate 
 
 `c1_learned` vs `c0_flat`: intra +0.062, 4/9, p=0.12; inter **+0.127, 9/9, p=0.0008**.
 
-### BCICIV2b (9 subjects, 2 classes, chance 0.500)
+### BNCI2014004 (9 subjects, 2 classes, chance 0.500)
 
 | Head | intra mean | intra vs raw_band | inter mean | inter vs raw_band |
 |---|---|---|---|---|
@@ -173,7 +173,7 @@ anything routed through the frozen backbone's stamp codes. Intra-subject the gap
 
 - **`c1_learned` beats `raw_band` everywhere it's measured**, intra and inter, on every dataset except the
   near-chance `BCICIV1_Train`. It is the only stamp head that never loses to `raw_band`.
-- **`raw_signal` is the strongest single head inter-subject** on 4 of 6 datasets (BCICIV2a is the exception --
+- **`raw_signal` is the strongest single head inter-subject** on 4 of 6 datasets (BNCI2014001 is the exception --
   `c1_learned` wins there inter-subject too), often by a wide margin (BETA_4s, EEGMMIdb). Intra-subject it's
   usually weaker than the stamp heads. Read together: the frozen backbone's stamp codes help most when a
   head only gets to see a single subject's own trials (intra), and help least (or actively hurt, BETA_4s/
@@ -181,7 +181,7 @@ anything routed through the frozen backbone's stamp codes. Intra-subject the gap
   better than the current stamp representation does.
 - **`c1_learned` vs `c0_flat` (does the learned-rank time pooling help over flat pooling):** indistinguishable
   intra-subject on every dataset (largest intra diff +0.062, most p>0.1), but a real, consistent inter-subject
-  win everywhere it's measured (BCICIV2a +0.127, BCICIV2b +0.062, BETA_4s +0.022, EEGMMIdb +0.117, all
+  win everywhere it's measured (BNCI2014001 +0.127, BNCI2014004 +0.062, BETA_4s +0.022, EEGMMIdb +0.117, all
   p<0.005 except BETA_4s). The learned time-pooling's benefit is specifically about generalizing to unseen
   subjects, not fitting a single subject's own trials better.
 - **Task-specific branches earn their keep**: `c1_evoked` (Inria) and `c1_advance` (BETA_4s) both beat plain

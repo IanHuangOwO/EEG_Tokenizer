@@ -2,7 +2,7 @@
 
 > **Status note (2026-09-22): historical record.** The results below were produced with the old finetune
 > pipeline. Finetune runs in the `base` conda env had no `mne`, so the backbone read flat fallback electrode
-> coordinates instead of MNE positions (the stamp head on BCICIV2a subject 8 gives 0.660 that way and 0.788 with
+> coordinates instead of MNE positions (the stamp head on BNCI2014001 subject 8 gives 0.660 that way and 0.788 with
 > the real coordinates); the raw control also ran without dropout in Phase 1. The finetune work was restarted
 > on the restructured pipeline and is recorded in ADR 0017; the old runs are in `output/archive/`. The Protocol
 > section of this ADR still applies.
@@ -30,7 +30,7 @@ a bad number from them cannot be attributed to either factor.
 
 ## What we already know (ADR 0012)
 
-Model v5 (tokenizer stage), BCICIV2a, per-subject shrinkage LDA:
+Model v5 (tokenizer stage), BNCI2014001, per-subject shrinkage LDA:
 
 | representation | acc | note |
 |---|---|---|
@@ -140,7 +140,7 @@ name a stamp's band.
 ### Results — `mesae_v10_small/checkpoint/last.pth`
 
 Run context: `last.pth`, 7 datasets × 3 subjects, fused run, stamps unfrozen, leaky
-`mp_loss`. 21 of 60 routed stamps are alive. BCICIV2a (not in pretraining), 2592
+`mp_loss`. 21 of 60 routed stamps are alive. BNCI2014001 (not in pretraining), 2592
 trials, 9 subjects, chance 0.25. Everything below comes from the one pipeline above.
 
 | arm | acc | Δ vs raw | p (paired) | wins |
@@ -221,7 +221,7 @@ reference.
 ### Results — experiment B baseline (concat, whole trial, MI block)
 
 Backbone: `mesae_v10_small/checkpoint/last.pth` (frozen). `MeSAEFeatureHead` runs
-BCICIV2a intra-subject: 228 train / 60 val trials per subject, balanced classes (15 per
+BNCI2014001 intra-subject: 228 train / 60 val trials per subject, balanced classes (15 per
 class in val).
 
 Every number is `balanced_acc`, which equals accuracy on a balanced val set. The main
@@ -486,7 +486,7 @@ already separates the two kinds of event-related activity:
 
 - **Amplitude `√(a²+b²)`:** the envelope, which carries induced activity (ERD/ERS).
 - **Phase `atan2(b, a)`:** measured relative to each patch start. The trials are
-  cue-aligned (BCICIV2a cue at sample 200), so a patch sits at the same post-cue time in
+  cue-aligned (BNCI2014001 cue at sample 200), so a patch sits at the same post-cue time in
   every trial, and consistent phase across trials means phase-locked (ERP-like)
   activity.
 
@@ -553,7 +553,7 @@ Reading:
   0.5–4 s run (about 0.09), which is consistent with slow evoked potentials.
 - **Don't read ERD sign from stamps.** Nearly every stamp shows a post-cue power
   *increase* (+0.2 to +0.6 dB, high-frequency stamps included), and the raw signal does
-  not. A model-free check on the raw BCICIV2a signal (200-sample windows, Hann, pre-cue
+  not. A model-free check on the raw BNCI2014001 signal (200-sample windows, Hann, pre-cue
   0–1 s):
   - **mu:** −0.40 dB at 0.5–1.5 s (p = 0.17), then turns positive.
   - **beta:** about 0 dB, but with significant lateralization at 0.5–1.5 s
@@ -570,14 +570,14 @@ Caveats:
 - **v10 stamps are not clean source maps:** they trained unfrozen on spatially mixed `z`
   (ADR 0013).
 - **Coarse bands:** templates have 4 Hz bins.
-- **Small v10 data**, and BCICIV2a was not in pretraining.
+- **Small v10 data**, and BNCI2014001 was not in pretraining.
 
 Changing the stamps only becomes relevant if relevant stamps turn out to span several
 bands. A band-selectivity constraint would then make attribution cleaner.
 
 ## Protocol
 
-- **Dataset:** BCICIV2a, `split_mode: intra_subject` — 9 per-subject models, class-stratified.
+- **Dataset:** BNCI2014001, `split_mode: intra_subject` — 9 per-subject models, class-stratified.
 - **Backbone frozen.** Unfreezing is the last resort (ADR 0012).
 - **Splits:** A/B used one 80/20 split per subject (228 train / 60 val). **C uses 5-fold
   CV per subject**, which makes head numbers comparable to the probe and shrinks the
@@ -620,12 +620,12 @@ so the backbone's spatial embedding sees different coordinates. The effect on th
 not measured. Marking, also recorded in the `env` column of `docs/adr/0014_attempts.csv`:
 
 - **Ran in `base`, without `mne` (confirmed** by `No module named 'mne'` in the run's stderr): C0
-  follow-ups (a) and (b), and all Phase 1 LOSO runs (30-epoch BCICIV2a/2b/BCICIV1_Train and the
-  100-epoch BCICIV2a rerun).
+  follow-ups (a) and (b), and all Phase 1 LOSO runs (30-epoch BNCI2014001/2b/BCICIV1_Train and the
+  100-epoch BNCI2014001 rerun).
 - **Presumably `base`, without `mne`** (default `python` on PATH, no stderr kept): C0, C0 baseline
   (clean), C1, C3, C4 and the raw control of Experiment C.
 - **Environment not recorded:** ADR 0012 probes and Experiments A, B, B1.
-- **Measured effect of the coordinates (2026-09-21, restructured finetune pipeline, BCICIV2a subject 8,
+- **Measured effect of the coordinates (2026-09-21, restructured finetune pipeline, BNCI2014001 subject 8,
   stamp_power/learned head, 5-fold, 100 epochs, mean tail balanced accuracy):** backbone amplitudes built
   with the real MNE coordinates give **0.788**; with the flat fallback coordinates (what `base` used) the
   same pipeline gives **0.660**, matching the 0.667 recorded for C1 on that subject. Label-shuffle controls
@@ -983,9 +983,9 @@ Next, in order:
     epochs, not 100 (a LOSO fold trains on ~8x more data, so 30 epochs is the same order
     of optimizer steps); one dataset per run; BCICIV1_Train uses subjects 2, 3, 4, 5, 7
     only (subjects 1 and 6 use a different class pair, so they cannot be pooled into one
-    left/right task); BCICIV2b has only 3 real channels (C3/Cz/C4), so `spatial:8` is
-    near-degenerate there (8 filters over 3 channels). **Pretraining overlap:** BCICIV2a
-    and BCICIV2b are fully unseen by the backbone; BCICIV1_Train is only partly seen
+    left/right task); BNCI2014004 has only 3 real channels (C3/Cz/C4), so `spatial:8` is
+    near-degenerate there (8 filters over 3 channels). **Pretraining overlap:** BNCI2014001
+    and BNCI2014004 are fully unseen by the backbone; BCICIV1_Train is only partly seen
     (the pretrain config, `output/pretrain/mesae_v10_small/artifacts/config.json`, used
     subjects 1, 2, 3 only, so of the five evaluated folds S2 and S3 are seen and S4, S5,
     S7 are unseen, though from an exposed dataset and montage). Metric is the last-10-epoch
@@ -993,11 +993,11 @@ Next, in order:
     `loso_summary.json` `aggregate` pick the epoch on the held-out subject and are not
     used). Logs and summaries: `output/archive/loso_phase1/mesae_loso_<dataset>_{c1,raw}/artifacts/`.
 
-    **BCICIV2a** (unseen, 4-class, chance 0.25, n = 9): raw **0.335**, C1 **0.379**;
+    **BNCI2014001** (unseen, 4-class, chance 0.25, n = 9): raw **0.335**, C1 **0.379**;
     **C1 − raw = +0.044**, t = 1.78, p = 0.112, C1 wins **7/9**. Margins over chance:
     raw +0.085, C1 +0.129. Per-subject tails raw / C1: S1 0.47/0.39, S2 0.26/0.33,
     S3 0.38/0.51, S4 0.37/0.38, S5 0.25/0.27, S6 0.26/0.30, S7 0.24/0.36, S8 0.38/0.50,
-    S9 0.42/0.38. **BCICIV2b** (unseen, 2-class, chance 0.50, n = 9): raw **0.594**, C1
+    S9 0.42/0.38. **BNCI2014004** (unseen, 2-class, chance 0.50, n = 9): raw **0.594**, C1
     **0.684**; **C1 − raw = +0.090**, t = 4.92, p = 0.001, C1 wins **9/9**. Margins:
     raw +0.094, C1 +0.184. Per-subject tails raw / C1: S1 0.63/0.65, S2 0.54/0.64,
     S3 0.55/0.55, S4 0.62/0.79, S5 0.62/0.71, S6 0.58/0.72, S7 0.58/0.72, S8 0.57/0.65,
@@ -1036,7 +1036,7 @@ Next, in order:
     as "beats raw on both unseen datasets". **Convergence.** The tail is still rising
     slightly (mean epochs 11–20 → 21–30: 2a raw 0.319 → 0.335, C1 0.356 → 0.379; 2b raw
     0.595 → 0.594, C1 0.673 → 0.684), so the point differences are not converged. A
-    100-epoch rerun of BCICIV2a (C1 and raw, `output/archive/loso_phase1/mesae_loso_BCICIV2a_{c1,raw}_e100`)
+    100-epoch rerun of BNCI2014001 (C1 and raw, `output/archive/loso_phase1/mesae_loso_BNCI2014001_{c1,raw}_e100`)
     finished and replaces 30 epochs as the reference for 2a: tail-mean over epochs 91-100, C1 **0.396**, raw **0.342**, C1 - raw **+0.054**, paired p = 0.007 over 9 subjects, C1 wins 8/9 (30 epochs: 0.379 / 0.335 / +0.044 / p = 0.112 / 7/9). C1 gained 0.017 from the extra epochs and raw only 0.007; C1's curve is flat by epochs 81-100 (last 10 vs previous 10: +0.001). As in the 30-epoch runs raw used dropout 0 and C1 dropout 0.5, so the gap mixes input and dropout; this is left as is. Both reruns ran in `base` without `mne` (see Python environment). Caveats: "raw" is the simple mu/beta
     band-power head (16 features), not a stronger raw baseline (LDA, a deeper raw
     model); n is only 9 / 9 / 5 subjects, so significance is weak by construction and
@@ -1070,7 +1070,7 @@ Next, in order:
     **Reading.** C4 does not beat C1 and is a significant regression at n = 9, with a
     larger regression and higher train accuracy than C3. This is the outcome the ADR
     pre-declared as likely: `2b` was expected neutral on MI, and the stamp analysis
-    found no phase-locked stamps on BCICIV2a, so there is no evoked signal for the
+    found no phase-locked stamps on BNCI2014001, so there is no evoked signal for the
     branch to read while its extra 400 features add memorization capacity. This run
     measures `2b` **on MI**, not the branch's real test; it does not show the evoked
     branch is useless, only that it does not help MI at C1's regularization. The real
