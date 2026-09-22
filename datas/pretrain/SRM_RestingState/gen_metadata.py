@@ -19,7 +19,7 @@ Channel order/list and the 1024 Hz sample rate come straight from one
 subject's real *_channels.tsv/*_eeg.json (identical across subjects per BIDS
 convention for one recording device/montage). All 64 names resolve via MNE's
 standard_1020 montage (checked 2026-09-22), so per-channel "coordinates" are
-omitted, same precedent as EEGMMIdb/DEAP.
+omitted, same precedent as PhysionetMI/DEAP.
 """
 import json
 import os

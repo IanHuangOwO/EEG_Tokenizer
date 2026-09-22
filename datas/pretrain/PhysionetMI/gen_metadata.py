@@ -121,7 +121,7 @@ def main():
 
     meta = {
         "data_metadata": {
-            "dataset_name": "EEGMMIdb",
+            "dataset_name": "PhysionetMI",
             "dataset_info": DATASET_INFO,
             "acquisition": {
                 "sample_frequency": 160.0,

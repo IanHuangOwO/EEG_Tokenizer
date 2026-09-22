@@ -1,5 +1,5 @@
 {
- "dataset": "EEGMMIdb",
+ "dataset": "PhysionetMI",
  "seed": 42,
  "proxy": {
   "1": 0.5801369863013698,

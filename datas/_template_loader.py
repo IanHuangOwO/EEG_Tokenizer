@@ -18,7 +18,7 @@ class Loader(BaseSubjectLoader):
         entry = self._require_subject(subject_id)
         # Single-file style (BETA):        self.file_path = self._resolve(entry['file'])
         # Split signal/label style (Nakanishi2015):  self._resolve(entry['signals']) / self._resolve(entry['labels'])
-        # Multi-run style (EEGMMIdb):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
+        # Multi-run style (PhysionetMI):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
         self.file_path = self._resolve(entry['file'])
 
     def _load_data(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:

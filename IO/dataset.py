@@ -156,7 +156,7 @@ class EEGDataset(Dataset):
         # trial's mean/std (see IO/preprocessing.py's per-trial zscore/robust normalize), which
         # skews scale differently per dataset depending how many channels it's missing relative
         # to canonical_channels (e.g. BNCI2014001 is ~2/3 zero-padded channels — that's a much
-        # bigger normalization bias than a near-complete dataset like EEGMMIdb).
+        # bigger normalization bias than a near-complete dataset like PhysionetMI).
         if transform is not None:
             # Whole (N, C, T) batch in one call -- Normalizer._normalize reduces
             # per-trial (its own mean/std/median, never pooled across N), so this is

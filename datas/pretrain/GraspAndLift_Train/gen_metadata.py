@@ -39,7 +39,7 @@ DATASET_INFO = {
 # header. Coordinates reused from the shared 10-10 polar table (see
 # _gen_eegmmidb_metadata.py) for channels that overlap with it; TP9/TP10/
 # PO9/PO10 (and midline Pz/Oz) are left to MNE's standard_1020 montage
-# fallback, same precedent as EEGMMIdb's omitted midline channels.
+# fallback, same precedent as PhysionetMI's omitted midline channels.
 CHANNELS = {
     "1": {"label": "Fp1", "coordinates": {"polar_angle_deg": -19.330008, "polar_radius": 0.889303}},
     "2": {"label": "Fp2", "coordinates": {"polar_angle_deg": 19.385429, "polar_radius": 0.899982}},

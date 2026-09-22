@@ -41,10 +41,10 @@ OCC = ('O1', 'Oz', 'O2', 'PO3', 'POz', 'PO4', 'PO7', 'PO8')
 cfg = json.load(open(f'output/{RUN}/artifacts/config.json'))
 FS, PL, PS = (cfg['preprocess_params'][k] for k in ('sample_freq', 'patch_length', 'patch_stride'))
 cfg['dataset_params']['finetune'] = {'BETA_4s': {
-    'dataset_path': 'datas/BETA_4s', 'subject_to_use': SUBJECTS, 'channels_to_use': ['all']}}
+    'dataset_path': 'datas/pretrain/BETA_4s', 'subject_to_use': SUBJECTS, 'channels_to_use': ['all']}}
 ds = build_dataset_from_config(cfg, mode='finetune')
 subs = ds.base_dataset.subject_data.numpy()
-meta = json.load(open('datas/BETA_4s/metadata.json'))['data_metadata']['targets']
+meta = json.load(open('datas/pretrain/BETA_4s/metadata.json'))['data_metadata']['targets']
 FREQ = np.array([meta[str(k)]['stimulus_frequency_hz'] for k in range(40)])
 names = np.array(resolve_canonical_channels(cfg['preprocess_params']['canonical_channels']))
 

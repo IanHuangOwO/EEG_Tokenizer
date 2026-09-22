@@ -11,7 +11,7 @@ stamp-code arm, add a raw ERP baseline arm); (3) a reproducible, representative 
 the evaluation/training subject subsets; (4) a stats script over the per-subject outputs.
 
 **Why (one paragraph):** Phase 1 (plan `2026-09-21-loso-mi-core.md`) runs strict LOSO on the
-small MI datasets. Phase 2 needs designs Phase 1's runner cannot express: EEGMMIdb has 109
+small MI datasets. Phase 2 needs designs Phase 1's runner cannot express: PhysionetMI has 109
 subjects (strict LOSO ≈ 366 GPU-h), and the user wants (a) one model evaluated on BOTH a
 "seen" group (subjects whose unlabeled EEG was in the backbone's pretraining) and a small,
 representative "unseen" subset, so the same trained head isolates the effect of pretraining
@@ -178,7 +178,7 @@ balanced_acc on the model as it was at each of those epochs; `last` = final epoc
 
 ## Task 3: `probes/select_eval_subsets.py` — reproducible subset selection
 
-**Files:** Create `probes/select_eval_subsets.py`; create `config/subject_groups/eegmmidb.json`
+**Files:** Create `probes/select_eval_subsets.py`; create `config/subject_groups/physionetmi.json`
 and `config/subject_groups/beta4s.json` (generated, tracked); add one line to
 `probes/README.md` describing the script.
 
@@ -186,7 +186,7 @@ and `config/subject_groups/beta4s.json` (generated, tracked); add one line to
 - **Pretraining membership:** read `output/pretrain/mesae_v10_small/artifacts/config.json`
   (`dataset_params.pretrain`) to get, per dataset, the subject ids the backbone saw. If the
   file is unavailable, fail loudly (do not guess).
-- **EEGMMIdb** (109 subjects, 3-class): `seen` = pretrained subjects; `unseen` = the rest
+- **PhysionetMI** (109 subjects, 3-class): `seen` = pretrained subjects; `unseen` = the rest
   (99). For each unseen subject compute a within-subject difficulty proxy: 5-fold stratified
   (seeded) shrinkage-LDA accuracy on log mu/beta band power per canonical channel (use
   `build_dataset_from_config(..., mode='finetune')` on a one-dataset config with
@@ -199,7 +199,7 @@ and `config/subject_groups/beta4s.json` (generated, tracked); add one line to
   eval group. Record the proxy for ALL subjects, the chosen lists, and representativeness
   statistics comparing the 10 eval subjects to all 99 (mean/std/quantiles of the proxy,
   two-sample KS statistic and p) plus the seen group's proxy for reference. Write
-  `config/subject_groups/eegmmidb.json` with `{"dataset": "EEGMMIdb", "seed": 42, "train":
+  `config/subject_groups/physionetmi.json` with `{"dataset": "PhysionetMI", "seed": 42, "train":
   [...], "eval": {"seen": [...], "unseen": [...]}, "proxy": {...}, "stats": {...}}` (subject
   ids as strings).
 - **BETA_4s** (55 subjects, 40-class SSVEP): `seen` = pretrained subjects among the 55;
@@ -220,7 +220,7 @@ and `config/subject_groups/beta4s.json` (generated, tracked); add one line to
   (train ∩ eval groups = ∅, seen ∩ unseen = ∅) and that every eval/train subject exists in the
   dataset and no seen subject is in `train`.
 - [ ] **Step 4:** Commit the script, the two JSONs and the README line: `feat: reproducible
-  seen/unseen subject subsets for EEGMMIdb and BETA_4s`.
+  seen/unseen subject subsets for PhysionetMI and BETA_4s`.
 
 ---
 
@@ -251,7 +251,7 @@ information not a gate). No plotting.
 ## Self-Review Notes
 - **Coverage:** user's Phase 2 design → Task 1 (group-holdout + grouped k-fold), Task 2
   (Inria/ERP: evoked head vs induced needs the guard relaxed; raw ERP baseline), Task 3
-  (representative small subsets), Task 4 (stats). The runs themselves (EEGMMIdb, BETA_4s,
+  (representative small subsets), Task 4 (stats). The runs themselves (PhysionetMI, BETA_4s,
   Inria; heads C1 / raw / C1+advance / C4 / raw-ERP) are a separate follow-up plan.
 - **Interfaces:** `group_eval.json` schema is defined once above and used by Tasks 1 and 4;
   `config/subject_groups/*.json` (Task 3) feeds `subject_group_runs` (Task 1) for the runs.

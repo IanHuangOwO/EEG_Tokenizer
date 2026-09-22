@@ -5,7 +5,7 @@ format it ships in) into the standard `datas/<name>/` layout used by this
 repo. Reference implementations (each has a `datas/<name>/gen_metadata.py`
 generator, see Step 3): `BETA_4s`/`BETA_3s` (single .mat file per subject),
 `Nakanishi2015` (split signal/label .mat files), `Inria_Train`/`Inria_Test` (CSV,
-shared label file across subjects), `EEGMMIdb` (EDF, multi-run folder per
+shared label file across subjects), `PhysionetMI` (EDF, multi-run folder per
 subject), `BCICIV1_Train`/`BCICIV1_Test` (.mat with real digitized channel
 coordinates), `BNCI2014001`/`BNCI2014004` (GDF, event-marker driven),
 `GraspAndLift_Train` (continuous multi-label events collapsed to a dummy
@@ -37,12 +37,12 @@ read:
   figure). Get this wrong and `_map_channels()` in `IO/dataset.py` will
   silently zero-pad/misalign channels against other datasets.
 - Label/event encoding: what each stimulus code, marker value, or annotation
-  string actually means (e.g. EEGMMIdb's `T0/T1/T2` annotations only make
+  string actually means (e.g. PhysionetMI's `T0/T1/T2` annotations only make
   sense after reading PhysioNet's task description).
 
 Put what you find into `dataset_info` (`source_url`, `description`,
 `reference`, `task_type`, and any dataset-specific notes worth preserving —
-see `EEGMMIdb`'s `electrode_note` field) so the next person doesn't have to
+see `PhysionetMI`'s `electrode_note` field) so the next person doesn't have to
 redo this research.
 
 ## Step 1: stage the raw files
@@ -107,7 +107,7 @@ See `BCICIV1_Train/gen_metadata.py` (reads `nfo.xpos`/`nfo.ypos` out of a
 `.mat` file, converts cartesian → polar), `Inria_Train/gen_metadata.py`
 (walks `raw/signals/` to group per-subject session lists, reads
 `ChannelsLocation.csv`), and `BETA_4s/gen_metadata.py` /
-`EEGMMIdb/gen_metadata.py` (directory-listing-driven `data_structure`,
+`PhysionetMI/gen_metadata.py` (directory-listing-driven `data_structure`,
 hand-researched channel constants). Re-run the script and commit its output
 rather than hand-editing `metadata.json` out of sync with it.
 
@@ -151,7 +151,7 @@ Two top-level keys: `data_metadata` (dataset description) and
             "1": { "label": "8.8 Hz", "stimulus_frequency_hz": 8.8 }
             // ... one entry per class, 0-indexed, matching the label ints your loader emits.
             // "description" per class is optional but recommended when the class meaning
-            // isn't self-evident from the label (see Inria_Train, EEGMMIdb above).
+            // isn't self-evident from the label (see Inria_Train, PhysionetMI above).
         },
         "channels": {
             "count": 64,
@@ -164,7 +164,7 @@ Two top-level keys: `data_metadata` (dataset description) and
                                                          // e.g. T3->T7, A1->TP9; see _LABEL_ALIASES).
                 "original_label": "Fp1.",               // OPTIONAL: raw file's native channel name, if it
                                                          // differs (dots/case from EDF headers, etc — see
-                                                         // EEGMMIdb). Not read by code, kept for traceability.
+                                                         // PhysionetMI). Not read by code, kept for traceability.
                 "coordinates": {                        // REQUIRED (unless you rely on MNE's standard_1020
                                                          // montage — see below).
                     "polar_angle_deg": -17.926,
@@ -186,7 +186,7 @@ Notes:
   `BaseSubjectLoader._load_coords_from_metadata()` converts to `[x, y, z]`.
   If `label` matches an MNE `standard_1020` montage channel name, MNE's real
   3D position is used instead and `coordinates` becomes a fallback used only
-  when MNE lookup fails or MNE isn't installed (see `EEGMMIdb`, which omits
+  when MNE lookup fails or MNE isn't installed (see `PhysionetMI`, which omits
   `coordinates` entirely for midline channels like `FCZ`/`CPZ` that MNE
   always resolves). Filling in `coordinates` anyway is recommended for
   non-standard channel names, or if you want reproducible topomaps without
@@ -227,13 +227,13 @@ rows belonging to this subject/session (see `datas/pretrain/Inria_Train/loader.p
 `Loader._load_data`, which matches on a session-ID substring in the
 `IdFeedBack` column).
 
-**C. Multiple raw files per subject** (`EEGMMIdb`) — e.g. one file per
+**C. Multiple raw files per subject** (`PhysionetMI`) — e.g. one file per
 recording run/session:
 ```jsonc
 "1": { "folder": "raw/S001", "runs": ["S001R01.edf", "S001R02.edf", "..."] }
 ```
 The loader loads and concatenates events across all runs
-(`datas/pretrain/EEGMMIdb/loader.py`'s `Loader._load_data`).
+(`datas/pretrain/PhysionetMI/loader.py`'s `Loader._load_data`).
 
 Subject keys need not be contiguous or start at 1 — `BETA_4s` only has
 subjects 16-70, `Inria_Train` skips several subject numbers entirely.
@@ -276,7 +276,7 @@ class Loader(BaseSubjectLoader):
         entry = self._require_subject(subject_id)   # looks up data_structure[str(subject_id)], raises if missing
         self.file_path = self._resolve(entry['file'])  # joins onto dataset_path, strips a leading './'
         # Split signal/label style (Nakanishi2015):  self._resolve(entry['signals']) / self._resolve(entry['labels'])
-        # Multi-run style (EEGMMIdb):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
+        # Multi-run style (PhysionetMI):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
 
     # _load_coords defaults to self._load_coords_from_metadata() (BaseSubjectLoader) —
     # override only if you have real digitized coordinates (see BCICIV1_Train/loader.py).
@@ -296,15 +296,15 @@ there, not from this snippet, if the two ever drift.
 
 | Format          | Library                          | Notes |
 |------------------|-----------------------------------|-------|
-| `.mat` (MATLAB)  | `scipy.io.loadmat`                | Struct fields come back as nested numpy structured arrays — index like `mat['data']['EEG'][0, 0]` (see `datas/BETA_4s/loader.py`). |
+| `.mat` (MATLAB)  | `scipy.io.loadmat`                | Struct fields come back as nested numpy structured arrays — index like `mat['data']['EEG'][0, 0]` (see `datas/pretrain/BETA_4s/loader.py`). |
 | `.csv`           | `pandas.read_csv`                 | Common for Kaggle-style exports: one column per channel + a marker/label column (see `datas/pretrain/Inria_Train/loader.py`). |
-| `.edf` / `.edf+`  | `mne.io.read_raw_edf(path, preload=True)` | Use `raw.get_data(picks=self.channel_indices)`; resample via `raw.resample(self.sample_freq)` if native rate differs from metadata. Events via `mne.events_from_annotations(raw)` (see `datas/pretrain/EEGMMIdb/loader.py`). |
+| `.edf` / `.edf+`  | `mne.io.read_raw_edf(path, preload=True)` | Use `raw.get_data(picks=self.channel_indices)`; resample via `raw.resample(self.sample_freq)` if native rate differs from metadata. Events via `mne.events_from_annotations(raw)` (see `datas/pretrain/PhysionetMI/loader.py`). |
 | `.gdf`           | `mne.io.read_raw_gdf(path, preload=True)` | Same API shape as `read_raw_edf` above — GDF stores its own event/annotation table, read via `mne.events_from_annotations` same as EDF. Common for BCI Competition IV datasets (2a/2b). |
 | `.bdf` (BioSemi) | `mne.io.read_raw_bdf(path, preload=True)` | Same MNE API shape as EDF/GDF. |
 | `.fif` (MNE-native) | `mne.io.read_raw_fif(path, preload=True)` | Same MNE API shape. |
 
 Things the existing loaders show you need to handle per format:
-- **Single-file-per-subject, all trials pre-blocked** (`datas/BETA_4s/loader.py`):
+- **Single-file-per-subject, all trials pre-blocked** (`datas/pretrain/BETA_4s/loader.py`):
   reshape `(C, T, Blocks, Targets)` -> `(N, C, T)` and synthesize labels
   `[0]*blocks + [1]*blocks + ...` since class order is implicit in array
   layout.
@@ -336,7 +336,7 @@ Things the existing loaders show you need to handle per format:
   trial whose window runs past the end of the recording. Remap
   arbitrary/bipolar label encodings (`{-1,+1}`, 1-indexed) to dense 0-indexed
   via `{v: i for i, v in enumerate(np.unique(raw_labels))}`.
-- **Multi-run folder + annotation-based segmentation** (`datas/pretrain/EEGMMIdb/loader.py`):
+- **Multi-run folder + annotation-based segmentation** (`datas/pretrain/PhysionetMI/loader.py`):
   loop over each run file, `mne.io.read_raw_edf` / `read_raw_gdf`, resample
   to `self.sample_freq` if the file's native rate differs,
   `mne.events_from_annotations`, map annotation codes to class ints, and

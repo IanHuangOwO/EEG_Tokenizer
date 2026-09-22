@@ -17,9 +17,11 @@ HEADS = {
 }
 EPOCHS = {}  # per-dataset epoch override (short name -> epochs); default is --epochs
 N_SUBJECTS = {'inria': 12}  # use a seeded random subset of this many subjects (less data)
+# dataset dir -> root prefix (all under datas/pretrain/<dataset> since the 2026-09-22 reorg).
+DS_ROOT = {'PhysionetMI': 'datas/pretrain', 'BETA_4s': 'datas/pretrain', 'Inria_Train': 'datas/pretrain'}
 # (dataset dir, short name, subject_groups json or None, task, split, head tags)
 PLAN = [
-    ('EEGMMIdb', 'eegmmidb', 'eegmmidb', 'mi', 'groups', ['c1', 'raw']),
+    ('PhysionetMI', 'physionetmi', 'physionetmi', 'mi', 'groups', ['c1', 'raw']),
     ('BETA_4s', 'beta4s', 'beta4s', 'ssvep', 'groups', ['c1', 'c3']),
     ('Inria_Train', 'inria', None, 'erp', 'kfold4', ['c1', 'c4', 'raw']),
 ]
@@ -30,11 +32,11 @@ def build(base, ds, short, groups_key, task, split, tag, epochs):
     subjects = ['all']
     if short in N_SUBJECTS:
         import train_finetune as tf
-        avail = sorted(tf._resolve_all_subjects(f'datas/{ds}'), key=str)
+        avail = sorted(tf._resolve_all_subjects(f'{DS_ROOT[ds]}/{ds}'), key=str)
         subjects = [str(x) for x in sorted(random.Random(42).sample(avail, N_SUBJECTS[short]),
                                             key=lambda v: int(v) if str(v).isdigit() else str(v))]
     cfg['dataset_params']['finetune'] = {
-        ds: {'dataset_path': f'datas/{ds}', 'subject_to_use': subjects, 'channels_to_use': ['all']}}
+        ds: {'dataset_path': f'{DS_ROOT[ds]}/{ds}', 'subject_to_use': subjects, 'channels_to_use': ['all']}}
     cfg['model_params']['MeSAE']['finetune'] = dict(HEADS[tag], task=task)
     tp = cfg['training_params']['finetune']
     tp.pop('cv_folds', None)

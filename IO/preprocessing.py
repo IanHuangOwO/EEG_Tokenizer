@@ -53,7 +53,7 @@ class Normalizer:
     loop of N single-trial calls would give, but computed in one vectorized
     pass instead. IO/dataset.py's _load_task used to do exactly that loop
     (torch.stack([transform(raw_data[i]) for i in range(N)])), which for a
-    large subject (e.g. EEGMMIdb's ~362 trials/subject) held N separately-
+    large subject (e.g. PhysionetMI's ~362 trials/subject) held N separately-
     normalized tensors in a Python list simultaneously before torch.stack
     copied them into one buffer -- a real, avoidable memory spike across a
     whole dataset's worth of subjects, not just a speed cost (see check_model.py
@@ -145,7 +145,7 @@ def cut_event_window(data: np.ndarray, event_pts: int, pre_pts: int, post_pts: i
     Padding here only covers running off the EDGE OF THE RECORDING — it does NOT
     protect against reading real content that belongs to a DIFFERENT, adjacent
     trial/event in the middle of a continuous recording (that's a labeling problem,
-    not a bounds problem — see datas/pretrain/EEGMMIdb/loader.py's docstring for why that
+    not a bounds problem — see datas/pretrain/PhysionetMI/loader.py's docstring for why that
     dataset doesn't use this at all)."""
     C, T = data.shape
     total = pre_pts + post_pts

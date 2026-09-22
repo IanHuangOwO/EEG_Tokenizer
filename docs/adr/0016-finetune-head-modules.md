@@ -76,7 +76,7 @@ ADR 0014 "group penalty" for width control was never implemented and stays out.
 
 ### Open item: a stronger raw control
 
-The raw band-power control (two coarse bands, 16 features) is weak. On EEGMMIdb (Phase 2, 3 classes,
+The raw band-power control (two coarse bands, 16 features) is weak. On PhysionetMI (Phase 2, 3 classes,
 balanced accuracy) it sits at chance (0.366 unseen, 0.340 seen) with train accuracy 0.387, i.e. it
 underfits, while C1 reaches 0.539 unseen (+0.174, 10/10 subjects). That gap shows the per-stamp features
 carry far more usable signal than two band powers; it does not show the tokenizer beats a well-designed

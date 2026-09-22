@@ -1,6 +1,6 @@
 {
     "data_metadata": {
-        "dataset_name": "EEGMMIdb",
+        "dataset_name": "PhysionetMI",
         "dataset_info": {
             "source_url": "https://www.physionet.org/content/eegmmidb/1.0.0/",
             "file_format": "EDF+",

@@ -68,7 +68,7 @@ Datasets and splits:
 | BCICIV1_Train (subjects 2, 3, 4, 5, 7; left/right) | all 5 | LOSO (5 folds) |
 | Inria_Train (16, error-related potential) | all 16 | LOSO (16 folds) |
 | BETA_4s (55, 40-class SSVEP) | all 55 | grouped 5-fold over subjects |
-| EEGMMIdb (109, 3 classes) | 30 random subjects (seed 42) | grouped 5-fold over subjects |
+| PhysionetMI (109, 3 classes) | 30 random subjects (seed 42) | grouped 5-fold over subjects |
 
 `raw_signal` is run on every dataset; the two task-specific variants only on their own paradigm. Leave-one-out
 over 55 and 109 subjects would cost about 2 and 20 GPU-hours per head at the current speed, so the two large
@@ -158,7 +158,7 @@ for SSVEP) by a wide margin — for cross-subject SSVEP, the raw per-channel wav
 anything routed through the frozen backbone's stamp codes. Intra-subject the gap nearly closes and
 `c1_advance` is best, so the phase-advance branch does help once the head can fit a subject's own phase.
 
-### EEGMMIdb (30 subjects intra / 109 inter, 3 classes, chance 0.333)
+### PhysionetMI (30 subjects intra / 109 inter, 3 classes, chance 0.333)
 
 | Head | intra mean | intra vs raw_band | inter mean | inter vs raw_band |
 |---|---|---|---|---|
@@ -174,14 +174,14 @@ anything routed through the frozen backbone's stamp codes. Intra-subject the gap
 - **`c1_learned` beats `raw_band` everywhere it's measured**, intra and inter, on every dataset except the
   near-chance `BCICIV1_Train`. It is the only stamp head that never loses to `raw_band`.
 - **`raw_signal` is the strongest single head inter-subject** on 4 of 6 datasets (BNCI2014001 is the exception --
-  `c1_learned` wins there inter-subject too), often by a wide margin (BETA_4s, EEGMMIdb). Intra-subject it's
+  `c1_learned` wins there inter-subject too), often by a wide margin (BETA_4s, PhysionetMI). Intra-subject it's
   usually weaker than the stamp heads. Read together: the frozen backbone's stamp codes help most when a
   head only gets to see a single subject's own trials (intra), and help least (or actively hurt, BETA_4s/
-  EEGMMIdb inter) when generalizing to unseen subjects — raw per-channel amplitude transfers across subjects
+  PhysionetMI inter) when generalizing to unseen subjects — raw per-channel amplitude transfers across subjects
   better than the current stamp representation does.
 - **`c1_learned` vs `c0_flat` (does the learned-rank time pooling help over flat pooling):** indistinguishable
   intra-subject on every dataset (largest intra diff +0.062, most p>0.1), but a real, consistent inter-subject
-  win everywhere it's measured (BNCI2014001 +0.127, BNCI2014004 +0.062, BETA_4s +0.022, EEGMMIdb +0.117, all
+  win everywhere it's measured (BNCI2014001 +0.127, BNCI2014004 +0.062, BETA_4s +0.022, PhysionetMI +0.117, all
   p<0.005 except BETA_4s). The learned time-pooling's benefit is specifically about generalizing to unseen
   subjects, not fitting a single subject's own trials better.
 - **Task-specific branches earn their keep**: `c1_evoked` (Inria) and `c1_advance` (BETA_4s) both beat plain

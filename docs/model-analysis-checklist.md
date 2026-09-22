@@ -71,7 +71,7 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
   - `Inria_Train` 72.0/77.5/70.0/**74.5** (chance 50.0) — raw alone is
     already strong; Routed sits BELOW raw. Most of this task's signal is
     just loudness, the tokenizer isn't adding much on top for Routed.
-  - `EEGMMIdb` 37.5/44.0/38.0/**38.0** (chance 33.3) — only Shared clears
+  - `PhysionetMI` 37.5/44.0/38.0/**38.0** (chance 33.3) — only Shared clears
     raw; Routed and both are statistically indistinguishable from raw.
   - `BNCI2014001` 28.0/28.0/28.5/**32.0** (chance 25.0) — raw beats every
     stamp probe on this held-out (never-trained-on) dataset — a real

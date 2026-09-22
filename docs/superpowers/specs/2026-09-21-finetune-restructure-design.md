@@ -109,7 +109,7 @@ head is trained on them.
   masking setting) only costs a rebuild.
 - **Uniform channels:** `CachedStampDataset` asserts that all subjects share `channel_idx` and
   `keep`; only the real channels are stored.
-- **Size:** about 0.25 MB per 62-channel trial in fp16 (EEGMMIdb about 10 GB, BETA_4s about
+- **Size:** about 0.25 MB per 62-channel trial in fp16 (PhysionetMI about 10 GB, BETA_4s about
   2 GB, BNCI2014001 about 0.8 GB). It lives under `output/`, which is already git-ignored, and is
   regenerable, so deleting it is always safe.
 - **Acceptance:** for a fixed sample of trials, the head's logits from the cache match
@@ -207,7 +207,7 @@ A new `experiments/` folder (with a README); `probes/` is deleted.
   deleted. They guard the new code against bugs, not old outputs.
 - **Cache staleness:** the key covers backbone file identity, data cache files and the
   preprocess settings that change patches; a changed input yields a new folder, never a
-  silent reuse. Disk use is a few GB per dataset (EEGMMIdb about 10 GB).
+  silent reuse. Disk use is a few GB per dataset (PhysionetMI about 10 GB).
 - **fp16 storage** could clip large amplitudes: the builder asserts all stored values are
   finite and checks the maximum absolute value against the fp16 range.
 - **CRLF files** (`MeSAE.py`, `config/config.json`): edit in place, small diffs.

@@ -1,6 +1,6 @@
 """Reproducible seen/unseen subject subsets for group-holdout finetune evals (Phase 2, Task 3).
 CPU only. Writes config/subject_groups/<name>.json. Seed 42; idempotent.
-Usage: python probes/select_eval_subsets.py [--datasets eegmmidb beta4s]"""
+Usage: python probes/select_eval_subsets.py [--datasets physionetmi beta4s]"""
 import os, sys, json, argparse
 import numpy as np
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
@@ -12,12 +12,13 @@ from IO.dataset import build_dataset_from_config
 
 RUN = 'output/pretrain/mesae_v10_small/artifacts/config.json'
 SEED, BANDS = 42, ((8, 13), (13, 30))
-DATASETS = {'eegmmidb': 'EEGMMIdb', 'beta4s': 'BETA_4s'}
+DATASETS = {'physionetmi': 'PhysionetMI', 'beta4s': 'BETA_4s'}
+DS_ROOT = {'PhysionetMI': 'datas/pretrain', 'BETA_4s': 'datas/pretrain'}  # renamed from EEGMMIdb 2026-09-22
 
 
 def load(cfg, ds):
     cfg = json.loads(json.dumps(cfg))
-    cfg['dataset_params']['finetune'] = {ds: {'dataset_path': f'datas/{ds}',
+    cfg['dataset_params']['finetune'] = {ds: {'dataset_path': f'{DS_ROOT[ds]}/{ds}',
                                               'subject_to_use': ['all'], 'channels_to_use': ['all']}}
     b = build_dataset_from_config(cfg, mode='finetune').base_dataset
     return b, cfg['preprocess_params']['sample_freq']
@@ -51,7 +52,7 @@ def run(name, ds, pre_cfg):
     unseen = sorted(exist - set(seen), key=int)
     rng = np.random.RandomState(SEED)
     out = {'dataset': ds, 'seed': SEED}
-    if name == 'eegmmidb':
+    if name == 'physionetmi':
         px = {str(s): proxy(np.asarray(b.data[sid == s]), y[sid == s], fs) for s in subs}
         order = sorted(unseen, key=lambda s: (px[s], int(s)))
         bins = np.array_split(np.arange(len(order)), 10)

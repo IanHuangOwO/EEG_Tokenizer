@@ -19,4 +19,4 @@ The joint-warmup pattern MeFSQ uses (b's rejected alternative) was justified the
 
 - `model/MeSAE/MeSAE.py` tokenizer-stage encoder config shrinks (lower `enc_depth`, possibly drop spatial cross-channel attention) — a new architecture, not a hyperparameter tweak, so old `mesae_v1` checkpoints are not compatible with the retrained tokenizer.
 - `train_tokenizer.py` (standalone, single-phase, no masking) is retired — its role is absorbed as "stage 1" of a unified two-phase script, structurally parallel to how `train_pretrain.py` already does `vq_warmup_epochs` → `freeze_vq_and_decoder()` for MeFSQ. `training_params.tokenizer` config section is retired with it.
-- Retraining the tokenizer stage was going to happen anyway (EEGMMIdb needs adding to the training set), so no completed run is being discarded by this change.
+- Retraining the tokenizer stage was going to happen anyway (PhysionetMI needs adding to the training set), so no completed run is being discarded by this change.

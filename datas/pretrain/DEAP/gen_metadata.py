@@ -22,7 +22,7 @@ replicated identically across the paper's supplementary material and every
 open DEAP loader -- NOT independently re-verified against a channel list
 shipped in this particular archive (none was present). All 32 names resolve
 via MNE's standard_1020 montage (checked 2026-09-22), so per-channel
-"coordinates" are omitted here -- same precedent as EEGMMIdb's midline
+"coordinates" are omitted here -- same precedent as PhysionetMI's midline
 channels (see adding-a-dataset.md Step 3 notes).
 """
 import json

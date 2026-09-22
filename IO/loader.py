@@ -76,7 +76,7 @@ class BaseSubjectLoader(ABC):
         description is a key of code_to_label, via cut_event_window (always pads a
         trial that runs off the recording's start/end, never drops one -- see that
         function's docstring; this replaces the old drop-if-insufficient-headroom
-        behavior). Shared by the GDF/EDF event-marker loaders (EEGMMIdb, BNCI2014001,
+        behavior). Shared by the GDF/EDF event-marker loaders (PhysionetMI, BNCI2014001,
         BNCI2014004) -- sets self._last_valid_ranges (NATIVE-rate samples) alongside the
         returned trials/labels so get_subject_data can carry real-vs-padded content
         through to the compiled cache. Measured real pre-event headroom per dataset

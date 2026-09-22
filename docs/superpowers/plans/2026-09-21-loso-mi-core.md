@@ -15,7 +15,7 @@ shared pretrained dictionary should beat a per-subject classifier, and it was ne
   `dataset_params.finetune` holds exactly one dataset).
 - Two heads per dataset, same protocol: **C1** and the **raw control** (interpretation needs
   the control; a bare LOSO accuracy has no reference).
-- Out of scope, decided separately with the user (do not build them here): EEGMMIdb
+- Out of scope, decided separately with the user (do not build them here): PhysionetMI
   (two-group seen/unseen design), SSVEP datasets (BETA_3s/BETA_4s/Dial, incl. phase-sensitive
   contrast heads), Inria (ERP). Unusable for supervised LOSO: BCICIV1_Test, Inria_Test,
   GraspAndLift_*, Siena (no labels / no data — see the dataset survey).
@@ -194,7 +194,7 @@ row while 2a/2b are unseen), the per-dataset numbers and paired stats, the train
 check, and an evidence-only reading: does C1 beat raw on unseen subjects (the ADR's
 prediction was: if the tokenizer wins anywhere it is few-shot and cross-subject), how does
 seen (BCICIV1) compare to unseen (2a/2b), and what within-subject C1 ≈ raw (step 12a) implies
-by contrast. State that "raw" is the simple mu/beta band-power head. Note phase 2+ (EEGMMIdb
+by contrast. State that "raw" is the simple mu/beta band-power head. Note phase 2+ (PhysionetMI
 seen/unseen groups, SSVEP with phase-sensitive heads, ERP) remain open. Do not mark step 11
 done.
 
@@ -202,7 +202,7 @@ done.
 
 ## Self-Review Notes
 
-- **Spec coverage:** step 11's LOSO (MI core). EEGMMIdb/SSVEP/ERP explicitly deferred.
+- **Spec coverage:** step 11's LOSO (MI core). PhysionetMI/SSVEP/ERP explicitly deferred.
 - **Placeholders:** none; code and commands literal.
 - **Consistency:** fold tag `_S<subject>` (Task 1) is exactly what Task 2's `ft_summary.py`
   calls need; `aggregate_last` reads `best_metrics['last_val']`, which `run_training_loop`

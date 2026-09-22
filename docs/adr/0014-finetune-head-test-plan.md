@@ -422,7 +422,7 @@ bar is C1's 0.536 (build-order step 10).
 |---|---|
 | few-shot: 5 / 10 / 20 / 50 trials per class | where a foundation model should win |
 | leave-one-subject-out | transfer, the other place it should win |
-| EEGMMIdb (109 subjects) | statistical power; 9 subjects cannot settle ±0.05 |
+| PhysionetMI (109 subjects) | statistical power; 9 subjects cannot settle ±0.05 |
 | Inria (ERP), BETA (SSVEP) | universality, each against its own raw baseline |
 
 Plus two ablations for the known confounds: run once with shared stamps excluded (they
@@ -965,7 +965,7 @@ Next, in order:
     Step 10 stays out of "Done" — one run, at one dropout setting, with no size-control
     variant tried, is a first result on `2c`, not a closed question.
 11. **Regime tests on the best of C0–C4:** few-shot (5/10/20/50 trials per class), LOSO,
-    then EEGMMIdb for statistical power. These decide whether the tokenizer is worth
+    then PhysionetMI for statistical power. These decide whether the tokenizer is worth
     anything over raw. With C0–C4 all resolved (C2 without a dedicated run, C3 and C4 as
     negative results), "the best of C0–C4" currently means C1's exact configuration —
     `stamp_induced spatial:8`, `pool_time=learned:2`, `include_advance` unset/false,
@@ -1041,7 +1041,7 @@ Next, in order:
     band-power head (16 features), not a stronger raw baseline (LDA, a deeper raw
     model); n is only 9 / 9 / 5 subjects, so significance is weak by construction and
     the point difference is the bar (p is reported, never a gate); 30 epochs is a
-    judgment call. **Still open:** EEGMMIdb with seen/unseen subject groups, SSVEP with
+    judgment call. **Still open:** PhysionetMI with seen/unseen subject groups, SSVEP with
     phase-sensitive heads, ERP, and few-shot; step 11 stays out of "Done".
 12. **C4 — evoked branch (2b)**, then ERP on Inria and SSVEP on BETA against their own
     raw baselines.

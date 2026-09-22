@@ -4,7 +4,7 @@
   "dataset_params": {
     "pretrain": {
       "Nakanishi2015": { "dataset_path": "datas/finetune/Nakanishi2015", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "BETA_4s": { "dataset_path": "datas/BETA_4s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BETA_4s": { "dataset_path": "datas/pretrain/BETA_4s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "BETA_3s": { "dataset_path": "datas/pretrain/BETA_3s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "BCICIV1_Train": { "dataset_path": "datas/pretrain/BCICIV1_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "BCICIV1_Test": { "dataset_path": "datas/pretrain/BCICIV1_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
@@ -14,7 +14,7 @@
       "GraspAndLift_Test": { "dataset_path": "datas/pretrain/GraspAndLift_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "Inria_Train": { "dataset_path": "datas/pretrain/Inria_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "Inria_Test": { "dataset_path": "datas/pretrain/Inria_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "EEGMMIdb": { "dataset_path": "datas/pretrain/EEGMMIdb", "subject_to_use": ["all"], "channels_to_use": ["all"] }
+      "PhysionetMI": { "dataset_path": "datas/pretrain/PhysionetMI", "subject_to_use": ["all"], "channels_to_use": ["all"] }
     }
   },
   "check": {
@@ -24,13 +24,13 @@
     "plot_attn_topo": true,
     "cmap": "YlOrRd",
     "codebook": {
-      "_comment": "Now also caps how much gets LOADED, not just how much check_codebook samples afterward -- check_model.py's _cap_subjects_by_trial_budget shuffles each dataset's subject list and stops adding subjects once their cumulative trial count crosses this, so subject_to_use=['all'] on e.g. EEGMMIdb (109 subjects) no longer loads every real trial from every subject just to discard most of them post-hoc (that OOM'd a run at ~55GB RSS -- see docs/model-analysis-checklist.md). 3000 is generous (15x the old 200) while keeping worst-case per-dataset memory in the hundreds of MB, not GB.",
+      "_comment": "Now also caps how much gets LOADED, not just how much check_codebook samples afterward -- check_model.py's _cap_subjects_by_trial_budget shuffles each dataset's subject list and stops adding subjects once their cumulative trial count crosses this, so subject_to_use=['all'] on e.g. PhysionetMI (109 subjects) no longer loads every real trial from every subject just to discard most of them post-hoc (that OOM'd a run at ~55GB RSS -- see docs/model-analysis-checklist.md). 3000 is generous (15x the old 200) while keeping worst-case per-dataset memory in the hundreds of MB, not GB.",
       "max_trials_per_dataset": 3000
     },
     "event_onset_sample": {
-      "_comment": "Samples at preprocess_params.sample_freq (200Hz). Verified against each loader's own trial-cutting code + real raw annotation streams, not assumed (see docs/model-analysis-checklist.md). BNCI2014001/BCICIV1_Train/Inria_Train loaders now shift their extracted window PRE_EVENT_SECONDS=1.0s before the real event (measured headroom: BNCI2014001 >=3.58s, BCICIV1_Train >=4.0s, Inria_Train >=6.57s, all far more than 1.0s -- the event now sits at sample 200 (1.0s), not the window start. EEGMMIdb stays 0/unshifted: it labels T0 (rest) as its own class, so events are back-to-back with ~0 real headroom -- shifting would pull the tail of the PRECEDING, differently-labeled trial into the window, mixing classes (see datas/EEGMMIdb/loader.py). Requires the caches for these 4 datasets to be recompiled (cache_dataset.py) and the tokenizer/pretrain stages retrained before these numbers describe the actual data being analyzed.",
+      "_comment": "Samples at preprocess_params.sample_freq (200Hz). Verified against each loader's own trial-cutting code + real raw annotation streams, not assumed (see docs/model-analysis-checklist.md). BNCI2014001/BCICIV1_Train/Inria_Train loaders now shift their extracted window PRE_EVENT_SECONDS=1.0s before the real event (measured headroom: BNCI2014001 >=3.58s, BCICIV1_Train >=4.0s, Inria_Train >=6.57s, all far more than 1.0s -- the event now sits at sample 200 (1.0s), not the window start. PhysionetMI stays 0/unshifted: it labels T0 (rest) as its own class, so events are back-to-back with ~0 real headroom -- shifting would pull the tail of the PRECEDING, differently-labeled trial into the window, mixing classes (see datas/PhysionetMI/loader.py). Requires the caches for these 4 datasets to be recompiled (cache_dataset.py) and the tokenizer/pretrain stages retrained before these numbers describe the actual data being analyzed.",
       "BNCI2014001": 200,
-      "EEGMMIdb": 0,
+      "PhysionetMI": 0,
       "BCICIV1_Train": 200,
       "Inria_Train": 200
     }

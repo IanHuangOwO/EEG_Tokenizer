@@ -4,7 +4,7 @@ Status: Accepted (design direction), pending implementation
 Date: 2026-09-17
 Model under test: `mesae_tokenizer_v5` (`output/pretrain/mesae_tokenizer_v5/tokenizer/best_tokenizer.pth`)
 Probe dataset: BNCI2014001, 2592 trials, 9 subjects, 4 classes, chance 0.250
-Secondary: EEGMMIdb, 39569 trials, 109 subjects, k=3 subset, chance 0.333
+Secondary: PhysionetMI, 39569 trials, 109 subjects, k=3 subset, chance 0.333
 
 ## Context
 
@@ -82,7 +82,7 @@ cannot represent a *contrast* between channels, which is exactly what MI decodin
 ### 4a. Spatial (topography) — refuted
 
 Added `use_topo_feature` to `MeSAEFinetune` (per-channel projection into the head).
-`feature_combo.py` / `feature_ablation.py` on EEGMMIdb:
+`feature_combo.py` / `feature_ablation.py` on PhysionetMI:
 
 | features | width | PCA64 |
 |---|---|---|

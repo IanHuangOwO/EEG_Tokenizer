@@ -74,7 +74,7 @@ DATASET_INFO = {
         "P300/RSVP standard), NOT compile.json's global pre_event_seconds/ "
         "post_event_seconds (those are tuned for ~5s motor-imagery trials, "
         "wrong scale for 10 Hz RSVP -- same opt-out precedent as "
-        "EEGMMIdb's loader)."
+        "PhysionetMI's loader)."
     ),
 }
 

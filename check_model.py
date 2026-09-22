@@ -42,7 +42,7 @@ def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng, min_subjects=20
     to cover ~max_trials real trials, peeking each subject's cheap 'labels' array
     (shape (N,), a few hundred int64s -- negligible) to learn its trial count WITHOUT
     touching that subject's 'data' array (the actual multi-hundred-MB payload). Without
-    this, subject_to_use=["all"] on a big dataset (e.g. EEGMMIdb's 109 subjects) loads
+    this, subject_to_use=["all"] on a big dataset (e.g. PhysionetMI's 109 subjects) loads
     every real trial from every subject into RAM via build_dataset_from_config, even
     though check_codebook only ever samples up to max_trials_per_dataset of them right
     afterward -- the rest sat in memory for nothing. Real instance: this OOM'd a run at
@@ -55,7 +55,7 @@ def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng, min_subjects=20
     picked (or the dataset runs out), even if that overshoots the trial budget --
     trial count alone gives a stable per-unit usage-rate ESTIMATE (variance shrinks with
     sqrt(n) regardless of subject count), but a handful of subjects each contributing
-    hundreds of correlated trials (e.g. EEGMMIdb: 9 subjects hit 3000 trials on their
+    hundreds of correlated trials (e.g. PhysionetMI: 9 subjects hit 3000 trials on their
     own) under-covers SUBJECT diversity -- inter-subject variability is usually the
     dominant source of variance in EEG, not trial-to-trial noise within one subject.
     A small dataset with fewer than min_subjects subjects total just returns all of
@@ -329,7 +329,7 @@ if __name__ == '__main__':
                             if wanted_datasets else ds_params)
             # This branch only ever plots ONE trial per target (pick_trial below), so even
             # the small codebook budget above is overkill here -- a big dataset's
-            # subject_to_use=["all"] (e.g. EEGMMIdb's 109) still loads every real trial from
+            # subject_to_use=["all"] (e.g. PhysionetMI's 109) still loads every real trial from
             # every subject otherwise, just to render 1-2 snapshots (the exact same shape of
             # bug the codebook loop's _cap_subjects_by_trial_budget already fixes, so reuse
             # it -- small budget, small min_subjects since diversity doesn't matter for a
