@@ -17,8 +17,6 @@ output/<model_name>/visualization/).
 import os
 import json
 
-from model.factory import MODEL_REGISTRY
-
 
 def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng, min_subjects=20):
     """Shuffle ds_args's resolved subject list and keep only as many subjects as needed
@@ -74,20 +72,6 @@ def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng, min_subjects=20
     return picked
 
 
-def run(config, output_dir, model, dataset, trial_idx, subject_id=None,
-        epoch=None, cmap='YlOrRd', plot_recon=True, plot_topo_psd=True, plot_attn_topo=True):
-    model_type = 'MeSAE'  # only registered model (MeFSQ removed, docs/adr/0013)
-    plugin  = MODEL_REGISTRY[model_type]
-    checker = plugin.checker_cls()
-    trainer = plugin.trainer_cls()
-    return checker.check_pretrain(
-        config, output_dir, model, dataset, trial_idx,
-        subject_id=subject_id, epoch=epoch, cmap=cmap,
-        plot_recon=plot_recon, plot_topo_psd=plot_topo_psd, plot_attn_topo=plot_attn_topo,
-        trainer=trainer,
-    )
-
-
 if __name__ == '__main__':
     import argparse
     import copy
@@ -98,6 +82,8 @@ if __name__ == '__main__':
         _deep_merge, load_model,
         select_subject_dataset, filter_config_to_subject, pick_trial, resolve_output_dir,
     )
+    from tools.analysis.snapshot import build_pretrain_bundle
+    from tools.panels import PanelContext, run_panels
 
     parser = argparse.ArgumentParser(description='Post-training EEG checker (MeSAE)')
     parser.add_argument('--config',      default='config/analysis.json')
@@ -273,12 +259,15 @@ if __name__ == '__main__':
                 subj = t.get('subject') if t.get('subject') is not None else _first_subject(t_dataset)
                 t_idx, subject_id = pick_trial(ds, subj, trial=t.get('trial'), dataset_name=t_dataset)
                 out = resolve_output_dir(cfg, 'analysis', t_dataset or 'multi', mode=mode)
-                metrics = run(
-                    cfg, out, mdl, ds, t_idx, subject_id=subject_id, cmap=cmap,
-                    plot_recon=check_cfg.get('plot_recon', True),
-                    plot_topo_psd=check_cfg.get('plot_topo_psd', True),
-                    plot_attn_topo=check_cfg.get('plot_attn_topo', True),
-                )
+                bundle, metrics = build_pretrain_bundle(mdl, ds, t_idx, cfg, device, subject_id=subject_id)
+                panels = []
+                if check_cfg.get('plot_recon', True):
+                    panels.append('recon_signal')
+                if check_cfg.get('plot_topo_psd', True):
+                    panels += ['stamp_by_patch', 'stamp_gallery']
+                panel_ctx = PanelContext(config=cfg, output_dir=out, device=device, args=args,
+                                          model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
+                run_panels(panels, 'pretrain', panel_ctx)
                 metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
                 print(f"[check] done: dataset={t_dataset} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
 
@@ -296,11 +285,14 @@ if __name__ == '__main__':
                 trial_cfg = args.trial if args.trial is not None else ds_cfg.get('trial_to_use')
                 t_idx, subject_id = pick_trial(ds, subject, trial_cfg, dataset_name=ds_name)
                 out = resolve_output_dir(filtered, 'analysis', ds_name, mode=mode)
-                metrics = run(
-                    filtered, out, mdl, ds, t_idx, subject_id=subject_id, cmap=cmap,
-                    plot_recon=check_cfg.get('plot_recon', True),
-                    plot_topo_psd=check_cfg.get('plot_topo_psd', True),
-                    plot_attn_topo=check_cfg.get('plot_attn_topo', True),
-                )
+                bundle, metrics = build_pretrain_bundle(mdl, ds, t_idx, filtered, device, subject_id=subject_id)
+                panels = []
+                if check_cfg.get('plot_recon', True):
+                    panels.append('recon_signal')
+                if check_cfg.get('plot_topo_psd', True):
+                    panels += ['stamp_by_patch', 'stamp_gallery']
+                panel_ctx = PanelContext(config=filtered, output_dir=out, device=device, args=args,
+                                          model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
+                run_panels(panels, 'pretrain', panel_ctx)
                 metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
                 print(f"[check] done: dataset={ds_name} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
