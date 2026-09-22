@@ -17,6 +17,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from IO.preprocessing import slice_patches
 from model.MeSAE.MeSAE_modules import overlap_add_patches
 from model.MeSAE.plugin import MeSAETrainer
 
@@ -86,12 +87,15 @@ def _lookup_valid_range(dataset, trial_idx):
     return int(base_dataset.row_valid_start[base_idx]), int(base_dataset.row_valid_end[base_idx])
 
 
-def _patchify(x, patch_len):
-    C, T = x.shape
-    P = T // patch_len
-    x_patches = x[:, :P * patch_len].reshape(C, P, patch_len).unsqueeze(0)
-    time_idx = torch.arange(P, dtype=torch.long).unsqueeze(0)
-    return x_patches, time_idx
+def _patchify(x, patch_len, patch_stride=None):
+    """x [C, T] -> (x_patches [1, C, P, L], time_idx [1, P]). Overlapping when
+    patch_stride < patch_len -- see IO/preprocessing.py's slice_patches, the same helper
+    train_finetune.py's RawSource uses, so a trial patchified here matches training exactly
+    instead of a naive non-overlapping P = T // patch_len reshape (which silently drops
+    every patch position a stride < patch_len would have added, and gives the wrong P for
+    any head whose modules need an exact patch count, e.g. LearnedTimePool)."""
+    x_patches, time_idx = slice_patches(x, patch_len, patch_stride)
+    return x_patches.unsqueeze(0), time_idx.unsqueeze(0)
 
 
 @torch.no_grad()
@@ -176,9 +180,10 @@ def build_finetune_bundle(model, dataset, trial_idx, config, device,
     backbone = model.backbone
     pp = config.get('preprocess_params', {})
     patch_len = pp.get('patch_length', 100)
+    patch_stride = pp.get('patch_stride', patch_len)
 
     x_raw, coords, label, valid_channels, valid_length = dataset[trial_idx]
-    x_patches, time_idx = _patchify(x_raw, patch_len)
+    x_patches, time_idx = _patchify(x_raw, patch_len, patch_stride)
     x_in = x_patches.to(device)
     c_in = coords.unsqueeze(0).to(device)
     t_in = time_idx.to(device)

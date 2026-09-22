@@ -1,6 +1,6 @@
 """
 Post-training checker for the FINETUNE stage only: per-target correct/wrong snapshot
-pairs via BaseEpochChecker.check_finetune (model/base_checker.py). Pretrain-stage
+pairs via tools/analysis/snapshot.py's build_finetune_bundle + tools/panels/. Pretrain-stage
 analysis (snapshot + codebook) lives in analysis_pretrain.py.
 
 Config resolution: --config is a small overlay — checkpoint (a finetune head.pth),
@@ -34,7 +34,7 @@ def _safe_name(s):
     return ''.join(c if c.isalnum() else '_' for c in s).strip('_') or 'unnamed'
 
 
-def _predict_all(model, dataset, patch_len, device):
+def _predict_all(model, dataset, patch_len, patch_stride, device):
     """Runs the finetune model over every trial in `dataset` (in index order, no shuffle)
     and returns (preds, labels) numpy arrays aligned to dataset indices — used to find one
     correctly- and one incorrectly-classified trial per target class.
@@ -44,11 +44,16 @@ def _predict_all(model, dataset, patch_len, device):
     whole batching pipeline moved to a cached-feature/`source` model (ADR 0016) that has no
     equivalent for raw per-trial patches. `FinetuneModel.forward` itself is unchanged
     (model/MeSAE/MeSAE.py's docstring: "matches the old finetune classes"), and
-    model/base_checker.py's own `check_finetune` already patchifies one trial the same way
-    (`_patchify`, same reshape) with no collate/padding needed — this mirrors that exact
-    pattern instead of reimplementing the vanished collate function."""
+    tools/analysis/snapshot.py's own `_patchify` patchifies one trial the same way (via
+    IO/preprocessing.py's `slice_patches`, patch_stride-aware) with no collate/padding
+    needed — this mirrors that exact pattern instead of reimplementing the vanished
+    collate function. patch_stride matters: a naive non-overlapping `T // patch_len`
+    reshape gives the wrong patch count whenever patch_stride < patch_len, which breaks
+    any head whose modules need an exact match (e.g. LearnedTimePool's fixed-size weights,
+    sized to training's own patch count)."""
     import torch
     import numpy as np
+    from IO.preprocessing import slice_patches
 
     was_training = model.training
     model.eval()
@@ -57,10 +62,9 @@ def _predict_all(model, dataset, patch_len, device):
         with torch.no_grad():
             for i in range(len(dataset)):
                 x_raw, coords, label, valid_channels, _valid_length = dataset[i]
-                C, T = x_raw.shape
-                P = T // patch_len
-                x_patches = x_raw[:, :P * patch_len].reshape(C, P, patch_len).unsqueeze(0).to(device)
-                time_idx = torch.arange(P, dtype=torch.long).unsqueeze(0).to(device)
+                x_patches, time_idx = slice_patches(x_raw, patch_len, patch_stride)
+                x_patches = x_patches.unsqueeze(0).to(device)
+                time_idx = time_idx.unsqueeze(0).to(device)
                 c_in = coords.unsqueeze(0).to(device)
                 vc_in = valid_channels.unsqueeze(0).to(device)
                 logits = model(x_patches, c_in, time_idx=time_idx, valid_channels=vc_in)[0]
@@ -168,7 +172,8 @@ if __name__ == '__main__':
     ds = build_dataset_from_config(filtered, mode=data_mode)
 
     patch_len = filtered.get('preprocess_params', {}).get('patch_length', 100)
-    preds, labels = _predict_all(mdl, ds, patch_len, device)
+    patch_stride = filtered.get('preprocess_params', {}).get('patch_stride', patch_len)
+    preds, labels = _predict_all(mdl, ds, patch_len, patch_stride, device)
     num_classes  = int(labels.max()) + 1
     target_names = _load_target_names(ds_cfg['dataset_path'], num_classes)
 
