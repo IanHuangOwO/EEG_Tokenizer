@@ -128,9 +128,13 @@ Key fields:
 
 ### Outputs
 
-`output/<backbone>/` holds every pretrain/tokenizer run (each with its `feature_cache/`) --
-e.g. `output/mesae_v10_small/`; there is no wrapping `output/pretrain/` layer, since a
-backbone's own dir also nests its finetune runs (below).
+`output/<backbone>/` holds every pretrain/tokenizer run -- e.g. `output/mesae_v10_small/`;
+there is no wrapping `output/pretrain/` layer. A backbone with no finetune runs of its own
+keeps its pretrain artifacts (`checkpoint/`, `artifacts/`, `visualization/`,
+`feature_cache/`) flat at that top level. Once a backbone has finetune runs nested under
+it too (below), its own pretrain artifacts move under `output/<backbone>/pretrain/` so the
+two stay visually separate (`mesae_v10_small` is the only backbone finetuned so far, so
+it's currently the only one with this extra `pretrain/` layer).
 `output/archive/` holds the earlier finetune experiments (`experiment_b`, `experiment_c`, `loso_phase1`, `phase2`): superseded
 by the restart on the corrected pipeline, kept as the record of why the head was chosen (their stamp-head numbers ran without
 MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<model_name>/` (`model_name` may contain a
