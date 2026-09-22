@@ -15,8 +15,6 @@ output/<model_name>/analysis/<dataset_name>/recon/.
 import os
 import json
 
-from model.factory import MODEL_REGISTRY
-
 
 def _load_target_names(dataset_path, num_classes):
     """data_metadata.targets["<idx>"].label, e.g. BNCI2014001's {"0": {"label": "Left hand"}, ...}
@@ -73,26 +71,14 @@ def _predict_all(model, dataset, patch_len, device):
     return np.array(preds), np.array(labels)
 
 
-def run(config, output_dir, model, dataset, trial_idx, subject_id=None,
-        epoch=None, cmap='YlOrRd', plot_recon=True, plot_topo_psd=True, tag=''):
-    model_type = 'MeSAE'  # only registered model (MeFSQ removed, docs/adr/0013)
-    plugin  = MODEL_REGISTRY[model_type]
-    checker = plugin.checker_cls()
-    trainer = plugin.trainer_cls()
-    return checker.check_finetune(
-        config, output_dir, model, dataset, trial_idx,
-        subject_id=subject_id, epoch=epoch, cmap=cmap,
-        plot_recon=plot_recon, plot_topo_psd=plot_topo_psd,
-        trainer=trainer, tag=tag,
-    )
-
-
 if __name__ == '__main__':
     import argparse
     import copy
     import torch
     from IO.dataset import build_dataset_from_config
     from tools.analysis import _deep_merge, load_model, resolve_output_dir
+    from tools.analysis.snapshot import build_finetune_bundle
+    from tools.panels import PanelContext, run_panels
 
     parser = argparse.ArgumentParser(description='Post-training EEG finetune checker (MeSAE)')
     parser.add_argument('--config',      default=None)
@@ -193,12 +179,16 @@ if __name__ == '__main__':
             t_idx = int(idxs[0])
             subject_id = int(ds.base_dataset.subject_data[t_idx].item())
             tag = f'_target{cls_idx}_{safe}_{status}'
-            metrics = run(
-                filtered, out, mdl, ds, t_idx, subject_id=subject_id, cmap=cmap,
-                plot_recon=check_cfg.get('plot_recon', True),
-                plot_topo_psd=check_cfg.get('plot_topo_psd', True),
-                tag=tag,
-            )
+            bundle, metrics = build_finetune_bundle(mdl, ds, t_idx, filtered, device,
+                                                      subject_id=subject_id, tag=tag)
+            panels = []
+            if check_cfg.get('plot_recon', True):
+                panels.append('recon_signal')
+            if check_cfg.get('plot_topo_psd', True):
+                panels += ['stamp_by_patch', 'stamp_gallery']
+            panel_ctx = PanelContext(config=filtered, output_dir=out, device=device, args=args,
+                                      model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
+            run_panels(panels, 'finetune', panel_ctx)
             metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
             print(f"[check] done: target={cls_idx}({name}) status={status} subject={subject_id} "
                   f"trial_idx={t_idx}  |  {metrics_str}")
