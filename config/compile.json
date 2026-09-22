@@ -22,7 +22,8 @@
       "DEAP": { "dataset_path": "datas/DEAP" },
       "SRM_RestingState": { "dataset_path": "datas/SRM_RestingState" },
       "SPIS": { "dataset_path": "datas/SPIS" },
-      "ERP_Longitudinal": { "dataset_path": "datas/ERP_Longitudinal" }
+      "ERP_Longitudinal": { "dataset_path": "datas/ERP_Longitudinal" },
+      "EmotionVideo": { "dataset_path": "datas/EmotionVideo" }
     }
   }
 }

@@ -1,0 +1,534 @@
+{
+    "data_metadata": {
+        "dataset_name": "EmotionVideo",
+        "dataset_info": {
+            "source_url": "https://data.mendeley.com/datasets/58rydc6vwc/2",
+            "file_format": "CSV",
+            "description": "30 subjects, g.tec Unicorn Hybrid Black (8ch), continuous EEG while watching emotion-eliciting video clips (fear/sorrow/happiness/neutrality per the paper's description; the actual release has 12 video conditions per subject, see notes).",
+            "task_type": "emotion_elicitation_video",
+            "reference": "Mendeley Data, DOI 10.17632/58rydc6vwc.2, Sharda University (Uttar Pradesh), published 2026-03-02, CC BY 4.0",
+            "notes": "PRETRAIN-ONLY: no video/emotion label is recoverable for the 12 numbered CSVs/subject (01.csv-12.csv) -- see this file's module docstring for why. targets.count=1 dummy label throughout. Channel names (Fz/C3/Cz/C4/Pz/PO7/Oz/PO8) are the Unicorn Hybrid Black's documented default montage, not stated in the CSVs themselves (columns are just 'EEG 1'..'EEG 8') -- resolved via MNE standard_1020 at load time, same as other datasets. Sample rate (250 Hz) is the device's documented nominal rate, cross-checked against real row counts (~30.6k-30.9k rows per ~120s recording)."
+        },
+        "acquisition": {
+            "sample_frequency": 250,
+            "num_subjects": 30
+        },
+        "targets": {
+            "count": 1,
+            "type": "unlabelled",
+            "0": {
+                "label": "no recoverable label -- pretrain-only, see dataset_info.notes"
+            }
+        },
+        "channels": {
+            "count": 8,
+            "system": "10-20 International System",
+            "1": {
+                "label": "Fz"
+            },
+            "2": {
+                "label": "C3"
+            },
+            "3": {
+                "label": "Cz"
+            },
+            "4": {
+                "label": "C4"
+            },
+            "5": {
+                "label": "Pz"
+            },
+            "6": {
+                "label": "PO7"
+            },
+            "7": {
+                "label": "Oz"
+            },
+            "8": {
+                "label": "PO8"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "files": [
+                "raw/EEG_Signals/S01/01.csv",
+                "raw/EEG_Signals/S01/02.csv",
+                "raw/EEG_Signals/S01/03.csv",
+                "raw/EEG_Signals/S01/04.csv",
+                "raw/EEG_Signals/S01/05.csv",
+                "raw/EEG_Signals/S01/06.csv",
+                "raw/EEG_Signals/S01/07.csv",
+                "raw/EEG_Signals/S01/08.csv",
+                "raw/EEG_Signals/S01/09.csv",
+                "raw/EEG_Signals/S01/10.csv",
+                "raw/EEG_Signals/S01/11.csv",
+                "raw/EEG_Signals/S01/12.csv"
+            ]
+        },
+        "2": {
+            "files": [
+                "raw/EEG_Signals/S02/01.csv",
+                "raw/EEG_Signals/S02/02.csv",
+                "raw/EEG_Signals/S02/03.csv",
+                "raw/EEG_Signals/S02/04.csv",
+                "raw/EEG_Signals/S02/05.csv",
+                "raw/EEG_Signals/S02/06.csv",
+                "raw/EEG_Signals/S02/07.csv",
+                "raw/EEG_Signals/S02/08.csv",
+                "raw/EEG_Signals/S02/09.csv",
+                "raw/EEG_Signals/S02/10.csv",
+                "raw/EEG_Signals/S02/11.csv",
+                "raw/EEG_Signals/S02/12.csv"
+            ]
+        },
+        "3": {
+            "files": [
+                "raw/EEG_Signals/S03/01.csv",
+                "raw/EEG_Signals/S03/02.csv",
+                "raw/EEG_Signals/S03/03.csv",
+                "raw/EEG_Signals/S03/04.csv",
+                "raw/EEG_Signals/S03/05.csv",
+                "raw/EEG_Signals/S03/06.csv",
+                "raw/EEG_Signals/S03/07.csv",
+                "raw/EEG_Signals/S03/08.csv",
+                "raw/EEG_Signals/S03/09.csv",
+                "raw/EEG_Signals/S03/10.csv",
+                "raw/EEG_Signals/S03/11.csv",
+                "raw/EEG_Signals/S03/12.csv"
+            ]
+        },
+        "4": {
+            "files": [
+                "raw/EEG_Signals/S04/01.csv",
+                "raw/EEG_Signals/S04/02.csv",
+                "raw/EEG_Signals/S04/03.csv",
+                "raw/EEG_Signals/S04/04.csv",
+                "raw/EEG_Signals/S04/05.csv",
+                "raw/EEG_Signals/S04/06.csv",
+                "raw/EEG_Signals/S04/07.csv",
+                "raw/EEG_Signals/S04/08.csv",
+                "raw/EEG_Signals/S04/09.csv",
+                "raw/EEG_Signals/S04/10.csv",
+                "raw/EEG_Signals/S04/11.csv",
+                "raw/EEG_Signals/S04/12.csv"
+            ]
+        },
+        "5": {
+            "files": [
+                "raw/EEG_Signals/S05/01.csv",
+                "raw/EEG_Signals/S05/02.csv",
+                "raw/EEG_Signals/S05/03.csv",
+                "raw/EEG_Signals/S05/04.csv",
+                "raw/EEG_Signals/S05/05.csv",
+                "raw/EEG_Signals/S05/06.csv",
+                "raw/EEG_Signals/S05/07.csv",
+                "raw/EEG_Signals/S05/08.csv",
+                "raw/EEG_Signals/S05/09.csv",
+                "raw/EEG_Signals/S05/10.csv",
+                "raw/EEG_Signals/S05/11.csv",
+                "raw/EEG_Signals/S05/12.csv"
+            ]
+        },
+        "6": {
+            "files": [
+                "raw/EEG_Signals/S06/01.csv",
+                "raw/EEG_Signals/S06/02.csv",
+                "raw/EEG_Signals/S06/03.csv",
+                "raw/EEG_Signals/S06/04.csv",
+                "raw/EEG_Signals/S06/05.csv",
+                "raw/EEG_Signals/S06/06.csv",
+                "raw/EEG_Signals/S06/07.csv",
+                "raw/EEG_Signals/S06/08.csv",
+                "raw/EEG_Signals/S06/09.csv",
+                "raw/EEG_Signals/S06/10.csv",
+                "raw/EEG_Signals/S06/11.csv",
+                "raw/EEG_Signals/S06/12.csv"
+            ]
+        },
+        "7": {
+            "files": [
+                "raw/EEG_Signals/S07/01.csv",
+                "raw/EEG_Signals/S07/02.csv",
+                "raw/EEG_Signals/S07/03.csv",
+                "raw/EEG_Signals/S07/04.csv",
+                "raw/EEG_Signals/S07/05.csv",
+                "raw/EEG_Signals/S07/06.csv",
+                "raw/EEG_Signals/S07/07.csv",
+                "raw/EEG_Signals/S07/08.csv",
+                "raw/EEG_Signals/S07/09.csv",
+                "raw/EEG_Signals/S07/10.csv",
+                "raw/EEG_Signals/S07/11.csv",
+                "raw/EEG_Signals/S07/12.csv"
+            ]
+        },
+        "8": {
+            "files": [
+                "raw/EEG_Signals/S08/01.csv",
+                "raw/EEG_Signals/S08/02.csv",
+                "raw/EEG_Signals/S08/03.csv",
+                "raw/EEG_Signals/S08/04.csv",
+                "raw/EEG_Signals/S08/05.csv",
+                "raw/EEG_Signals/S08/06.csv",
+                "raw/EEG_Signals/S08/07.csv",
+                "raw/EEG_Signals/S08/08.csv",
+                "raw/EEG_Signals/S08/09.csv",
+                "raw/EEG_Signals/S08/10.csv",
+                "raw/EEG_Signals/S08/11.csv",
+                "raw/EEG_Signals/S08/12.csv"
+            ]
+        },
+        "9": {
+            "files": [
+                "raw/EEG_Signals/S09/01.csv",
+                "raw/EEG_Signals/S09/02.csv",
+                "raw/EEG_Signals/S09/03.csv",
+                "raw/EEG_Signals/S09/04.csv",
+                "raw/EEG_Signals/S09/05.csv",
+                "raw/EEG_Signals/S09/06.csv",
+                "raw/EEG_Signals/S09/07.csv",
+                "raw/EEG_Signals/S09/08.csv",
+                "raw/EEG_Signals/S09/09.csv",
+                "raw/EEG_Signals/S09/10.csv",
+                "raw/EEG_Signals/S09/11.csv",
+                "raw/EEG_Signals/S09/12.csv"
+            ]
+        },
+        "10": {
+            "files": [
+                "raw/EEG_Signals/S10/01.csv",
+                "raw/EEG_Signals/S10/02.csv",
+                "raw/EEG_Signals/S10/03.csv",
+                "raw/EEG_Signals/S10/04.csv",
+                "raw/EEG_Signals/S10/05.csv",
+                "raw/EEG_Signals/S10/06.csv",
+                "raw/EEG_Signals/S10/07.csv",
+                "raw/EEG_Signals/S10/08.csv",
+                "raw/EEG_Signals/S10/09.csv",
+                "raw/EEG_Signals/S10/10.csv",
+                "raw/EEG_Signals/S10/11.csv",
+                "raw/EEG_Signals/S10/12.csv"
+            ]
+        },
+        "11": {
+            "files": [
+                "raw/EEG_Signals/S11/01.csv",
+                "raw/EEG_Signals/S11/02.csv",
+                "raw/EEG_Signals/S11/03.csv",
+                "raw/EEG_Signals/S11/04.csv",
+                "raw/EEG_Signals/S11/05.csv",
+                "raw/EEG_Signals/S11/06.csv",
+                "raw/EEG_Signals/S11/07.csv",
+                "raw/EEG_Signals/S11/08.csv",
+                "raw/EEG_Signals/S11/09.csv",
+                "raw/EEG_Signals/S11/10.csv",
+                "raw/EEG_Signals/S11/11.csv",
+                "raw/EEG_Signals/S11/12.csv"
+            ]
+        },
+        "12": {
+            "files": [
+                "raw/EEG_Signals/S12/01.csv",
+                "raw/EEG_Signals/S12/02.csv",
+                "raw/EEG_Signals/S12/03.csv",
+                "raw/EEG_Signals/S12/04.csv",
+                "raw/EEG_Signals/S12/05.csv",
+                "raw/EEG_Signals/S12/06.csv",
+                "raw/EEG_Signals/S12/07.csv",
+                "raw/EEG_Signals/S12/08.csv",
+                "raw/EEG_Signals/S12/09.csv",
+                "raw/EEG_Signals/S12/10.csv",
+                "raw/EEG_Signals/S12/11.csv",
+                "raw/EEG_Signals/S12/12.csv"
+            ]
+        },
+        "13": {
+            "files": [
+                "raw/EEG_Signals/S13/01.csv",
+                "raw/EEG_Signals/S13/02.csv",
+                "raw/EEG_Signals/S13/03.csv",
+                "raw/EEG_Signals/S13/04.csv",
+                "raw/EEG_Signals/S13/05.csv",
+                "raw/EEG_Signals/S13/06.csv",
+                "raw/EEG_Signals/S13/07.csv",
+                "raw/EEG_Signals/S13/08.csv",
+                "raw/EEG_Signals/S13/09.csv",
+                "raw/EEG_Signals/S13/10.csv",
+                "raw/EEG_Signals/S13/11.csv",
+                "raw/EEG_Signals/S13/12.csv"
+            ]
+        },
+        "14": {
+            "files": [
+                "raw/EEG_Signals/S14/01.csv",
+                "raw/EEG_Signals/S14/02.csv",
+                "raw/EEG_Signals/S14/03.csv",
+                "raw/EEG_Signals/S14/04.csv",
+                "raw/EEG_Signals/S14/05.csv",
+                "raw/EEG_Signals/S14/06.csv",
+                "raw/EEG_Signals/S14/07.csv",
+                "raw/EEG_Signals/S14/08.csv",
+                "raw/EEG_Signals/S14/09.csv",
+                "raw/EEG_Signals/S14/10.csv",
+                "raw/EEG_Signals/S14/11.csv",
+                "raw/EEG_Signals/S14/12.csv"
+            ]
+        },
+        "15": {
+            "files": [
+                "raw/EEG_Signals/S15/01.csv",
+                "raw/EEG_Signals/S15/02.csv",
+                "raw/EEG_Signals/S15/03.csv",
+                "raw/EEG_Signals/S15/04.csv",
+                "raw/EEG_Signals/S15/05.csv",
+                "raw/EEG_Signals/S15/06.csv",
+                "raw/EEG_Signals/S15/07.csv",
+                "raw/EEG_Signals/S15/08.csv",
+                "raw/EEG_Signals/S15/09.csv",
+                "raw/EEG_Signals/S15/10.csv",
+                "raw/EEG_Signals/S15/11.csv",
+                "raw/EEG_Signals/S15/12.csv"
+            ]
+        },
+        "16": {
+            "files": [
+                "raw/EEG_Signals/S16/01.csv",
+                "raw/EEG_Signals/S16/02.csv",
+                "raw/EEG_Signals/S16/03.csv",
+                "raw/EEG_Signals/S16/04.csv",
+                "raw/EEG_Signals/S16/05.csv",
+                "raw/EEG_Signals/S16/06.csv",
+                "raw/EEG_Signals/S16/07.csv",
+                "raw/EEG_Signals/S16/08.csv",
+                "raw/EEG_Signals/S16/09.csv",
+                "raw/EEG_Signals/S16/10.csv",
+                "raw/EEG_Signals/S16/11.csv",
+                "raw/EEG_Signals/S16/12.csv"
+            ]
+        },
+        "17": {
+            "files": [
+                "raw/EEG_Signals/S17/01.csv",
+                "raw/EEG_Signals/S17/02.csv",
+                "raw/EEG_Signals/S17/03.csv",
+                "raw/EEG_Signals/S17/04.csv",
+                "raw/EEG_Signals/S17/05.csv",
+                "raw/EEG_Signals/S17/06.csv",
+                "raw/EEG_Signals/S17/07.csv",
+                "raw/EEG_Signals/S17/08.csv",
+                "raw/EEG_Signals/S17/09.csv",
+                "raw/EEG_Signals/S17/10.csv",
+                "raw/EEG_Signals/S17/11.csv",
+                "raw/EEG_Signals/S17/12.csv"
+            ]
+        },
+        "18": {
+            "files": [
+                "raw/EEG_Signals/S18/01.csv",
+                "raw/EEG_Signals/S18/02.csv",
+                "raw/EEG_Signals/S18/03.csv",
+                "raw/EEG_Signals/S18/04.csv",
+                "raw/EEG_Signals/S18/05.csv",
+                "raw/EEG_Signals/S18/06.csv",
+                "raw/EEG_Signals/S18/07.csv",
+                "raw/EEG_Signals/S18/08.csv",
+                "raw/EEG_Signals/S18/09.csv",
+                "raw/EEG_Signals/S18/10.csv",
+                "raw/EEG_Signals/S18/11.csv",
+                "raw/EEG_Signals/S18/12.csv"
+            ]
+        },
+        "19": {
+            "files": [
+                "raw/EEG_Signals/S19/01.csv",
+                "raw/EEG_Signals/S19/02.csv",
+                "raw/EEG_Signals/S19/03.csv",
+                "raw/EEG_Signals/S19/04.csv",
+                "raw/EEG_Signals/S19/05.csv",
+                "raw/EEG_Signals/S19/06.csv",
+                "raw/EEG_Signals/S19/07.csv",
+                "raw/EEG_Signals/S19/08.csv",
+                "raw/EEG_Signals/S19/09.csv",
+                "raw/EEG_Signals/S19/10.csv",
+                "raw/EEG_Signals/S19/11.csv",
+                "raw/EEG_Signals/S19/12.csv"
+            ]
+        },
+        "20": {
+            "files": [
+                "raw/EEG_Signals/S20/01.csv",
+                "raw/EEG_Signals/S20/02.csv",
+                "raw/EEG_Signals/S20/03.csv",
+                "raw/EEG_Signals/S20/04.csv",
+                "raw/EEG_Signals/S20/05.csv",
+                "raw/EEG_Signals/S20/06.csv",
+                "raw/EEG_Signals/S20/07.csv",
+                "raw/EEG_Signals/S20/08.csv",
+                "raw/EEG_Signals/S20/09.csv",
+                "raw/EEG_Signals/S20/10.csv",
+                "raw/EEG_Signals/S20/11.csv",
+                "raw/EEG_Signals/S20/12.csv"
+            ]
+        },
+        "21": {
+            "files": [
+                "raw/EEG_Signals/S21/01.csv",
+                "raw/EEG_Signals/S21/02.csv",
+                "raw/EEG_Signals/S21/03.csv",
+                "raw/EEG_Signals/S21/04.csv",
+                "raw/EEG_Signals/S21/05.csv",
+                "raw/EEG_Signals/S21/06.csv",
+                "raw/EEG_Signals/S21/07.csv",
+                "raw/EEG_Signals/S21/08.csv",
+                "raw/EEG_Signals/S21/09.csv",
+                "raw/EEG_Signals/S21/10.csv",
+                "raw/EEG_Signals/S21/11.csv",
+                "raw/EEG_Signals/S21/12.csv"
+            ]
+        },
+        "22": {
+            "files": [
+                "raw/EEG_Signals/S22/01.csv",
+                "raw/EEG_Signals/S22/02.csv",
+                "raw/EEG_Signals/S22/03.csv",
+                "raw/EEG_Signals/S22/04.csv",
+                "raw/EEG_Signals/S22/05.csv",
+                "raw/EEG_Signals/S22/06.csv",
+                "raw/EEG_Signals/S22/07.csv",
+                "raw/EEG_Signals/S22/08.csv",
+                "raw/EEG_Signals/S22/09.csv",
+                "raw/EEG_Signals/S22/10.csv",
+                "raw/EEG_Signals/S22/11.csv",
+                "raw/EEG_Signals/S22/12.csv"
+            ]
+        },
+        "23": {
+            "files": [
+                "raw/EEG_Signals/S23/01.csv",
+                "raw/EEG_Signals/S23/02.csv",
+                "raw/EEG_Signals/S23/03.csv",
+                "raw/EEG_Signals/S23/04.csv",
+                "raw/EEG_Signals/S23/05.csv",
+                "raw/EEG_Signals/S23/06.csv",
+                "raw/EEG_Signals/S23/07.csv",
+                "raw/EEG_Signals/S23/08.csv",
+                "raw/EEG_Signals/S23/09.csv",
+                "raw/EEG_Signals/S23/10.csv",
+                "raw/EEG_Signals/S23/11.csv",
+                "raw/EEG_Signals/S23/12.csv"
+            ]
+        },
+        "24": {
+            "files": [
+                "raw/EEG_Signals/S24/01.csv",
+                "raw/EEG_Signals/S24/02.csv",
+                "raw/EEG_Signals/S24/03.csv",
+                "raw/EEG_Signals/S24/04.csv",
+                "raw/EEG_Signals/S24/05.csv",
+                "raw/EEG_Signals/S24/06.csv",
+                "raw/EEG_Signals/S24/07.csv",
+                "raw/EEG_Signals/S24/08.csv",
+                "raw/EEG_Signals/S24/09.csv",
+                "raw/EEG_Signals/S24/10.csv",
+                "raw/EEG_Signals/S24/11.csv",
+                "raw/EEG_Signals/S24/12.csv"
+            ]
+        },
+        "25": {
+            "files": [
+                "raw/EEG_Signals/S25/01.csv",
+                "raw/EEG_Signals/S25/02.csv",
+                "raw/EEG_Signals/S25/03.csv",
+                "raw/EEG_Signals/S25/04.csv",
+                "raw/EEG_Signals/S25/05.csv",
+                "raw/EEG_Signals/S25/06.csv",
+                "raw/EEG_Signals/S25/07.csv",
+                "raw/EEG_Signals/S25/08.csv",
+                "raw/EEG_Signals/S25/09.csv",
+                "raw/EEG_Signals/S25/10.csv",
+                "raw/EEG_Signals/S25/11.csv",
+                "raw/EEG_Signals/S25/12.csv"
+            ]
+        },
+        "26": {
+            "files": [
+                "raw/EEG_Signals/S26/01.csv",
+                "raw/EEG_Signals/S26/02.csv",
+                "raw/EEG_Signals/S26/03.csv",
+                "raw/EEG_Signals/S26/04.csv",
+                "raw/EEG_Signals/S26/05.csv",
+                "raw/EEG_Signals/S26/06.csv",
+                "raw/EEG_Signals/S26/07.csv",
+                "raw/EEG_Signals/S26/08.csv",
+                "raw/EEG_Signals/S26/09.csv",
+                "raw/EEG_Signals/S26/10.csv",
+                "raw/EEG_Signals/S26/11.csv",
+                "raw/EEG_Signals/S26/12.csv"
+            ]
+        },
+        "27": {
+            "files": [
+                "raw/EEG_Signals/S27/01.csv",
+                "raw/EEG_Signals/S27/02.csv",
+                "raw/EEG_Signals/S27/03.csv",
+                "raw/EEG_Signals/S27/04.csv",
+                "raw/EEG_Signals/S27/05.csv",
+                "raw/EEG_Signals/S27/06.csv",
+                "raw/EEG_Signals/S27/07.csv",
+                "raw/EEG_Signals/S27/08.csv",
+                "raw/EEG_Signals/S27/09.csv",
+                "raw/EEG_Signals/S27/10.csv",
+                "raw/EEG_Signals/S27/11.csv",
+                "raw/EEG_Signals/S27/12.csv"
+            ]
+        },
+        "28": {
+            "files": [
+                "raw/EEG_Signals/S28/01.csv",
+                "raw/EEG_Signals/S28/02.csv",
+                "raw/EEG_Signals/S28/03.csv",
+                "raw/EEG_Signals/S28/04.csv",
+                "raw/EEG_Signals/S28/05.csv",
+                "raw/EEG_Signals/S28/06.csv",
+                "raw/EEG_Signals/S28/07.csv",
+                "raw/EEG_Signals/S28/08.csv",
+                "raw/EEG_Signals/S28/09.csv",
+                "raw/EEG_Signals/S28/10.csv",
+                "raw/EEG_Signals/S28/11.csv",
+                "raw/EEG_Signals/S28/12.csv"
+            ]
+        },
+        "29": {
+            "files": [
+                "raw/EEG_Signals/S29/01.csv",
+                "raw/EEG_Signals/S29/02.csv",
+                "raw/EEG_Signals/S29/03.csv",
+                "raw/EEG_Signals/S29/04.csv",
+                "raw/EEG_Signals/S29/05.csv",
+                "raw/EEG_Signals/S29/06.csv",
+                "raw/EEG_Signals/S29/07.csv",
+                "raw/EEG_Signals/S29/08.csv",
+                "raw/EEG_Signals/S29/09.csv",
+                "raw/EEG_Signals/S29/10.csv",
+                "raw/EEG_Signals/S29/11.csv",
+                "raw/EEG_Signals/S29/12.csv"
+            ]
+        },
+        "30": {
+            "files": [
+                "raw/EEG_Signals/S30/01.csv",
+                "raw/EEG_Signals/S30/02.csv",
+                "raw/EEG_Signals/S30/03.csv",
+                "raw/EEG_Signals/S30/04.csv",
+                "raw/EEG_Signals/S30/05.csv",
+                "raw/EEG_Signals/S30/06.csv",
+                "raw/EEG_Signals/S30/07.csv",
+                "raw/EEG_Signals/S30/08.csv",
+                "raw/EEG_Signals/S30/09.csv",
+                "raw/EEG_Signals/S30/10.csv",
+                "raw/EEG_Signals/S30/11.csv",
+                "raw/EEG_Signals/S30/12.csv"
+            ]
+        }
+    }
+}
