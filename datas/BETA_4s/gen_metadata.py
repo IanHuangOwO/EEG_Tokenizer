@@ -15,12 +15,23 @@ DATAS_ROOT = os.path.dirname(ROOT)
 DATASET_INFO_TEMPLATE = {
     "source_url": "https://bci.med.tsinghua.edu.cn/download.html",
     "file_format": "MATLAB (.mat)",
-    "description": "Beijing EEG Signal Data for Chinese Brain Computer Interface Competition (BETA) - {w:.0f} second trials subset",
+    "description": "BETA (Benchmark dataset for SSVEP-BCI) - 40-target SSVEP, {w:.0f} second trials subset",
     "window_size": "{w:.1f}s",
     "task_type": "SSVEP (Steady-State Visual Evoked Potential)",
-    "note": "This is a {w:.0f}-second window variant of the full BETA dataset (original has 70 subjects total)",
-    "contact": "wuhaolin@tsinghua.edu.cn",
-    "reference": "Tsinghua University, School of Software. BCI Competition IV Dataset 2B",
+    "note": (
+        "{w:.0f}-second window variant of the full BETA dataset (70 subjects total: "
+        "S01-S15 at 2s stimulus/3s window, S16-S70 at 3s stimulus/4s window -- each "
+        "epoch also includes 0.5s pre- and 0.5s post-stimulus, per the paper). Native "
+        "recording was 1000 Hz, 64ch, Cz reference; the released .mat files are "
+        "already band-pass filtered (3-100 Hz) and downsampled to 250 Hz by the "
+        "original authors -- verified 2026-09-22 against the paper, matches this "
+        "dataset's own metadata.json sample_frequency=250."
+    ),
+    "contact": "Xiaorong Gao, Dept. of Biomedical Engineering, Tsinghua University "
+               "(corresponding author, no email listed on the paper)",
+    "reference": "Liu, B., Huang, X., Wang, Y., Chen, X., Gao, X. (2020). BETA: A "
+                 "Large Benchmark Database Toward SSVEP-BCI Application. Frontiers in "
+                 "Neuroscience, 14:627. doi: 10.3389/fnins.2020.00627",
 }
 
 # 40 SSVEP stimulus frequencies, 8.6-15.8 Hz in the BETA target layout
