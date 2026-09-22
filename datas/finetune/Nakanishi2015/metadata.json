@@ -1,6 +1,6 @@
 {
     "data_metadata": {
-        "dataset_name": "12JFPM_SSVEP",
+        "dataset_name": "Nakanishi2015",
         "dataset_info": {
             "source_url": "https://github.com/mnakanishi/12JFPM_SSVEP",
             "file_format": "MATLAB (.mat)",

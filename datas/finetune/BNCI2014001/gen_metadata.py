@@ -88,7 +88,7 @@ def main():
 
     meta = {
         "data_metadata": {
-            "dataset_name": "BCICIV2a",
+            "dataset_name": "BNCI2014001",
             "dataset_info": DATASET_INFO,
             "acquisition": {**ACQUISITION, "num_subjects": len(structure)},
             "targets": TARGETS,

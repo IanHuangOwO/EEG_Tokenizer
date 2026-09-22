@@ -14,11 +14,11 @@ class Loader(BaseSubjectLoader):
     compile.json's global setting) even though it's injected into every loader's
     dataset_params -- pre_pts is hardcoded 0 and post_pts stays standard_window-
     derived below, regardless of what the global compile-time setting is, unlike
-    BCICIV2a/BCICIV2b which share _segment_by_annotations. Checked the real
+    BNCI2014001/BNCI2014004 which share _segment_by_annotations. Checked the real
     annotation stream directly (S001R03.edf): T0/T1/T2 events are back-to-back,
     each starting almost exactly trial_len_pts after the previous one (e.g.
     T0@0.0s, T2@4.2s, T0@8.3s, T1@12.5s...). T0 (rest) IS one of the labeled
-    classes here, unlike BCICIV2a's unlabeled pre-cue fixation period -- so
+    classes here, unlike BNCI2014001's unlabeled pre-cue fixation period -- so
     there is no idle gap to borrow from; shifting the window back would pull in
     the tail of the PRECEDING, differently-labeled trial and mix classes into
     one window. cut_event_window's padding only covers running off a

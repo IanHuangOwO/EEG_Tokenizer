@@ -1,6 +1,6 @@
 {
     "data_metadata": {
-        "dataset_name": "BCICIV2b",
+        "dataset_name": "BNCI2014004",
         "dataset_info": {
             "source_url": "https://www.bbci.de/competition/iv/#dataset2b",
             "file_format": "GDF",

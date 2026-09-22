@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-**Environment:** run everything in the `eeg_fm` conda env (`/home/mamechin/anaconda3/envs/eeg_fm/bin/python`: torch 2.14, mne 1.12.1, mne-icalabel 0.9.0), not `base`. `base` has no `mne`, so `IO/loader.py`'s `get_standard_coords` silently falls back to flat polar coordinates from `metadata.json` (z=0, radius up to ~1) instead of MNE 3-D positions in meters. The Phase 1 LOSO runs and the 100-epoch BCICIV2a rerun ran in `base`, so they used the fallback coordinates; the torch version difference does not matter, the coordinates might. Check the env before comparing any finetune number against them. Phase 2 (2026-09-21 on) runs in `eeg_fm`.
+**Environment:** run everything in the `eeg_fm` conda env (`/home/mamechin/anaconda3/envs/eeg_fm/bin/python`: torch 2.14, mne 1.12.1, mne-icalabel 0.9.0), not `base`. `base` has no `mne`, so `IO/loader.py`'s `get_standard_coords` silently falls back to flat polar coordinates from `metadata.json` (z=0, radius up to ~1) instead of MNE 3-D positions in meters. The Phase 1 LOSO runs and the 100-epoch BNCI2014001 rerun ran in `base`, so they used the fallback coordinates; the torch version difference does not matter, the coordinates might. Check the env before comparing any finetune number against them. Phase 2 (2026-09-21 on) runs in `eeg_fm`.
 
 ```bash
 # Install dependencies (CUDA 11.8)
@@ -126,7 +126,7 @@ Key fields:
 `output/archive/` holds the earlier finetune experiments (`experiment_b`, `experiment_c`, `loso_phase1`, `phase2`): superseded
 by the restart on the corrected pipeline, kept as the record of why the head was chosen (their stamp-head numbers ran without
 MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<model_name>/` (`model_name` may contain a
-subfolder, e.g. `baseline/BCICIV2a_intra_c1`).
+subfolder, e.g. `baseline/BNCI2014001_intra_c1`).
 
 `output/<model_name>/` (pretrain runs; a finetune run instead writes `finetune/run_<name>/head.pth` (head checkpoint), `artifacts/group_eval.json` (per-subject tail/last balanced accuracy), `artifacts/config_<timestamp>.json` (config plus `env` stamp) and `visualization/run_<name>/training_dashboard.png`)
 - `checkpoint/best.pth` — best val-loss checkpoint (reset at the phase boundary; during

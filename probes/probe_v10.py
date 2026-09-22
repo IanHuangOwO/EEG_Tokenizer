@@ -1,4 +1,4 @@
-"""v10 (fused run) probe: same BCICIV2a trials, same features, same per-subject LDA as
+"""v10 (fused run) probe: same BNCI2014001 (formerly BCICIV2a) trials, same features, same per-subject LDA as
 pretrain_probe.py, compared paired against the cached v9 tokenizer/pretrain columns
 (pretrain_probe_feats.npz). Usage: python probe_v10.py <run_name> [ckpt=last.pth]
 
@@ -29,7 +29,7 @@ RUN = sys.argv[1]
 OUT = os.path.join('output', RUN, 'probes')
 os.makedirs(OUT, exist_ok=True)
 CKPT = f'output/{RUN}/checkpoint/{sys.argv[2] if len(sys.argv) > 2 else "last.pth"}'
-DS = 'BCICIV2a'
+DS = 'BNCI2014001'  # renamed from BCICIV2a 2026-09-22
 KEYS = ('head_z', 'chan_mag', 'z_mean', 'z_chan', 'recon_bandpow', 'stamp_bandpow')
 DEV = 'cuda' if torch.cuda.is_available() else 'cpu'
 BANDS = ((8, 13), (13, 30))
@@ -37,7 +37,7 @@ BANDS = ((8, 13), (13, 30))
 cfg = json.load(open(f'output/{RUN}/artifacts/config.json'))
 FS, PL, PS = (cfg['preprocess_params'][k] for k in ('sample_freq', 'patch_length', 'patch_stride'))
 cfg['dataset_params']['finetune'] = {DS: {
-    'dataset_path': f'datas/{DS}', 'subject_to_use': ['all'], 'channels_to_use': ['all']}}
+    'dataset_path': f'datas/finetune/{DS}', 'subject_to_use': ['all'], 'channels_to_use': ['all']}}
 ds = build_dataset_from_config(cfg, mode='finetune')
 subs = ds.base_dataset.subject_data.numpy()
 

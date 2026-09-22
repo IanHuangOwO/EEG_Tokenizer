@@ -1,4 +1,4 @@
-"""Per-stamp task relevance on BCICIV2a, from probe_v10.py's stamp_dump_<run>.npz.
+"""Per-stamp task relevance on BNCI2014001, from probe_v10.py's stamp_dump_<run>.npz.
 Usage: python stamp_relevance.py <run_name> [onset_sample=200] [post_end_s=4.0]
 
 Three measures per stamp s (alive routed + shared), trials cue-aligned (cue at sample

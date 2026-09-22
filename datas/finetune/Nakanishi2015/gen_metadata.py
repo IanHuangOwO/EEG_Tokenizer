@@ -88,7 +88,7 @@ def main():
 
     meta = {
         "data_metadata": {
-            "dataset_name": "12JFPM_SSVEP",
+            "dataset_name": "Nakanishi2015",
             "dataset_info": DATASET_INFO,
             "acquisition": {
                 "sample_frequency": 256,

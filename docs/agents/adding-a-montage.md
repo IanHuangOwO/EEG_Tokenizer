@@ -122,7 +122,7 @@ optode layouts (`artinis-*`) — add any of these the same way if a dataset need
    the relevant dataset's own `datas/<name>/metadata.json` `data_metadata.channels` dict
    — that file is already the authoritative source for that dataset's own channels, no
    need to touch MNE.
-2. Set `source` to the dataset name it came from (e.g. `"datas/finetune/12JFPM_SSVEP/metadata.json"`).
+2. Set `source` to the dataset name it came from (e.g. `"datas/finetune/Nakanishi2015/metadata.json"`).
 3. `region`/`hemisphere`/`cartesian` are optional — fill in only what you actually know;
    omit rather than guess.
 

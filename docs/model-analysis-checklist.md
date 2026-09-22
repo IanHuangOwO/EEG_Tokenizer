@@ -40,7 +40,7 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
   `_render_pool_ablation` (`plugin.py`) → `pool_ablation.png`. No StampBank
   change needed — zeroes `amp` for one pool's columns and re-decodes via the
   already-public `decode_selected`. Measured: ablating Shared costs
-  **+844% to +5789%** MSE across all 8 datasets tested (incl. `BCICIV2a`,
+  **+844% to +5789%** MSE across all 8 datasets tested (incl. `BNCI2014001`,
   never in the training set) — consistently worse than ablating Routed
   (+679% to +2469%). Shared is the load-bearing pool, not a baseline on top
   of Routed's work — the opposite of what the energy share alone might
@@ -63,7 +63,7 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
 
   Measured on `mesae_tokenizer_v4` (5/8 sampled datasets qualified),
   routed/shared/both/raw:
-  - `12JFPM_SSVEP` 14.0/12.0/17.0/**8.5** (chance 8.3) — raw is at chance, every
+  - `Nakanishi2015` 14.0/12.0/17.0/**8.5** (chance 8.3) — raw is at chance, every
     stamp probe clears it: real value-add from the tokenizer here.
   - `BCICIV1_Train` 50.0/46.0/49.5/**46.0** (chance 50.0) — raw is ALSO at
     chance: this task has no decodable signal in anything, not a tokenizer
@@ -73,7 +73,7 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
     just loudness, the tokenizer isn't adding much on top for Routed.
   - `EEGMMIdb` 37.5/44.0/38.0/**38.0** (chance 33.3) — only Shared clears
     raw; Routed and both are statistically indistinguishable from raw.
-  - `BCICIV2a` 28.0/28.0/28.5/**32.0** (chance 25.0) — raw beats every
+  - `BNCI2014001` 28.0/28.0/28.5/**32.0** (chance 25.0) — raw beats every
     stamp probe on this held-out (never-trained-on) dataset — a real
     regression the earlier pass (no baseline) couldn't see at all.
 

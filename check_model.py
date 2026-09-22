@@ -20,7 +20,7 @@ from model.factory import MODEL_REGISTRY
 
 
 def _load_target_names(dataset_path, num_classes):
-    """data_metadata.targets["<idx>"].label, e.g. BCICIV2a's {"0": {"label": "Left hand"}, ...}
+    """data_metadata.targets["<idx>"].label, e.g. BNCI2014001's {"0": {"label": "Left hand"}, ...}
     — falls back to "class<idx>" for any index missing from metadata (or if metadata has no
     targets section at all, e.g. a dataset that hasn't been annotated with class names)."""
     try:

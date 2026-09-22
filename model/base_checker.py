@@ -90,7 +90,7 @@ class BaseEpochChecker:
         to mark, so this deliberately returns None whenever base_dataset.assemble_trials
         is True rather than draw a misleading line on a window that isn't one real
         trial. `is not None` (not truthiness) throughout -- an onset of literal 0 (event
-        at the very start of the trial, e.g. BCICIV2a/BCICIV1_Train/Inria_Train after
+        at the very start of the trial, e.g. BNCI2014001/BCICIV1_Train/Inria_Train after
         their pre-event-buffer shift, see docs/model-analysis-checklist.md) is a real,
         legitimate value, not "not configured"."""
         base_dataset = dataset.base_dataset

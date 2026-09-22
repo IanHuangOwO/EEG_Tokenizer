@@ -155,7 +155,7 @@ class EEGDataset(Dataset):
         # normalizing after zero-padding folds the zero-filled missing-channel rows into the
         # trial's mean/std (see IO/preprocessing.py's per-trial zscore/robust normalize), which
         # skews scale differently per dataset depending how many channels it's missing relative
-        # to canonical_channels (e.g. BCICIV2a is ~2/3 zero-padded channels — that's a much
+        # to canonical_channels (e.g. BNCI2014001 is ~2/3 zero-padded channels — that's a much
         # bigger normalization bias than a near-complete dataset like EEGMMIdb).
         if transform is not None:
             # Whole (N, C, T) batch in one call -- Normalizer._normalize reduces

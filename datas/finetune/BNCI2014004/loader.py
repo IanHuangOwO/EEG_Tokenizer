@@ -17,7 +17,7 @@ class Loader(BaseSubjectLoader):
     compile.json's global setting, see IO/loader.py's BaseSubjectLoader) around
     the per-class cue event (769/770), concatenated across all 3 runs for the
     subject. Not currently in any active dataset_params (see config/compile.json's
-    _comment) -- shares BCICIV2a's paradigm/timing convention, treated the same
+    _comment) -- shares BNCI2014001's paradigm/timing convention, treated the same
     way here, but its own real headroom hasn't been directly measured the way
     docs/model-analysis-checklist.md does for the datasets actually in use.
     """

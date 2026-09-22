@@ -29,7 +29,7 @@ class BaseSubjectLoader(ABC):
         # already uses). 0.0 default = old behavior (window starts exactly at the event,
         # zero-length post) for every loader that hasn't opted in. Only meaningful for a
         # trigger/annotation-anchored loader that actually reads it (BCICIV1_Train,
-        # BCICIV2a, Inria_Train as of this comment) -- see docs/model-analysis-checklist.md
+        # BNCI2014001, Inria_Train as of this comment) -- see docs/model-analysis-checklist.md
         # for the per-dataset headroom measured before enabling this. In NATIVE sample-rate
         # samples wherever a loader converts to pts (self.sample_freq, not the compile
         # target) -- cache_dataset.py rescales the resulting valid_ranges to the compiled
@@ -76,8 +76,8 @@ class BaseSubjectLoader(ABC):
         description is a key of code_to_label, via cut_event_window (always pads a
         trial that runs off the recording's start/end, never drops one -- see that
         function's docstring; this replaces the old drop-if-insufficient-headroom
-        behavior). Shared by the GDF/EDF event-marker loaders (EEGMMIdb, BCICIV2a,
-        BCICIV2b) -- sets self._last_valid_ranges (NATIVE-rate samples) alongside the
+        behavior). Shared by the GDF/EDF event-marker loaders (EEGMMIdb, BNCI2014001,
+        BNCI2014004) -- sets self._last_valid_ranges (NATIVE-rate samples) alongside the
         returned trials/labels so get_subject_data can carry real-vs-padded content
         through to the compiled cache. Measured real pre-event headroom per dataset
         (min ~3.5s+ in the loaders that use this) is in

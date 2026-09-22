@@ -4,10 +4,10 @@ How to convert a raw dataset (zip download, per-subject files, whatever
 format it ships in) into the standard `datas/<name>/` layout used by this
 repo. Reference implementations (each has a `datas/<name>/gen_metadata.py`
 generator, see Step 3): `BETA_4s`/`BETA_3s` (single .mat file per subject),
-`12JFPM_SSVEP` (split signal/label .mat files), `Inria_Train`/`Inria_Test` (CSV,
+`Nakanishi2015` (split signal/label .mat files), `Inria_Train`/`Inria_Test` (CSV,
 shared label file across subjects), `EEGMMIdb` (EDF, multi-run folder per
 subject), `BCICIV1_Train`/`BCICIV1_Test` (.mat with real digitized channel
-coordinates), `BCICIV2a`/`BCICIV2b` (GDF, event-marker driven),
+coordinates), `BNCI2014001`/`BNCI2014004` (GDF, event-marker driven),
 `GraspAndLift_Train` (continuous multi-label events collapsed to a dummy
 pretrain-only label), `DEAP` (Python pickle, `pickle.load(..., encoding='latin1')`
 for a Python-2-pickled file; continuous multi-dimensional ratings thresholded into
@@ -115,7 +115,7 @@ Every path written into `data_structure` must be `raw/`-prefixed (relative to
 `dataset_path`, i.e. `datas/<DatasetName>/`) — see Step 1.
 
 Some datasets ship train/test or A/B splits as sibling directories
-(`BCICIV1_Train`+`BCICIV1_Test`, `BCICIV2a`+`BCICIV2b`, `Inria_Train`+`Inria_Test`)
+(`BCICIV1_Train`+`BCICIV1_Test`, `BNCI2014001`+`BNCI2014004`, `Inria_Train`+`Inria_Test`)
 — each still gets its own independent `gen_metadata.py`/`loader.py`, even
 when the two splits share the same channel layout/paper. Every `datas/<Name>/`
 directory is a standalone dataset as far as the pipeline is concerned; nothing
@@ -212,7 +212,7 @@ rest of the pipeline enforces.
 "16": { "file": "raw/signals_labels/S16.mat" }
 ```
 
-**B. Split signal/label files, one pair per subject** (`12JFPM_SSVEP`):
+**B. Split signal/label files, one pair per subject** (`Nakanishi2015`):
 ```jsonc
 "1": { "signals": "raw/signals/DataSub_1.mat", "labels": "raw/labels/LabSub_1.mat" }
 ```
@@ -275,7 +275,7 @@ class Loader(BaseSubjectLoader):
         super().__init__(config, subject_id, desired_channel_indices)
         entry = self._require_subject(subject_id)   # looks up data_structure[str(subject_id)], raises if missing
         self.file_path = self._resolve(entry['file'])  # joins onto dataset_path, strips a leading './'
-        # Split signal/label style (12JFPM_SSVEP):  self._resolve(entry['signals']) / self._resolve(entry['labels'])
+        # Split signal/label style (Nakanishi2015):  self._resolve(entry['signals']) / self._resolve(entry['labels'])
         # Multi-run style (EEGMMIdb):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
 
     # _load_coords defaults to self._load_coords_from_metadata() (BaseSubjectLoader) —
@@ -308,7 +308,7 @@ Things the existing loaders show you need to handle per format:
   reshape `(C, T, Blocks, Targets)` -> `(N, C, T)` and synthesize labels
   `[0]*blocks + [1]*blocks + ...` since class order is implicit in array
   layout.
-- **Split signal/label files** (`datas/finetune/12JFPM_SSVEP/loader.py`): load both, truncate
+- **Split signal/label files** (`datas/finetune/Nakanishi2015/loader.py`): load both, truncate
   to `min(len)` if mismatched, remap 1-indexed labels to 0-indexed.
 - **Split files with a shared/master label file** (`datas/pretrain/Inria_Train/loader.py`):
   filter the shared label table down to this subject's rows by matching a
@@ -502,9 +502,9 @@ anything to format.
 bullet above). `GraspAndLift_Test` only has `test.zip` (the Kaggle
 competition's held-out series 9-10) — still unextracted/unconverted.
 
-`BCICIV2a`/`BCICIV2b` are converted — see `datas/finetune/BCICIV2a/loader.py`/
-`datas/finetune/BCICIV2b/loader.py` for GDF + event-marker reference examples
-(`BCICIV2b` also shows the multi-run-per-subject shape C, concatenating the
+`BNCI2014001`/`BNCI2014004` are converted — see `datas/finetune/BNCI2014001/loader.py`/
+`datas/finetune/BNCI2014004/loader.py` for GDF + event-marker reference examples
+(`BNCI2014004` also shows the multi-run-per-subject shape C, concatenating the
 3 training sessions per subject).
 
 `BCICIV1_Train`/`BCICIV1_Test` are converted too — `datas/pretrain/BCICIV1_Train/loader.py`
