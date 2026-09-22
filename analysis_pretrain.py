@@ -111,7 +111,51 @@ if __name__ == '__main__':
     parser.add_argument('--trial',       type=int, default=None)
     parser.add_argument('--dataset',     type=str, default=None)
     parser.add_argument('--recon_cmap',  type=str, default=None)
+    parser.add_argument('--panel',       action='append', default=[],
+                         help='Run one or more panels (repeatable) instead of the legacy '
+                              '--analysis path. See tools/panels/.')
+    parser.add_argument('--train',       action='store_true',
+                         help='(panel_profile only) profile in train mode (eigh skipped)')
     args = parser.parse_args()
+
+    if args.panel:
+        from tools.panels import PanelContext, run_panels, any_needs, load_panel
+
+        for name in args.panel:
+            if 'pretrain' not in load_panel(name).STAGES:
+                parser.error(f"panel {name!r} does not support the pretrain stage")
+
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if any_needs(args.panel, 'NEEDS_CHECKPOINT'):
+            with open(args.config, 'r') as f:
+                overlay = json.load(f)
+            checkpoint = args.checkpoint or overlay.get('checkpoint', '')
+            base_path = args.base_config or overlay.pop('base_config', None)
+            if not base_path:
+                model_dir = os.path.dirname(os.path.dirname(checkpoint))
+                base_path = os.path.join(model_dir, 'artifacts', 'config.json')
+            with open(base_path, 'r') as f:
+                base = json.load(f)
+            cfg = _deep_merge(base, overlay)
+            for m, dsp in overlay.get('dataset_params', {}).items():
+                cfg['dataset_params'][m] = dsp
+            mdl = load_model(cfg, checkpoint, device, mode='pretrain')
+            out_dir = resolve_output_dir(cfg, 'analysis', mode='pretrain')
+        else:
+            with open('config/config.json', 'r') as f:
+                cfg = json.load(f)
+            checkpoint, mdl = None, None
+            out_dir = 'output/tools-profile'
+        if any_needs(args.panel, 'NEEDS_DATASET'):
+            raise NotImplementedError(
+                "no NEEDS_DATASET=True panel exists yet (sub-project A only ships "
+                "panel_profile, which needs neither) -- dataset resolution for panels "
+                "is deferred to whichever future panel needs it")
+
+        ctx = PanelContext(config=cfg, output_dir=out_dir, device=device, args=args,
+                            model=mdl, dataset=None, checkpoint=checkpoint)
+        run_panels(args.panel, 'pretrain', ctx)
+        raise SystemExit(0)
 
     with open(args.config, 'r') as f:
         overlay = json.load(f)
