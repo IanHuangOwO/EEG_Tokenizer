@@ -517,29 +517,38 @@ def _safe_name(s):
 def _predict_all(model, dataset, patch_len, device):
     """Runs the finetune model over every trial in `dataset` (in index order, no shuffle)
     and returns (preds, labels) numpy arrays aligned to dataset indices — used to find one
-    correctly- and one incorrectly-classified trial per target class."""
+    correctly- and one incorrectly-classified trial per target class.
+
+    One trial at a time, no DataLoader/collate: `FinetuneCollate`, which used to batch and
+    pad variable-length trials for this loop, no longer exists in train_finetune.py — its
+    whole batching pipeline moved to a cached-feature/`source` model (ADR 0016) that has no
+    equivalent for raw per-trial patches. `FinetuneModel.forward` itself is unchanged
+    (model/MeSAE/MeSAE.py's docstring: "matches the old finetune classes"), and
+    model/base_checker.py's own `check_finetune` already patchifies one trial the same way
+    (`_patchify`, same reshape) with no collate/padding needed — this mirrors that exact
+    pattern instead of reimplementing the vanished collate function."""
     import torch
     import numpy as np
-    from torch.utils.data import DataLoader
-    from train_finetune import FinetuneCollate
 
-    loader = DataLoader(dataset, batch_size=32, shuffle=False, collate_fn=FinetuneCollate(patch_len))
     was_training = model.training
     model.eval()
-    all_preds, all_labels = [], []
+    preds, labels = [], []
     try:
         with torch.no_grad():
-            for batch in loader:
-                x, coords, time_idx, labels, valid_channels, pad_mask = batch
-                logits = model(
-                    x.to(device), coords.to(device), time_idx=time_idx.to(device),
-                    valid_channels=valid_channels.to(device), pad_mask=pad_mask.to(device),
-                )[0]
-                all_preds.append(logits.argmax(dim=-1).cpu())
-                all_labels.append(labels)
+            for i in range(len(dataset)):
+                x_raw, coords, label, valid_channels, _valid_length = dataset[i]
+                C, T = x_raw.shape
+                P = T // patch_len
+                x_patches = x_raw[:, :P * patch_len].reshape(C, P, patch_len).unsqueeze(0).to(device)
+                time_idx = torch.arange(P, dtype=torch.long).unsqueeze(0).to(device)
+                c_in = coords.unsqueeze(0).to(device)
+                vc_in = valid_channels.unsqueeze(0).to(device)
+                logits = model(x_patches, c_in, time_idx=time_idx, valid_channels=vc_in)[0]
+                preds.append(int(logits.argmax(dim=-1).item()))
+                labels.append(int(label))
     finally:
         model.train(was_training)
-    return torch.cat(all_preds).numpy(), torch.cat(all_labels).numpy()
+    return np.array(preds), np.array(labels)
 
 
 def run(config, output_dir, model, dataset, trial_idx, subject_id=None,
