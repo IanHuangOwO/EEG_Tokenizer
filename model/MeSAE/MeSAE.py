@@ -9,7 +9,8 @@ from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, St
                                          overlap_add_patches,
                                          spatial_mix, FlatTimePool, LearnedTimePool,
                                          EvokedBranch, phase_advance, StampExtractor, FeatureHead,
-                                         resolve_head_config, make_head_checkpoint)
+                                         resolve_head_config, make_head_checkpoint,
+                                         needs_stamp, needs_raw, _normalize_features)
 
 
 def _ema_update(buf, val, decay=0.99):
@@ -652,15 +653,17 @@ class FinetuneModel(nn.Module):
         for p in backbone.parameters():
             p.requires_grad_(False)
         self.register_buffer('channel_idx', torch.as_tensor(channel_idx, dtype=torch.long))
+        _normalize_features(head_cfg)   # old checkpoints' baked-in head_config: 'feature' -> 'features'
         self.head_cfg = head_cfg
-        stamp = head_cfg['feature'].startswith('stamp')
+        stamp = needs_stamp(head_cfg)
         self.extractor = StampExtractor(backbone, channel_idx) if stamp else None
         if stamp:
             assert head_cfg['num_stamps'] == len(self.extractor.keep), "num_stamps must equal the alive stamp count"
         self.head = FeatureHead(head_cfg)
-        if head_cfg['feature'] == 'stamp_band':
+        if 'stamp_band' in head_cfg['features']:
             E_D, E_H = self.extractor.band_tables(head_cfg['sample_freq'])
-            self.head.E_D.copy_(E_D); self.head.E_H.copy_(E_H)
+            self.head.entries['stamp_band'].E_D.copy_(E_D)
+            self.head.entries['stamp_band'].E_H.copy_(E_H)
 
     def train(self, mode=True):
         super().train(mode)
@@ -670,11 +673,12 @@ class FinetuneModel(nn.Module):
     def forward(self, x, coords, time_idx=None, valid_channels=None, pad_mask=None):
         B, C = x.shape[:2]
         vm = valid_channels if valid_channels is not None else x.new_ones(B, C, dtype=torch.bool)
+        inp = {}
         with torch.no_grad():
             if self.extractor is not None:
-                inp = self.extractor(x, coords, time_idx, vm)
-            else:
-                inp = x[:, self.channel_idx] * vm[:, self.channel_idx].float()[:, :, None, None]
+                inp['stamp'] = self.extractor(x, coords, time_idx, vm)
+            if needs_raw(self.head_cfg):
+                inp['raw'] = x[:, self.channel_idx] * vm[:, self.channel_idx].float()[:, :, None, None]
         return self.head(inp), None, None
 
     def head_checkpoint(self, backbone_checkpoint):
@@ -697,8 +701,10 @@ def build_finetune(backbone, num_channels, num_classes, channel_idx=None, num_pa
                    sample_freq=200, **ft_params):
     """finetune_cls entry: builds the frozen backbone + FeatureHead from the numeric head config."""
     channel_idx = list(range(num_channels)) if channel_idx is None else list(channel_idx)
+    norm = dict(ft_params)
+    _normalize_features(norm)
     num_stamps = 0
-    if ft_params.get('feature', 'stamp_power').startswith('stamp'):
+    if needs_stamp(norm):
         st = backbone.stamps
         num_stamps = int((st.fire_ema >= st.dead_threshold).sum()) + (st.n_stamps - st.n_routed)
     cfg = resolve_head_config(ft_params, num_classes=num_classes, num_patches=num_patches,

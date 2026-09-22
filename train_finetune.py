@@ -21,7 +21,8 @@ from IO.preprocessing import num_patches, slice_patches
 from cache_feature import CachedStampDataset, get_stamp_cache
 from model.factory import MODEL_REGISTRY, load_backbone
 from model.MeSAE.MeSAE_modules import (FeatureHead, StampExtractor, make_head_checkpoint,
-                                       resolve_head_config)
+                                       resolve_head_config, needs_stamp, needs_raw,
+                                       _normalize_features)
 
 torch.set_float32_matmul_precision('high')
 
@@ -124,7 +125,7 @@ class StampSource:
         self.num_patches, self.num_stamps = self.data.num_patches, self.data.num_stamps
 
     def get(self, idx):
-        return self.data.amp[idx].float(), self.labels[idx]
+        return {'stamp': self.data.amp[idx].float()}, self.labels[idx]
 
 
 class RawSource:
@@ -148,12 +149,43 @@ class RawSource:
 
     def get(self, idx):
         xp, _ = slice_patches(self.x[idx], self.patch_len, self.patch_stride)  # [B, C_valid, N', L]
-        return xp, self.labels[idx]
+        return {'raw': xp}, self.labels[idx]
+
+
+class CombinedSource:
+    """Serves a StampSource and a RawSource together, for a head whose features list needs
+    both (e.g. features=['stamp_power', 'raw_band']). Exposes the union of attributes either
+    single source exposes (num_patches/num_stamps/channel_idx/keep/labels/subject_data) --
+    both sources are built from the SAME (ds_name, pool), so their per-trial ordering,
+    labels and channel_idx must already agree; asserted once at construction, not re-checked
+    per batch."""
+    kind = 'combined'
+
+    def __init__(self, stamp_source, raw_source):
+        assert stamp_source.channel_idx == raw_source.channel_idx, \
+            "StampSource/RawSource channel_idx mismatch -- same dataset/pool should agree"
+        assert torch.equal(stamp_source.labels, raw_source.labels), \
+            "StampSource/RawSource label order mismatch -- same dataset/pool should agree"
+        self.stamp, self.raw = stamp_source, raw_source
+        self.labels, self.subject_data = stamp_source.labels, stamp_source.subject_data
+        self.channel_idx, self.keep = stamp_source.channel_idx, stamp_source.keep
+        self.num_patches, self.num_stamps = stamp_source.num_patches, stamp_source.num_stamps
+
+    def get(self, idx):
+        stamp_d, y = self.stamp.get(idx)
+        raw_d, _ = self.raw.get(idx)
+        return {**stamp_d, **raw_d}, y
 
 
 def make_source(config, ds_name, pool, device):
-    feature = config['model_params']['MeSAE']['finetune'].get('feature', 'stamp_power')
-    return StampSource(config, ds_name, pool, device) if feature.startswith('stamp') else RawSource(config, ds_name, pool)
+    ft_cfg = dict(config['model_params']['MeSAE']['finetune'])
+    _normalize_features(ft_cfg)
+    want_stamp, want_raw = needs_stamp(ft_cfg), needs_raw(ft_cfg)
+    if want_stamp and want_raw:
+        return CombinedSource(StampSource(config, ds_name, pool, device), RawSource(config, ds_name, pool))
+    if want_stamp:
+        return StampSource(config, ds_name, pool, device)
+    return RawSource(config, ds_name, pool)
 
 
 def iter_batches(source, idx, batch_size, device, shuffle, gen=None):
@@ -165,7 +197,7 @@ def iter_batches(source, idx, batch_size, device, shuffle, gen=None):
         if shuffle and len(j) < 2:
             continue
         x, y = source.get(j)
-        yield x.to(device), y.to(device)
+        yield {k: v.to(device) for k, v in x.items()}, y.to(device)
 
 
 def env_stamp():
@@ -212,13 +244,14 @@ def build_head_factory(config, source, num_classes):
         num_channels=len(source.channel_idx), num_stamps=source.num_stamps, patch_len=patch_len,
         patch_stride=pp.get('patch_stride', patch_len), sample_freq=float(pp['sample_freq']))
     tables = None
-    if cfg['feature'] == 'stamp_band':   # the template spectra need the backbone, once
+    if 'stamp_band' in cfg['features']:   # the template spectra need the backbone, once
         tables = StampExtractor(load_backbone(config), [0]).band_tables(cfg['sample_freq'])
 
     def new_head():
         head = FeatureHead(cfg)
         if tables is not None:
-            head.E_D.copy_(tables[0]); head.E_H.copy_(tables[1])
+            head.entries['stamp_band'].E_D.copy_(tables[0])
+            head.entries['stamp_band'].E_H.copy_(tables[1])
         return head
     return cfg, new_head
 
