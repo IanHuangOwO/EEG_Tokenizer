@@ -15,7 +15,7 @@ from sklearn.model_selection import StratifiedKFold, cross_val_score
 
 from IO.dataset import build_dataset_from_config
 
-RUN = 'output/pretrain/mesae_v10_small/artifacts/config.json'
+RUN = 'output/mesae_v10_small/artifacts/config.json'
 SEED, BANDS = 42, ((8, 13), (13, 30))
 DATASETS = {'physionetmi': 'PhysionetMI', 'beta4s': 'BETA_4s'}
 DS_ROOT = {'PhysionetMI': 'datas/pretrain', 'BETA_4s': 'datas/pretrain'}

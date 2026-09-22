@@ -128,12 +128,14 @@ Key fields:
 
 ### Outputs
 
-`output/pretrain/` holds every pretrain/tokenizer run (the backbones, each with its `feature_cache/`).
+`output/<backbone>/` holds every pretrain/tokenizer run (each with its `feature_cache/`) --
+e.g. `output/mesae_v10_small/`; there is no wrapping `output/pretrain/` layer, since a
+backbone's own dir also nests its finetune runs (below).
 `output/archive/` holds the earlier finetune experiments (`experiment_b`, `experiment_c`, `loso_phase1`, `phase2`): superseded
 by the restart on the corrected pipeline, kept as the record of why the head was chosen (their stamp-head numbers ran without
 MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<model_name>/` (`model_name` may contain a
-subfolder, e.g. `pretrain/mesae_v10_small/finetune/learned/BNCI2014001_intra` — finetune runs nest under the backbone's own
-`output/pretrain/<backbone>/` dir rather than top-level, one subfolder per head, since a second backbone finetuning the
+subfolder, e.g. `mesae_v10_small/finetune/learned/BNCI2014001_intra` — finetune runs nest under the backbone's own
+`output/<backbone>/` dir rather than top-level, one subfolder per head, since a second backbone finetuning the
 same baseline matrix would otherwise collide at the same paths; see ADR 0017).
 
 `output/<model_name>/` (pretrain runs; a finetune run instead writes `finetune/run_<name>/head.pth` (head checkpoint), `artifacts/group_eval.json` (per-subject tail/last balanced accuracy), `artifacts/config_<timestamp>.json` (config plus `env` stamp) and `visualization/run_<name>/training_dashboard.png`)

@@ -1,5 +1,5 @@
 {
-  "checkpoint": "output/pretrain/mesae_v10_all_share/checkpoint/last.pth",
+  "checkpoint": "output/mesae_v10_all_share/checkpoint/last.pth",
   "dataset_params": {
     "pretrain": {
       "Nakanishi2015": { "dataset_path": "datas/finetune/Nakanishi2015", "subject_to_use": ["all"], "channels_to_use": ["all"] },

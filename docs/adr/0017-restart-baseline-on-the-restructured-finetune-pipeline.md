@@ -74,7 +74,7 @@ Datasets and splits:
 over 55 and 109 subjects would cost about 2 and 20 GPU-hours per head at the current speed, so the two large
 datasets use grouped 5-fold, which answers the same "does it transfer to unseen subjects" question.
 
-Runs are written to `output/pretrain/mesae_v10_small/finetune/<head>/<dataset>_<mode>/`,
+Runs are written to `output/mesae_v10_small/finetune/<head>/<dataset>_<mode>/`,
 nested under the backbone they were finetuned from (`mesae_v10_small` — see Fixed
 settings above) rather than top-level, since ADR 0016's planned full-backbone
 confirmation (`mesae_v10_full`) will run this same baseline matrix a second time and

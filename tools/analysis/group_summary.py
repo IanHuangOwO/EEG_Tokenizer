@@ -16,7 +16,7 @@ from scipy import stats
 
 def head_name(path):
     """Name to print/pair by. Current layout nests a finetune run under its backbone --
-    output/pretrain/<backbone>/finetune/<head>/<dataset>_<mode>/artifacts/group_eval.json
+    output/<backbone>/finetune/<head>/<dataset>_<mode>/artifacts/group_eval.json
     -- so the head lives 3 dirs above the file, not 2 (the old output/baseline/
     <dataset>_<mode>_<head>/ layout encoded the head in the run's own leaf dir name,
     1 level above 'artifacts'; that layout is detected here by the ABSENCE of a
