@@ -1,0 +1,267 @@
+{
+    "data_metadata": {
+        "dataset_name": "SPIS",
+        "dataset_info": {
+            "source_url": "https://github.com/mastaneh/SPIS-Resting-State-Dataset",
+            "file_format": "MATLAB v5 .mat (README claims v7.3, verified otherwise)",
+            "description": "10 subjects, 2.5 minutes eyes-closed (EC) and 2.5 minutes eyes-open (EO) resting-state EEG each, recorded before a 105-minute Sustained Attention to Response Task. Biosemi Active 2, 64 monopolar channels, 10-10 layout, recorded at 2048 Hz then downsampled to 256 Hz in the provided files.",
+            "task_type": "eyes_open_vs_closed",
+            "reference": "M. Torkamani-Azar, S. D. Kanik, S. Aydin and M. Cetin, 'Prediction of Reaction Time and Vigilance Variability From Spatio-Spectral Features of Resting-State EEG in a Long Sustained Attention Task,' IEEE JBHI, vol. 24, no. 9, 2020, doi: 10.1109/JBHI.2020.2980056",
+            "contact": "Mastaneh Torkamani-Azar (mastaneh.torkamani@uef.fi), Mujdat Cetin (mujdat.cetin@rochester.edu)",
+            "notes": "No subject S01 -- numbering starts at S02. Each subject contributes exactly one EC file and one EO file, each ~150s continuous (no trial structure) -- chopped into window_size_seconds windows in loader.py, label taken from which file the window came from (not from channel 68's trigger values, which are redundant with this). Channels 65-67 (EOG) and 68 (trigger) dropped, only the 64 EEG channels are used."
+        },
+        "acquisition": {
+            "sample_frequency": 256,
+            "window_size_seconds": 5.0,
+            "num_subjects": 10
+        },
+        "targets": {
+            "count": 2,
+            "type": "eyes_open_vs_closed",
+            "0": {
+                "label": "eyes-closed (EC)"
+            },
+            "1": {
+                "label": "eyes-open (EO)"
+            }
+        },
+        "channels": {
+            "count": 64,
+            "system": "10-20 International System (10-10)",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "AF7"
+            },
+            "3": {
+                "label": "AF3"
+            },
+            "4": {
+                "label": "F1"
+            },
+            "5": {
+                "label": "F3"
+            },
+            "6": {
+                "label": "F5"
+            },
+            "7": {
+                "label": "F7"
+            },
+            "8": {
+                "label": "FT7"
+            },
+            "9": {
+                "label": "FC5"
+            },
+            "10": {
+                "label": "FC3"
+            },
+            "11": {
+                "label": "FC1"
+            },
+            "12": {
+                "label": "C1"
+            },
+            "13": {
+                "label": "C3"
+            },
+            "14": {
+                "label": "C5"
+            },
+            "15": {
+                "label": "T7"
+            },
+            "16": {
+                "label": "TP7"
+            },
+            "17": {
+                "label": "CP5"
+            },
+            "18": {
+                "label": "CP3"
+            },
+            "19": {
+                "label": "CP1"
+            },
+            "20": {
+                "label": "P1"
+            },
+            "21": {
+                "label": "P3"
+            },
+            "22": {
+                "label": "P5"
+            },
+            "23": {
+                "label": "P7"
+            },
+            "24": {
+                "label": "P9"
+            },
+            "25": {
+                "label": "PO7"
+            },
+            "26": {
+                "label": "PO3"
+            },
+            "27": {
+                "label": "O1"
+            },
+            "28": {
+                "label": "Iz"
+            },
+            "29": {
+                "label": "Oz"
+            },
+            "30": {
+                "label": "POz"
+            },
+            "31": {
+                "label": "Pz"
+            },
+            "32": {
+                "label": "CPz"
+            },
+            "33": {
+                "label": "Fpz"
+            },
+            "34": {
+                "label": "Fp2"
+            },
+            "35": {
+                "label": "AF8"
+            },
+            "36": {
+                "label": "AF4"
+            },
+            "37": {
+                "label": "AFz"
+            },
+            "38": {
+                "label": "Fz"
+            },
+            "39": {
+                "label": "F2"
+            },
+            "40": {
+                "label": "F4"
+            },
+            "41": {
+                "label": "F6"
+            },
+            "42": {
+                "label": "F8"
+            },
+            "43": {
+                "label": "FT8"
+            },
+            "44": {
+                "label": "FC6"
+            },
+            "45": {
+                "label": "FC4"
+            },
+            "46": {
+                "label": "FC2"
+            },
+            "47": {
+                "label": "FCz"
+            },
+            "48": {
+                "label": "Cz"
+            },
+            "49": {
+                "label": "C2"
+            },
+            "50": {
+                "label": "C4"
+            },
+            "51": {
+                "label": "C6"
+            },
+            "52": {
+                "label": "T8"
+            },
+            "53": {
+                "label": "TP8"
+            },
+            "54": {
+                "label": "CP6"
+            },
+            "55": {
+                "label": "CP4"
+            },
+            "56": {
+                "label": "CP2"
+            },
+            "57": {
+                "label": "P2"
+            },
+            "58": {
+                "label": "P4"
+            },
+            "59": {
+                "label": "P6"
+            },
+            "60": {
+                "label": "P8"
+            },
+            "61": {
+                "label": "P10"
+            },
+            "62": {
+                "label": "PO8"
+            },
+            "63": {
+                "label": "PO4"
+            },
+            "64": {
+                "label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "2": {
+            "EC": "raw/Pre-SART EEG/S02_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S02_restingPre_EO.mat"
+        },
+        "3": {
+            "EC": "raw/Pre-SART EEG/S03_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S03_restingPre_EO.mat"
+        },
+        "4": {
+            "EC": "raw/Pre-SART EEG/S04_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S04_restingPre_EO.mat"
+        },
+        "5": {
+            "EC": "raw/Pre-SART EEG/S05_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S05_restingPre_EO.mat"
+        },
+        "6": {
+            "EC": "raw/Pre-SART EEG/S06_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S06_restingPre_EO.mat"
+        },
+        "7": {
+            "EC": "raw/Pre-SART EEG/S07_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S07_restingPre_EO.mat"
+        },
+        "8": {
+            "EC": "raw/Pre-SART EEG/S08_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S08_restingPre_EO.mat"
+        },
+        "9": {
+            "EC": "raw/Pre-SART EEG/S09_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S09_restingPre_EO.mat"
+        },
+        "10": {
+            "EC": "raw/Pre-SART EEG/S10_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S10_restingPre_EO.mat"
+        },
+        "11": {
+            "EC": "raw/Pre-SART EEG/S11_restingPre_EC.mat",
+            "EO": "raw/Pre-SART EEG/S11_restingPre_EO.mat"
+        }
+    }
+}
