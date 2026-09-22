@@ -9,7 +9,10 @@ shared label file across subjects), `EEGMMIdb` (EDF, multi-run folder per
 subject), `BCICIV1_Train`/`BCICIV1_Test` (.mat with real digitized channel
 coordinates), `BCICIV2a`/`BCICIV2b` (GDF, event-marker driven),
 `GraspAndLift_Train` (continuous multi-label events collapsed to a dummy
-pretrain-only label).
+pretrain-only label), `DEAP` (Python pickle, `pickle.load(..., encoding='latin1')`
+for a Python-2-pickled file; continuous multi-dimensional ratings thresholded into
+discrete classes — a genuine label-scheme decision, not a guessable raw-format
+fact, see its `loader.py`).
 
 Training never reads these raw files directly — a separate **compile step**
 (`cache_dataset.py`, see Step 7) bandpass-filters/resamples each subject once
@@ -270,21 +273,24 @@ from IO.loader import BaseSubjectLoader
 class Loader(BaseSubjectLoader):
     def __init__(self, config, subject_id, desired_channel_indices):
         super().__init__(config, subject_id, desired_channel_indices)
-        subject_str = str(subject_id)
-        structure = config['data_structure']
-        if subject_str not in structure:
-            raise ValueError(f"Subject {subject_id} not found in data structure.")
-        self.file_path = os.path.join(self.data_root, structure[subject_str]['file'].lstrip('./'))
+        entry = self._require_subject(subject_id)   # looks up data_structure[str(subject_id)], raises if missing
+        self.file_path = self._resolve(entry['file'])  # joins onto dataset_path, strips a leading './'
+        # Split signal/label style (Dial):  self._resolve(entry['signals']) / self._resolve(entry['labels'])
+        # Multi-run style (EEGMMIdb):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
 
-    def _load_coords(self) -> np.ndarray:
-        return self._load_coords_from_metadata()   # standard — reuse unless you have real digitized coords
+    # _load_coords defaults to self._load_coords_from_metadata() (BaseSubjectLoader) —
+    # override only if you have real digitized coordinates (see BCICIV1_Train/loader.py).
 
     def _load_data(self):
-        if not os.path.exists(self.file_path):
+        if not self._existing([self.file_path]):
             return None, None                       # loader must be able to signal "missing subject"
         # ... read raw file, subset self.channel_indices, build labels ...
         return eeg_data, labels
 ```
+
+`datas/_template_loader.py` and `datas/_template_gen_metadata.py` are the copy-paste
+starting points and stay in sync with the real `BaseSubjectLoader` API — copy from
+there, not from this snippet, if the two ever drift.
 
 ### Raw file formats — what to read them with
 
@@ -335,6 +341,14 @@ Things the existing loaders show you need to handle per format:
   to `self.sample_freq` if the file's native rate differs,
   `mne.events_from_annotations`, map annotation codes to class ints, and
   concatenate trials across all runs for the subject.
+- **Continuous ratings, no native discrete label** (`datas/DEAP/loader.py` — DEAP's
+  per-trial valence/arousal/dominance/liking are 1-9 continuous self-report scores,
+  not classes): don't silently pick a threshold/scheme — this is a real modeling
+  decision (which dimensions, how many classes, what split point) with downstream
+  consequences, not something to infer from the raw format. Ask, record the answer
+  in `dataset_info.notes` (which dimensions/threshold were used and why), and
+  compute the discrete label in `loader.py` from the raw continuous values (never
+  hand-edit a derived label into `metadata.json`).
 - **Continuous multi-label event annotations** (`datas/GraspAndLift_Train/loader.py`
   — Kaggle Grasp-and-Lift EEG: 6 binary event columns per sample, overlapping
   in time): this doesn't fit the one-dense-int-label-per-trial contract

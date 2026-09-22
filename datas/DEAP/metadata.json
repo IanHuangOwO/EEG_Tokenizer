@@ -1,0 +1,233 @@
+{
+    "data_metadata": {
+        "dataset_name": "DEAP",
+        "dataset_info": {
+            "source_url": "https://www.eecs.qmul.ac.uk/mmv/datasets/deap/",
+            "file_format": "Python pickle (.dat, data_preprocessed_python release)",
+            "description": "32 participants, EEG (+ peripheral) recorded while watching 40 one-minute music video excerpts, rating each on valence/arousal/dominance/liking (1-9 continuous scale) afterwards. This release: 512 Hz original, downsampled to 128 Hz, EOG artifact removed, bandpass 4.0-45.0 Hz, average referenced, segmented to 3 s pre-trial baseline + 60 s trial.",
+            "task_type": "emotion_recognition",
+            "reference": "Koelstra et al., 'DEAP: A Database for Emotion Analysis using Physiological Signals', IEEE Trans. Affective Computing, 2012.",
+            "notes": "Labels here are a derived 4-class valence x arousal quadrant (midpoint-5 split on each dimension; user decision 2026-09-22), computed in loader.py from the raw continuous ratings -- not the dataset's native label. dominance/liking ratings are read but unused. Samples 0:384 (3 s) of each 8064-sample trial are the pre-trial baseline, kept as part of the trial (not padding) rather than discarded -- see loader.py."
+        },
+        "acquisition": {
+            "sample_frequency": 128,
+            "window_size_seconds": 63.0,
+            "num_subjects": 32,
+            "num_trials_per_subject": 40
+        },
+        "targets": {
+            "count": 4,
+            "type": "emotion_recognition",
+            "0": {
+                "label": "low valence, low arousal"
+            },
+            "1": {
+                "label": "low valence, high arousal"
+            },
+            "2": {
+                "label": "high valence, low arousal"
+            },
+            "3": {
+                "label": "high valence, high arousal"
+            }
+        },
+        "channels": {
+            "count": 32,
+            "system": "10-20 International System",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "AF3"
+            },
+            "3": {
+                "label": "F3"
+            },
+            "4": {
+                "label": "F7"
+            },
+            "5": {
+                "label": "FC5"
+            },
+            "6": {
+                "label": "FC1"
+            },
+            "7": {
+                "label": "C3"
+            },
+            "8": {
+                "label": "T7"
+            },
+            "9": {
+                "label": "CP5"
+            },
+            "10": {
+                "label": "CP1"
+            },
+            "11": {
+                "label": "P3"
+            },
+            "12": {
+                "label": "P7"
+            },
+            "13": {
+                "label": "PO3"
+            },
+            "14": {
+                "label": "O1"
+            },
+            "15": {
+                "label": "Oz"
+            },
+            "16": {
+                "label": "Pz"
+            },
+            "17": {
+                "label": "Fp2"
+            },
+            "18": {
+                "label": "AF4"
+            },
+            "19": {
+                "label": "Fz"
+            },
+            "20": {
+                "label": "F4"
+            },
+            "21": {
+                "label": "F8"
+            },
+            "22": {
+                "label": "FC6"
+            },
+            "23": {
+                "label": "FC2"
+            },
+            "24": {
+                "label": "Cz"
+            },
+            "25": {
+                "label": "C4"
+            },
+            "26": {
+                "label": "T8"
+            },
+            "27": {
+                "label": "CP6"
+            },
+            "28": {
+                "label": "CP2"
+            },
+            "29": {
+                "label": "P4"
+            },
+            "30": {
+                "label": "P8"
+            },
+            "31": {
+                "label": "PO4"
+            },
+            "32": {
+                "label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "file": "raw/data_preprocessed_python/s01.dat"
+        },
+        "2": {
+            "file": "raw/data_preprocessed_python/s02.dat"
+        },
+        "3": {
+            "file": "raw/data_preprocessed_python/s03.dat"
+        },
+        "4": {
+            "file": "raw/data_preprocessed_python/s04.dat"
+        },
+        "5": {
+            "file": "raw/data_preprocessed_python/s05.dat"
+        },
+        "6": {
+            "file": "raw/data_preprocessed_python/s06.dat"
+        },
+        "7": {
+            "file": "raw/data_preprocessed_python/s07.dat"
+        },
+        "8": {
+            "file": "raw/data_preprocessed_python/s08.dat"
+        },
+        "9": {
+            "file": "raw/data_preprocessed_python/s09.dat"
+        },
+        "10": {
+            "file": "raw/data_preprocessed_python/s10.dat"
+        },
+        "11": {
+            "file": "raw/data_preprocessed_python/s11.dat"
+        },
+        "12": {
+            "file": "raw/data_preprocessed_python/s12.dat"
+        },
+        "13": {
+            "file": "raw/data_preprocessed_python/s13.dat"
+        },
+        "14": {
+            "file": "raw/data_preprocessed_python/s14.dat"
+        },
+        "15": {
+            "file": "raw/data_preprocessed_python/s15.dat"
+        },
+        "16": {
+            "file": "raw/data_preprocessed_python/s16.dat"
+        },
+        "17": {
+            "file": "raw/data_preprocessed_python/s17.dat"
+        },
+        "18": {
+            "file": "raw/data_preprocessed_python/s18.dat"
+        },
+        "19": {
+            "file": "raw/data_preprocessed_python/s19.dat"
+        },
+        "20": {
+            "file": "raw/data_preprocessed_python/s20.dat"
+        },
+        "21": {
+            "file": "raw/data_preprocessed_python/s21.dat"
+        },
+        "22": {
+            "file": "raw/data_preprocessed_python/s22.dat"
+        },
+        "23": {
+            "file": "raw/data_preprocessed_python/s23.dat"
+        },
+        "24": {
+            "file": "raw/data_preprocessed_python/s24.dat"
+        },
+        "25": {
+            "file": "raw/data_preprocessed_python/s25.dat"
+        },
+        "26": {
+            "file": "raw/data_preprocessed_python/s26.dat"
+        },
+        "27": {
+            "file": "raw/data_preprocessed_python/s27.dat"
+        },
+        "28": {
+            "file": "raw/data_preprocessed_python/s28.dat"
+        },
+        "29": {
+            "file": "raw/data_preprocessed_python/s29.dat"
+        },
+        "30": {
+            "file": "raw/data_preprocessed_python/s30.dat"
+        },
+        "31": {
+            "file": "raw/data_preprocessed_python/s31.dat"
+        },
+        "32": {
+            "file": "raw/data_preprocessed_python/s32.dat"
+        }
+    }
+}
