@@ -14,7 +14,7 @@ from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
 from tools.viz.extract import extract_flat_stamp_psd_by_patch, extract_flat_stamp_gallery
-from tools.viz.panels import plot_event_stamp_dynamics
+from tools.viz.stamp_plots import plot_event_stamp_dynamics
 from tools.viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
                            plot_stamp_identity_consistency, plot_fingerprint_similarity,
                            plot_pool_energy_share, plot_stamp_energy_rank,
