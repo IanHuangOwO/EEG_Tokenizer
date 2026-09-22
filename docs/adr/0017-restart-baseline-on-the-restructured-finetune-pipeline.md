@@ -54,10 +54,10 @@ Heads (all with the same spatial filter size `spatial_k = 8` where they have one
 |---|---|
 | `raw_band` | raw signal, per-patch mu/beta log power, spatial filter, flat time pooling |
 | `raw_signal` | raw signal, signed samples averaged to about 20 Hz, spatial filter, no pooling (the ERP-style baseline) |
-| `c0_flat` | stamp code, per-stamp log power, spatial filter, flat time pooling |
-| `c1_learned` | stamp code, per-stamp log power, spatial filter, learned low-rank time weights (rank 2) |
-| `c1_advance` (BETA_4s only) | `c1_learned` plus the phase-advance branch |
-| `c1_evoked` (Inria only) | `c1_learned` plus the evoked branch (rank 2) |
+| `flat` | stamp code, per-stamp log power, spatial filter, flat time pooling |
+| `learned` | stamp code, per-stamp log power, spatial filter, learned low-rank time weights (rank 2) |
+| `learned_advance` (BETA_4s only) | `learned` plus the phase-advance branch |
+| `learned_evoked` (Inria only) | `learned` plus the evoked branch (rank 2) |
 
 Datasets and splits:
 
@@ -74,7 +74,10 @@ Datasets and splits:
 over 55 and 109 subjects would cost about 2 and 20 GPU-hours per head at the current speed, so the two large
 datasets use grouped 5-fold, which answers the same "does it transfer to unseen subjects" question.
 
-Runs are written to `output/baseline/<dataset>_<mode>_<head>/`.
+Runs are written to `output/<head>/<dataset>_<mode>/`, one top-level dir per head
+(`flat`, `learned`, `learned_advance`, `learned_evoked`, `raw_band`) — `output/baseline/`
+now holds only `raw_signal` (`output/baseline/<dataset>_<mode>_raw_signal/`, unchanged),
+the head this ADR's restart treats as the reference to compare every other head against.
 
 ### Known limits
 
@@ -98,10 +101,10 @@ p-values are paired t-tests across subjects, reported as description not a gate 
 |---|---|---|---|---|
 | `raw_band` | 0.530 | — | 0.313 | — |
 | `raw_signal` | 0.492 | −0.038, 3/9, p=0.51 | 0.488 | **+0.175, 9/9, p=0.003** |
-| `c0_flat` | 0.570 | +0.040, 7/9, p=0.12 | 0.321 | +0.008, 5/9, p=0.64 |
-| `c1_learned` | **0.632** | **+0.102, 8/9, p=0.019** | **0.448** | **+0.135, 9/9, p=0.0005** |
+| `flat` | 0.570 | +0.040, 7/9, p=0.12 | 0.321 | +0.008, 5/9, p=0.64 |
+| `learned` | **0.632** | **+0.102, 8/9, p=0.019** | **0.448** | **+0.135, 9/9, p=0.0005** |
 
-`c1_learned` vs `c0_flat`: intra +0.062, 4/9, p=0.12; inter **+0.127, 9/9, p=0.0008**.
+`learned` vs `flat`: intra +0.062, 4/9, p=0.12; inter **+0.127, 9/9, p=0.0008**.
 
 ### BNCI2014004 (9 subjects, 2 classes, chance 0.500)
 
@@ -109,10 +112,10 @@ p-values are paired t-tests across subjects, reported as description not a gate 
 |---|---|---|---|---|
 | `raw_band` | 0.671 | — | 0.599 | — |
 | `raw_signal` | 0.642 | −0.029, 4/9, p=0.58 | 0.649 | +0.049, 7/9, p=0.08 |
-| `c0_flat` | 0.707 | +0.036, 8/9, p=0.015 | 0.632 | +0.033, 8/9, p=0.019 |
-| `c1_learned` | **0.742** | **+0.071, 8/9, p=0.001** | **0.694** | **+0.095, 9/9, p=0.0005** |
+| `flat` | 0.707 | +0.036, 8/9, p=0.015 | 0.632 | +0.033, 8/9, p=0.019 |
+| `learned` | **0.742** | **+0.071, 8/9, p=0.001** | **0.694** | **+0.095, 9/9, p=0.0005** |
 
-`c1_learned` vs `c0_flat`: intra +0.036, 8/9, p=0.004; inter +0.062, 8/9, p=0.004.
+`learned` vs `flat`: intra +0.036, 8/9, p=0.004; inter +0.062, 8/9, p=0.004.
 
 ### BCICIV1_Train (5 subjects, 2 classes, chance 0.500 — descriptive only, n<5 threshold from ADR 0014's protocol)
 
@@ -120,8 +123,8 @@ p-values are paired t-tests across subjects, reported as description not a gate 
 |---|---|---|---|---|
 | `raw_band` | 0.598 | — | 0.519 | — |
 | `raw_signal` | 0.506 | −0.092, 2/5, p=0.29 | 0.505 | −0.013, 1/5, p=0.44 |
-| `c0_flat` | 0.595 | −0.003, 1/5, p=0.94 | 0.493 | −0.026, 1/5, p=0.16 |
-| `c1_learned` | 0.624 | +0.025, 3/5, p=0.36 | 0.480 | −0.038, 1/5, p=0.06 |
+| `flat` | 0.595 | −0.003, 1/5, p=0.94 | 0.493 | −0.026, 1/5, p=0.16 |
+| `learned` | 0.624 | +0.025, 3/5, p=0.36 | 0.480 | −0.038, 1/5, p=0.06 |
 
 No head clears `raw_band` convincingly here in either mode — consistent with ADR 0014's finding that this
 dataset has close to no decodable signal in any representation ("my read before adding the raw column was
@@ -133,13 +136,13 @@ right by accident").
 |---|---|---|---|---|
 | `raw_band` | 0.542 | — | 0.506 | — |
 | `raw_signal` | **0.669** | **+0.127, 15/16, p<0.0001** | 0.604 | **+0.098, 16/16, p=0.0002** |
-| `c0_flat` | 0.558 | +0.015, 11/16, p=0.03 | 0.507 | +0.002, 7/16, p=0.49 |
-| `c1_learned` | 0.577 | +0.035, 13/16, p=0.004 | 0.518 | +0.012, 8/16, p=0.10 |
-| `c1_evoked` | 0.568 | +0.026, 13/16, p=0.037 | **0.587** | **+0.082, 16/16, p=0.0002** |
+| `flat` | 0.558 | +0.015, 11/16, p=0.03 | 0.507 | +0.002, 7/16, p=0.49 |
+| `learned` | 0.577 | +0.035, 13/16, p=0.004 | 0.518 | +0.012, 8/16, p=0.10 |
+| `learned_evoked` | 0.568 | +0.026, 13/16, p=0.037 | **0.587** | **+0.082, 16/16, p=0.0002** |
 
-`c1_learned` vs `c0_flat`: intra +0.020, 11/16, p=0.057; inter +0.010, 10/16, p=0.22. `raw_signal` is the
-best head both ways here; `c1_evoked` (the branch built for this paradigm) is the only stamp head that
-comes close inter-subject, well ahead of plain `c1_learned` — the evoked branch is doing real work on an
+`learned` vs `flat`: intra +0.020, 11/16, p=0.057; inter +0.010, 10/16, p=0.22. `raw_signal` is the
+best head both ways here; `learned_evoked` (the branch built for this paradigm) is the only stamp head that
+comes close inter-subject, well ahead of plain `learned` — the evoked branch is doing real work on an
 ERP task, as designed.
 
 ### BETA_4s (55 subjects, 40 classes, chance 0.025)
@@ -148,15 +151,15 @@ ERP task, as designed.
 |---|---|---|---|---|
 | `raw_band` | 0.048 | — | 0.054 | — |
 | `raw_signal` | 0.063 | +0.014, 30/55, p=0.037 | **0.427** | **+0.372, 55/55, p<0.0001** |
-| `c0_flat` | 0.056 | +0.008, 34/55, p=0.06 | 0.168 | +0.114, 55/55, p<0.0001 |
-| `c1_learned` | 0.058 | +0.009, 34/55, p=0.032 | 0.190 | +0.136, 55/55, p<0.0001 |
-| `c1_advance` | **0.071** | **+0.023, 38/55, p=0.0002** | 0.385 | +0.331, 54/55, p<0.0001 |
+| `flat` | 0.056 | +0.008, 34/55, p=0.06 | 0.168 | +0.114, 55/55, p<0.0001 |
+| `learned` | 0.058 | +0.009, 34/55, p=0.032 | 0.190 | +0.136, 55/55, p<0.0001 |
+| `learned_advance` | **0.071** | **+0.023, 38/55, p=0.0002** | 0.385 | +0.331, 54/55, p<0.0001 |
 
-`c1_learned` vs `c0_flat`: intra +0.002, 31/55, p=0.59 (no real difference); inter +0.022, 39/55, p<0.0001.
-Inter-subject, `raw_signal` beats every stamp head including `c1_advance` (the phase-advance branch built
+`learned` vs `flat`: intra +0.002, 31/55, p=0.59 (no real difference); inter +0.022, 39/55, p<0.0001.
+Inter-subject, `raw_signal` beats every stamp head including `learned_advance` (the phase-advance branch built
 for SSVEP) by a wide margin — for cross-subject SSVEP, the raw per-channel waveform generalizes better than
 anything routed through the frozen backbone's stamp codes. Intra-subject the gap nearly closes and
-`c1_advance` is best, so the phase-advance branch does help once the head can fit a subject's own phase.
+`learned_advance` is best, so the phase-advance branch does help once the head can fit a subject's own phase.
 
 ### PhysionetMI (30 subjects intra / 109 inter, 3 classes, chance 0.333)
 
@@ -164,28 +167,28 @@ anything routed through the frozen backbone's stamp codes. Intra-subject the gap
 |---|---|---|---|---|
 | `raw_band` | 0.562 | — | 0.361 | — |
 | `raw_signal` | 0.603 | +0.041, 20/30, p=0.11 | **0.554** | **+0.193, 107/109, p<0.0001** |
-| `c0_flat` | 0.605 | +0.043, 26/30, p<0.0001 | 0.429 | +0.068, 102/109, p<0.0001 |
-| `c1_learned` | **0.618** | **+0.056, 24/30, p=0.0007** | 0.546 | +0.185, 107/109, p<0.0001 |
+| `flat` | 0.605 | +0.043, 26/30, p<0.0001 | 0.429 | +0.068, 102/109, p<0.0001 |
+| `learned` | **0.618** | **+0.056, 24/30, p=0.0007** | 0.546 | +0.185, 107/109, p<0.0001 |
 
-`c1_learned` vs `c0_flat`: intra +0.013, 15/30, p=0.21 (no real difference); inter **+0.117, 101/109, p<0.0001**.
+`learned` vs `flat`: intra +0.013, 15/30, p=0.21 (no real difference); inter **+0.117, 101/109, p<0.0001**.
 
 ### Cross-dataset pattern
 
-- **`c1_learned` beats `raw_band` everywhere it's measured**, intra and inter, on every dataset except the
+- **`learned` beats `raw_band` everywhere it's measured**, intra and inter, on every dataset except the
   near-chance `BCICIV1_Train`. It is the only stamp head that never loses to `raw_band`.
 - **`raw_signal` is the strongest single head inter-subject** on 4 of 6 datasets (BNCI2014001 is the exception --
-  `c1_learned` wins there inter-subject too), often by a wide margin (BETA_4s, PhysionetMI). Intra-subject it's
+  `learned` wins there inter-subject too), often by a wide margin (BETA_4s, PhysionetMI). Intra-subject it's
   usually weaker than the stamp heads. Read together: the frozen backbone's stamp codes help most when a
   head only gets to see a single subject's own trials (intra), and help least (or actively hurt, BETA_4s/
   PhysionetMI inter) when generalizing to unseen subjects — raw per-channel amplitude transfers across subjects
   better than the current stamp representation does.
-- **`c1_learned` vs `c0_flat` (does the learned-rank time pooling help over flat pooling):** indistinguishable
+- **`learned` vs `flat` (does the learned-rank time pooling help over flat pooling):** indistinguishable
   intra-subject on every dataset (largest intra diff +0.062, most p>0.1), but a real, consistent inter-subject
   win everywhere it's measured (BNCI2014001 +0.127, BNCI2014004 +0.062, BETA_4s +0.022, PhysionetMI +0.117, all
   p<0.005 except BETA_4s). The learned time-pooling's benefit is specifically about generalizing to unseen
   subjects, not fitting a single subject's own trials better.
-- **Task-specific branches earn their keep**: `c1_evoked` (Inria) and `c1_advance` (BETA_4s) both beat plain
-  `c1_learned` by a clear margin in the mode where they matter most (Inria inter: 0.587 vs 0.518; BETA_4s
+- **Task-specific branches earn their keep**: `learned_evoked` (Inria) and `learned_advance` (BETA_4s) both beat plain
+  `learned` by a clear margin in the mode where they matter most (Inria inter: 0.587 vs 0.518; BETA_4s
   intra: 0.071 vs 0.058), confirming the paradigm-specific branch design from ADR 0016 rather than just
   adding parameters.
 - **`BCICIV1_Train` stays undecodable** in the restructured pipeline too (no head beats `raw_band`
