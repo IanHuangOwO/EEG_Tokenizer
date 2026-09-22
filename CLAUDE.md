@@ -14,8 +14,8 @@ pip install -r requirements.txt
 # training_params.pretrain.tokenizer_epochs, then masked phase (docs/adr/0013)
 python train_pretrain.py --config config/config.json
 
-# Profile model
-python profile_model.py
+# Profile model (parameter counts + per-component forward-pass timing, no checkpoint/dataset needed)
+python analysis_pretrain.py --panel profile [--train]
 
 # Run Finetune stage: trains only the head on the frozen backbone's stamp-amplitude cache (or the
 # patched raw signal for raw_* features); training_params.finetune.split picks intra_subject / inter_subject
