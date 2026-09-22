@@ -2,7 +2,7 @@
   "dataset_params": {
     "pretrain": {
       "12JFPM_SSVEP": {
-        "dataset_path": "datas/12JFPM_SSVEP",
+        "dataset_path": "datas/benchmark/12JFPM_SSVEP",
         "subject_to_use": [
           "1",
           "2",
@@ -136,7 +136,7 @@
     },
     "finetune": {
       "BCICIV2a": {
-        "dataset_path": "datas/BCICIV2a",
+        "dataset_path": "datas/benchmark/BCICIV2a",
         "subject_to_use": ["all"],
         "channels_to_use": ["all"]
       }

@@ -308,7 +308,7 @@ Things the existing loaders show you need to handle per format:
   reshape `(C, T, Blocks, Targets)` -> `(N, C, T)` and synthesize labels
   `[0]*blocks + [1]*blocks + ...` since class order is implicit in array
   layout.
-- **Split signal/label files** (`datas/12JFPM_SSVEP/loader.py`): load both, truncate
+- **Split signal/label files** (`datas/benchmark/12JFPM_SSVEP/loader.py`): load both, truncate
   to `min(len)` if mismatched, remap 1-indexed labels to 0-indexed.
 - **Split files with a shared/master label file** (`datas/Inria_Train/loader.py`):
   filter the shared label table down to this subject's rows by matching a
@@ -502,8 +502,8 @@ anything to format.
 bullet above). `GraspAndLift_Test` only has `test.zip` (the Kaggle
 competition's held-out series 9-10) — still unextracted/unconverted.
 
-`BCICIV2a`/`BCICIV2b` are converted — see `datas/BCICIV2a/loader.py`/
-`datas/BCICIV2b/loader.py` for GDF + event-marker reference examples
+`BCICIV2a`/`BCICIV2b` are converted — see `datas/benchmark/BCICIV2a/loader.py`/
+`datas/benchmark/BCICIV2b/loader.py` for GDF + event-marker reference examples
 (`BCICIV2b` also shows the multi-run-per-subject shape C, concatenating the
 3 training sessions per subject).
 
