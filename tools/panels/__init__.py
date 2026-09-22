@@ -42,8 +42,13 @@ def discover_panel_names():
 
 
 def load_panel(name):
-    """Import tools.panels.panel_<name>, return the module."""
-    return importlib.import_module(f'tools.panels.panel_{name}')
+    """Import tools.panels.panel_<name>, return the module. Raises ValueError (not a raw
+    ModuleNotFoundError) naming the available panels if `name` doesn't exist."""
+    try:
+        return importlib.import_module(f'tools.panels.panel_{name}')
+    except ModuleNotFoundError as e:
+        raise ValueError(f"no panel named {name!r}; available panels: "
+                          f"{discover_panel_names()}") from e
 
 
 def run_panels(names, stage, ctx):
@@ -61,3 +66,54 @@ def run_panels(names, stage, ctx):
 def any_needs(names, attr):
     """True if any named panel declares `attr` (NEEDS_CHECKPOINT/NEEDS_DATASET) True."""
     return any(getattr(load_panel(name), attr) for name in names)
+
+
+def build_panel_context(args, names, stage, resolve_base_path):
+    """Shared context-assembly for analysis_pretrain.py's and analysis_finetune.py's
+    --panel branches: validates each panel supports `stage`, resolves a checkpoint+model
+    only if any selected panel needs one, and returns a PanelContext ready for
+    run_panels(names, stage, ctx).
+
+    resolve_base_path(args, overlay, checkpoint) -> str: each script's own way of finding
+    the base run config when a NEEDS_CHECKPOINT panel is selected (analysis_pretrain.py
+    auto-derives it from the checkpoint's directory; analysis_finetune.py requires
+    --base-config explicitly, since finetune runs write a timestamped config file with no
+    fixed name to guess)."""
+    import json
+    import torch
+
+    from tools.analysis import _deep_merge, load_model, resolve_output_dir
+
+    for name in names:
+        if stage not in load_panel(name).STAGES:
+            raise ValueError(f"panel {name!r} does not support the {stage!r} stage")
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if any_needs(names, 'NEEDS_CHECKPOINT'):
+        if not args.config:
+            raise ValueError('--config is required unless every selected panel has '
+                              'NEEDS_CHECKPOINT=False')
+        with open(args.config, 'r') as f:
+            overlay = json.load(f)
+        checkpoint = args.checkpoint or overlay.get('checkpoint', '')
+        base_path = resolve_base_path(args, overlay, checkpoint)
+        with open(base_path, 'r') as f:
+            base = json.load(f)
+        cfg = _deep_merge(base, overlay)
+        for m, dsp in overlay.get('dataset_params', {}).items():
+            cfg['dataset_params'][m] = dsp
+        mdl = load_model(cfg, checkpoint, device, mode=stage)
+        out_dir = resolve_output_dir(cfg, 'analysis', mode=stage)
+    else:
+        with open('config/config.json', 'r') as f:
+            cfg = json.load(f)
+        checkpoint, mdl = None, None
+        out_dir = 'output/tools-profile'
+
+    if any_needs(names, 'NEEDS_DATASET'):
+        raise NotImplementedError(
+            "no NEEDS_DATASET=True panel exists yet -- dataset resolution for panels "
+            "is deferred to whichever future panel needs it")
+
+    return PanelContext(config=cfg, output_dir=out_dir, device=device, args=args,
+                         model=mdl, dataset=None, checkpoint=checkpoint)

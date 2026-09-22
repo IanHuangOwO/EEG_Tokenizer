@@ -120,7 +120,7 @@ from model.base_trainer import BaseTrainer
 from model.base_checker import BaseEpochChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
-from viz.extract import extract_head_psd, extract_head_spectra  # or write MeXXX-specific ones,
+from tools.viz.extract import extract_head_psd, extract_head_spectra  # or write MeXXX-specific ones,
                                                                   # returning PsdResult/SpectraResult
 
 
