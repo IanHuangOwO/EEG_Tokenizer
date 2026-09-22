@@ -69,7 +69,7 @@ def get_metrics(self, *detached_tensors):
     summarize (already .detach()'d by the caller)."""
 
 def enable_spatial(self):
-    """Turns on cross-channel mixing. Called at construction-time load (viz/__init__.py
+    """Turns on cross-channel mixing. Called at construction-time load (analysis/__init__.py
     load_model), at the start of train_tokenizer.py (BaseTrainer.on_tokenizer_start), and
     again at the start of train_pretrain.py (same hook, re-enabling after checkpoint load
     since this is a plain flag, not persisted in the state dict)."""

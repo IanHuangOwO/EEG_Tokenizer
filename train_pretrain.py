@@ -18,7 +18,7 @@ from IO.dataset import build_dataset_from_config
 from IO.masking import build_masking_strategy_from_config
 from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
-from viz import pick_trial
+from analysis import pick_trial
 
 torch.set_float32_matmul_precision('high')
 
