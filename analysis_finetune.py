@@ -130,7 +130,7 @@ if __name__ == '__main__':
     # Per-target correct/wrong snapshot pairs, not a single per-subject trial pick:
     # for each of the num_classes targets, find one trial the model got right and one
     # it got wrong, and render the full 3-panel snapshot (recon_signal, topo_psd_filter,
-    # attn_topo) for each — num_classes * 2 * 3 files total, searched across every
+    # stamp_panel) for each — num_classes * 2 * 3 files total, searched across every
     # subject in dataset_params.finetune[dataset_name].subject_to_use (not one subject
     # at a time), since a single subject isn't guaranteed to contain both a correct and
     # a wrong example of every class.

@@ -1,5 +1,5 @@
 """BaseCodebookChecker: cross-dataset codebook/vocab diagnostics, triggered only from
-check_model.py (--mode codebook), never from the training loop. Template method — owns
+analysis_pretrain.py (--analysis codebook), never from the training loop. Template method — owns
 the corpus-sampling + panel-render flow, subclasses only implement the two model-specific
 extraction hooks. Parallel to BaseEpochChecker (model/base_checker.py) but operates over
 many trials across many datasets at once instead of one trial at a time, so it lives in

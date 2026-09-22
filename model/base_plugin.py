@@ -22,6 +22,6 @@ class BasePlugin:
     trainer_cls: Type[BaseTrainer]
     checker_cls: Type[BaseEpochChecker]
     plotter_cls: Type[BasePlotter]
-    # cross-dataset codebook/vocab diagnostics (check_model.py --mode codebook only, see
+    # cross-dataset codebook/vocab diagnostics (analysis_pretrain.py --analysis codebook only, see
     # model/base_codebook_checker.py) — optional, None until a model implements it.
     codebook_checker_cls: Optional[Type[BaseCodebookChecker]] = None

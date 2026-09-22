@@ -23,7 +23,7 @@
     "plot_attn_topo": true,
     "cmap": "YlOrRd",
     "codebook": {
-      "_comment": "Now also caps how much gets LOADED, not just how much check_codebook samples afterward -- check_model.py's _cap_subjects_by_trial_budget shuffles each dataset's subject list and stops adding subjects once their cumulative trial count crosses this, so subject_to_use=['all'] on e.g. PhysionetMI (109 subjects) no longer loads every real trial from every subject just to discard most of them post-hoc (that OOM'd a run at ~55GB RSS -- see docs/model-analysis-checklist.md). 3000 is generous (15x the old 200) while keeping worst-case per-dataset memory in the hundreds of MB, not GB.",
+      "_comment": "Now also caps how much gets LOADED, not just how much check_codebook samples afterward -- analysis_pretrain.py's _cap_subjects_by_trial_budget shuffles each dataset's subject list and stops adding subjects once their cumulative trial count crosses this, so subject_to_use=['all'] on e.g. PhysionetMI (109 subjects) no longer loads every real trial from every subject just to discard most of them post-hoc (that OOM'd a run at ~55GB RSS -- see docs/model-analysis-checklist.md). 3000 is generous (15x the old 200) while keeping worst-case per-dataset memory in the hundreds of MB, not GB.",
       "max_trials_per_dataset": 3000
     },
     "event_onset_sample": {
