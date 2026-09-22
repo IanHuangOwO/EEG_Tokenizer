@@ -189,6 +189,14 @@ named montage (`config/montages.json`, e.g. `"10-10"`) or an inline custom chann
 Step-by-step protocol for adding a new standard (MNE-sourced) or custom montage. See
 `docs/agents/adding-a-montage.md`.
 
+### Adding a tool (panel / analysis / viz function)
+
+`tools/` is `analysis/` (calculation), `viz/` (pure rendering), `panels/` (thin
+`panel_<name>.py` CLI entrypoints, discovered by filename glob, no registry). Protocol
+for which subpackage new code belongs in, the panel contract
+(`STAGES`/`NEEDS_CHECKPOINT`/`NEEDS_DATASET`/`run(ctx)`), and CLI wiring. See
+`docs/agents/adding-a-tool.md`.
+
 ### Reshape/view pitfalls
 
 `.reshape(`/`.view(` silently scrambles data (no error) if it merges or reorders
