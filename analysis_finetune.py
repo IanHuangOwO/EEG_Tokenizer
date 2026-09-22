@@ -87,8 +87,11 @@ if __name__ == '__main__':
     parser.add_argument('--dataset',     type=str, default=None)
     parser.add_argument('--recon_cmap',  type=str, default=None)
     parser.add_argument('--panel',       action='append', default=[],
-                         help='Run one or more panels (repeatable) instead of the legacy '
-                              'per-target snapshot path. See tools/panels/.')
+                         help='Run one or more panels (repeatable) that do not need a '
+                              'dataset/bundle (NEEDS_DATASET=False), instead of the legacy '
+                              'per-target snapshot path. Panels that need a bundle '
+                              '(recon_signal, stamp_by_patch, stamp_gallery) are only '
+                              'reachable via the legacy path today. See tools/panels/.')
     parser.add_argument('--train',       action='store_true',
                          help='(panel_profile only) profile in train mode (eigh skipped)')
     args = parser.parse_args()
@@ -179,16 +182,21 @@ if __name__ == '__main__':
             t_idx = int(idxs[0])
             subject_id = int(ds.base_dataset.subject_data[t_idx].item())
             tag = f'_target{cls_idx}_{safe}_{status}'
-            bundle, metrics = build_finetune_bundle(mdl, ds, t_idx, filtered, device,
-                                                      subject_id=subject_id, tag=tag)
-            panels = []
-            if check_cfg.get('plot_recon', True):
-                panels.append('recon_signal')
-            if check_cfg.get('plot_topo_psd', True):
-                panels += ['stamp_by_patch', 'stamp_gallery']
-            panel_ctx = PanelContext(config=filtered, output_dir=out, device=device, args=args,
-                                      model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
-            run_panels(panels, 'finetune', panel_ctx)
-            metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
-            print(f"[check] done: target={cls_idx}({name}) status={status} subject={subject_id} "
-                  f"trial_idx={t_idx}  |  {metrics_str}")
+            try:
+                bundle, metrics = build_finetune_bundle(mdl, ds, t_idx, filtered, device,
+                                                          subject_id=subject_id, tag=tag)
+                panels = []
+                if check_cfg.get('plot_recon', True):
+                    panels.append('recon_signal')
+                if check_cfg.get('plot_topo_psd', True):
+                    panels += ['stamp_by_patch', 'stamp_gallery']
+                panel_ctx = PanelContext(config=filtered, output_dir=out, device=device, args=args,
+                                          model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
+                run_panels(panels, 'finetune', panel_ctx)
+                metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
+                print(f"[check] done: target={cls_idx}({name}) status={status} subject={subject_id} "
+                      f"trial_idx={t_idx}  |  {metrics_str}")
+            except Exception as e:
+                print(f"[check] FAILED: target={cls_idx}({name}) status={status} subject={subject_id} "
+                      f"trial_idx={t_idx}  |  {e}")
+                continue

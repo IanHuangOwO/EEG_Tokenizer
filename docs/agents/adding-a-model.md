@@ -12,7 +12,7 @@ mechanical checklist that ADR's design implies.
 
 **The rule**: a new model touches only files under `model/<Name>/` plus one line in
 `model/factory.py`. If you find yourself editing `train_tokenizer.py`, `train_pretrain.py`,
-`train_finetune.py`, `model/base_trainer.py`, `model/base_checker.py`, or
+`train_finetune.py`, `model/base_trainer.py`, or
 `model/base_plotter.py`, stop — either the new model needs a real base-class contract
 change (rare, discuss first) or you're solving it the wrong way.
 
@@ -52,8 +52,7 @@ def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels
     Returns a SimpleNamespace with at least:
       recon: [B, C, N, L]
       attn:  [B, N, Q, C] — each Unit's own channel-attention weights (rows sum to 1
-             per Unit) — the extraction hooks in step 2 and BaseEpochChecker's attn_topo
-             panel both read this
+             per Unit) — read by the extraction hooks in step 2
     Plus whatever extra fields get_loss/get_metrics/extract_psd need (MeFSQ carries
     v_q_routed/v_q_shared/gate_mask_routed/lb_loss; MeSAE carries dense_routed/aux_loss/k_eff).
     """
@@ -91,22 +90,22 @@ def freeze_<whatever_is_tokenizer_only>(self):
 def __init__(self, backbone, num_channels, num_classes, hidden=128,
              freeze_backbone=False, dropout=0.1):
     """Wraps a pretrained+loaded backbone (unmodified) with a classification head.
-    Store the backbone as self.backbone — BaseEpochChecker.check_finetune reads it."""
+    Store the backbone as self.backbone — tools/analysis/snapshot.py's
+    build_finetune_bundle reads it."""
 
 def forward(self, x, coords, time_idx=None, pad_mask=None):
     """
     x: [B, C, N, L] (already patchified — pad_mask: [B, C, N] bool, True=valid)
     Returns (logits [B, num_classes], attn_h [B, C, Q], attn_n [B, C, Q, N], attn_c [B, C])
-    attn_h is the classifier head's own per-channel attention over Units — this is what
-    BaseEpochChecker.check_finetune's attn_topo panel plots (transposed), separate from
-    the backbone's own attn.
+    attn_h is the classifier head's own per-channel attention over Units,
+    separate from the backbone's own attn.
     """
 ```
 
 ## 2. Plugin: `model/MeXXX/plugin.py`
 
-One file, four things: a `build_model` function, and three classes subclassing the
-bases in `model/base_trainer.py` / `model/base_checker.py` / `model/base_plotter.py`.
+One file, three things: a `build_model` function, and two classes subclassing the
+bases in `model/base_trainer.py` / `model/base_plotter.py`.
 MeFSQ's and MeSAE's `plugin.py` are the reference examples — copy the shape, not
 necessarily the content.
 
@@ -117,7 +116,6 @@ import torch
 
 from model.MeXXX.MeXXX import MeXXXPretrain, MeXXXFinetune
 from model.base_trainer import BaseTrainer
-from model.base_checker import BaseEpochChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
 from tools.viz.extract import extract_head_psd, extract_head_spectra  # or write MeXXX-specific ones,
@@ -153,25 +151,21 @@ class MeXXXTrainer(BaseTrainer):
         model.freeze_<whatever>()
         if logger:
             logger.info("  [Pretrain] ...")
+```
 
+## 2b. Snapshot rendering: nothing to write per-model
 
-class MeXXXChecker(BaseEpochChecker):
-    unit_label = 'Unit'  # or whatever this model calls its per-patch quantity
+Snapshot rendering (recon_signal/stamp_by_patch/stamp_gallery) is no
+longer part of the plugin contract. `tools/analysis/snapshot.py`'s
+`build_pretrain_bundle`/`build_finetune_bundle` call `model(...)`
+generically (forward, coords, time_idx, valid_channels — the same
+contract every MeXXXPretrain/MeXXXFinetune already implements per this
+doc's step 1) and build a `SnapshotBundle`; the three panels in
+`tools/panels/` render it. A new model needs no Checker class and no
+`extract_psd`/`extract_spectra` overrides — it works automatically as
+long as step 1's forward contract and `model.backbone` (finetune) hold.
 
-    def extract_psd(self, model, x_in, c_in, t_in, vc_in) -> PsdResult:
-        """Returns tools/viz/extract.py's PsdResult(psd_ch_x, norms, affinity, importance) —
-        see extract_head_psd/extract_filter_psd for the shape contract. Reuse one of
-        those if your forward pass matches (per-Unit decode -> per-channel activation
-        norm), or write a MeXXX-specific one in tools/viz/extract.py returning the same
-        PsdResult dataclass."""
-
-    def extract_spectra(self, model, x_in, c_in, t_in, vc_in, fs, freq_resolution) -> SpectraResult:
-        """Returns tools/viz/extract.py's SpectraResult(psd [Q, C, F], freqs [F], importance [Q])."""
-
-    def run_reconstruction(self, model, dataset, trial_idx, device):
-        return _run_reconstruction(model, dataset, trial_idx, device)
-
-
+```python
 class MeXXXPlotter(BasePlotter):
     def plot_pretrain(self, filename='training_dashboard.png'):
         panels = [
@@ -196,7 +190,6 @@ PLUGIN = BasePlugin(
     build=build_model,
     finetune_cls=MeXXXFinetune,
     trainer_cls=MeXXXTrainer,
-    checker_cls=MeXXXChecker,
     plotter_cls=MeXXXPlotter,
 )
 ```
@@ -252,8 +245,8 @@ p.plot_finetune(freeze_backbone=True)
 "
 
 # 3. A short real Tokenizer run exercises Trainer.compute_loss, epoch_metrics,
-#    on_tokenizer_start, and Checker.check_pretrain (via train_tokenizer.py's periodic
-#    viz call) end to end.
+#    on_tokenizer_start, and tools/analysis/snapshot.py's build_pretrain_bundle (via
+#    train_pretrain.py's periodic viz call) end to end.
 python train_tokenizer.py --config <a config with model_type=MeXXX>
 
 # 4. A short real Pretrain run (pointed at the checkpoint from step 3, via

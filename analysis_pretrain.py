@@ -98,8 +98,11 @@ if __name__ == '__main__':
     parser.add_argument('--dataset',     type=str, default=None)
     parser.add_argument('--recon_cmap',  type=str, default=None)
     parser.add_argument('--panel',       action='append', default=[],
-                         help='Run one or more panels (repeatable) instead of the legacy '
-                              '--analysis path. See tools/panels/.')
+                         help='Run one or more panels (repeatable) that do not need a '
+                              'dataset/bundle (NEEDS_DATASET=False), instead of the legacy '
+                              '--analysis path. Panels that need a bundle (recon_signal, '
+                              'stamp_by_patch, stamp_gallery) are only reachable via '
+                              '--analysis today. See tools/panels/.')
     parser.add_argument('--train',       action='store_true',
                          help='(panel_profile only) profile in train mode (eigh skipped)')
     args = parser.parse_args()
@@ -259,17 +262,21 @@ if __name__ == '__main__':
                 subj = t.get('subject') if t.get('subject') is not None else _first_subject(t_dataset)
                 t_idx, subject_id = pick_trial(ds, subj, trial=t.get('trial'), dataset_name=t_dataset)
                 out = resolve_output_dir(cfg, 'analysis', t_dataset or 'multi', mode=mode)
-                bundle, metrics = build_pretrain_bundle(mdl, ds, t_idx, cfg, device, subject_id=subject_id)
-                panels = []
-                if check_cfg.get('plot_recon', True):
-                    panels.append('recon_signal')
-                if check_cfg.get('plot_topo_psd', True):
-                    panels += ['stamp_by_patch', 'stamp_gallery']
-                panel_ctx = PanelContext(config=cfg, output_dir=out, device=device, args=args,
-                                          model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
-                run_panels(panels, 'pretrain', panel_ctx)
-                metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
-                print(f"[check] done: dataset={t_dataset} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
+                try:
+                    bundle, metrics = build_pretrain_bundle(mdl, ds, t_idx, cfg, device, subject_id=subject_id)
+                    panels = []
+                    if check_cfg.get('plot_recon', True):
+                        panels.append('recon_signal')
+                    if check_cfg.get('plot_topo_psd', True):
+                        panels += ['stamp_by_patch', 'stamp_gallery']
+                    panel_ctx = PanelContext(config=cfg, output_dir=out, device=device, args=args,
+                                              model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
+                    run_panels(panels, 'pretrain', panel_ctx)
+                    metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
+                    print(f"[check] done: dataset={t_dataset} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
+                except Exception as e:
+                    print(f"[check] FAILED: dataset={t_dataset} subject={subject_id} trial_idx={t_idx}  |  {e}")
+                    continue
 
         else:
             dataset_name = args.dataset or next(iter(ds_params))
@@ -285,14 +292,18 @@ if __name__ == '__main__':
                 trial_cfg = args.trial if args.trial is not None else ds_cfg.get('trial_to_use')
                 t_idx, subject_id = pick_trial(ds, subject, trial_cfg, dataset_name=ds_name)
                 out = resolve_output_dir(filtered, 'analysis', ds_name, mode=mode)
-                bundle, metrics = build_pretrain_bundle(mdl, ds, t_idx, filtered, device, subject_id=subject_id)
-                panels = []
-                if check_cfg.get('plot_recon', True):
-                    panels.append('recon_signal')
-                if check_cfg.get('plot_topo_psd', True):
-                    panels += ['stamp_by_patch', 'stamp_gallery']
-                panel_ctx = PanelContext(config=filtered, output_dir=out, device=device, args=args,
-                                          model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
-                run_panels(panels, 'pretrain', panel_ctx)
-                metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
-                print(f"[check] done: dataset={ds_name} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
+                try:
+                    bundle, metrics = build_pretrain_bundle(mdl, ds, t_idx, filtered, device, subject_id=subject_id)
+                    panels = []
+                    if check_cfg.get('plot_recon', True):
+                        panels.append('recon_signal')
+                    if check_cfg.get('plot_topo_psd', True):
+                        panels += ['stamp_by_patch', 'stamp_gallery']
+                    panel_ctx = PanelContext(config=filtered, output_dir=out, device=device, args=args,
+                                              model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
+                    run_panels(panels, 'pretrain', panel_ctx)
+                    metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
+                    print(f"[check] done: dataset={ds_name} subject={subject_id} trial_idx={t_idx}  |  {metrics_str}")
+                except Exception as e:
+                    print(f"[check] FAILED: dataset={ds_name} subject={subject_id} trial_idx={t_idx}  |  {e}")
+                    continue

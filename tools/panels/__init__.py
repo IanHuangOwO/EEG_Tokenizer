@@ -117,8 +117,12 @@ def build_panel_context(args, names, stage, resolve_base_path):
 
     if any_needs(names, 'NEEDS_DATASET'):
         raise NotImplementedError(
-            "no NEEDS_DATASET=True panel exists yet -- dataset resolution for panels "
-            "is deferred to whichever future panel needs it")
+            "panel(s) " + repr([n for n in names if load_panel(n).NEEDS_DATASET]) +
+            " need a dataset/bundle, but --panel never builds one -- only the "
+            "legacy --analysis path does (it builds a SnapshotBundle via "
+            "build_pretrain_bundle/build_finetune_bundle and sets ctx.bundle before "
+            "calling run_panels). Use --analysis for these panels until --panel "
+            "gains bundle-building support.")
 
     return PanelContext(config=cfg, output_dir=out_dir, device=device, args=args,
                          model=mdl, dataset=None, checkpoint=checkpoint)

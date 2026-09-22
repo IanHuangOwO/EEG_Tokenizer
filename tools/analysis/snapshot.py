@@ -43,8 +43,6 @@ class SnapshotBundle:
     patch_len: int
     mask_np: Optional[np.ndarray] = None   # [C, N] masked-patch overlay, or None (finetune)
     title_suffix: str = ''                 # e.g. ' [finetune]'
-    unit_colors: Optional[List[str]] = None  # [Q] per-stamp title/label color override
-    unit_ids: Optional[np.ndarray] = None    # [Q] real global stamp ids, or None
     event_onset_sec: Optional[float] = None  # real-trial event onset (s into raw_t/recon_t)
     valid_start: Optional[int] = None  # [sample idx into raw_t/recon_t's T axis]
     valid_end: Optional[int] = None    # real content lies in [valid_start, valid_end)
@@ -94,16 +92,6 @@ def _patchify(x, patch_len):
     x_patches = x[:, :P * patch_len].reshape(C, P, patch_len).unsqueeze(0)
     time_idx = torch.arange(P, dtype=torch.long).unsqueeze(0)
     return x_patches, time_idx
-
-
-def _compute_unit_colors(model, out):
-    """red = shared stamp (always-on, structural). black = routed stamp. Restricted to
-    stamps actually used somewhere in this trial, capped at 100 (see
-    MeSAEPretrain.used_stamp_ids) -- with n_stamps=800 and hard top-k selection, showing
-    every stamp regardless of whether this trial ever touched it is mostly noise."""
-    used_ids = model.used_stamp_ids(out, max_stamps=100)
-    colors = ['red' if i >= model.n_routed_stamps else 'black' for i in used_ids.tolist()]
-    return colors, used_ids
 
 
 @torch.no_grad()
@@ -158,8 +146,6 @@ def build_pretrain_bundle(model, dataset, trial_idx, config, device,
         out = model(x_in, c_in, time_idx=t_in, bool_masked_pos=None, valid_channels=vc_in)
         recon_cnl = out.recon[0].detach().cpu().numpy()
 
-        unit_colors, used_ids = _compute_unit_colors(model, out)
-
         metrics = {'recon_mse': float(np.mean((data['raw'] - data['recon']) ** 2))}
         metrics.update(MeSAETrainer().epoch_metrics(model, out))
 
@@ -174,7 +160,6 @@ def build_pretrain_bundle(model, dataset, trial_idx, config, device,
             coords=coords.numpy(), channel_names=dataset.base_dataset.channel_names,
             valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=mask_np,
             event_onset_sec=event_onset_sec, valid_start=valid_start, valid_end=valid_end,
-            unit_colors=unit_colors, unit_ids=used_ids.cpu().numpy(),
             subject_id=subject_id, trial_idx=trial_idx, epoch=epoch,
         )
         return bundle, metrics
@@ -212,8 +197,6 @@ def build_finetune_bundle(model, dataset, trial_idx, config, device,
         metrics = {'recon_mse': float(np.mean((raw_cnl - recon_cnl) ** 2))}
         metrics.update(MeSAETrainer().epoch_metrics(backbone, out))
 
-        unit_colors, _used_ids = _compute_unit_colors(backbone, out)
-
         bundle = SnapshotBundle(
             x_in=x_in, c_in=c_in, t_in=t_in, vc_in=vc_in, psd_model=backbone,
             raw_t=torch.from_numpy(raw_cnl.reshape(1, C, N * L)),
@@ -221,7 +204,7 @@ def build_finetune_bundle(model, dataset, trial_idx, config, device,
             raw_cnl=raw_cnl, recon_cnl=recon_cnl,
             coords=coords.numpy(), channel_names=channel_names,
             valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=None,
-            title_suffix=' [finetune]', unit_colors=unit_colors,
+            title_suffix=' [finetune]',
             subject_id=subject_id, trial_idx=trial_idx, filename_tag=tag,
         )
         return bundle, metrics

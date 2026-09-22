@@ -451,30 +451,6 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
 
 
 @torch.no_grad()
-def extract_flat_stamp_psd(model, x: torch.Tensor, coords: torch.Tensor,
-                            time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None) -> PsdResult:
-    """
-    MeSAEPretrain analog of extract_filter_psd — see the module-section docstring
-    above for why this is a separate function rather than a shared one. valid_channels
-    feeds the group selection score (see StampBank.forward), matching training.
-
-    psd_ch_x — [C, Qu] per-stamp per-channel trial-averaged real-response norm (zero for
-      channels that stamp never fired at), restricted to stamps used this trial.
-    norms/affinity — same formulas as extract_filter_psd, off the same fp.
-    importance — [Qu] accumulated selection strength (sum over channels AND patches).
-    """
-    used_ids, stamp_importance, fp, _amp_topo, _phase_topo, _sel = _used_flat_stamps(
-        model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=100)
-    flat = fp.reshape(fp.shape[0], -1)
-
-    stamp_norms = flat.norm(dim=-1).cpu().numpy()
-    stamp_affinity = _cosine_affinity(flat)
-    psd_ch_q = fp.norm(dim=-1).permute(1, 0).cpu().numpy()  # [C, Qu]
-
-    return PsdResult(psd_ch_q, stamp_norms, stamp_affinity, stamp_importance)
-
-
-@torch.no_grad()
 def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
                                 time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
                                 fs: float = None, freq_resolution: float = None, max_stamps: int = 100):
@@ -682,26 +658,3 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
         raw_topo=raw_topo, raw_psd=raw_psd, freqs=freqs,
     )
 
-
-@torch.no_grad()
-def extract_filter_spectra(model, x: torch.Tensor, coords: torch.Tensor,
-                           time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
-                           fs: float = None, freq_resolution: float = None) -> SpectraResult:
-    """
-    MeSAEPretrain analog of extract_head_spectra, adapted for StampBank. Every USED stamp's
-    (see extract_filter_psd, capped at 100) real mean-over-patches response FFT'd per
-    channel — real content, not a fabricated zero probe (see `_used_stamps`).
-    """
-    used_ids, stamp_importance, fp = _used_stamps(model, x, coords, time_idx=time_idx,
-                                                   valid_channels=valid_channels, max_stamps=100)
-    L = fp.shape[-1]
-
-    n_fft = L
-    if fs and freq_resolution:
-        n_fft = max(L, int(round(fs / freq_resolution)))
-
-    fft_c = _demean_hann_rfft(fp.float(), n_fft)
-    psd = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()  # [Qu, C, F]
-    freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
-
-    return SpectraResult(psd, freqs, stamp_importance)
