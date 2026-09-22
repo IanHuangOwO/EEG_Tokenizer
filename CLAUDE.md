@@ -28,16 +28,15 @@ python train_finetune.py --config config/config.json
 python check_model.py --config config/analysis.json --checkpoint <path>
 
 # Compile raw datasets into per-subject bandpass+resample-baked .npz caches (run once, or
-# after changing sample_freq/bandpass_filter — see config/compile.json, docs/agents/adding-a-dataset.md)
+# after changing sample_freq/bandpass_filter — see config/compile.json, docs/agents/adding-a-dataset.md).
+# Verification (shape/labels/dead-channels/bandpass-rolloff) is baked in and runs automatically
+# after compiling; --no-verify skips it, --deep also re-parses raw and diffs byte-for-byte,
+# --verify-only skips compiling and just checks an existing cache (--dataset/--subjects narrow it)
 python cache_dataset.py --config config/compile.json
 
 # Build the stamp-amplitude cache of the finetune datasets (frozen backbone run once per subject;
 # the runner will do this automatically)
 python cache_feature.py --config config/config.json
-
-# Sanity-check a compiled cache (shape/labels/dead-channels/bandpass-rolloff, --deep for a
-# raw-vs-cache diff)
-python cache_verify.py --config config/compile.json
 ```
 
 No test suite exists. Validation runs during training.

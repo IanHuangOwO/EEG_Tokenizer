@@ -372,21 +372,26 @@ it by directory convention). Instead, run the compile step:
    cache won't be found at train time.)
 2. Run it:
    ```bash
-   python cache_dataset.py --config config/compile.json
+   python cache_dataset.py --config config/compile.json --dataset MyDataset
    ```
 3. Confirm `datas/MyDataset/cache/<subject>_fs<...>_bp<...>.npz` files were
-   written, one per subject with real data.
-4. Sanity-check the cache actually holds correct data before wiring it into a
-   training config — `cache_verify.py` checks shape/label ranges, dead
-   (zero-variance) channels, and that the bandpass filter actually attenuated
-   power above its cutoff (Welch PSD in-band vs out-of-band):
-   ```bash
-   python cache_verify.py --config config/compile.json --dataset MyDataset
-   ```
-   Add `--deep` to also re-run the raw loader + `BandpassResample` fresh and
-   diff byte-for-byte against the cache — slower (parses raw files again),
-   but the strongest check: confirms the cache isn't stale relative to the
-   current `loader.py`/compile code.
+   written, one per subject with real data — `[MyDataset SX] (N, C, T) -> ...`
+   lines printed during compile.
+4. Verification is baked into the same command and runs automatically right
+   after compiling — no separate step needed. It checks shape/label ranges,
+   dead (zero-variance) channels, and that the bandpass filter actually
+   attenuated power above its cutoff (Welch PSD in-band vs out-of-band), and
+   prints `[MyDataset SX] OK` or `FAIL:` with the reason per subject. A
+   non-zero exit code means something failed — read the `FAIL:` lines before
+   wiring the dataset into a training config.
+   - `--no-verify` skips this (compile only, old `cache_dataset.py` behaviour).
+   - `--verify-only` skips compiling and just checks an existing cache
+     (`--subjects N` limits how many, default 3) — useful to re-check a cache
+     without recompiling, e.g. after editing `metadata.json` by hand.
+   - `--deep` (either mode) also re-runs the raw loader + `BandpassResample`
+     fresh and diffs byte-for-byte against the cache — slower (parses raw
+     files again), but the strongest check: confirms the cache isn't stale
+     relative to the current `loader.py`/compile code.
 
 Training never imports `datas/MyDataset/loader.py` — `build_dataset_from_config()`
 (`IO/dataset.py`) always reads the `.npz` cache directly, which just needs to
@@ -444,8 +449,33 @@ parsing raw files.
 
 ## Currently unconverted raw datasets in `./datas`
 
-These folders exist but have no `metadata.json` yet (as of this writing):
-`Siena`.
+`Siena` is blocked, not just unconverted: `datas/Siena/archive.zip` (as
+staged, 2026-09-22) contains a single flat file, `Siena_Sleep_EEG_Data.csv` —
+944,640 rows x 20 channel columns (`Fp1,F3,C3,P3,O1,F7,T3,T5,Fc1,Fc5,Cp1,Cp5,
+F9,Fz,Cz,Pz,Pf2,F4,C4,P4`) + one binary `diagnosis` column (536,320 rows `1`,
+408,320 rows `0`). This is very likely a Kaggle re-export of PhysioNet's
+*Siena Scalp EEG Database* (a seizure dataset, despite the "Sleep" filename —
+Siena's real corpus has no sleep-staging task) with the original per-subject/
+per-recording structure stripped out. Missing, not guessable per Step 0:
+- **No subject-ID column or file split** — every row is concatenated into one
+  table with no boundary marker. Per-subject caching and the
+  subject-level train/val split this repo relies on (`CLAUDE.md`: "data never
+  leaks between subjects") cannot be done from this file as-is; inventing
+  arbitrary row-count chunks and calling them "subjects" would be fabricated
+  metadata, not real subject boundaries.
+- **No documented sample rate.** PhysioNet's real Siena corpus is 512 Hz, but
+  this CSV doesn't state whether/how it was resampled — don't assume 512 Hz
+  without a source page or README confirming it.
+- **`Pf2` is not a standard 10-20/10-10 label** (`IO/dataset.py`'s
+  `_LABEL_ALIASES` won't resolve it) — likely a renamed reference/ground
+  channel; needs the original channel key to map correctly.
+- The zip has no accompanying README/documentation, so none of the above can
+  be resolved from the file itself.
+
+Needed before this can be converted: the original source page (Kaggle listing
+or PhysioNet), or the real per-subject PhysioNet EDF files
+(https://physionet.org/content/siena-scalp-eeg/) instead of this flattened
+CSV.
 
 `HighGamma` is blocked, not just unconverted: `high-gamma-dataset-master.zip`
 only contains git-annex pointer stubs (see the Step 1 gotcha above), no real
