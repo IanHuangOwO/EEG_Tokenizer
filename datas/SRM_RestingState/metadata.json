@@ -1,0 +1,821 @@
+{
+    "data_metadata": {
+        "dataset_name": "SRM_RestingState",
+        "dataset_info": {
+            "source_url": "https://openneuro.org/datasets/ds003775/versions/1.2.1",
+            "file_format": "EDF (BIDS)",
+            "description": "111 healthy control subjects, 4 minutes of continuous eyes-closed resting-state EEG, extracted from the Stimulus-Selective Response Modulation (SRM) project. BioSemi ActiveTwo, 64 channels, average referenced, unfiltered (50 Hz line noise, European recording). Some subjects have a second session ('ses-t2') at a later date.",
+            "task_type": "resting_state",
+            "reference": "Rygvold T, Hatlestad-Hall C et al. (2021), http://dx.doi.org/10.1111/ejn.14964",
+            "contact": "Christoffer Hatlestad-Hall, Trine Waage Rygvold, Stein Andersson (Dept. of Psychology, University of Oslo)",
+            "notes": "No events/conditions -- the whole continuous segment is resting-state data (README: 'The files contain no events'). targets.count is a placeholder (1 class, dummy label 0 from loader.py), not a real task -- self-supervised pretraining only, see adding-a-dataset.md's 'Continuous multi-label event annotations' bullet for the same pattern (GraspAndLift_Train). License: CC0. Paper abstract also mentions single-session recordings from 52 additional individuals -- NOT present in this deposit (only the 111 ses-t1/ses-t2 subjects are here), possibly a separate OpenNeuro/figshare item; not investigated further as of 2026-09-22. sub-041's ses-t1 EDF has a malformed header timestamp ('second must be in 0..59', rejected by MNE) -- loader.py skips that one session; subject 41 has zero usable sessions and is absent from the compiled cache (110/111 subjects, 152 sessions total)."
+        },
+        "acquisition": {
+            "sample_frequency": 1024,
+            "window_size_seconds": 240.0,
+            "num_subjects": 111
+        },
+        "targets": {
+            "count": 1,
+            "type": "resting_state",
+            "0": {
+                "label": "resting-state (no real classes; pretrain-only, see dataset_info.notes)"
+            }
+        },
+        "channels": {
+            "count": 64,
+            "system": "10-20 International System (10-10)",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "AF7"
+            },
+            "3": {
+                "label": "AF3"
+            },
+            "4": {
+                "label": "F1"
+            },
+            "5": {
+                "label": "F3"
+            },
+            "6": {
+                "label": "F5"
+            },
+            "7": {
+                "label": "F7"
+            },
+            "8": {
+                "label": "FT7"
+            },
+            "9": {
+                "label": "FC5"
+            },
+            "10": {
+                "label": "FC3"
+            },
+            "11": {
+                "label": "FC1"
+            },
+            "12": {
+                "label": "C1"
+            },
+            "13": {
+                "label": "C3"
+            },
+            "14": {
+                "label": "C5"
+            },
+            "15": {
+                "label": "T7"
+            },
+            "16": {
+                "label": "TP7"
+            },
+            "17": {
+                "label": "CP5"
+            },
+            "18": {
+                "label": "CP3"
+            },
+            "19": {
+                "label": "CP1"
+            },
+            "20": {
+                "label": "P1"
+            },
+            "21": {
+                "label": "P3"
+            },
+            "22": {
+                "label": "P5"
+            },
+            "23": {
+                "label": "P7"
+            },
+            "24": {
+                "label": "P9"
+            },
+            "25": {
+                "label": "PO7"
+            },
+            "26": {
+                "label": "PO3"
+            },
+            "27": {
+                "label": "O1"
+            },
+            "28": {
+                "label": "Iz"
+            },
+            "29": {
+                "label": "Oz"
+            },
+            "30": {
+                "label": "POz"
+            },
+            "31": {
+                "label": "Pz"
+            },
+            "32": {
+                "label": "CPz"
+            },
+            "33": {
+                "label": "Fpz"
+            },
+            "34": {
+                "label": "Fp2"
+            },
+            "35": {
+                "label": "AF8"
+            },
+            "36": {
+                "label": "AF4"
+            },
+            "37": {
+                "label": "AFz"
+            },
+            "38": {
+                "label": "Fz"
+            },
+            "39": {
+                "label": "F2"
+            },
+            "40": {
+                "label": "F4"
+            },
+            "41": {
+                "label": "F6"
+            },
+            "42": {
+                "label": "F8"
+            },
+            "43": {
+                "label": "FT8"
+            },
+            "44": {
+                "label": "FC6"
+            },
+            "45": {
+                "label": "FC4"
+            },
+            "46": {
+                "label": "FC2"
+            },
+            "47": {
+                "label": "FCz"
+            },
+            "48": {
+                "label": "Cz"
+            },
+            "49": {
+                "label": "C2"
+            },
+            "50": {
+                "label": "C4"
+            },
+            "51": {
+                "label": "C6"
+            },
+            "52": {
+                "label": "T8"
+            },
+            "53": {
+                "label": "TP8"
+            },
+            "54": {
+                "label": "CP6"
+            },
+            "55": {
+                "label": "CP4"
+            },
+            "56": {
+                "label": "CP2"
+            },
+            "57": {
+                "label": "P2"
+            },
+            "58": {
+                "label": "P4"
+            },
+            "59": {
+                "label": "P6"
+            },
+            "60": {
+                "label": "P8"
+            },
+            "61": {
+                "label": "P10"
+            },
+            "62": {
+                "label": "PO8"
+            },
+            "63": {
+                "label": "PO4"
+            },
+            "64": {
+                "label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "files": [
+                "raw/sub-001/ses-t1/eeg/sub-001_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "2": {
+            "files": [
+                "raw/sub-002/ses-t1/eeg/sub-002_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-002/ses-t2/eeg/sub-002_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "3": {
+            "files": [
+                "raw/sub-003/ses-t1/eeg/sub-003_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-003/ses-t2/eeg/sub-003_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "4": {
+            "files": [
+                "raw/sub-004/ses-t1/eeg/sub-004_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "5": {
+            "files": [
+                "raw/sub-005/ses-t1/eeg/sub-005_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-005/ses-t2/eeg/sub-005_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "6": {
+            "files": [
+                "raw/sub-006/ses-t1/eeg/sub-006_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "7": {
+            "files": [
+                "raw/sub-007/ses-t1/eeg/sub-007_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-007/ses-t2/eeg/sub-007_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "8": {
+            "files": [
+                "raw/sub-008/ses-t1/eeg/sub-008_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "9": {
+            "files": [
+                "raw/sub-009/ses-t1/eeg/sub-009_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "10": {
+            "files": [
+                "raw/sub-010/ses-t1/eeg/sub-010_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "11": {
+            "files": [
+                "raw/sub-011/ses-t1/eeg/sub-011_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-011/ses-t2/eeg/sub-011_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "12": {
+            "files": [
+                "raw/sub-012/ses-t1/eeg/sub-012_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "13": {
+            "files": [
+                "raw/sub-013/ses-t1/eeg/sub-013_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "14": {
+            "files": [
+                "raw/sub-014/ses-t1/eeg/sub-014_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "15": {
+            "files": [
+                "raw/sub-015/ses-t1/eeg/sub-015_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "16": {
+            "files": [
+                "raw/sub-016/ses-t1/eeg/sub-016_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "17": {
+            "files": [
+                "raw/sub-017/ses-t1/eeg/sub-017_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "18": {
+            "files": [
+                "raw/sub-018/ses-t1/eeg/sub-018_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "19": {
+            "files": [
+                "raw/sub-019/ses-t1/eeg/sub-019_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "20": {
+            "files": [
+                "raw/sub-020/ses-t1/eeg/sub-020_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-020/ses-t2/eeg/sub-020_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "21": {
+            "files": [
+                "raw/sub-021/ses-t1/eeg/sub-021_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-021/ses-t2/eeg/sub-021_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "22": {
+            "files": [
+                "raw/sub-022/ses-t1/eeg/sub-022_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "23": {
+            "files": [
+                "raw/sub-023/ses-t1/eeg/sub-023_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "24": {
+            "files": [
+                "raw/sub-024/ses-t1/eeg/sub-024_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "25": {
+            "files": [
+                "raw/sub-025/ses-t1/eeg/sub-025_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "26": {
+            "files": [
+                "raw/sub-026/ses-t1/eeg/sub-026_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-026/ses-t2/eeg/sub-026_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "27": {
+            "files": [
+                "raw/sub-027/ses-t1/eeg/sub-027_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-027/ses-t2/eeg/sub-027_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "28": {
+            "files": [
+                "raw/sub-028/ses-t1/eeg/sub-028_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-028/ses-t2/eeg/sub-028_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "29": {
+            "files": [
+                "raw/sub-029/ses-t1/eeg/sub-029_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "30": {
+            "files": [
+                "raw/sub-030/ses-t1/eeg/sub-030_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-030/ses-t2/eeg/sub-030_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "31": {
+            "files": [
+                "raw/sub-031/ses-t1/eeg/sub-031_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "32": {
+            "files": [
+                "raw/sub-032/ses-t1/eeg/sub-032_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-032/ses-t2/eeg/sub-032_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "33": {
+            "files": [
+                "raw/sub-033/ses-t1/eeg/sub-033_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "34": {
+            "files": [
+                "raw/sub-034/ses-t1/eeg/sub-034_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "35": {
+            "files": [
+                "raw/sub-035/ses-t1/eeg/sub-035_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "36": {
+            "files": [
+                "raw/sub-036/ses-t1/eeg/sub-036_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "37": {
+            "files": [
+                "raw/sub-037/ses-t1/eeg/sub-037_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "38": {
+            "files": [
+                "raw/sub-038/ses-t1/eeg/sub-038_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-038/ses-t2/eeg/sub-038_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "39": {
+            "files": [
+                "raw/sub-039/ses-t1/eeg/sub-039_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "40": {
+            "files": [
+                "raw/sub-040/ses-t1/eeg/sub-040_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "41": {
+            "files": [
+                "raw/sub-041/ses-t1/eeg/sub-041_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "42": {
+            "files": [
+                "raw/sub-042/ses-t1/eeg/sub-042_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-042/ses-t2/eeg/sub-042_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "43": {
+            "files": [
+                "raw/sub-043/ses-t1/eeg/sub-043_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-043/ses-t2/eeg/sub-043_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "44": {
+            "files": [
+                "raw/sub-044/ses-t1/eeg/sub-044_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "45": {
+            "files": [
+                "raw/sub-045/ses-t1/eeg/sub-045_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "46": {
+            "files": [
+                "raw/sub-046/ses-t1/eeg/sub-046_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-046/ses-t2/eeg/sub-046_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "47": {
+            "files": [
+                "raw/sub-047/ses-t1/eeg/sub-047_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-047/ses-t2/eeg/sub-047_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "48": {
+            "files": [
+                "raw/sub-048/ses-t1/eeg/sub-048_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-048/ses-t2/eeg/sub-048_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "49": {
+            "files": [
+                "raw/sub-049/ses-t1/eeg/sub-049_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "50": {
+            "files": [
+                "raw/sub-050/ses-t1/eeg/sub-050_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "51": {
+            "files": [
+                "raw/sub-051/ses-t1/eeg/sub-051_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-051/ses-t2/eeg/sub-051_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "52": {
+            "files": [
+                "raw/sub-052/ses-t1/eeg/sub-052_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "53": {
+            "files": [
+                "raw/sub-053/ses-t1/eeg/sub-053_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "54": {
+            "files": [
+                "raw/sub-054/ses-t1/eeg/sub-054_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "55": {
+            "files": [
+                "raw/sub-055/ses-t1/eeg/sub-055_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "56": {
+            "files": [
+                "raw/sub-056/ses-t1/eeg/sub-056_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "57": {
+            "files": [
+                "raw/sub-057/ses-t1/eeg/sub-057_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "58": {
+            "files": [
+                "raw/sub-058/ses-t1/eeg/sub-058_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-058/ses-t2/eeg/sub-058_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "59": {
+            "files": [
+                "raw/sub-059/ses-t1/eeg/sub-059_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "60": {
+            "files": [
+                "raw/sub-060/ses-t1/eeg/sub-060_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-060/ses-t2/eeg/sub-060_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "61": {
+            "files": [
+                "raw/sub-061/ses-t1/eeg/sub-061_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "62": {
+            "files": [
+                "raw/sub-062/ses-t1/eeg/sub-062_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "63": {
+            "files": [
+                "raw/sub-063/ses-t1/eeg/sub-063_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "64": {
+            "files": [
+                "raw/sub-064/ses-t1/eeg/sub-064_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-064/ses-t2/eeg/sub-064_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "65": {
+            "files": [
+                "raw/sub-065/ses-t1/eeg/sub-065_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "66": {
+            "files": [
+                "raw/sub-066/ses-t1/eeg/sub-066_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "67": {
+            "files": [
+                "raw/sub-067/ses-t1/eeg/sub-067_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "68": {
+            "files": [
+                "raw/sub-068/ses-t1/eeg/sub-068_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-068/ses-t2/eeg/sub-068_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "69": {
+            "files": [
+                "raw/sub-069/ses-t1/eeg/sub-069_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-069/ses-t2/eeg/sub-069_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "70": {
+            "files": [
+                "raw/sub-070/ses-t1/eeg/sub-070_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-070/ses-t2/eeg/sub-070_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "71": {
+            "files": [
+                "raw/sub-071/ses-t1/eeg/sub-071_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-071/ses-t2/eeg/sub-071_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "72": {
+            "files": [
+                "raw/sub-072/ses-t1/eeg/sub-072_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "73": {
+            "files": [
+                "raw/sub-073/ses-t1/eeg/sub-073_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "74": {
+            "files": [
+                "raw/sub-074/ses-t1/eeg/sub-074_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-074/ses-t2/eeg/sub-074_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "75": {
+            "files": [
+                "raw/sub-075/ses-t1/eeg/sub-075_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-075/ses-t2/eeg/sub-075_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "76": {
+            "files": [
+                "raw/sub-076/ses-t1/eeg/sub-076_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-076/ses-t2/eeg/sub-076_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "77": {
+            "files": [
+                "raw/sub-077/ses-t1/eeg/sub-077_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-077/ses-t2/eeg/sub-077_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "78": {
+            "files": [
+                "raw/sub-078/ses-t1/eeg/sub-078_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "79": {
+            "files": [
+                "raw/sub-079/ses-t1/eeg/sub-079_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "80": {
+            "files": [
+                "raw/sub-080/ses-t1/eeg/sub-080_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "81": {
+            "files": [
+                "raw/sub-081/ses-t1/eeg/sub-081_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "82": {
+            "files": [
+                "raw/sub-082/ses-t1/eeg/sub-082_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-082/ses-t2/eeg/sub-082_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "83": {
+            "files": [
+                "raw/sub-083/ses-t1/eeg/sub-083_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "84": {
+            "files": [
+                "raw/sub-084/ses-t1/eeg/sub-084_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-084/ses-t2/eeg/sub-084_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "85": {
+            "files": [
+                "raw/sub-085/ses-t1/eeg/sub-085_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-085/ses-t2/eeg/sub-085_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "86": {
+            "files": [
+                "raw/sub-086/ses-t1/eeg/sub-086_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "87": {
+            "files": [
+                "raw/sub-087/ses-t1/eeg/sub-087_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-087/ses-t2/eeg/sub-087_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "88": {
+            "files": [
+                "raw/sub-088/ses-t1/eeg/sub-088_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "89": {
+            "files": [
+                "raw/sub-089/ses-t1/eeg/sub-089_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "90": {
+            "files": [
+                "raw/sub-090/ses-t1/eeg/sub-090_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "91": {
+            "files": [
+                "raw/sub-091/ses-t1/eeg/sub-091_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-091/ses-t2/eeg/sub-091_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "92": {
+            "files": [
+                "raw/sub-092/ses-t1/eeg/sub-092_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "93": {
+            "files": [
+                "raw/sub-093/ses-t1/eeg/sub-093_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "94": {
+            "files": [
+                "raw/sub-094/ses-t1/eeg/sub-094_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-094/ses-t2/eeg/sub-094_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "95": {
+            "files": [
+                "raw/sub-095/ses-t1/eeg/sub-095_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "96": {
+            "files": [
+                "raw/sub-096/ses-t1/eeg/sub-096_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "97": {
+            "files": [
+                "raw/sub-097/ses-t1/eeg/sub-097_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-097/ses-t2/eeg/sub-097_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "98": {
+            "files": [
+                "raw/sub-098/ses-t1/eeg/sub-098_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "99": {
+            "files": [
+                "raw/sub-099/ses-t1/eeg/sub-099_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "100": {
+            "files": [
+                "raw/sub-100/ses-t1/eeg/sub-100_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "101": {
+            "files": [
+                "raw/sub-101/ses-t1/eeg/sub-101_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-101/ses-t2/eeg/sub-101_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "102": {
+            "files": [
+                "raw/sub-102/ses-t1/eeg/sub-102_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "103": {
+            "files": [
+                "raw/sub-103/ses-t1/eeg/sub-103_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "104": {
+            "files": [
+                "raw/sub-104/ses-t1/eeg/sub-104_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-104/ses-t2/eeg/sub-104_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "105": {
+            "files": [
+                "raw/sub-105/ses-t1/eeg/sub-105_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-105/ses-t2/eeg/sub-105_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "106": {
+            "files": [
+                "raw/sub-106/ses-t1/eeg/sub-106_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-106/ses-t2/eeg/sub-106_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "107": {
+            "files": [
+                "raw/sub-107/ses-t1/eeg/sub-107_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "108": {
+            "files": [
+                "raw/sub-108/ses-t1/eeg/sub-108_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "109": {
+            "files": [
+                "raw/sub-109/ses-t1/eeg/sub-109_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        },
+        "110": {
+            "files": [
+                "raw/sub-110/ses-t1/eeg/sub-110_ses-t1_task-resteyesc_eeg.edf",
+                "raw/sub-110/ses-t2/eeg/sub-110_ses-t2_task-resteyesc_eeg.edf"
+            ]
+        },
+        "111": {
+            "files": [
+                "raw/sub-111/ses-t1/eeg/sub-111_ses-t1_task-resteyesc_eeg.edf"
+            ]
+        }
+    }
+}

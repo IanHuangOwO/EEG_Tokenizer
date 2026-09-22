@@ -19,7 +19,8 @@
       "EEGMMIdb": { "dataset_path": "datas/EEGMMIdb" },
       "GraspAndLift_Train": { "dataset_path": "datas/GraspAndLift_Train" },
       "GraspAndLift_Test": { "dataset_path": "datas/GraspAndLift_Test" },
-      "DEAP": { "dataset_path": "datas/DEAP" }
+      "DEAP": { "dataset_path": "datas/DEAP" },
+      "SRM_RestingState": { "dataset_path": "datas/SRM_RestingState" }
     }
   }
 }
