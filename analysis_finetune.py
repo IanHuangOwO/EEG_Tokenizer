@@ -94,6 +94,10 @@ if __name__ == '__main__':
                               'reachable via the legacy path today. See tools/panels/.')
     parser.add_argument('--train',       action='store_true',
                          help='(panel_profile only) profile in train mode (eigh skipped)')
+    parser.add_argument('--group-eval',  action='append', default=[], dest='group_eval',
+                         help='(panel_group_summary only) path to an artifacts/group_eval.json '
+                              '(repeatable; first path is the reference every later one is '
+                              'paired against)')
     args = parser.parse_args()
 
     if args.panel:

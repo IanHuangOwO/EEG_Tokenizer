@@ -105,6 +105,16 @@ if __name__ == '__main__':
                               '--analysis today. See tools/panels/.')
     parser.add_argument('--train',       action='store_true',
                          help='(panel_profile only) profile in train mode (eigh skipped)')
+    parser.add_argument('--se-datasets', action='append', default=[], dest='se_datasets',
+                         help='(panel_select_eval_subsets only) dataset name(s) from '
+                              'tools.analysis.select_eval_subsets.DATASETS (repeatable; '
+                              'default: every key)')
+    parser.add_argument('--se-run-config', default=None, dest='se_run_config',
+                         help='(panel_select_eval_subsets only) path to a config.json with '
+                              'dataset_params.pretrain subject pools (default: that module\'s RUN)')
+    parser.add_argument('--se-out-dir', default=None, dest='se_out_dir',
+                         help='(panel_select_eval_subsets only) output dir '
+                              '(default: config/subject_groups)')
     args = parser.parse_args()
 
     if args.panel:
