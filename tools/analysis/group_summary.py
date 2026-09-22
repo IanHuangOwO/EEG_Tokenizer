@@ -1,11 +1,11 @@
 """Stats over train_finetune.py's subject_groups output (artifacts/group_eval.json).
 Ported from probes/group_summary.py -- schema unchanged (train_finetune.py:276-327 still
 writes {run_name: {'groups': {group: {'subjects': {subject: {'tail','last','n_trials'}}}}}}).
-Each file = one head (name = dir above 'artifacts'); the first is the reference. Per
-run/group: per-subject tail (mean of last 10 epochs) and mean +- sd. Groups sharing a
-name across runs (kfold 'heldout') are pooled per subject. Then, per group, paired
-head - reference over the same subjects (subject level); per head, seen vs unseen
-(Welch, different subjects). p is information, not a gate.
+Each file = one head; the first is the reference. Per run/group: per-subject tail (mean
+of last 10 epochs) and mean +- sd. Groups sharing a name across runs (kfold 'heldout')
+are pooled per subject. Then, per group, paired head - reference over the same subjects
+(subject level); per head, seen vs unseen (Welch, different subjects). p is information,
+not a gate.
 """
 import json
 import os
@@ -15,7 +15,19 @@ from scipy import stats
 
 
 def head_name(path):
-    return os.path.basename(os.path.dirname(os.path.dirname(os.path.abspath(path))))
+    """Name to print/pair by. Current layout nests a finetune run under its backbone --
+    output/pretrain/<backbone>/finetune/<head>/<dataset>_<mode>/artifacts/group_eval.json
+    -- so the head lives 3 dirs above the file, not 2 (the old output/baseline/
+    <dataset>_<mode>_<head>/ layout encoded the head in the run's own leaf dir name,
+    1 level above 'artifacts'; that layout is detected here by the ABSENCE of a
+    'finetune' marker dir 4 levels up, and still supported since output/archive/'s
+    older runs and output/baseline/'s own raw_signal runs both use it)."""
+    p = os.path.abspath(path)
+    run_dir = os.path.dirname(os.path.dirname(p))          # .../<dataset>_<mode> (or old-style leaf)
+    finetune_marker = os.path.dirname(os.path.dirname(run_dir))
+    if os.path.basename(finetune_marker) == 'finetune':
+        return os.path.basename(os.path.dirname(run_dir))  # .../finetune/<head>/<dataset>_<mode>
+    return os.path.basename(run_dir)
 
 
 def load(path):
