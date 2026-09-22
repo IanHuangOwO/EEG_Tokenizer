@@ -211,11 +211,10 @@
         }
       },
       "finetune": {
-        "feature": "stamp_power",
+        "features": ["stamp_power"],
         "spatial_k": 8,
         "time_pool": "learned",
         "time_rank": 2,
-        "phase_advance": false,
         "evoked_rank": 0,
         "dropout": 0.5
       }

@@ -1,7 +1,6 @@
 # Design note: feature as a list (combine primaries, not just branches)
 
-Date: 2026-09-22. Status: proposal, not scheduled. Not part of the finetune restructure
-sub-projects A-D; a candidate follow-up once the restart baseline and D are done.
+Date: 2026-09-22. Status: implemented, see docs/superpowers/plans/2026-09-22-feature-list-head.md.
 
 ## Problem
 
