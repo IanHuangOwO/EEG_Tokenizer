@@ -25,7 +25,8 @@
       "ERP_Longitudinal": { "dataset_path": "datas/pretrain/ERP_Longitudinal" },
       "EmotionVideo": { "dataset_path": "datas/pretrain/EmotionVideo" },
       "EEGMAT": { "dataset_path": "datas/finetune/EEGMAT" },
-      "BCMI_MusicEmotion": { "dataset_path": "datas/pretrain/BCMI_MusicEmotion" }
+      "BCMI_MusicEmotion": { "dataset_path": "datas/pretrain/BCMI_MusicEmotion" },
+      "BNCI2014009": { "dataset_path": "datas/finetune/BNCI2014009" }
     }
   }
 }
