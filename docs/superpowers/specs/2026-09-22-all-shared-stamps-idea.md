@@ -101,6 +101,60 @@ small run at roughly `n_stamps=16`, `top_k=n_stamps` (all-on), `n_shared=0`, che
 the same kurtosis/cross-atom-correlation diagnostic, separately from whatever the existing
 checkpoint shows.
 
+## Correction: the reconstruction number quoted earlier was the wrong one
+
+In discussion, `mesae_v10_small`'s end-of-training `mse_patch` (0.106, logged during masked-
+phase training) was cited as "how well 25 alive stamps reconstruct EEG." Pushback: that number
+reflects the masked-prediction task's difficulty, not the architecture's raw capacity, because
+`_position_weights` grades masked positions at weight 1.0 and visible ones at `unmasked_weight
+= 0.1` — the logged number is dominated by blind prediction, not faithful reconstruction.
+
+Checked directly: loaded the final trained checkpoint (epoch 40, masked-phase weights, spatial
+attention on) and ran one forward pass with `bool_masked_pos=None` (no masking at all, same
+weights). Result: `mse_patch = 0.0119` on BCICIV2a subject 9 (not in this backbone's
+pretraining set). For reference, three numbers from the same run:
+
+| Setting | `mse_patch` |
+|---|---|
+| End of masked-phase training (epoch 40, logged, under the mask curriculum) | 0.1058 |
+| End of tokenizer phase (epoch 10, unmasked, but no spatial attention yet) | 0.0373 |
+| **Final trained weights, unmasked eval (this check)** | **0.0119** |
+
+The architecture's DOF ceiling (`2*(top_k+n_shared) = 32` real numbers per channel, against a
+50-sample patch) is identical in both the masked and unmasked eval — masking does not change
+how many atoms can be active, only which positions the loss weights. So the ~9x gap between
+0.106 and 0.012 is (mostly) the masked-prediction task, not a capacity limit of the ~21 alive
+routed + 4 shared stamps. Correction: cite the unmasked number, not the masked-phase training
+log, when asking how well the stamp code itself can represent EEG.
+
+### Hypothesis: why so few atoms suffice, given the correction
+
+`MeSAEPretrain.stage_features` runs the *whole* `[B, C, N, D]` trial tensor (every channel,
+every patch) through `TSAEncoder`, whose blocks apply temporal attention (across all N patches)
+then spatial attention (across all C channels) before `a, b` are derived (`dense_amp` reads the
+encoder's output, not a per-patch-isolated feature). So the `32-DOF-vs-50-sample` framing per
+patch is misleading in isolation: the encoder is not blindly compressing one 50-sample window
+into 32 numbers — it is choosing 32 well-informed numbers for that window *given the entire
+1000-sample, all-channel trial as context* via bidirectional attention. Two concrete channels
+for that context to help:
+
+- **Temporal:** slowly-varying rhythms (e.g. an alpha oscillation) repeat similar structure
+  across neighboring patches, so the encoder can use those neighbors to sharpen its estimate of
+  one patch's amplitude/phase rather than fitting 32 numbers to 50 samples in isolation.
+- **Spatial:** nearby electrodes are correlated (volume conduction), so other channels' signal
+  at the same time can sharpen one channel's estimate.
+
+This is consistent with, and gives a mechanism for, why masking hurts so much: masking removes
+exactly this borrowed context for the positions being graded, and the masking curriculum
+(`random_to_complementary`) increases masking over training, shrinking available context
+further — matching both the sharp jump at the tokenizer/masked-phase boundary (0.037 -> 0.089)
+and the further drift to 0.106 by epoch 40.
+
+**Not yet checked, falsifiable if revisited:** feed the encoder a single patch with corrupted
+or zeroed neighboring context and see whether reconstruction degrades toward the naive
+32-vs-50 compression limit; that would directly confirm context (not dictionary quality alone)
+is doing most of the work.
+
 ## If revisited
 
 A proper controlled test, not a full retrain: rerun the exact kurtosis/cross-atom-correlation/
