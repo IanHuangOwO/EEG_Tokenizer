@@ -1458,12 +1458,19 @@ def resolve_head_config(ft_params, **derived):
         raise ValueError("evoked_rank needs the full patch axis, not time_pool='window'")
     if (f == 'raw_signal' or tp in ('learned', 'none') or cfg['evoked_rank']) and cfg.get('num_patches') is None:
         raise ValueError("this configuration needs num_patches (trial length in patches)")
+    if cfg['spatial_k'] not in (None, 0) and not (isinstance(cfg['spatial_k'], int) and cfg['spatial_k'] > 0):
+        raise ValueError(f"spatial_k must be a positive int, or null/0 for no spatial mixing (channel concat), got {cfg['spatial_k']!r}")
     return cfg
+
+
+def spatial_width(cfg):
+    """Effective K: spatial_k filters, or every real channel kept separate (spatial_k None/0 = concat, no mixing)."""
+    return cfg['spatial_k'] or cfg['num_channels']
 
 
 def feature_dim(cfg):
     """Width of the feature vector entering the readout."""
-    K, N, f = cfg['spatial_k'], cfg.get('num_patches'), cfg['feature']
+    K, N, f = spatial_width(cfg), cfg.get('num_patches'), cfg['feature']
     if f == 'raw_signal':
         pool = max(1, round(cfg['sample_freq'] / 20))
         return K * (((N - 1) * cfg['patch_stride'] + cfg['patch_len']) // pool)
@@ -1530,7 +1537,9 @@ class FeatureHead(nn.Module):
         f, tp = cfg['feature'], cfg['time_pool']
         N = cfg.get('num_patches')
         F_ = cfg['num_stamps'] if f == 'stamp_power' else len(BANDS)
-        self.spatial = nn.Linear(cfg['num_channels'], cfg['spatial_k'], bias=False)
+        # spatial_k None/0 = no mixing (channel concat, ADR 0016 ablation control): spatial_mix(None, ...)
+        # is identity, so each real channel stays its own feature row instead of being pooled to K filters.
+        self.spatial = nn.Linear(cfg['num_channels'], cfg['spatial_k'], bias=False) if cfg['spatial_k'] else None
         if f == 'raw_signal':
             self.pool_k = max(1, round(cfg['sample_freq'] / 20))
         if tp == 'learned':
