@@ -1,8 +1,8 @@
 {
   "dataset_params": {
     "pretrain": {
-      "Dial": {
-        "dataset_path": "datas/Dial",
+      "12JFPM_SSVEP": {
+        "dataset_path": "datas/12JFPM_SSVEP",
         "subject_to_use": [
           "1",
           "2",

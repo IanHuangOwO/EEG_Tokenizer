@@ -3,7 +3,7 @@
   "mode": "pretrain",
   "dataset_params": {
     "pretrain": {
-      "Dial": { "dataset_path": "datas/Dial", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "12JFPM_SSVEP": { "dataset_path": "datas/12JFPM_SSVEP", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "BETA_4s": { "dataset_path": "datas/BETA_4s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "BETA_3s": { "dataset_path": "datas/BETA_3s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "BCICIV1_Train": { "dataset_path": "datas/BCICIV1_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },

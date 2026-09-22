@@ -17,7 +17,7 @@ class Loader(BaseSubjectLoader):
         super().__init__(config, subject_id, desired_channel_indices)
         entry = self._require_subject(subject_id)
         # Single-file style (BETA):        self.file_path = self._resolve(entry['file'])
-        # Split signal/label style (Dial):  self._resolve(entry['signals']) / self._resolve(entry['labels'])
+        # Split signal/label style (12JFPM_SSVEP):  self._resolve(entry['signals']) / self._resolve(entry['labels'])
         # Multi-run style (EEGMMIdb):       [self._resolve(os.path.join(entry['folder'], r)) for r in entry['runs']]
         self.file_path = self._resolve(entry['file'])
 

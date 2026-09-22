@@ -27,6 +27,6 @@ class Loader(BaseSubjectLoader):
 
         eeg_data = samples[self.channel_indices, :, :trials_to_use]
         eeg_data = np.transpose(eeg_data, (2, 0, 1))
-        # Labels are 1-indexed in Dial, convert to 0-indexed
+        # Labels are 1-indexed in the raw .mat files, convert to 0-indexed
         labels = (raw_labels[:trials_to_use] - 1).astype(np.int64)
         return eeg_data, labels

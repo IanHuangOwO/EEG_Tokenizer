@@ -560,7 +560,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         from viz.codebook import plot_stamp_identity_consistency
         from viz.iclabel import ICLABEL_CLASSES
 
-        # Keyed by (dataset, stamp id): channel-validity differs per dataset (e.g. Dial
+        # Keyed by (dataset, stamp id): channel-validity differs per dataset (e.g. 12JFPM_SSVEP
         # maps 8 of 64 channels, BETA_4s 58), so mixing columns from different datasets
         # have different lengths AND live in different channel subspaces — comparing
         # them would be meaningless even if the shapes matched. Statistics are computed

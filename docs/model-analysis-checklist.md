@@ -63,7 +63,7 @@ always-on Shared pool (generic/context content) vs the competing Routed pool
 
   Measured on `mesae_tokenizer_v4` (5/8 sampled datasets qualified),
   routed/shared/both/raw:
-  - `Dial` 14.0/12.0/17.0/**8.5** (chance 8.3) — raw is at chance, every
+  - `12JFPM_SSVEP` 14.0/12.0/17.0/**8.5** (chance 8.3) — raw is at chance, every
     stamp probe clears it: real value-add from the tokenizer here.
   - `BCICIV1_Train` 50.0/46.0/49.5/**46.0** (chance 50.0) — raw is ALSO at
     chance: this task has no decodable signal in anything, not a tokenizer

@@ -1,0 +1,142 @@
+{
+    "data_metadata": {
+        "dataset_name": "12JFPM_SSVEP",
+        "dataset_info": {
+            "source_url": "https://github.com/mnakanishi/12JFPM_SSVEP",
+            "file_format": "MATLAB (.mat)",
+            "description": "12-class Joint Frequency-Phase Modulated (JFPM) SSVEP dataset",
+            "task_type": "SSVEP (Steady-State Visual Evoked Potential)",
+            "reference": "Nakanishi M, Wang Y, Wang Y-T, Jung T-P (2015). A Comparison Study of Canonical Correlation Analysis Based Methods for Detecting Steady-State Visual Evoked Potentials. PLoS ONE 10(10):e0140703. doi:10.1371/journal.pone.0140703",
+            "contact": "wangyj@semi.ac.cn (per NEMAR nm000118)",
+            "notes": "Biosemi ActiveTwo, CMS/DRL reference, originally recorded at 2048 Hz then downsampled to 256 Hz (per NEMAR nm000118). Task: 4x3 visual grid, 1s cue then 4s of flickering stimuli at 12 frequencies (9.25-14.75 Hz, 0.5 Hz spacing) with joint frequency+phase coding, 15 blocks x 12 trials/subject (180 trials/subject). Fuller metadata at github.com/nemarDatasets/nm000118 -- that BIDS curation lists only 9/10 subjects; this repo uses all 10 from the raw source."
+        },
+        "acquisition": {
+            "sample_frequency": 256,
+            "window_size_seconds": 4.0,
+            "num_subjects": 10,
+            "num_trials_per_subject": 15
+        },
+        "channels": {
+            "count": 8,
+            "system": "10-20 International System (occipital sites)",
+            "1": {
+                "label": "PO7"
+            },
+            "2": {
+                "label": "PO3"
+            },
+            "3": {
+                "label": "POz"
+            },
+            "4": {
+                "label": "PO4"
+            },
+            "5": {
+                "label": "PO8"
+            },
+            "6": {
+                "label": "O1"
+            },
+            "7": {
+                "label": "Oz"
+            },
+            "8": {
+                "label": "O2"
+            }
+        },
+        "targets": {
+            "count": 12,
+            "type": "ssvep",
+            "0": {
+                "label": "9.25 Hz",
+                "stimulus_frequency_hz": 9.25
+            },
+            "1": {
+                "label": "11.25 Hz",
+                "stimulus_frequency_hz": 11.25
+            },
+            "2": {
+                "label": "13.25 Hz",
+                "stimulus_frequency_hz": 13.25
+            },
+            "3": {
+                "label": "9.75 Hz",
+                "stimulus_frequency_hz": 9.75
+            },
+            "4": {
+                "label": "11.75 Hz",
+                "stimulus_frequency_hz": 11.75
+            },
+            "5": {
+                "label": "13.75 Hz",
+                "stimulus_frequency_hz": 13.75
+            },
+            "6": {
+                "label": "10.25 Hz",
+                "stimulus_frequency_hz": 10.25
+            },
+            "7": {
+                "label": "12.25 Hz",
+                "stimulus_frequency_hz": 12.25
+            },
+            "8": {
+                "label": "14.25 Hz",
+                "stimulus_frequency_hz": 14.25
+            },
+            "9": {
+                "label": "10.75 Hz",
+                "stimulus_frequency_hz": 10.75
+            },
+            "10": {
+                "label": "12.75 Hz",
+                "stimulus_frequency_hz": 12.75
+            },
+            "11": {
+                "label": "14.75 Hz",
+                "stimulus_frequency_hz": 14.75
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "signals": "raw/signals/DataSub_1.mat",
+            "labels": "raw/labels/LabSub_1.mat"
+        },
+        "2": {
+            "signals": "raw/signals/DataSub_2.mat",
+            "labels": "raw/labels/LabSub_2.mat"
+        },
+        "3": {
+            "signals": "raw/signals/DataSub_3.mat",
+            "labels": "raw/labels/LabSub_3.mat"
+        },
+        "4": {
+            "signals": "raw/signals/DataSub_4.mat",
+            "labels": "raw/labels/LabSub_4.mat"
+        },
+        "5": {
+            "signals": "raw/signals/DataSub_5.mat",
+            "labels": "raw/labels/LabSub_5.mat"
+        },
+        "6": {
+            "signals": "raw/signals/DataSub_6.mat",
+            "labels": "raw/labels/LabSub_6.mat"
+        },
+        "7": {
+            "signals": "raw/signals/DataSub_7.mat",
+            "labels": "raw/labels/LabSub_7.mat"
+        },
+        "8": {
+            "signals": "raw/signals/DataSub_8.mat",
+            "labels": "raw/labels/LabSub_8.mat"
+        },
+        "9": {
+            "signals": "raw/signals/DataSub_9.mat",
+            "labels": "raw/labels/LabSub_9.mat"
+        },
+        "10": {
+            "signals": "raw/signals/DataSub_10.mat",
+            "labels": "raw/labels/LabSub_10.mat"
+        }
+    }
+}
