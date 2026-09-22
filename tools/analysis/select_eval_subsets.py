@@ -1,8 +1,9 @@
 """Reproducible seen/unseen subject subsets for group-holdout finetune evals. Ported from
 probes/select_eval_subsets.py -- CPU only, writes config/subject_groups/<name>.json,
-idempotent (seed 42). RUN/DATASETS/DS_ROOT below are the same defaults the original
-script hardcoded; select_eval_subsets()'s params let a caller override them instead of
-editing this file, which the original script required.
+idempotent (seed 42). RUN/DATASETS/DS_ROOT/SEED below are the same defaults the original
+script hardcoded; select_eval_subsets()'s `names`/`run_config`/`out_dir` params let a
+caller override the parts that vary in practice. DATASETS/DS_ROOT/SEED stay module
+globals -- add real params for them if a caller ever needs to swap them.
 """
 import json
 import os
@@ -85,13 +86,12 @@ def _run_one(name, ds, pre_cfg, ds_root, seed, out_dir):
     print('  stats', json.dumps(out['stats'], indent=1))
 
 
-def select_eval_subsets(names=None, run_config=RUN, datasets=DATASETS, ds_root=DS_ROOT,
-                         seed=SEED, out_dir='config/subject_groups'):
+def select_eval_subsets(names=None, run_config=RUN, out_dir='config/subject_groups'):
     """Writes out_dir/<name>.json for each name in `names` (default: every key in
-    `datasets`). Pure side-effecting print + file write, no return value (matches the
+    DATASETS). Pure side-effecting print + file write, no return value (matches the
     tools/panels/ contract: the analysis layer prints/saves, the panel just passes
     params through)."""
-    names = list(datasets) if names is None else names
+    names = list(DATASETS) if names is None else names
     cfg = json.load(open(run_config))  # fails loudly if missing
     for n in names:
-        _run_one(n, datasets[n], cfg, ds_root, seed, out_dir)
+        _run_one(n, DATASETS[n], cfg, DS_ROOT, SEED, out_dir)

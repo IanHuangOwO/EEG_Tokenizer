@@ -5,13 +5,13 @@ ctx.args.group_eval (--group-eval, repeatable; first path is the reference every
 one gets paired against)."""
 from tools.analysis.group_summary import print_group_summary
 
-STAGES = frozenset({'pretrain', 'finetune'})
+STAGES = frozenset({'finetune'})  # group_eval.json only ever comes from train_finetune.py
 NEEDS_CHECKPOINT = False
 NEEDS_DATASET = False
 
 
 def run(ctx):
-    paths = getattr(ctx.args, 'group_eval', None) or []
+    paths = ctx.args.group_eval
     if not paths:
         raise ValueError("panel 'group_summary' needs --group-eval <path/to/group_eval.json> "
                           "(repeatable, first is the reference)")
