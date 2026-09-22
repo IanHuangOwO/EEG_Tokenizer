@@ -1,0 +1,397 @@
+{
+    "data_metadata": {
+        "dataset_name": "BCMI_MusicEmotion",
+        "dataset_info": {
+            "source_url": "https://openneuro.org/datasets/ds002721/versions/1.0.1",
+            "file_format": "EDF (BIDS)",
+            "description": "31 subjects, 19ch EEG (10-20 system), continuous recording across 6 runs: run1/run6 are 300s resting state, run2-5 each contain 10 x 20s music-listening trials (film-score clips) each followed by 8 self-reported emotion ratings.",
+            "task_type": "music_emotion_listening",
+            "reference": "Daly, I., Nicolaou, N., Williams, D., Hwang, F., Kirke, A., Miranda, E., Nasuto, S.J. (2018). Neural and physiological data from participants listening to affective music. Scientific Data. DOI: 10.18112/openneuro.ds002721.v1.0.1",
+            "notes": "PRETRAIN-ONLY: targets.count=1 dummy label throughout -- the real 8-dim Likert rating label (pleasant/energetic/tense/angry/afraid/happy/sad/tender, 1-9 each) is present in each run's events.tsv/ events.json but requires sequential Question/Response/Answer trigger parsing not yet implemented, see this file's module docstring. sub-06 has only 5/6 runs (run6 absent from the source bucket itself, verified via S3 object listing, not a download gap). Runs are NOT split by event -- each run is one continuous block, chunked into window_size_seconds windows in loader.py."
+        },
+        "acquisition": {
+            "sample_frequency": 1000,
+            "window_size_seconds": 5.0,
+            "num_subjects": 31
+        },
+        "targets": {
+            "count": 1,
+            "type": "unlabelled",
+            "0": {
+                "label": "no label extracted yet -- pretrain-only, see dataset_info.notes"
+            }
+        },
+        "channels": {
+            "count": 19,
+            "system": "10-20 International System",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "Fp2"
+            },
+            "3": {
+                "label": "F7"
+            },
+            "4": {
+                "label": "F3"
+            },
+            "5": {
+                "label": "Fz"
+            },
+            "6": {
+                "label": "F4"
+            },
+            "7": {
+                "label": "F8"
+            },
+            "8": {
+                "label": "T3"
+            },
+            "9": {
+                "label": "C3"
+            },
+            "10": {
+                "label": "Cz"
+            },
+            "11": {
+                "label": "C4"
+            },
+            "12": {
+                "label": "T4"
+            },
+            "13": {
+                "label": "T5"
+            },
+            "14": {
+                "label": "P3"
+            },
+            "15": {
+                "label": "Pz"
+            },
+            "16": {
+                "label": "P4"
+            },
+            "17": {
+                "label": "T6"
+            },
+            "18": {
+                "label": "O1"
+            },
+            "19": {
+                "label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "files": [
+                "raw/sub-01/eeg/sub-01_task-run1_eeg.edf",
+                "raw/sub-01/eeg/sub-01_task-run2_eeg.edf",
+                "raw/sub-01/eeg/sub-01_task-run3_eeg.edf",
+                "raw/sub-01/eeg/sub-01_task-run4_eeg.edf",
+                "raw/sub-01/eeg/sub-01_task-run5_eeg.edf",
+                "raw/sub-01/eeg/sub-01_task-run6_eeg.edf"
+            ]
+        },
+        "2": {
+            "files": [
+                "raw/sub-02/eeg/sub-02_task-run1_eeg.edf",
+                "raw/sub-02/eeg/sub-02_task-run2_eeg.edf",
+                "raw/sub-02/eeg/sub-02_task-run3_eeg.edf",
+                "raw/sub-02/eeg/sub-02_task-run4_eeg.edf",
+                "raw/sub-02/eeg/sub-02_task-run5_eeg.edf",
+                "raw/sub-02/eeg/sub-02_task-run6_eeg.edf"
+            ]
+        },
+        "3": {
+            "files": [
+                "raw/sub-03/eeg/sub-03_task-run1_eeg.edf",
+                "raw/sub-03/eeg/sub-03_task-run2_eeg.edf",
+                "raw/sub-03/eeg/sub-03_task-run3_eeg.edf",
+                "raw/sub-03/eeg/sub-03_task-run4_eeg.edf",
+                "raw/sub-03/eeg/sub-03_task-run5_eeg.edf",
+                "raw/sub-03/eeg/sub-03_task-run6_eeg.edf"
+            ]
+        },
+        "4": {
+            "files": [
+                "raw/sub-04/eeg/sub-04_task-run1_eeg.edf",
+                "raw/sub-04/eeg/sub-04_task-run2_eeg.edf",
+                "raw/sub-04/eeg/sub-04_task-run3_eeg.edf",
+                "raw/sub-04/eeg/sub-04_task-run4_eeg.edf",
+                "raw/sub-04/eeg/sub-04_task-run5_eeg.edf",
+                "raw/sub-04/eeg/sub-04_task-run6_eeg.edf"
+            ]
+        },
+        "5": {
+            "files": [
+                "raw/sub-05/eeg/sub-05_task-run1_eeg.edf",
+                "raw/sub-05/eeg/sub-05_task-run2_eeg.edf",
+                "raw/sub-05/eeg/sub-05_task-run3_eeg.edf",
+                "raw/sub-05/eeg/sub-05_task-run4_eeg.edf",
+                "raw/sub-05/eeg/sub-05_task-run5_eeg.edf",
+                "raw/sub-05/eeg/sub-05_task-run6_eeg.edf"
+            ]
+        },
+        "6": {
+            "files": [
+                "raw/sub-06/eeg/sub-06_task-run1_eeg.edf",
+                "raw/sub-06/eeg/sub-06_task-run2_eeg.edf",
+                "raw/sub-06/eeg/sub-06_task-run3_eeg.edf",
+                "raw/sub-06/eeg/sub-06_task-run4_eeg.edf",
+                "raw/sub-06/eeg/sub-06_task-run5_eeg.edf"
+            ]
+        },
+        "7": {
+            "files": [
+                "raw/sub-07/eeg/sub-07_task-run1_eeg.edf",
+                "raw/sub-07/eeg/sub-07_task-run2_eeg.edf",
+                "raw/sub-07/eeg/sub-07_task-run3_eeg.edf",
+                "raw/sub-07/eeg/sub-07_task-run4_eeg.edf",
+                "raw/sub-07/eeg/sub-07_task-run5_eeg.edf",
+                "raw/sub-07/eeg/sub-07_task-run6_eeg.edf"
+            ]
+        },
+        "8": {
+            "files": [
+                "raw/sub-08/eeg/sub-08_task-run1_eeg.edf",
+                "raw/sub-08/eeg/sub-08_task-run2_eeg.edf",
+                "raw/sub-08/eeg/sub-08_task-run3_eeg.edf",
+                "raw/sub-08/eeg/sub-08_task-run4_eeg.edf",
+                "raw/sub-08/eeg/sub-08_task-run5_eeg.edf",
+                "raw/sub-08/eeg/sub-08_task-run6_eeg.edf"
+            ]
+        },
+        "9": {
+            "files": [
+                "raw/sub-09/eeg/sub-09_task-run1_eeg.edf",
+                "raw/sub-09/eeg/sub-09_task-run2_eeg.edf",
+                "raw/sub-09/eeg/sub-09_task-run3_eeg.edf",
+                "raw/sub-09/eeg/sub-09_task-run4_eeg.edf",
+                "raw/sub-09/eeg/sub-09_task-run5_eeg.edf",
+                "raw/sub-09/eeg/sub-09_task-run6_eeg.edf"
+            ]
+        },
+        "10": {
+            "files": [
+                "raw/sub-10/eeg/sub-10_task-run1_eeg.edf",
+                "raw/sub-10/eeg/sub-10_task-run2_eeg.edf",
+                "raw/sub-10/eeg/sub-10_task-run3_eeg.edf",
+                "raw/sub-10/eeg/sub-10_task-run4_eeg.edf",
+                "raw/sub-10/eeg/sub-10_task-run5_eeg.edf",
+                "raw/sub-10/eeg/sub-10_task-run6_eeg.edf"
+            ]
+        },
+        "11": {
+            "files": [
+                "raw/sub-11/eeg/sub-11_task-run1_eeg.edf",
+                "raw/sub-11/eeg/sub-11_task-run2_eeg.edf",
+                "raw/sub-11/eeg/sub-11_task-run3_eeg.edf",
+                "raw/sub-11/eeg/sub-11_task-run4_eeg.edf",
+                "raw/sub-11/eeg/sub-11_task-run5_eeg.edf",
+                "raw/sub-11/eeg/sub-11_task-run6_eeg.edf"
+            ]
+        },
+        "12": {
+            "files": [
+                "raw/sub-12/eeg/sub-12_task-run1_eeg.edf",
+                "raw/sub-12/eeg/sub-12_task-run2_eeg.edf",
+                "raw/sub-12/eeg/sub-12_task-run3_eeg.edf",
+                "raw/sub-12/eeg/sub-12_task-run4_eeg.edf",
+                "raw/sub-12/eeg/sub-12_task-run5_eeg.edf",
+                "raw/sub-12/eeg/sub-12_task-run6_eeg.edf"
+            ]
+        },
+        "13": {
+            "files": [
+                "raw/sub-13/eeg/sub-13_task-run1_eeg.edf",
+                "raw/sub-13/eeg/sub-13_task-run2_eeg.edf",
+                "raw/sub-13/eeg/sub-13_task-run3_eeg.edf",
+                "raw/sub-13/eeg/sub-13_task-run4_eeg.edf",
+                "raw/sub-13/eeg/sub-13_task-run5_eeg.edf",
+                "raw/sub-13/eeg/sub-13_task-run6_eeg.edf"
+            ]
+        },
+        "14": {
+            "files": [
+                "raw/sub-14/eeg/sub-14_task-run1_eeg.edf",
+                "raw/sub-14/eeg/sub-14_task-run2_eeg.edf",
+                "raw/sub-14/eeg/sub-14_task-run3_eeg.edf",
+                "raw/sub-14/eeg/sub-14_task-run4_eeg.edf",
+                "raw/sub-14/eeg/sub-14_task-run5_eeg.edf",
+                "raw/sub-14/eeg/sub-14_task-run6_eeg.edf"
+            ]
+        },
+        "15": {
+            "files": [
+                "raw/sub-15/eeg/sub-15_task-run1_eeg.edf",
+                "raw/sub-15/eeg/sub-15_task-run2_eeg.edf",
+                "raw/sub-15/eeg/sub-15_task-run3_eeg.edf",
+                "raw/sub-15/eeg/sub-15_task-run4_eeg.edf",
+                "raw/sub-15/eeg/sub-15_task-run5_eeg.edf",
+                "raw/sub-15/eeg/sub-15_task-run6_eeg.edf"
+            ]
+        },
+        "16": {
+            "files": [
+                "raw/sub-16/eeg/sub-16_task-run1_eeg.edf",
+                "raw/sub-16/eeg/sub-16_task-run2_eeg.edf",
+                "raw/sub-16/eeg/sub-16_task-run3_eeg.edf",
+                "raw/sub-16/eeg/sub-16_task-run4_eeg.edf",
+                "raw/sub-16/eeg/sub-16_task-run5_eeg.edf",
+                "raw/sub-16/eeg/sub-16_task-run6_eeg.edf"
+            ]
+        },
+        "17": {
+            "files": [
+                "raw/sub-17/eeg/sub-17_task-run1_eeg.edf",
+                "raw/sub-17/eeg/sub-17_task-run2_eeg.edf",
+                "raw/sub-17/eeg/sub-17_task-run3_eeg.edf",
+                "raw/sub-17/eeg/sub-17_task-run4_eeg.edf",
+                "raw/sub-17/eeg/sub-17_task-run5_eeg.edf",
+                "raw/sub-17/eeg/sub-17_task-run6_eeg.edf"
+            ]
+        },
+        "18": {
+            "files": [
+                "raw/sub-18/eeg/sub-18_task-run1_eeg.edf",
+                "raw/sub-18/eeg/sub-18_task-run2_eeg.edf",
+                "raw/sub-18/eeg/sub-18_task-run3_eeg.edf",
+                "raw/sub-18/eeg/sub-18_task-run4_eeg.edf",
+                "raw/sub-18/eeg/sub-18_task-run5_eeg.edf",
+                "raw/sub-18/eeg/sub-18_task-run6_eeg.edf"
+            ]
+        },
+        "19": {
+            "files": [
+                "raw/sub-19/eeg/sub-19_task-run1_eeg.edf",
+                "raw/sub-19/eeg/sub-19_task-run2_eeg.edf",
+                "raw/sub-19/eeg/sub-19_task-run3_eeg.edf",
+                "raw/sub-19/eeg/sub-19_task-run4_eeg.edf",
+                "raw/sub-19/eeg/sub-19_task-run5_eeg.edf",
+                "raw/sub-19/eeg/sub-19_task-run6_eeg.edf"
+            ]
+        },
+        "20": {
+            "files": [
+                "raw/sub-20/eeg/sub-20_task-run1_eeg.edf",
+                "raw/sub-20/eeg/sub-20_task-run2_eeg.edf",
+                "raw/sub-20/eeg/sub-20_task-run3_eeg.edf",
+                "raw/sub-20/eeg/sub-20_task-run4_eeg.edf",
+                "raw/sub-20/eeg/sub-20_task-run5_eeg.edf",
+                "raw/sub-20/eeg/sub-20_task-run6_eeg.edf"
+            ]
+        },
+        "21": {
+            "files": [
+                "raw/sub-21/eeg/sub-21_task-run1_eeg.edf",
+                "raw/sub-21/eeg/sub-21_task-run2_eeg.edf",
+                "raw/sub-21/eeg/sub-21_task-run3_eeg.edf",
+                "raw/sub-21/eeg/sub-21_task-run4_eeg.edf",
+                "raw/sub-21/eeg/sub-21_task-run5_eeg.edf",
+                "raw/sub-21/eeg/sub-21_task-run6_eeg.edf"
+            ]
+        },
+        "22": {
+            "files": [
+                "raw/sub-22/eeg/sub-22_task-run1_eeg.edf",
+                "raw/sub-22/eeg/sub-22_task-run2_eeg.edf",
+                "raw/sub-22/eeg/sub-22_task-run3_eeg.edf",
+                "raw/sub-22/eeg/sub-22_task-run4_eeg.edf",
+                "raw/sub-22/eeg/sub-22_task-run5_eeg.edf",
+                "raw/sub-22/eeg/sub-22_task-run6_eeg.edf"
+            ]
+        },
+        "23": {
+            "files": [
+                "raw/sub-23/eeg/sub-23_task-run1_eeg.edf",
+                "raw/sub-23/eeg/sub-23_task-run2_eeg.edf",
+                "raw/sub-23/eeg/sub-23_task-run3_eeg.edf",
+                "raw/sub-23/eeg/sub-23_task-run4_eeg.edf",
+                "raw/sub-23/eeg/sub-23_task-run5_eeg.edf",
+                "raw/sub-23/eeg/sub-23_task-run6_eeg.edf"
+            ]
+        },
+        "24": {
+            "files": [
+                "raw/sub-24/eeg/sub-24_task-run1_eeg.edf",
+                "raw/sub-24/eeg/sub-24_task-run2_eeg.edf",
+                "raw/sub-24/eeg/sub-24_task-run3_eeg.edf",
+                "raw/sub-24/eeg/sub-24_task-run4_eeg.edf",
+                "raw/sub-24/eeg/sub-24_task-run5_eeg.edf",
+                "raw/sub-24/eeg/sub-24_task-run6_eeg.edf"
+            ]
+        },
+        "25": {
+            "files": [
+                "raw/sub-25/eeg/sub-25_task-run1_eeg.edf",
+                "raw/sub-25/eeg/sub-25_task-run2_eeg.edf",
+                "raw/sub-25/eeg/sub-25_task-run3_eeg.edf",
+                "raw/sub-25/eeg/sub-25_task-run4_eeg.edf",
+                "raw/sub-25/eeg/sub-25_task-run5_eeg.edf",
+                "raw/sub-25/eeg/sub-25_task-run6_eeg.edf"
+            ]
+        },
+        "26": {
+            "files": [
+                "raw/sub-26/eeg/sub-26_task-run1_eeg.edf",
+                "raw/sub-26/eeg/sub-26_task-run2_eeg.edf",
+                "raw/sub-26/eeg/sub-26_task-run3_eeg.edf",
+                "raw/sub-26/eeg/sub-26_task-run4_eeg.edf",
+                "raw/sub-26/eeg/sub-26_task-run5_eeg.edf",
+                "raw/sub-26/eeg/sub-26_task-run6_eeg.edf"
+            ]
+        },
+        "27": {
+            "files": [
+                "raw/sub-27/eeg/sub-27_task-run1_eeg.edf",
+                "raw/sub-27/eeg/sub-27_task-run2_eeg.edf",
+                "raw/sub-27/eeg/sub-27_task-run3_eeg.edf",
+                "raw/sub-27/eeg/sub-27_task-run4_eeg.edf",
+                "raw/sub-27/eeg/sub-27_task-run5_eeg.edf",
+                "raw/sub-27/eeg/sub-27_task-run6_eeg.edf"
+            ]
+        },
+        "28": {
+            "files": [
+                "raw/sub-28/eeg/sub-28_task-run1_eeg.edf",
+                "raw/sub-28/eeg/sub-28_task-run2_eeg.edf",
+                "raw/sub-28/eeg/sub-28_task-run3_eeg.edf",
+                "raw/sub-28/eeg/sub-28_task-run4_eeg.edf",
+                "raw/sub-28/eeg/sub-28_task-run5_eeg.edf",
+                "raw/sub-28/eeg/sub-28_task-run6_eeg.edf"
+            ]
+        },
+        "29": {
+            "files": [
+                "raw/sub-29/eeg/sub-29_task-run1_eeg.edf",
+                "raw/sub-29/eeg/sub-29_task-run2_eeg.edf",
+                "raw/sub-29/eeg/sub-29_task-run3_eeg.edf",
+                "raw/sub-29/eeg/sub-29_task-run4_eeg.edf",
+                "raw/sub-29/eeg/sub-29_task-run5_eeg.edf",
+                "raw/sub-29/eeg/sub-29_task-run6_eeg.edf"
+            ]
+        },
+        "30": {
+            "files": [
+                "raw/sub-30/eeg/sub-30_task-run1_eeg.edf",
+                "raw/sub-30/eeg/sub-30_task-run2_eeg.edf",
+                "raw/sub-30/eeg/sub-30_task-run3_eeg.edf",
+                "raw/sub-30/eeg/sub-30_task-run4_eeg.edf",
+                "raw/sub-30/eeg/sub-30_task-run5_eeg.edf",
+                "raw/sub-30/eeg/sub-30_task-run6_eeg.edf"
+            ]
+        },
+        "31": {
+            "files": [
+                "raw/sub-31/eeg/sub-31_task-run1_eeg.edf",
+                "raw/sub-31/eeg/sub-31_task-run2_eeg.edf",
+                "raw/sub-31/eeg/sub-31_task-run3_eeg.edf",
+                "raw/sub-31/eeg/sub-31_task-run4_eeg.edf",
+                "raw/sub-31/eeg/sub-31_task-run5_eeg.edf",
+                "raw/sub-31/eeg/sub-31_task-run6_eeg.edf"
+            ]
+        }
+    }
+}
