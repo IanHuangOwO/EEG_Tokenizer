@@ -32,6 +32,11 @@ class PanelContext:
     model: Optional[object] = None
     dataset: Optional[object] = None
     checkpoint: Optional[str] = None
+    bundle: Optional[object] = None   # a tools.analysis.snapshot.SnapshotBundle, for
+                                       # panels that render one already-prepared trial
+                                       # (kept untyped for the same reason as model/dataset
+                                       # above -- this package stays import-light)
+    cmap: str = 'YlOrRd'       # matplotlib colormap, shared by every panel this ctx runs
 
 
 def discover_panel_names():
