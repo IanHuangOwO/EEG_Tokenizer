@@ -36,7 +36,9 @@ The numbers in ADR 0014 before Phase 2 came from the `base` conda env without `m
 
 1. **Feature source:** `feature: stamp_power` (per-stamp log power; ADR 0014's `stamp_induced`)
    is the main option; `raw_band` (raw band power) is the control.
-2. **Spatial mix:** signed `spatial:K` on the code amplitudes (a, b) before the power.
+2. **Spatial mix:** signed `spatial_k` filters on the code amplitudes (a, b) before the power;
+   `spatial_k: null`/`0` disables the mixing (channel concat, each real channel its own feature
+   row) — an ablation control (Experiment B1's finding above), not itself a candidate.
 3. **Time pooling:** `learned:R` (default), with flat (`trial`) and `window:lo-hi` as ablation
    options.
 4. **Optional branches:** phase advance (SSVEP only) and the evoked branch (ERP only). Each
