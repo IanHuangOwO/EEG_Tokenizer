@@ -55,7 +55,8 @@ Replaces `MeSAEFeatureHead`, `MeSAEFinetune` and `PerChannelHeadAttn`. This abso
     power of the raw signal, computed per 50-sample patch so it has the same time axis as the
     stamp features), `raw_signal` (signed time samples averaged to ~20 Hz, the ERP baseline).
     `stamp_*` read the extractor's amplitudes; `raw_*` read the patched raw signal.
-  - `spatial_k`: number of signed spatial filters over the real channels.
+  - `spatial_k`: number of signed spatial filters over the real channels; `null`/`0` disables the mixing
+    (channel concat, each real channel its own feature row) — an ADR 0016 ablation control, not a candidate.
   - `time_pool`: `flat`, `learned` (weights per feature dimension, rank `time_rank`),
     `window` (`[lo, hi]` seconds, then flat), or `none` (keep the patch axis as features).
   - `phase_advance` and `evoked_rank` branches, on `stamp_power` only.
