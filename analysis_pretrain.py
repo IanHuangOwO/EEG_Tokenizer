@@ -1,10 +1,11 @@
 """
-Post-training checker: per-subject topo/PSD/attention snapshot (MeSAE, resolved
-from the model instance) via BaseEpochChecker.check_pretrain/check_finetune
-(model/base_checker.py).
+Post-training checker for the PRETRAIN stage only: per-subject topo/PSD/attention
+snapshot (MeSAE, resolved from the model instance) via BaseEpochChecker.check_pretrain
+(model/base_checker.py), plus cross-dataset codebook/vocab diagnostics
+(model/base_codebook_checker.py). Finetune-stage analysis lives in analysis_finetune.py.
 
 Config resolution: config/analysis.json (or --config) is a small overlay — checkpoint,
-mode, dataset_params.pretrain (one dataset entry, subject_to_use = subjects to visualize;
+dataset_params.pretrain (one dataset entry, subject_to_use = subjects to visualize;
 shared by Tokenizer and Pretrain-stage checkpoints, see CLAUDE.md), check.plot_* toggles.
 It's deep-merged onto the full run config, taken from the checkpoint's own
 output/<model_name>/artifacts/config.json snapshot unless overlay['base_config'] or
@@ -17,24 +18,6 @@ import os
 import json
 
 from model.factory import MODEL_REGISTRY
-
-
-def _load_target_names(dataset_path, num_classes):
-    """data_metadata.targets["<idx>"].label, e.g. BNCI2014001's {"0": {"label": "Left hand"}, ...}
-    — falls back to "class<idx>" for any index missing from metadata (or if metadata has no
-    targets section at all, e.g. a dataset that hasn't been annotated with class names)."""
-    try:
-        with open(os.path.join(dataset_path, 'metadata.json'), 'r', encoding='utf-8') as f:
-            meta = json.load(f)
-        targets = meta.get('data_metadata', {}).get('targets', {})
-    except Exception:
-        targets = {}
-    return [targets.get(str(i), {}).get('label', f'class{i}') for i in range(num_classes)]
-
-
-def _safe_name(s):
-    """Filename-safe version of a target label, e.g. 'Left hand' -> 'Left_hand'."""
-    return ''.join(c if c.isalnum() else '_' for c in s).strip('_') or 'unnamed'
 
 
 def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng, min_subjects=20):
@@ -91,48 +74,12 @@ def _cap_subjects_by_trial_budget(cfg, ds_args, max_trials, rng, min_subjects=20
     return picked
 
 
-def _predict_all(model, dataset, patch_len, device):
-    """Runs the finetune model over every trial in `dataset` (in index order, no shuffle)
-    and returns (preds, labels) numpy arrays aligned to dataset indices — used to find one
-    correctly- and one incorrectly-classified trial per target class."""
-    import torch
-    import numpy as np
-    from torch.utils.data import DataLoader
-    from train_finetune import FinetuneCollate
-
-    loader = DataLoader(dataset, batch_size=32, shuffle=False, collate_fn=FinetuneCollate(patch_len))
-    was_training = model.training
-    model.eval()
-    all_preds, all_labels = [], []
-    try:
-        with torch.no_grad():
-            for batch in loader:
-                x, coords, time_idx, labels, valid_channels, pad_mask = batch
-                logits = model(
-                    x.to(device), coords.to(device), time_idx=time_idx.to(device),
-                    valid_channels=valid_channels.to(device), pad_mask=pad_mask.to(device),
-                )[0]
-                all_preds.append(logits.argmax(dim=-1).cpu())
-                all_labels.append(labels)
-    finally:
-        model.train(was_training)
-    return torch.cat(all_preds).numpy(), torch.cat(all_labels).numpy()
-
-
-def run(config, output_dir, model, dataset, trial_idx, mode='pretrain', subject_id=None,
-        epoch=None, cmap='YlOrRd', plot_recon=True, plot_topo_psd=True, plot_attn_topo=True,
-        tag=''):
+def run(config, output_dir, model, dataset, trial_idx, subject_id=None,
+        epoch=None, cmap='YlOrRd', plot_recon=True, plot_topo_psd=True, plot_attn_topo=True):
     model_type = 'MeSAE'  # only registered model (MeFSQ removed, docs/adr/0013)
     plugin  = MODEL_REGISTRY[model_type]
     checker = plugin.checker_cls()
     trainer = plugin.trainer_cls()
-    if mode == 'finetune':
-        return checker.check_finetune(
-            config, output_dir, model, dataset, trial_idx,
-            subject_id=subject_id, epoch=epoch, cmap=cmap,
-            plot_recon=plot_recon, plot_topo_psd=plot_topo_psd,
-            trainer=trainer, tag=tag,
-        )
     return checker.check_pretrain(
         config, output_dir, model, dataset, trial_idx,
         subject_id=subject_id, epoch=epoch, cmap=cmap,
@@ -147,7 +94,7 @@ if __name__ == '__main__':
     import json
     import torch
     from IO.dataset import build_dataset_from_config
-    from viz import (
+    from analysis import (
         _deep_merge, load_model,
         select_subject_dataset, filter_config_to_subject, pick_trial, resolve_output_dir,
     )
@@ -156,7 +103,6 @@ if __name__ == '__main__':
     parser.add_argument('--config',      default='config/analysis.json')
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
-    parser.add_argument('--mode',        default=None, choices=['pretrain', 'finetune'])
     parser.add_argument('--analysis',    default=None, choices=['snapshot', 'codebook', 'both'],
                          help='Overrides check.analysis in --config. snapshot: existing per-trial '
                               'topo/PSD/attn checker. codebook: cross-dataset codebook/vocab '
@@ -171,10 +117,10 @@ if __name__ == '__main__':
         overlay = json.load(f)
 
     checkpoint = args.checkpoint or overlay.get('checkpoint', '')
-    mode       = args.mode or overlay.get('mode', 'pretrain')
+    mode       = 'pretrain'
     # dataset_params only has 'pretrain'/'finetune' — the Tokenizer stage shares the
     # Pretrain stage's dataset entries (same raw data, no masking), see CLAUDE.md.
-    data_mode  = 'finetune' if mode == 'finetune' else 'pretrain'
+    data_mode  = 'pretrain'
 
     base_path = args.base_config or overlay.pop('base_config', None)
     if not base_path:
@@ -252,59 +198,7 @@ if __name__ == '__main__':
         gc.collect()
 
     if analysis in ('snapshot', 'both'):
-        if mode == 'finetune':
-            # Per-target correct/wrong snapshot pairs, not a single per-subject trial pick:
-            # for each of the num_classes targets, find one trial the model got right and one
-            # it got wrong, and render the full 3-panel snapshot (recon_signal, topo_psd_filter,
-            # attn_topo) for each — num_classes * 2 * 3 files total, searched across every
-            # subject in dataset_params.finetune[dataset_name].subject_to_use (not one subject
-            # at a time), since a single subject isn't guaranteed to contain both a correct and
-            # a wrong example of every class.
-            dataset_name = args.dataset or next(iter(ds_params))
-            ds_cfg       = ds_params[dataset_name]
-
-            filtered = copy.deepcopy(cfg)
-            filtered['dataset_params'][data_mode] = {dataset_name: ds_cfg}
-            # subject_to_use=["all"] needs the same resolution train_finetune.py's
-            # build_subject_split_datasets does — build_dataset_from_config takes it literally
-            # and fails ("Subject all not found") since EEGDataset expects real subject ids.
-            from train_finetune import _resolve_all_subjects, _resolve_requested_subjects
-            all_subjects = _resolve_all_subjects(ds_cfg['dataset_path'])
-            filtered['dataset_params'][data_mode][dataset_name]['subject_to_use'] = \
-                _resolve_requested_subjects(ds_cfg, all_subjects)
-            ds = build_dataset_from_config(filtered, mode=data_mode)
-
-            patch_len = filtered.get('preprocess_params', {}).get('patch_length', 100)
-            preds, labels = _predict_all(mdl, ds, patch_len, device)
-            num_classes  = int(labels.max()) + 1
-            target_names = _load_target_names(ds_cfg['dataset_path'], num_classes)
-
-            out = resolve_output_dir(filtered, 'analysis', dataset_name, mode=mode)
-            for cls_idx in range(num_classes):
-                name = target_names[cls_idx]
-                safe = _safe_name(name)
-                cls_mask = labels == cls_idx
-                correct_idxs = (cls_mask & (preds == cls_idx)).nonzero()[0]
-                wrong_idxs   = (cls_mask & (preds != cls_idx)).nonzero()[0]
-                for status, idxs in (('correct', correct_idxs), ('wrong', wrong_idxs)):
-                    if len(idxs) == 0:
-                        print(f"[check] target{cls_idx}_{safe}: no {status} example found in {dataset_name}, skipping")
-                        continue
-                    t_idx = int(idxs[0])
-                    subject_id = int(ds.base_dataset.subject_data[t_idx].item())
-                    tag = f'_target{cls_idx}_{safe}_{status}'
-                    metrics = run(
-                        filtered, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
-                        plot_recon=check_cfg.get('plot_recon', True),
-                        plot_topo_psd=check_cfg.get('plot_topo_psd', True),
-                        plot_attn_topo=check_cfg.get('plot_attn_topo', True),
-                        tag=tag,
-                    )
-                    metrics_str = '  '.join(f"{k}={v:.4f}" for k, v in metrics.items())
-                    print(f"[check] done: target={cls_idx}({name}) status={status} subject={subject_id} "
-                          f"trial_idx={t_idx}  |  {metrics_str}")
-
-        elif cfg.get('training_params', {}).get('visualize_params', {}).get(data_mode, {}).get('targets'):
+        if cfg.get('training_params', {}).get('visualize_params', {}).get(data_mode, {}).get('targets'):
             # Same visualize_params.<mode>.targets key/shape as config.json's own periodic-viz config
             # (see train_pretrain.py's viz_targets) — a list of {dataset, subject, trial} triples
             # picking exactly which snapshots to render, instead of dataset_params.<mode>'s
@@ -361,7 +255,7 @@ if __name__ == '__main__':
                 t_idx, subject_id = pick_trial(ds, subj, trial=t.get('trial'), dataset_name=t_dataset)
                 out = resolve_output_dir(cfg, 'analysis', t_dataset or 'multi', mode=mode)
                 metrics = run(
-                    cfg, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
+                    cfg, out, mdl, ds, t_idx, subject_id=subject_id, cmap=cmap,
                     plot_recon=check_cfg.get('plot_recon', True),
                     plot_topo_psd=check_cfg.get('plot_topo_psd', True),
                     plot_attn_topo=check_cfg.get('plot_attn_topo', True),
@@ -384,7 +278,7 @@ if __name__ == '__main__':
                 t_idx, subject_id = pick_trial(ds, subject, trial_cfg, dataset_name=ds_name)
                 out = resolve_output_dir(filtered, 'analysis', ds_name, mode=mode)
                 metrics = run(
-                    filtered, out, mdl, ds, t_idx, mode=mode, subject_id=subject_id, cmap=cmap,
+                    filtered, out, mdl, ds, t_idx, subject_id=subject_id, cmap=cmap,
                     plot_recon=check_cfg.get('plot_recon', True),
                     plot_topo_psd=check_cfg.get('plot_topo_psd', True),
                     plot_attn_topo=check_cfg.get('plot_attn_topo', True),
