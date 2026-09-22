@@ -223,7 +223,7 @@ rest of the pipeline enforces.
 "2": { "signals": "raw/signals/Data_S02_Sess01.csv", "labels": "raw/TrainLabels.csv" }
 ```
 The loader is responsible for filtering the shared label file down to the
-rows belonging to this subject/session (see `datas/Inria_Train/loader.py`'s
+rows belonging to this subject/session (see `datas/pretrain/Inria_Train/loader.py`'s
 `Loader._load_data`, which matches on a session-ID substring in the
 `IdFeedBack` column).
 
@@ -233,7 +233,7 @@ recording run/session:
 "1": { "folder": "raw/S001", "runs": ["S001R01.edf", "S001R02.edf", "..."] }
 ```
 The loader loads and concatenates events across all runs
-(`datas/EEGMMIdb/loader.py`'s `Loader._load_data`).
+(`datas/pretrain/EEGMMIdb/loader.py`'s `Loader._load_data`).
 
 Subject keys need not be contiguous or start at 1 — `BETA_4s` only has
 subjects 16-70, `Inria_Train` skips several subject numbers entirely.
@@ -297,8 +297,8 @@ there, not from this snippet, if the two ever drift.
 | Format          | Library                          | Notes |
 |------------------|-----------------------------------|-------|
 | `.mat` (MATLAB)  | `scipy.io.loadmat`                | Struct fields come back as nested numpy structured arrays — index like `mat['data']['EEG'][0, 0]` (see `datas/BETA_4s/loader.py`). |
-| `.csv`           | `pandas.read_csv`                 | Common for Kaggle-style exports: one column per channel + a marker/label column (see `datas/Inria_Train/loader.py`). |
-| `.edf` / `.edf+`  | `mne.io.read_raw_edf(path, preload=True)` | Use `raw.get_data(picks=self.channel_indices)`; resample via `raw.resample(self.sample_freq)` if native rate differs from metadata. Events via `mne.events_from_annotations(raw)` (see `datas/EEGMMIdb/loader.py`). |
+| `.csv`           | `pandas.read_csv`                 | Common for Kaggle-style exports: one column per channel + a marker/label column (see `datas/pretrain/Inria_Train/loader.py`). |
+| `.edf` / `.edf+`  | `mne.io.read_raw_edf(path, preload=True)` | Use `raw.get_data(picks=self.channel_indices)`; resample via `raw.resample(self.sample_freq)` if native rate differs from metadata. Events via `mne.events_from_annotations(raw)` (see `datas/pretrain/EEGMMIdb/loader.py`). |
 | `.gdf`           | `mne.io.read_raw_gdf(path, preload=True)` | Same API shape as `read_raw_edf` above — GDF stores its own event/annotation table, read via `mne.events_from_annotations` same as EDF. Common for BCI Competition IV datasets (2a/2b). |
 | `.bdf` (BioSemi) | `mne.io.read_raw_bdf(path, preload=True)` | Same MNE API shape as EDF/GDF. |
 | `.fif` (MNE-native) | `mne.io.read_raw_fif(path, preload=True)` | Same MNE API shape. |
@@ -308,9 +308,9 @@ Things the existing loaders show you need to handle per format:
   reshape `(C, T, Blocks, Targets)` -> `(N, C, T)` and synthesize labels
   `[0]*blocks + [1]*blocks + ...` since class order is implicit in array
   layout.
-- **Split signal/label files** (`datas/benchmark/12JFPM_SSVEP/loader.py`): load both, truncate
+- **Split signal/label files** (`datas/finetune/12JFPM_SSVEP/loader.py`): load both, truncate
   to `min(len)` if mismatched, remap 1-indexed labels to 0-indexed.
-- **Split files with a shared/master label file** (`datas/Inria_Train/loader.py`):
+- **Split files with a shared/master label file** (`datas/pretrain/Inria_Train/loader.py`):
   filter the shared label table down to this subject's rows by matching a
   session-ID substring; fall back to a `SampleSubmission.csv`-style file if
   the subject has no rows in the primary label file (e.g. held-out test
@@ -324,24 +324,24 @@ Things the existing loaders show you need to handle per format:
   a placeholder label file lazily from inside `loader.py`'s `Loader.__init__`
   (count real event markers per file, emit `Prediction=0` for each) so trials
   still get cut without a separate manual script to remember to run — see
-  `datas/Inria_Test/loader.py`'s `_generate_dummy_labels()`, called only when
+  `datas/pretrain/Inria_Test/loader.py`'s `_generate_dummy_labels()`, called only when
   the expected label file is missing — and record in `dataset_info.notes`/a
   dedicated note that the labels are dummies. Safe for self-supervised
   pretraining (label values unused); never use such a split for supervised
   finetune/eval of the labeled task.
 - **Continuous recording + event markers, fixed trial length**
-  (`datas/BCICIV1_Train/loader.py`, `datas/Inria_Train/loader.py`): use
+  (`datas/pretrain/BCICIV1_Train/loader.py`, `datas/pretrain/Inria_Train/loader.py`): use
   `self.standard_window` / `self.sample_freq` to compute `trial_len` in
   samples, slice fixed windows starting at each marker position, drop any
   trial whose window runs past the end of the recording. Remap
   arbitrary/bipolar label encodings (`{-1,+1}`, 1-indexed) to dense 0-indexed
   via `{v: i for i, v in enumerate(np.unique(raw_labels))}`.
-- **Multi-run folder + annotation-based segmentation** (`datas/EEGMMIdb/loader.py`):
+- **Multi-run folder + annotation-based segmentation** (`datas/pretrain/EEGMMIdb/loader.py`):
   loop over each run file, `mne.io.read_raw_edf` / `read_raw_gdf`, resample
   to `self.sample_freq` if the file's native rate differs,
   `mne.events_from_annotations`, map annotation codes to class ints, and
   concatenate trials across all runs for the subject.
-- **Continuous ratings, no native discrete label** (`datas/DEAP/loader.py` — DEAP's
+- **Continuous ratings, no native discrete label** (`datas/pretrain/DEAP/loader.py` — DEAP's
   per-trial valence/arousal/dominance/liking are 1-9 continuous self-report scores,
   not classes): don't silently pick a threshold/scheme — this is a real modeling
   decision (which dimensions, how many classes, what split point) with downstream
@@ -349,7 +349,7 @@ Things the existing loaders show you need to handle per format:
   in `dataset_info.notes` (which dimensions/threshold were used and why), and
   compute the discrete label in `loader.py` from the raw continuous values (never
   hand-edit a derived label into `metadata.json`).
-- **Continuous multi-label event annotations** (`datas/GraspAndLift_Train/loader.py`
+- **Continuous multi-label event annotations** (`datas/pretrain/GraspAndLift_Train/loader.py`
   — Kaggle Grasp-and-Lift EEG: 6 binary event columns per sample, overlapping
   in time): this doesn't fit the one-dense-int-label-per-trial contract
   (`labels: np.ndarray` shape `(N,)`, Step 5) at all — there is no single
@@ -463,7 +463,7 @@ parsing raw files.
 
 ## Currently unconverted raw datasets in `./datas`
 
-`Siena` is blocked, not just unconverted: `datas/Siena/archive.zip` (as
+`Siena` is blocked, not just unconverted: `datas/pretrain/Siena/archive.zip` (as
 staged, 2026-09-22) contains a single flat file, `Siena_Sleep_EEG_Data.csv` —
 944,640 rows x 20 channel columns (`Fp1,F3,C3,P3,O1,F7,T3,T5,Fc1,Fc5,Cp1,Cp5,
 F9,Fz,Cz,Pz,Pf2,F4,C4,P4`) + one binary `diagnosis` column (536,320 rows `1`,
@@ -497,21 +497,21 @@ only contains git-annex pointer stubs (see the Step 1 gotcha above), no real
 (https://web.gin.g-node.org/robintibor/high-gamma-dataset) before there's
 anything to format.
 
-`GraspAndLift_Train` is converted (`datas/GraspAndLift_Train/gen_metadata.py`,
-`datas/GraspAndLift_Train/loader.py` — see the continuous-multi-label-events
+`GraspAndLift_Train` is converted (`datas/pretrain/GraspAndLift_Train/gen_metadata.py`,
+`datas/pretrain/GraspAndLift_Train/loader.py` — see the continuous-multi-label-events
 bullet above). `GraspAndLift_Test` only has `test.zip` (the Kaggle
 competition's held-out series 9-10) — still unextracted/unconverted.
 
-`BCICIV2a`/`BCICIV2b` are converted — see `datas/benchmark/BCICIV2a/loader.py`/
-`datas/benchmark/BCICIV2b/loader.py` for GDF + event-marker reference examples
+`BCICIV2a`/`BCICIV2b` are converted — see `datas/finetune/BCICIV2a/loader.py`/
+`datas/finetune/BCICIV2b/loader.py` for GDF + event-marker reference examples
 (`BCICIV2b` also shows the multi-run-per-subject shape C, concatenating the
 3 training sessions per subject).
 
-`BCICIV1_Train`/`BCICIV1_Test` are converted too — `datas/BCICIV1_Train/loader.py`
+`BCICIV1_Train`/`BCICIV1_Test` are converted too — `datas/pretrain/BCICIV1_Train/loader.py`
 (generic, shape A single-file-per-subject) already handled this format out of
 the box, including the "no `mrk` in eval data" case (falls back to
 evenly-spaced windows, dummy label 0 — see the missing-test-labels bullet
-above). Only `datas/BCICIV1_Train/gen_metadata.py` (writes both
+above). Only `datas/pretrain/BCICIV1_Train/gen_metadata.py` (writes both
 directories' `metadata.json`, see Step 3) needed writing. Two quirks worth
 knowing if you touch this dataset again: (1) raw subject
 ids are letters `a`-`g`, remapped to ints `1`-`7` in `data_structure`

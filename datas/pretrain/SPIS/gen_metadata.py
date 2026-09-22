@@ -3,7 +3,7 @@ SPIS Resting-State EEG Dataset -- metadata.json generator.
 See docs/agents/adding-a-dataset.md Step 3.
 
 Source: github.com/mastaneh/SPIS-Resting-State-Dataset (zip placed by hand in
-datas/SPIS/, extracted to raw/). 10 subjects (S02-S11, no S01), 64-channel
+datas/pretrain/SPIS/, extracted to raw/). 10 subjects (S02-S11, no S01), 64-channel
 Biosemi Active 2, 10-10 layout, EC (eyes-closed) and EO (eyes-open) resting
 state, 2.5 minutes each, recorded before a 105-minute sustained-attention
 task. README claims .mat v7.3/HDF5, but the actual files are plain MATLAB v5

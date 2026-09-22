@@ -27,7 +27,7 @@ class Loader(BaseSubjectLoader):
                 # A handful of this dataset's CSVs have genuine binary corruption mid-file
                 # (a garbled row of non-UTF8 bytes, verified 2026-09-22 -- not a format
                 # issue) -- skip just this trial rather than losing the whole subject,
-                # same precedent as datas/SRM_RestingState/loader.py's bad-header skip.
+                # same precedent as datas/pretrain/SRM_RestingState/loader.py's bad-header skip.
                 data = np.loadtxt(path, delimiter=',', skiprows=1, usecols=range(N_EEG_CHANNELS))  # (T, 8)
             except (UnicodeDecodeError, ValueError) as e:
                 print(f"  [Warning] {path}: failed to parse ({e!r}), skipping this trial")
@@ -39,7 +39,7 @@ class Loader(BaseSubjectLoader):
 
         # Trial lengths vary by a handful of samples (BLE streaming jitter, see
         # gen_metadata.py's notes) -- truncate to the shortest, same pattern as
-        # datas/SRM_RestingState/loader.py's session-length handling.
+        # datas/pretrain/SRM_RestingState/loader.py's session-length handling.
         min_t = min(t.shape[-1] for t in trials)
         eeg_data = np.stack([t[:, :min_t] for t in trials], axis=0)  # (N=12, C, T)
 

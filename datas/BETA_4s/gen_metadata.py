@@ -2,7 +2,7 @@ import json
 import os
 import re
 
-ROOT = os.path.dirname(__file__)  # datas/BETA_4s — also writes sibling datas/BETA_3s
+ROOT = os.path.dirname(__file__)  # datas/BETA_4s — also writes sibling datas/pretrain/BETA_3s
 DATAS_ROOT = os.path.dirname(ROOT)
 
 # BETA (Benchmark dataset for SSVEP-based BCI) -- Tsinghua University.
@@ -149,10 +149,15 @@ def build_metadata(dataset_name, window_seconds, signals_dir):
 
 
 def main():
+    # BETA_4s stays at datas/ (an active finetune baseline job has its cache open as of
+    # 2026-09-22, deferred out of the datas/pretrain/ move -- see the sibling dataset
+    # folders' 2026-09-22 reorg); BETA_3s already moved to datas/pretrain/.
+    roots = {"BETA_4s": DATAS_ROOT, "BETA_3s": os.path.join(DATAS_ROOT, "pretrain")}
     for name, window_seconds in (("BETA_4s", 4.0), ("BETA_3s", 3.0)):
-        signals_dir = os.path.join(DATAS_ROOT, name, "raw", "signals_labels")
+        root = roots[name]
+        signals_dir = os.path.join(root, name, "raw", "signals_labels")
         meta = build_metadata(name, window_seconds, signals_dir)
-        out_path = os.path.join(DATAS_ROOT, name, "metadata.json")
+        out_path = os.path.join(root, name, "metadata.json")
         with open(out_path, "w") as f:
             json.dump(meta, f, indent=4)
         print(f"wrote {out_path}: {len(meta['data_structure'])} subjects")

@@ -3,18 +3,18 @@
   "mode": "pretrain",
   "dataset_params": {
     "pretrain": {
-      "12JFPM_SSVEP": { "dataset_path": "datas/benchmark/12JFPM_SSVEP", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "12JFPM_SSVEP": { "dataset_path": "datas/finetune/12JFPM_SSVEP", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "BETA_4s": { "dataset_path": "datas/BETA_4s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "BETA_3s": { "dataset_path": "datas/BETA_3s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "BCICIV1_Train": { "dataset_path": "datas/BCICIV1_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "BCICIV1_Test": { "dataset_path": "datas/BCICIV1_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "BCICIV2a": { "dataset_path": "datas/benchmark/BCICIV2a", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "BCICIV2b": { "dataset_path": "datas/benchmark/BCICIV2b", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "GraspAndLift_Train": { "dataset_path": "datas/GraspAndLift_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "GraspAndLift_Test": { "dataset_path": "datas/GraspAndLift_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "Inria_Train": { "dataset_path": "datas/Inria_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "Inria_Test": { "dataset_path": "datas/Inria_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "EEGMMIdb": { "dataset_path": "datas/EEGMMIdb", "subject_to_use": ["all"], "channels_to_use": ["all"] }
+      "BETA_3s": { "dataset_path": "datas/pretrain/BETA_3s", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BCICIV1_Train": { "dataset_path": "datas/pretrain/BCICIV1_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BCICIV1_Test": { "dataset_path": "datas/pretrain/BCICIV1_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BCICIV2a": { "dataset_path": "datas/finetune/BCICIV2a", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "BCICIV2b": { "dataset_path": "datas/finetune/BCICIV2b", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "GraspAndLift_Train": { "dataset_path": "datas/pretrain/GraspAndLift_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "GraspAndLift_Test": { "dataset_path": "datas/pretrain/GraspAndLift_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "Inria_Train": { "dataset_path": "datas/pretrain/Inria_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "Inria_Test": { "dataset_path": "datas/pretrain/Inria_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
+      "EEGMMIdb": { "dataset_path": "datas/pretrain/EEGMMIdb", "subject_to_use": ["all"], "channels_to_use": ["all"] }
     }
   },
   "check": {

@@ -39,7 +39,7 @@ class Loader(BaseSubjectLoader):
 
         # Session durations can differ by a handful of samples (EDF discretization) --
         # truncate to the shortest so they stack into one (N, C, T) array, same
-        # pattern as datas/benchmark/12JFPM_SSVEP/loader.py's split-file length mismatch handling.
+        # pattern as datas/finetune/12JFPM_SSVEP/loader.py's split-file length mismatch handling.
         min_t = min(s.shape[-1] for s in sessions)
         eeg_data = np.stack([s[:, :min_t] for s in sessions], axis=0)  # [N=n_sessions, C, T]
 

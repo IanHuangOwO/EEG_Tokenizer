@@ -37,7 +37,7 @@ DATASET_INFO = {
         "matching. Some subjects' recordings are artificially generated "
         "(undisclosed which, per the competition's design) -- see source_url. "
         "This is the evaluation (Test) split: raw .mat files contain no "
-        "'mrk' variable (no cue timing/labels released). datas/BCICIV1_Test/"
+        "'mrk' variable (no cue timing/labels released). datas/pretrain/BCICIV1_Test/"
         "loader.py falls back to evenly-spaced non-overlapping windows with "
         "dummy label 0 for every trial when 'mrk' is absent -- fine for "
         "self-supervised pretraining (label values unused), never use this "
