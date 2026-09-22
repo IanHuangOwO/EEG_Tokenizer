@@ -1452,6 +1452,24 @@ def _selfcheck_head_modules():
     assert _entry_cfg(overridden, 'stamp_power')['time_pool'] == 'learned'
     assert _entry_cfg(overridden, 'raw_band')['time_pool'] == 'flat'
 
+    # -- FeatureHead multi-entry forward (Task 2) --
+    hcfg = resolve_head_config(dict(features=['stamp_power', 'raw_band'], spatial_k=4,
+                                    time_pool='flat', dropout=0.0),
+                               num_patches=8, num_channels=6, num_classes=3, num_stamps=S,
+                               sample_freq=200.0, patch_len=50, patch_stride=50)
+    head = FeatureHead(hcfg)
+    B_ = 2
+    stamp_in = torch.randn(B_, 8, 6, S, 2)
+    raw_in = torch.randn(B_, 6, 8, 50)
+    out = head({'stamp': stamp_in, 'raw': raw_in})
+    assert out.shape == (B_, 3), out.shape
+    single = resolve_head_config(dict(feature='stamp_power', spatial_k=4, time_pool='flat',
+                                      dropout=0.0), num_patches=8, num_channels=6, num_classes=3,
+                                 num_stamps=S, sample_freq=200.0, patch_len=50, patch_stride=50)
+    head2 = FeatureHead(single)
+    out2 = head2({'stamp': stamp_in})
+    assert out2.shape == (B_, 3), out2.shape
+
     print('head_modules self-check OK')
 
 
@@ -1633,66 +1651,125 @@ def _window_patches(cfg, N, device):
     return keep
 
 
+class _PrimaryEntry(nn.Module):
+    """One stamp_power/stamp_band/raw_band/raw_signal entry's own time pooling (+ stamp_band's
+    template band tables). Reads the SHARED spatial-mixed tensor(s) FeatureHead computes once;
+    owns no spatial layer itself (spatial_k is one value shared across every entry, per the
+    design spec)."""
+    def __init__(self, name, cfg):
+        super().__init__()
+        self.name = name
+        e = _entry_cfg(cfg, name)
+        self.e = e
+        F_ = cfg['num_stamps'] if name == 'stamp_power' else len(BANDS)
+        if name == 'raw_signal':
+            self.pool_k = max(1, round(e['sample_freq'] / 20))
+        elif e['time_pool'] == 'learned':
+            self.time = LearnedTimePool(int(e['time_rank']), F_, e['num_patches'])
+        else:
+            self.time = NoTimePool() if e['time_pool'] == 'none' else FlatTimePool()
+        if name == 'stamp_band':
+            self.register_buffer('E_D', torch.zeros(cfg['num_stamps'], len(BANDS)))
+            self.register_buffer('E_H', torch.zeros(cfg['num_stamps'], len(BANDS)))
+
+    def forward(self, raw_mixed=None, ab=None):
+        """raw_mixed: [B, K, N', L], already spatial-mixed on the channel axis (raw_signal/raw_band
+        only). ab: (a, b), each [B, N', K, S], already spatial-mixed (stamp_power/stamp_band only).
+        Returns a flattened [B, width] tensor matching this entry's _entry_dim."""
+        e = self.e
+        if self.name == 'raw_signal':
+            sig = overlap_add_patches(raw_mixed, e['patch_stride'])
+            return torch.nn.functional.avg_pool1d(sig, self.pool_k, self.pool_k).flatten(1)
+        if self.name == 'raw_band':
+            x = raw_mixed[:, :, _window_patches(e, raw_mixed.shape[2], raw_mixed.device)] \
+                if e['time_pool'] == 'window' else raw_mixed
+            sp = torch.fft.rfft(x, dim=-1).abs().pow(2)                        # [B, K, N, bins]
+            fr = torch.fft.rfftfreq(x.shape[-1], 1.0 / e['sample_freq']).to(sp.device)
+            p = torch.stack([sp[..., (lo <= fr) & (fr < hi)].sum(-1) for lo, hi in BANDS], -1)  # [B, K, N, 2]
+            feat = torch.log(self.time(p.permute(0, 2, 1, 3)) + 1e-12)          # [B, K, 2] or [B, N, K, 2]
+            return feat.flatten(1)
+        a, b = ab
+        if e['time_pool'] == 'window':
+            m = _window_patches(e, a.shape[1], a.device)
+            a, b = a[:, m], b[:, m]
+        if self.name == 'stamp_power':
+            p = a.pow(2) + b.pow(2)                                             # [B, N, K, S]
+        else:
+            p = torch.einsum('bnks,sq->bnkq', a.pow(2), self.E_D) \
+                + torch.einsum('bnks,sq->bnkq', b.pow(2), self.E_H)             # [B, N, K, 2]
+        feat = torch.log(self.time(p) + 1e-12)                                  # [B, K, F] or [B, N, K, F]
+        return feat.flatten(1)
+
+
+class _PhaseAdvanceEntry(nn.Module):
+    """phase_advance branch (ADR 0014 C3): reads the same stamp entry's spatial-mixed (a, b),
+    windowed by its OWN effective time_pool/window (independent of the paired primary's)."""
+    def __init__(self, cfg):
+        super().__init__()
+        self.e = _entry_cfg(cfg, 'phase_advance')
+
+    def forward(self, ab):
+        a, b = ab
+        if self.e['time_pool'] == 'window':
+            m = _window_patches(self.e, a.shape[1], a.device)
+            a, b = a[:, m], b[:, m]
+        return phase_advance(a, b).flatten(1)
+
+
+class _EvokedEntry(nn.Module):
+    """evoked branch (ADR 0014 C4): owns its own EvokedBranch (its own learned rank-r time
+    filter), reads the same stamp entry's spatial-mixed (a, b). No windowing (validated in
+    resolve_head_config: evoked's effective time_pool may not be 'window')."""
+    def __init__(self, cfg):
+        super().__init__()
+        e = _entry_cfg(cfg, 'evoked')
+        self.branch = EvokedBranch(int(e['evoked_rank']), cfg['num_stamps'], cfg['num_patches'])
+
+    def forward(self, ab):
+        return self.branch(*ab).flatten(1)
+
+
 class FeatureHead(nn.Module):
-    """Composable finetune head, no backbone inside (ADR 0016): feature front-end -> spatial filter
-    -> time pooling -> optional branches -> BatchNorm/Dropout/Linear readout. See the plan's
-    'Per-feature pipeline' for the exact math of each feature."""
+    """Composable finetune head, no backbone inside (ADR 0016; list-feature-head plan): one
+    _PrimaryEntry/_PhaseAdvanceEntry/_EvokedEntry submodule per cfg['features'] entry, a single
+    shared spatial mixing layer, concatenated -> BatchNorm/Dropout/Linear readout."""
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        f, tp = cfg['feature'], cfg['time_pool']
-        N = cfg.get('num_patches')
-        F_ = cfg['num_stamps'] if f == 'stamp_power' else len(BANDS)
+        feats = cfg['features']
         # spatial_k None/0 = no mixing (channel concat, ADR 0016 ablation control): spatial_mix(None, ...)
         # is identity, so each real channel stays its own feature row instead of being pooled to K filters.
         self.spatial = nn.Linear(cfg['num_channels'], cfg['spatial_k'], bias=False) if cfg['spatial_k'] else None
-        if f == 'raw_signal':
-            self.pool_k = max(1, round(cfg['sample_freq'] / 20))
-        if tp == 'learned':
-            self.time = LearnedTimePool(int(cfg['time_rank']), F_, N)
-        else:
-            self.time = NoTimePool() if tp == 'none' else FlatTimePool()
-        self.evoked = EvokedBranch(int(cfg['evoked_rank']), F_, N) if cfg['evoked_rank'] else None
-        if f == 'stamp_band':
-            self.register_buffer('E_D', torch.zeros(cfg['num_stamps'], len(BANDS)))
-            self.register_buffer('E_H', torch.zeros(cfg['num_stamps'], len(BANDS)))
+        self.entries = nn.ModuleDict()
+        for name in feats:
+            if name in ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal'):
+                self.entries[name] = _PrimaryEntry(name, cfg)
+            elif name == 'phase_advance':
+                self.entries[name] = _PhaseAdvanceEntry(cfg)
+            elif name == 'evoked':
+                self.entries[name] = _EvokedEntry(cfg)
         n_feat = feature_dim(cfg)
         # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
         self.cls = nn.Sequential(nn.BatchNorm1d(n_feat), nn.Dropout(cfg['dropout']),
                                  nn.Linear(n_feat, cfg['num_classes']))
 
     def forward(self, inp):
-        cfg, f = self.cfg, self.cfg['feature']
+        """inp: {'raw': [B, C, N', L] or absent, 'stamp': [B, N', C, S, 2] or absent}."""
         # Feature math in fp32: under autocast, squared amplitudes overflow in fp16 and the 1e-12
         # epsilon rounds to 0 (NaN loss). The readout stays outside, as before.
-        with torch.autocast(device_type=inp.device.type, enabled=False):
-            inp, extras = inp.float(), []
-            if f == 'raw_signal':                                              # [B, C, N', L]
-                sig = spatial_mix(self.spatial, overlap_add_patches(inp, cfg['patch_stride']), 1)
-                feat = torch.nn.functional.avg_pool1d(sig, self.pool_k, self.pool_k)   # [B, K, T']
-            elif f == 'raw_band':                                              # [B, C, N', L]
-                x = inp[:, :, _window_patches(cfg, inp.shape[2], inp.device)] if cfg['time_pool'] == 'window' else inp
-                sp = torch.fft.rfft(spatial_mix(self.spatial, x, 1), dim=-1).abs().pow(2)   # [B, K, N, bins]
-                fr = torch.fft.rfftfreq(x.shape[-1], 1.0 / cfg['sample_freq']).to(sp.device)
-                p = torch.stack([sp[..., (fr >= lo) & (fr < hi)].sum(-1) for lo, hi in BANDS], -1)  # [B, K, N, 2]
-                feat = torch.log(self.time(p.permute(0, 2, 1, 3)) + 1e-12)     # [B, K, 2] or [B, N, K, 2]
-            else:                                                              # stamp_*: [B, N', C, S, 2]
-                amp = inp[:, _window_patches(cfg, inp.shape[1], inp.device)] if cfg['time_pool'] == 'window' else inp
-                a, b = spatial_mix(self.spatial, amp[..., 0], 2), spatial_mix(self.spatial, amp[..., 1], 2)
-                if f == 'stamp_power':
-                    p = a.pow(2) + b.pow(2)                                    # [B, N, K, S]
+        with torch.autocast(device_type=next(iter(inp.values())).device.type, enabled=False):
+            raw_mixed, ab = None, None
+            if 'raw' in inp:
+                raw_mixed = spatial_mix(self.spatial, inp['raw'].float(), 1)          # [B, K, N', L]
+            if 'stamp' in inp:
+                amp = inp['stamp'].float()
+                ab = (spatial_mix(self.spatial, amp[..., 0], 2),
+                      spatial_mix(self.spatial, amp[..., 1], 2))                      # each [B, N', K, S]
+            outs = []
+            for name, mod in self.entries.items():
+                if name in ('raw_band', 'raw_signal'):
+                    outs.append(mod(raw_mixed=raw_mixed))
                 else:
-                    p = torch.einsum('bnks,sq->bnkq', a.pow(2), self.E_D) \
-                        + torch.einsum('bnks,sq->bnkq', b.pow(2), self.E_H)    # [B, N, K, 2]
-                feat = torch.log(self.time(p) + 1e-12)                         # [B, K, F] or [B, N, K, F]
-                if cfg['phase_advance']:
-                    extras.append(phase_advance(a, b))                         # ADR 0014 C3
-                if self.evoked is not None:
-                    extras.append(self.evoked(a, b))                           # ADR 0014 C4
-            if not extras:
-                feat = feat.flatten(1)
-            elif feat.dim() == 3:
-                feat = torch.cat([feat] + extras, dim=-1).flatten(1)
-            else:
-                feat = torch.cat([feat.flatten(1)] + [e.flatten(1) for e in extras], dim=1)
+                    outs.append(mod(ab=ab))
+            feat = torch.cat(outs, dim=1) if len(outs) > 1 else outs[0]
         return self.cls(feat)
