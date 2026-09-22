@@ -608,13 +608,15 @@ if __name__ == '__main__':
 
     filtered = copy.deepcopy(cfg)
     filtered['dataset_params'][data_mode] = {dataset_name: ds_cfg}
-    # subject_to_use=["all"] needs the same resolution train_finetune.py's
-    # build_subject_split_datasets does — build_dataset_from_config takes it literally
-    # and fails ("Subject all not found") since EEGDataset expects real subject ids.
-    from train_finetune import _resolve_all_subjects, _resolve_requested_subjects
+    # subject_to_use=["all"] needs the same resolution train_finetune.py's own dataset
+    # builder does (same call shape as its own subject_to_use resolution, see
+    # train_finetune.py's build_dataset_from_config caller) — build_dataset_from_config
+    # takes it literally and fails ("Subject all not found") since EEGDataset expects
+    # real subject ids.
+    from train_finetune import _resolve_all_subjects, resolve_subjects
     all_subjects = _resolve_all_subjects(ds_cfg['dataset_path'])
     filtered['dataset_params'][data_mode][dataset_name]['subject_to_use'] = \
-        _resolve_requested_subjects(ds_cfg, all_subjects)
+        resolve_subjects(ds_cfg['subject_to_use'], all_subjects)
     ds = build_dataset_from_config(filtered, mode=data_mode)
 
     patch_len = filtered.get('preprocess_params', {}).get('patch_length', 100)
@@ -654,18 +656,35 @@ CUDA_VISIBLE_DEVICES='' /home/mamechin/anaconda3/envs/eeg_fm/bin/python -c "impo
 ```
 Expected: `ok`.
 
-- [ ] **Step 3: Smoke — rerun the finetune baseline through the new script**
+- [ ] **Step 3: Smoke — run the finetune path through the new script**
+
+**No pre-existing finetune baseline exists to diff against.** Task 2 discovered (and
+verified: `train_finetune.py` now defines `resolve_subjects(entry, pool)`, not
+`_resolve_requested_subjects`) that `check_model.py --mode finetune` was already broken on
+this branch before this refactor started — an earlier, unrelated `train_finetune.py`
+rename left it uncallable, so no working finetune baseline was ever captured (no
+`finetune_baseline_files.txt` exists in the scratchpad; `finetune_smoke_overlay.json`
+does, from before the baseline attempt failed, and is still reusable). This step is
+therefore the first successful run of this code path on this branch, not a
+regression-identity check — verify it works, not that it matches history:
 
 ```bash
 /home/mamechin/anaconda3/envs/eeg_fm/bin/python analysis_finetune.py \
   --config /tmp/claude-1000/-media-mamechin-PortableSSD-iansaididontcare-CNElab-cnelab-model-trainer-EEG-Tokenizer/fa469676-ae07-4623-a89e-52c7daef5798/scratchpad/finetune_smoke_overlay.json \
   --base-config output/baseline/BNCI2014001_intra_raw_band/artifacts/config.json \
-  --dataset BNCI2014001
+  --dataset BNCI2014001 ; echo "exit: $?"
 find output/baseline/BNCI2014001_intra_raw_band/analysis -type f | sort > /tmp/analysis_finetune_after.txt
-diff /tmp/claude-1000/-media-mamechin-PortableSSD-iansaididontcare-CNElab-cnelab-model-trainer-EEG-Tokenizer/fa469676-ae07-4623-a89e-52c7daef5798/scratchpad/finetune_baseline_files.txt /tmp/analysis_finetune_after.txt
+cat /tmp/analysis_finetune_after.txt
 ```
-Expected: `diff` prints nothing. Also compare the `[check] done: ...` lines' printed metrics
-against the baseline log — must match.
+Expected: exit 0; the script prints one `[check] done: target=...` line per correct/wrong
+example found (2 classes for BNCI2014001, so up to 4 lines — fewer if an example is
+missing for some class/status, which the script itself reports and continues past, not a
+failure); `/tmp/analysis_finetune_after.txt` lists PNG files under
+`output/baseline/BNCI2014001_intra_raw_band/analysis/BNCI2014001/recon/` named per the
+`_target{cls}_{name}_{status}` tag pattern in the code. If it does NOT exit 0, read the
+traceback: if it's the same `resolve_subjects`/`_resolve_requested_subjects` mismatch,
+your Step 1 file has the bug (compare against this plan's current text, not memory or
+check_model.py's old source); any other failure, report BLOCKED with the traceback.
 
 - [ ] **Step 4: `git status` sanity check**
 
