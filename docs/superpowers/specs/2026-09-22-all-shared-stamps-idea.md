@@ -65,6 +65,42 @@ without also giving up a hard cap on how many atoms can be active per patch. Tha
 as top-k, or move to a differentiable substitute (entmax/sparsemax, learned hard-concrete/L0
 gates) if a harder discrete gate is undesirable, while keeping the collapse risk bounded.
 
+## Follow-up: what if the total pool is shrunk to respect the DOF cap?
+
+Asked in discussion: if `n_stamps` (all always-on, no top-k) is small enough that
+`2 * n_stamps < patch_len` with margin, does the collapse mechanism above still apply?
+
+**No, not the DOF-collapse mechanism specifically** — if the always-on pool is sized so its
+DOF matches or stays under today's actual budget (e.g. `n_stamps ~= 16` for DOF 32, matching
+`2*(top_k=12 + n_shared=4)` today), the reconstruction is equally under-determined whether the
+active slots were chosen dynamically per patch or are a fixed always-on set of the same size.
+The math is the same either way, so gradient descent has no more DOF slack to exploit than it
+does today. Caution: "32 stamps, all on" is DOF 64 (worse than the 56 that already collapsed)
+— easy to confuse with the DOF number 32 in `CLAUDE.md`'s "current default sits at 32", which
+refers to `2*(top_k+n_shared)`, not a stamp count. A DOF-safe always-on pool is closer to
+`n_stamps ~= 16`, not 32.
+
+**What does not go away is a separate, representational question.** Today's 64-atom pool with
+top-k=16 selects a *content-appropriate subset* per patch (different atoms for artifacts,
+mu-rhythm, line noise, different datasets' characteristics — the motivation for a big shared
+vocabulary across the 7 pretraining datasets, ADR 0009). A fixed always-on pool of ~16 removes
+that per-patch adaptivity: the same 16 atoms must jointly cover every patch of every dataset,
+with no ability to pick a different subset for different content. Whether that costs anything
+is untested, not implied one way or the other by the DOF argument.
+
+One suggestive data point, from ADR 0011's own Consequences: live-atom count (atoms that ever
+fire >=5 times) stayed at 19-23 whether the pool was 64 or 96 stamps ("a bigger bank just adds
+dead weight; live-atom count tracks data diversity, not pool size"). That hints the data's real
+diversity may only need something in the ~16-24 range, which is close to a DOF-safe fixed pool
+— but it is a statement about total-ever-used atoms across the whole tracked period, not about
+whether per-patch content-adaptive choice among them matters.
+
+`mesae_v10_all_share` (n=32 all-on, DOF=64) is still not clean evidence for the DOF-safe
+variant, since it sits in the unsafe regime. A real test of the shrunk-pool idea needs a fresh
+small run at roughly `n_stamps=16`, `top_k=n_stamps` (all-on), `n_shared=0`, checked against
+the same kurtosis/cross-atom-correlation diagnostic, separately from whatever the existing
+checkpoint shows.
+
 ## If revisited
 
 A proper controlled test, not a full retrain: rerun the exact kurtosis/cross-atom-correlation/
