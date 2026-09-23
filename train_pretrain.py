@@ -236,9 +236,9 @@ def main():
     # itself stays assembled (assemble_trials=True, continuous windows) for real
     # train/val loss. A snapshot built from an assembled window mixes multiple real
     # trials with no single event to mark, so _lookup_event_onset
-    # (tools/analysis/snapshot.py) silently drops the recon_signal/stamp_by_patch onset
-    # line whenever it's handed one. Same assemble_trials=False dataset
-    # analysis_pretrain.py's own snapshot path already uses.
+    # (tools/analysis/snapshot.py) silently drops recon_signal's onset line whenever it's
+    # handed one. Same assemble_trials=False dataset analysis_pretrain.py's own snapshot
+    # path already uses.
     logger.info("Building Viz Snapshot Dataset (assemble_trials=False)...")
     viz_dataset = build_dataset_from_config(val_config, transform=None, mode='pretrain', assemble_trials=False)
 
@@ -393,7 +393,7 @@ def main():
                         config=config, output_dir=vis_dir, device=device, args=None,
                         model=model, dataset=viz_dataset, bundle=bundle,
                         cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'))
-                    run_panels(['recon_signal', 'stamp_by_patch', 'stamp_gallery'], 'pretrain', panel_ctx)
+                    run_panels(['recon_signal', 'stamp_gallery'], 'pretrain', panel_ctx)
                 except Exception as e:
                     logger.warning(f"  Topomap viz failed (epoch {epoch}, subject={topo_subject_id}, trial_idx={topo_trial_idx}): {e}")
 
