@@ -255,10 +255,10 @@
       "bands": {
         "Delta": [
           0.5,
-          4
+          3
         ],
         "Theta": [
-          4,
+          3,
           8
         ],
         "Alpha": [
@@ -278,11 +278,6 @@
         "targets": [
           {
             "dataset": "BETA_4s",
-            "subject": null,
-            "trial": 0
-          },
-          {
-            "dataset": "BCICIV1_Train",
             "subject": null,
             "trial": 0
           },

@@ -4,6 +4,7 @@ import numpy as np
 from typing import Dict, List
 
 from IO.loader import BaseSubjectLoader
+from IO.preprocessing import cut_event_window
 
 
 def _generate_dummy_labels(signals_dir: str, out_path: str) -> None:
@@ -38,6 +39,12 @@ class Loader(BaseSubjectLoader):
     'signals' as a list so trials from all sessions concatenate under one
     subject key -- keeps the train/val subject split (train_pretrain.py) from
     ever putting two sessions of the same person on opposite sides.
+
+    self.pre_event_seconds/post_event_seconds apply in the standard_window branch,
+    same as Inria_Train (previously this loader cut [idx:end] straight from the
+    marker with no pre-event headroom and dropped any trial running past the
+    recording instead of zero-padding it -- an inconsistency with Train, not a
+    deliberate difference, see event_onset_sample_note in this dataset's metadata.json).
     """
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
@@ -55,10 +62,10 @@ class Loader(BaseSubjectLoader):
         alt_path = os.path.join(os.path.dirname(self.label_path), 'SampleSubmission.csv')
         alt_df = pd.read_csv(alt_path) if os.path.exists(alt_path) else None
 
-        all_trials, all_labels = [], []
+        all_trials, all_labels, all_valid_ranges = [], [], []
         for signal_path in self._existing(self.signal_paths):
             df = pd.read_csv(signal_path)
-            data = df.iloc[:, 1:-1].values    # (Time, Channels)
+            data = df.iloc[:, 1:-1].values.T[self.channel_indices]  # (C, T)
             markers = df.iloc[:, -1].values   # (Time,)
 
             trig_indices = np.where(markers == 1)[0]
@@ -69,19 +76,25 @@ class Loader(BaseSubjectLoader):
                 sub_labels = alt_df[alt_df['IdFeedBack'].str.contains(sub_sess)]['Prediction'].values
 
             if self.standard_window:
-                trial_len = int(self.standard_window * self.sample_freq)
+                pre_pts = int(self.pre_event_seconds * self.sample_freq)
+                post_pts = int(self.post_event_seconds * self.sample_freq) \
+                    or int(self.standard_window * self.sample_freq)
             elif len(trig_indices) > 1:
-                trial_len = int(np.median(np.diff(trig_indices)))
+                pre_pts = 0
+                post_pts = int(np.median(np.diff(trig_indices)))
             else:
                 continue
 
             for i, idx in enumerate(trig_indices):
                 if i < len(sub_labels):
-                    end = idx + trial_len
-                    if end <= data.shape[0]:
-                        all_trials.append(data[idx:end, self.channel_indices].T)
-                        all_labels.append(int(sub_labels[i]))
+                    window, vs, ve = cut_event_window(data, int(idx), pre_pts, post_pts)
+                    if ve <= vs:
+                        continue
+                    all_trials.append(window)
+                    all_labels.append(int(sub_labels[i]))
+                    all_valid_ranges.append((vs, ve))
 
         if not all_trials:
             return None, None
+        self._last_valid_ranges = all_valid_ranges
         return np.stack(all_trials), np.array(all_labels)

@@ -3,9 +3,17 @@ import scipy.io
 from typing import Dict, List
 
 from IO.loader import BaseSubjectLoader
+from IO.preprocessing import cut_event_window
 
 
 class Loader(BaseSubjectLoader):
+    # mrk branch mirrors BCICIV1_Train's loader: same raw format, same real event
+    # markers, so it gets the same pre_event_seconds/post_event_seconds buffer via
+    # cut_event_window (previously this loader cut [start:end] straight from the
+    # marker, no pre-event headroom at all, and dropped any trial running past the
+    # recording instead of zero-padding it -- an inconsistency with Train, not a
+    # deliberate difference, see event_onset_sample_note in this dataset's metadata.json).
+
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
         self.file_path = self._resolve(self._require_subject(subject_id)['file'])
@@ -14,7 +22,7 @@ class Loader(BaseSubjectLoader):
         if not self._existing([self.file_path]):
             return None, None
         mat = scipy.io.loadmat(self.file_path)
-        cnt = mat['cnt'].astype(np.float32)  # (Time, Channels)
+        cnt = mat['cnt'].astype(np.float32)[:, self.channel_indices].T  # (C, T)
 
         if self.standard_window is None:
             print(f"  [Warning] Subject {self.subject_id}: No standard_window defined, cannot segment data.")
@@ -23,23 +31,29 @@ class Loader(BaseSubjectLoader):
         trial_len = int(self.standard_window * self.sample_freq)
 
         if 'mrk' not in mat:
-            pos = np.arange(0, cnt.shape[0] - trial_len, trial_len)
+            pos = np.arange(0, cnt.shape[-1] - trial_len, trial_len)
             y = np.zeros(len(pos))
+            trials = [cnt[:, p:p + trial_len] for p in pos]
+            valid_ranges = [(0, trial_len)] * len(pos)
+            raw_labels = list(y)
         else:
             mrk = mat['mrk'][0, 0]
             pos = mrk['pos'][0]
             y = mrk['y'][0]
-
-        trials, raw_labels = [], []
-        for p, label in zip(pos, y):
-            start = int(p)
-            end = start + trial_len
-            if end <= cnt.shape[0]:
-                trials.append(cnt[start:end, self.channel_indices].T)
+            pre_pts = int(self.pre_event_seconds * self.sample_freq)
+            post_pts = int(self.post_event_seconds * self.sample_freq) or trial_len
+            trials, raw_labels, valid_ranges = [], [], []
+            for p, label in zip(pos, y):
+                window, vs, ve = cut_event_window(cnt, int(p), pre_pts, post_pts)
+                if ve <= vs:
+                    continue
+                trials.append(window)
                 raw_labels.append(int(label))
+                valid_ranges.append((vs, ve))
 
         if not trials:
             return None, None
+        self._last_valid_ranges = valid_ranges
 
         # Remap arbitrary label encodings (e.g. bipolar {-1, +1}, 1-indexed {1, 2, ...})
         # to dense 0-indexed class ids.

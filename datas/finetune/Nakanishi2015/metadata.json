@@ -95,7 +95,9 @@
                 "label": "14.75 Hz",
                 "stimulus_frequency_hz": 14.75
             }
-        }
+        },
+        "event_onset_sample": 0,
+        "event_onset_sample_note": "SSVEP trial data starts exactly at stimulus onset (the released DataSub_N.mat epoch has no pre-stim headroom) -- same shape as PhysionetMI."
     },
     "data_structure": {
         "1": {

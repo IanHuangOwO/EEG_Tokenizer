@@ -384,6 +384,14 @@ def main():
 
         # every_n_epochs: int (0 = never) or "last" (final epoch only, for quick tests)
         if epoch == total_epochs if viz_every_n == 'last' else (viz_every_n > 0 and epoch % viz_every_n == 0):
+            # Training holds the GPU close to capacity; the caching allocator doesn't
+            # return freed blocks to the OS on its own, so a big new alloc here (recon
+            # panels build separate activations) can OOM even though nothing is really
+            # using that memory anymore. One empty_cache() before the batch of panels
+            # releases it back -- cheap relative to the epoch itself, only paid every
+            # every_n_epochs.
+            if 'cuda' in str(device):
+                torch.cuda.empty_cache()
             for topo_trial_idx, topo_subject_id in viz_targets:
                 try:
                     bundle, _metrics = build_pretrain_bundle(

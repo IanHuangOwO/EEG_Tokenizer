@@ -47,7 +47,9 @@
             "8": {
                 "label": "PO8"
             }
-        }
+        },
+        "event_onset_sample": 0,
+        "event_onset_sample_note": "Whole-video-per-trial CSVs, no in-trial event/cue -- no real onset to mark."
     },
     "data_structure": {
         "1": {

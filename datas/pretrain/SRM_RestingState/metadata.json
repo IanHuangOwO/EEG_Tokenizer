@@ -217,7 +217,9 @@
             "64": {
                 "label": "O2"
             }
-        }
+        },
+        "event_onset_sample": 0,
+        "event_onset_sample_note": "Resting-state EDF sessions, whole session treated as one trial, no events/conditions at all -- no real onset to mark."
     },
     "data_structure": {
         "1": {

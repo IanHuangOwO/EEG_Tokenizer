@@ -81,7 +81,9 @@
             "19": {
                 "label": "O2"
             }
-        }
+        },
+        "event_onset_sample": 0,
+        "event_onset_sample_note": "Continuous EDF runs chopped into fixed windows, no marker read -- no real onset to mark."
     },
     "data_structure": {
         "1": {

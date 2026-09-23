@@ -68,7 +68,9 @@
                 "label": "EOG",
                 "original_label": "EOG:ch03"
             }
-        }
+        },
+        "event_onset_sample": 200,
+        "event_onset_sample_note": "Cue-onset sample at preprocess_params.sample_freq (200Hz): global pre_event_seconds=1.0, native 250Hz -> round(1.0*200)=200, same convention as BNCI2014001."
     },
     "data_structure": {
         "1": {

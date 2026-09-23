@@ -12,7 +12,7 @@ pip install -r requirements.txt
 
 # Pretrain: one run, two phases -- unmasked tokenizer phase for
 # training_params.pretrain.tokenizer_epochs, then masked phase (docs/adr/0013)
-python train_pretrain.py --config config/runs/<model_name>.json
+python train_pretrain.py --config config/runs/<model_name>/pretrain.json
 
 # Profile model (parameter counts + per-component forward-pass timing, no checkpoint/dataset needed)
 python analysis_pretrain.py --panel profile [--train]
@@ -53,13 +53,13 @@ No test suite exists. Validation runs during training.
 a real run directly — they're starting points. Pretrain and finetune configs are split: a
 finetune overlay sets `"base_config"` to its backbone's pretrain file and `load_config`
 (`tools/analysis/__init__.py`) deep-merges the two. To start a new run: copy the template
-into `config/runs/`, path mirroring the `output/` path it will produce (a backbone with no
-finetune runs yet keeps its pretrain config flat at `config/runs/<model_name>.json`; once
-it has finetune runs too, its pretrain config moves to
-`config/runs/<model_name>/pretrain.json`, and each finetune head/dataset gets its own
-overlay at `config/runs/<model_name>/finetune/<head>/<dataset>.json` — see `docs/adr/0017`
-for why finetune runs nest under their backbone, and `config/runs/README.md` for the full
-convention), and edit that copy — never the template. `config/finetune_eval_splits/*.json`
+into `config/runs/<model_name>/` — every model version gets its own folder from the start,
+regardless of whether it has finetune runs yet (stricter than `output/`'s own rule below,
+which stays flat until a backbone's first finetune run). Pretrain config lives at
+`config/runs/<model_name>/pretrain.json`; each finetune head/dataset gets its own overlay
+at `config/runs/<model_name>/finetune/<head>/<dataset>.json` — see `docs/adr/0017` for why
+finetune runs nest under their backbone, and `config/runs/README.md` for the full
+convention — and edit that copy — never the template. `config/finetune_eval_splits/*.json`
 (seeded train/eval subject splits, see `training_params.finetune.split.eval_subjects:
 "auto"` below) and `config/compile.json`/`config/montages.json` (not per-run) are
 unchanged by this convention.

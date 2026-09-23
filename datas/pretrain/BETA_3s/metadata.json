@@ -632,7 +632,9 @@
                     "polar_radius": 0.52
                 }
             }
-        }
+        },
+        "event_onset_sample": 100,
+        "event_onset_sample_note": "0.5s pre-stimulus baked into the released .mat epoch itself (paper: window = 0.5 pre + stim + 0.5 post), native 250Hz -> round(0.5*200)=100."
     },
     "data_structure": {
         "1": {

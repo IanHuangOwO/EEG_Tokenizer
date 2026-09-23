@@ -684,7 +684,9 @@ class StampBank(nn.Module):
         self.D_routed = nn.Parameter(torch.randn(self.n_routed, patch_len) * 0.02)
         self.D_shared = nn.Parameter(torch.randn(self.n_shared, patch_len) * 0.02)
 
-        self.dead_threshold = dead_threshold_frac * (self.top_k / self.n_routed)
+        # n_routed=0 (all-shared/static dictionary): no routed pool to go dead, dead_threshold
+        # is never read against anything (fire_ema is also size 0) -- 0.0 keeps it well-defined.
+        self.dead_threshold = 0.0 if self.n_routed == 0 else dead_threshold_frac * (self.top_k / self.n_routed)
         self.ema_decay = ema_decay
         self.register_buffer('fire_ema', torch.zeros(self.n_routed))
 

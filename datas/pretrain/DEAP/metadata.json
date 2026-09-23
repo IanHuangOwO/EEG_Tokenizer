@@ -130,7 +130,9 @@
             "32": {
                 "label": "O2"
             }
-        }
+        },
+        "event_onset_sample": 600,
+        "event_onset_sample_note": "3.0s pre-trial baseline baked into the pickled 8064-sample trial (8064/128Hz=63.0s = 3s baseline + 60s trial), native 128Hz -> round(3.0*200)=600."
     },
     "data_structure": {
         "1": {

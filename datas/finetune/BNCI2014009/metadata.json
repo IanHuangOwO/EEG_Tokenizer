@@ -76,7 +76,9 @@
             "16": {
                 "label": "CP4"
             }
-        }
+        },
+        "event_onset_sample": 40,
+        "event_onset_sample_note": "P300 epoch, own hardcoded PRE_EVENT_S=0.2s (not the global 1.0s), native 256Hz -> round(0.2*200)=40, same convention as BNCI2014008."
     },
     "data_structure": {
         "1": {

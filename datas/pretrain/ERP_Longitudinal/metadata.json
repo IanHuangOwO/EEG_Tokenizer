@@ -197,7 +197,9 @@
             "57": {
                 "label": "O2"
             }
-        }
+        },
+        "event_onset_sample": 40,
+        "event_onset_sample_note": "RSVP/P300 scale, own hardcoded PRE_EVENT_S=0.2s (not the global 1.0s/4.0s tuned for motor-imagery), native 1000Hz -> round(0.2*200)=40."
     },
     "data_structure": {
         "1": {
