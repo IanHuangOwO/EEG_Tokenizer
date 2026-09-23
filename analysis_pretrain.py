@@ -278,7 +278,7 @@ if __name__ == '__main__':
                     if check_cfg.get('plot_recon', True):
                         panels.append('recon_signal')
                     if check_cfg.get('plot_topo_psd', True):
-                        panels += ['stamp_by_patch', 'stamp_gallery']
+                        panels.append('stamp_gallery')
                     panel_ctx = PanelContext(config=cfg, output_dir=out, device=device, args=args,
                                               model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
                     run_panels(panels, 'pretrain', panel_ctx)
@@ -308,7 +308,7 @@ if __name__ == '__main__':
                     if check_cfg.get('plot_recon', True):
                         panels.append('recon_signal')
                     if check_cfg.get('plot_topo_psd', True):
-                        panels += ['stamp_by_patch', 'stamp_gallery']
+                        panels.append('stamp_gallery')
                     panel_ctx = PanelContext(config=filtered, output_dir=out, device=device, args=args,
                                               model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
                     run_panels(panels, 'pretrain', panel_ctx)
