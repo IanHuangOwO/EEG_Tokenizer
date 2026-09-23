@@ -71,6 +71,38 @@ def _trials_of(subject_data, subjects):
     return np.flatnonzero(np.isin(subject_data, [int(s) for s in subjects]))
 
 
+def _resolve_auto_split(split, ds_name, pretrained_checkpoint):
+    """split['eval_subjects'] == 'auto' -> the cached (or freshly generated)
+    config/subject_groups/<ds_name.lower()>.json seen/unseen split, filled into
+    eval_subjects/train_subjects. Any other eval_subjects value (a list, or an explicit
+    dict) passes through unchanged -- 'auto' is opt-in, not the default.
+
+    Errors, deliberately, rather than falling back to a different split mode, if ds_name
+    isn't one tools.analysis.select_eval_subsets.DATASETS knows how to generate: two runs
+    both saying eval_subjects='auto' must mean the same split *mode* regardless of which
+    dataset ends up plugged in, or they stop being comparable to each other. Registering a
+    new dataset there is a deliberate step (see docs/agents/adding-a-tool.md), not
+    something 'auto' should paper over by silently choosing n_folds instead."""
+    if split.get('eval_subjects') != 'auto':
+        return split
+    from tools.analysis.select_eval_subsets import DATASETS, select_eval_subsets
+    try:
+        key = next(k for k, v in DATASETS.items() if v == ds_name)
+    except StopIteration:
+        raise ValueError(
+            f"split.eval_subjects='auto' needs '{ds_name}' registered in "
+            f"tools.analysis.select_eval_subsets.DATASETS (currently: {sorted(DATASETS)}) "
+            "-- add it there first, 'auto' does not fall back to a different split mode")
+    cache_path = os.path.join('config', 'subject_groups', f'{key}.json')
+    if not os.path.exists(cache_path):
+        run_config = os.path.join(os.path.dirname(os.path.dirname(pretrained_checkpoint)),
+                                  'artifacts', 'config.json')
+        select_eval_subsets(names=[key], run_config=run_config)
+    with open(cache_path) as f:
+        cached = json.load(f)
+    return {**split, 'eval_subjects': cached['eval'], 'train_subjects': cached['train']}
+
+
 def make_runs(split, pool, subject_data, labels):
     """split block -> runs [{name, train, train_subjects, eval}] (see the plan's contract)."""
     mode, seed = split.get('mode'), split.get('seed', 42)
@@ -344,6 +376,7 @@ def main():
     assert set(labels.tolist()) == set(range(num_classes)), f"labels must be contiguous 0..{num_classes - 1}"
     head_cfg, new_head = build_head_factory(config, source, num_classes)
     logger.info(f"dataset={ds_name} pool={len(pool)} subjects, {len(labels)} trials, classes={num_classes}, head={head_cfg}")
+    tp['split'] = _resolve_auto_split(tp['split'], ds_name, tp['pretrained_checkpoint'])
     runs = make_runs(tp['split'], pool, source.subject_data.numpy(), labels)
     result = {}
     for run in runs:
