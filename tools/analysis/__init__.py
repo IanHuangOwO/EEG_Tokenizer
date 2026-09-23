@@ -62,13 +62,15 @@ def load_config(path: str) -> dict:
 
 def resolve_output_path(config: dict, mode: str = 'pretrain') -> str:
     """Return this run's path segment under output/ -- training_params.<mode>.output_path
-    if set, else model_name (back-compat for configs that don't set output_path yet).
-    output_path is separate from model_name (a clean identity string, e.g. logged in
-    train_pretrain.py) so a path can carry a subfolder (e.g. 'mesae_v10_small/pretrain',
-    CLAUDE.md's Outputs convention for a backbone with finetune runs) without model_name
-    itself doing double duty as a path."""
+    if set, else '<model_name>/pretrain' for a pretrain run (pretrain artifacts always
+    nest under pretrain/, so a backbone's later finetune/ runs never share a level with
+    them) or plain model_name for a finetune run. output_path is separate from
+    model_name (a clean identity string, e.g. logged in train_pretrain.py) so a path can
+    carry a subfolder without model_name itself doing double duty as a path."""
     tp = config['training_params'][mode]
-    return tp.get('output_path', tp['model_name'])
+    if 'output_path' in tp:
+        return tp['output_path']
+    return f"{tp['model_name']}/pretrain" if mode == 'pretrain' else tp['model_name']
 
 
 def resolve_output_dir(config: dict, *sub_dirs: str, mode: str = 'pretrain') -> str:

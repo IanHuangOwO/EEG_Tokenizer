@@ -29,7 +29,7 @@
     "finetune": {
       "model_type": "MeSAE",
       "model_name": "flat_BNCI2014009_intra",
-      "pretrained_checkpoint": "output/mesae_v11_small/checkpoint/last.pth",
+      "pretrained_checkpoint": "output/mesae_v11_small/pretrain/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
       "epochs": 100,

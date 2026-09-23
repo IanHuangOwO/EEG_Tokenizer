@@ -62,8 +62,8 @@ finetune analysis grew its own shape. Pretrain and finetune RUN configs are spli
 finetune overlay sets `"base_config"` to its backbone's pretrain file and `load_config`
 (`tools/analysis/__init__.py`) deep-merges the two. To start a new run: copy the template
 into `config/runs/<model_name>/` — every model version gets its own folder from the start,
-regardless of whether it has finetune runs yet (stricter than `output/`'s own rule below,
-which stays flat until a backbone's first finetune run). Pretrain config lives at
+regardless of whether it has finetune runs yet (same as `output/`, where pretrain always
+lands in `output/<model_name>/pretrain/`, see "Outputs"). Pretrain config lives at
 `config/runs/<model_name>/pretrain.json`; each finetune head/dataset gets its own overlay
 at `config/runs/<model_name>/finetune/<head>/<dataset>_<mode>.json` (`<mode>` is `intra`/`inter`,
 matching `output/`'s own leaf-dir suffix exactly -- a dataset run under both protocols gets
@@ -156,20 +156,20 @@ Key fields:
 ### Outputs
 
 A run's actual write location under `output/` is `training_params.<mode>.output_path`
-(falls back to `model_name` when `output_path` is unset — `tools/analysis/__init__.py`'s
-`resolve_output_path`, read by `train_pretrain.py`/`train_finetune.py` and every
-`resolve_output_dir`/`resolve_finetune_analysis_dir` call). `model_name` itself stays a
-clean identity string (what gets logged at startup, e.g. `"mesae_v10_small"`) and never
-carries a path segment — `output_path` is the only field allowed to.
+(`tools/analysis/__init__.py`'s `resolve_output_path`, read by `train_pretrain.py`/
+`train_finetune.py` and every `resolve_output_dir`/`resolve_finetune_analysis_dir` call).
+When unset it defaults to `"<model_name>/pretrain"` for a pretrain run and plain
+`model_name` for a finetune run. `model_name` itself stays a clean identity string (what
+gets logged at startup, e.g. `"mesae_v10_small"`) and never carries a path segment —
+`output_path` is the only field allowed to.
 
-`output/<backbone>/` holds every pretrain/tokenizer run -- e.g. `output/mesae_v10_small/`;
-there is no wrapping `output/pretrain/` layer. A backbone with no finetune runs of its own
-keeps its pretrain artifacts (`checkpoint/`, `artifacts/`, `visualization/`,
-`feature_cache/`) flat at that top level (`output_path` = plain `model_name`). Once a
-backbone has finetune runs nested under it too (below), its own pretrain artifacts move
-under `output/<backbone>/pretrain/` so the two stay visually separate — set
-`output_path` to `"<model_name>/pretrain"` (`mesae_v10_small` is the only backbone
-finetuned so far, so it's currently the only one with this extra `pretrain/` layer).
+`output/<backbone>/` holds one backbone -- e.g. `output/mesae_v10_small/`; there is no
+wrapping `output/pretrain/` layer. Its pretrain artifacts (`checkpoint/`, `artifacts/`,
+`visualization/`, `analysis/`, `feature_cache/`) always live under
+`output/<backbone>/pretrain/`, from the first pretrain run on, so later finetune runs
+(`output/<backbone>/finetune/`, below) never share a level with them. Backbones trained
+before this default (e.g. `mesae_v11_small`) may still be flat at the top level until
+moved.
 `output/archive/` holds the earlier finetune experiments (`experiment_b`, `experiment_c`, `loso_phase1`, `phase2`): superseded
 by the restart on the corrected pipeline, kept as the record of why the head was chosen (their stamp-head numbers ran without
 MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<output_path>/` (`output_path` may contain a

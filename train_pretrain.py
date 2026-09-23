@@ -18,7 +18,7 @@ from IO.dataset import build_dataset_from_config
 from IO.masking import build_masking_strategy_from_config
 from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
-from tools.analysis import pick_trial
+from tools.analysis import pick_trial, resolve_output_path
 from tools.analysis.snapshot import build_pretrain_bundle
 from tools.panels import PanelContext, run_panels
 
@@ -176,14 +176,9 @@ def main():
     train_params = config['training_params']['pretrain']
     device     = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     model_name = train_params.get('model_name', 'default_run')
-    # output_path: where this run writes under output/ -- separate from model_name (a
-    # clean identity string) so a backbone gaining finetune runs can move its pretrain
-    # artifacts to output/<model_name>/pretrain/ (CLAUDE.md's Outputs convention)
-    # without model_name itself carrying a path segment. Falls back to model_name for
-    # configs that don't set it.
-    output_path = train_params.get('output_path', model_name)
+    train_params.setdefault('model_name', model_name)
 
-    base_output_dir = f"output/{output_path}"
+    base_output_dir = f"output/{resolve_output_path(config, mode='pretrain')}"
     checkpoint_dir  = os.path.join(base_output_dir, "checkpoint")
     artifact_dir    = os.path.join(base_output_dir, "artifacts")
     vis_dir         = os.path.join(base_output_dir, "visualization")

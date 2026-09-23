@@ -2,9 +2,8 @@
 
 A real run's config, never the templates directly. Every model version gets its own
 folder from the start — `config/runs/<model_name>/` — even before any finetune run
-exists for it (this is stricter than `output/`'s own rule, see CLAUDE.md's "Outputs"
-section, which stays flat until a backbone has finetune runs; `config/runs/` always
-nests, config edits happen far more often than a backbone gains its first finetune run).
+exists for it (mirrors `output/`, where pretrain always lands in
+`output/<model_name>/pretrain/`, see CLAUDE.md's "Outputs" section).
 
 Pretrain and finetune configs are split: a finetune overlay sets `"base_config"` to its
 backbone's pretrain file and `load_config` (`tools/analysis/__init__.py`) deep-merges the
@@ -21,10 +20,10 @@ cp config/config.template.json config/runs/<model_name>/pretrain.json
 
 A run's actual write location under `output/` is `training_params.<mode>.output_path`,
 not `model_name` -- `model_name` stays a clean identity string (what gets logged at
-startup), `output_path` is the field allowed to carry a path segment (falls back to
-`model_name` when unset, see CLAUDE.md's "Outputs" section). e.g.
-`config/runs/mesae_v10_small/pretrain.json` sets `model_name: "mesae_v10_small"`,
-`output_path: "mesae_v10_small/pretrain"`, producing `output/mesae_v10_small/pretrain/`;
+startup), `output_path` is the field allowed to carry a path segment (when unset it
+defaults to `"<model_name>/pretrain"` for pretrain, plain `model_name` for finetune, see
+CLAUDE.md's "Outputs" section). e.g. `config/runs/mesae_v12_small/pretrain.json` sets only
+`model_name: "mesae_v12_small"` and lands in `output/mesae_v12_small/pretrain/`;
 `config/runs/mesae_v10_small/finetune/learned/BNCI2014001_intra.json` sets
 `model_name: "learned_BNCI2014001_intra"`,
 `output_path: "mesae_v10_small/finetune/learned/BNCI2014001_intra"`, producing
