@@ -75,7 +75,7 @@ MeSAE's second training phase: the Tokenizer-stage StampBank is frozen (weights 
 
 ## Current MeSAE defaults
 
-What `config/config.json` builds today. Rationale for each choice lives in the ADRs;
+What `config/config.template.json` builds today. Rationale for each choice lives in the ADRs;
 this is the snapshot, so a reader does not have to reconstruct it from the config.
 
 **Signal path**: bandpass 0.5–100Hz → 200Hz (baked into the cache) → Window 800 (4s) →

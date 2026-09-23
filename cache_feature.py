@@ -1,6 +1,6 @@
 """Stamp-amplitude cache for the frozen backbone (finetune restructure, sub-project B).
 Pipeline stage between the compiled data (cache_dataset.py) and the finetune head, hence a root script:
-    python cache_feature.py --config config/config.json
+    python cache_feature.py --config config/config.template.json
 
 The backbone never changes during finetuning, so its stamp amplitudes are computed once per
 (checkpoint, dataset, preprocessing) and stored next to the backbone:
@@ -166,7 +166,7 @@ def _subjects(ds_args):
 
 def main():
     ap = argparse.ArgumentParser(description="Build the stamp-amplitude cache for every finetune dataset in a config.")
-    ap.add_argument('--config', default='config/config.json')
+    ap.add_argument('--config', default='config/config.template.json')
     ap.add_argument('--batch-size', type=int, default=64)
     args = ap.parse_args()
     with open(args.config, encoding='utf-8') as f:

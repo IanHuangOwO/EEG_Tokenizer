@@ -4,7 +4,7 @@ snapshot (MeSAE, resolved from the model instance) via BaseEpochChecker.check_pr
 (model/base_checker.py), plus cross-dataset codebook/vocab diagnostics
 (model/base_codebook_checker.py). Finetune-stage analysis lives in analysis_finetune.py.
 
-Config resolution: config/analysis.json (or --config) is a small overlay — checkpoint,
+Config resolution: config/analysis.template.json (or --config) is a small overlay — checkpoint,
 dataset_params.pretrain (one dataset entry, subject_to_use = subjects to visualize;
 shared by Tokenizer and Pretrain-stage checkpoints, see CLAUDE.md), check.plot_* toggles.
 It's deep-merged onto the full run config, taken from the checkpoint's own
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     from tools.panels import PanelContext, run_panels
 
     parser = argparse.ArgumentParser(description='Post-training EEG checker (MeSAE)')
-    parser.add_argument('--config',      default='config/analysis.json')
+    parser.add_argument('--config',      default='config/analysis.template.json')
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
     parser.add_argument('--analysis',    default=None, choices=['snapshot', 'codebook', 'both'],

@@ -349,7 +349,7 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
 
 def main():
     ap = argparse.ArgumentParser(description='Finetune a FeatureHead on a frozen MeSAE backbone')
-    ap.add_argument('--config', default='config/config.json')
+    ap.add_argument('--config', default='config/config.template.json')
     args = ap.parse_args()
     with open(args.config) as f:
         config = json.load(f)

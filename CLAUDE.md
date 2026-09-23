@@ -12,21 +12,21 @@ pip install -r requirements.txt
 
 # Pretrain: one run, two phases -- unmasked tokenizer phase for
 # training_params.pretrain.tokenizer_epochs, then masked phase (docs/adr/0013)
-python train_pretrain.py --config config/config.json
+python train_pretrain.py --config config/runs/<model_name>.json
 
 # Profile model (parameter counts + per-component forward-pass timing, no checkpoint/dataset needed)
 python analysis_pretrain.py --panel profile [--train]
 
 # Run Finetune stage: trains only the head on the frozen backbone's stamp-amplitude cache (or the
 # patched raw signal for raw_* features); training_params.finetune.split picks intra_subject / inter_subject
-python train_finetune.py --config config/config.json
+python train_finetune.py --config config/runs/<backbone>/finetune/<head>.json
 
 # Post-training checker, PRETRAIN stage (checkpoint -> topo/PSD/attn snapshot per subject,
 # plus cross-dataset codebook/vocab diagnostics; base config auto-derived from the
-# checkpoint's output/<model>/artifacts/config.json, config/analysis.json is a small
-# overlay; tools/viz/extract.py, panels.py, timeseries.py, topomap.py are shared primitives it
-# and model/base_checker.py both call — not run directly)
-python analysis_pretrain.py --config config/analysis.json --checkpoint <path>
+# checkpoint's output/<model>/artifacts/config.json, config/analysis.template.json is a small
+# overlay; tools/viz/extract.py, stamp_plots.py, timeseries.py, topomap.py are shared primitives
+# it and tools/panels/ both call — not run directly)
+python analysis_pretrain.py --config config/analysis.template.json --checkpoint <path>
 
 # Post-training checker, FINETUNE stage (checkpoint -> per-class correct/wrong snapshot
 # pairs; --base-config is required, a finetune run's artifacts/config_<timestamp>.json
@@ -42,10 +42,22 @@ python cache_dataset.py --config config/compile.json
 
 # Build the stamp-amplitude cache of the finetune datasets (frozen backbone run once per subject;
 # the runner will do this automatically)
-python cache_feature.py --config config/config.json
+python cache_feature.py --config config/runs/<backbone>/finetune/<head>.json
 ```
 
 No test suite exists. Validation runs during training.
+
+### `config/` layout
+
+`config/config.template.json` / `config/analysis.template.json` are never pointed at by
+a real run directly — they're starting points. To start a new run: copy the template into
+`config/runs/`, named after the run's own `model_name` (mirroring the `output/` path it
+will produce, e.g. `config/runs/mesae_v10_small.json` for a pretrain run, or
+`config/runs/mesae_v10_small/finetune/learned.json` for a finetune head — see
+`docs/adr/0017` for why finetune runs nest under their backbone), and edit that copy —
+never the template. `config/subject_groups/*.json` (seeded seen/unseen subject splits,
+see `training_params.finetune.split.eval_subjects: "auto"` below) and `config/
+compile.json`/`config/montages.json` (not per-run) are unchanged by this convention.
 
 ## Architecture
 
@@ -116,7 +128,7 @@ patch_len 50), `recon_mse` collapsed to ~0 on every dataset at once while activa
 kurtosis fell 6.68 -> 1.17 and cross-atom correlation quadrupled. Current default sits
 at 32. See `docs/adr/0011-matching-pursuit-residual-loss.md`.
 
-### Config (`config/config.json`)
+### Config (`config/config.template.json`, copied per run into `config/runs/` — see above)
 
 Key fields:
 - `model_params.MeSAE.pretrain`: the one architecture block — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks` (also the tokenizer-phase block set), `moe_ffn`, `stamp_bank`, `loss`. `model_params.MeSAE.finetune`: head keys (numeric, validated at build; the checkpoint stores the resolved `head_config`) — `features` (list, one or more of `stamp_power`/`stamp_band`/`raw_band`/`raw_signal`/`phase_advance`/`evoked`; `phase_advance`/`evoked` need exactly one of `stamp_power`/`stamp_band` in the same list — see `docs/superpowers/specs/2026-09-22-list-feature-head-design.md`), `spatial_k` (one shared value across every entry), `time_pool` (`flat`/`learned`/`window`/`none`, default for every entry), `time_rank`, `window` (`[lo, hi]` s), `evoked_rank`, `overrides` (`{entry_name: {time_pool/time_rank/window/evoked_rank}}`, per-entry override of the defaults above), `dropout`; old bare `feature: "<name>"` configs/checkpoints still load (normalized to a one-element `features` list); defaults in `docs/adr/0016`

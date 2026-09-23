@@ -1,5 +1,5 @@
 """profile panel: parameter counts and per-component forward-pass timing for a fresh
-(untrained) model built from config/config.json -- no checkpoint, no dataset. Replaces
+(untrained) model built from config/config.template.json -- no checkpoint, no dataset. Replaces
 the old standalone profile_model.py; run via
 `python analysis_pretrain.py --panel profile [--train]` or the same from
 analysis_finetune.py -- both stages support it, see STAGES below."""

@@ -167,7 +167,7 @@ def main():
     parser = argparse.ArgumentParser(description='MeSAE pretraining, one run, two phases: unmasked tokenizer phase '
                                                    '(training_params.pretrain.tokenizer_epochs), then masked phase. '
                                                    'See docs/adr/0013.')
-    parser.add_argument('--config', type=str, default='config/config.json')
+    parser.add_argument('--config', type=str, default='config/config.template.json')
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:

@@ -1,5 +1,5 @@
 """Model profiling: parameter counts and per-component forward-pass timing, from a fresh
-untrained model (config/config.json's architecture) -- no checkpoint, no dataset. Moved
+untrained model (config/config.template.json's architecture) -- no checkpoint, no dataset. Moved
 from the old standalone profile_model.py; see tools/panels/panel_profile.py for the CLI
 entry point and the printed report."""
 import logging
