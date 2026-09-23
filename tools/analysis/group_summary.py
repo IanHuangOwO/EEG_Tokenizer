@@ -21,12 +21,18 @@ def head_name(path):
     <dataset>_<mode>_<head>/ layout encoded the head in the run's own leaf dir name,
     1 level above 'artifacts'; that layout is detected here by the ABSENCE of a
     'finetune' marker dir 4 levels up, and still supported since output/archive/'s
-    older runs and output/baseline/'s own raw_signal runs both use it)."""
+    older runs and output/baseline/'s own raw_signal runs both use it). Returns
+    '<head>/<dataset>_<mode>' (not just '<head>') for the new layout -- a whole-tree glob
+    (e.g. 'output/<backbone>/finetune/*/*/artifacts/group_eval.json', see
+    panel_group_summary.py) spans every dataset_mode too, and two different datasets under
+    the SAME head would otherwise collide on one dict key and silently overwrite each
+    other's numbers."""
     p = os.path.abspath(path)
     run_dir = os.path.dirname(os.path.dirname(p))          # .../<dataset>_<mode> (or old-style leaf)
     finetune_marker = os.path.dirname(os.path.dirname(run_dir))
     if os.path.basename(finetune_marker) == 'finetune':
-        return os.path.basename(os.path.dirname(run_dir))  # .../finetune/<head>/<dataset>_<mode>
+        head = os.path.basename(os.path.dirname(run_dir))  # .../finetune/<head>/<dataset>_<mode>
+        return f'{head}/{os.path.basename(run_dir)}'
     return os.path.basename(run_dir)
 
 

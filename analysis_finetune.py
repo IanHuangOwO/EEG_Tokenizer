@@ -99,9 +99,12 @@ if __name__ == '__main__':
     parser.add_argument('--train',       action='store_true',
                          help='(panel_profile only) profile in train mode (eigh skipped)')
     parser.add_argument('--group-eval',  action='append', default=[], dest='group_eval',
-                         help='(panel_group_summary only) path to an artifacts/group_eval.json '
-                              '(repeatable; first path is the reference every later one is '
-                              'paired against)')
+                         help='(panel_group_summary only) path to an artifacts/group_eval.json, '
+                              'or a glob pattern (e.g. '
+                              '"output/<backbone>/finetune/*/*/artifacts/group_eval.json" for '
+                              'every head/dataset_mode in the whole baseline matrix at once) '
+                              '(repeatable; first path/match is the reference every later one '
+                              'is paired against)')
     args = parser.parse_args()
 
     if args.panel:
