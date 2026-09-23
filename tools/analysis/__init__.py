@@ -42,6 +42,28 @@ def resolve_output_dir(config: dict, *sub_dirs: str, mode: str = 'pretrain') -> 
     return path
 
 
+def resolve_finetune_analysis_dir(config: dict, dataset_name: str) -> str:
+    """Return analysis_finetune.py's output dir for one dataset and create it.
+
+    For a baseline-matrix run (training_params.finetune.model_name ==
+    '<backbone>/finetune/<head>/<dataset>_<mode>', see ADR 0017) this is
+    output/<backbone>/finetune/analysis/<head>/<dataset>_<mode>/<dataset_name>/ -- one
+    shared analysis/ root directly under finetune/ (sibling to every head's own run dirs),
+    instead of nested inside each individual run, so every run's snapshots land in one
+    place. Falls back to resolve_output_dir's plain output/<model_name>/analysis/
+    <dataset_name>/ for any model_name that isn't shaped like a baseline-matrix run (no
+    literal '/finetune/' marker -- e.g. an ad-hoc model_name from a one-off run)."""
+    model_name = config['training_params']['finetune']['model_name']
+    marker = '/finetune/'
+    if marker in model_name:
+        backbone, rest = model_name.split(marker, 1)   # rest = '<head>/<dataset>_<mode>'
+        path = os.path.join('output', backbone, 'finetune', 'analysis', rest, dataset_name)
+    else:
+        path = os.path.join('output', model_name, 'analysis', dataset_name)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def select_subject_dataset(config: dict, subject=None, dataset_name: str = None, mode: str = 'pretrain'):
     """
     Resolve (dataset_name, subject_id) using:

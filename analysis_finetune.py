@@ -80,7 +80,7 @@ if __name__ == '__main__':
     import copy
     import torch
     from IO.dataset import build_dataset_from_config
-    from tools.analysis import _deep_merge, load_model, resolve_output_dir
+    from tools.analysis import _deep_merge, load_model, resolve_finetune_analysis_dir
     from tools.analysis.snapshot import build_finetune_bundle
     from tools.panels import PanelContext, run_panels
 
@@ -177,7 +177,7 @@ if __name__ == '__main__':
     num_classes  = int(labels.max()) + 1
     target_names = _load_target_names(ds_cfg['dataset_path'], num_classes)
 
-    out = resolve_output_dir(filtered, 'analysis', dataset_name, mode=mode)
+    out = resolve_finetune_analysis_dir(filtered, dataset_name)
     for cls_idx in range(num_classes):
         name = target_names[cls_idx]
         safe = _safe_name(name)
@@ -198,7 +198,7 @@ if __name__ == '__main__':
                 if check_cfg.get('plot_recon', True):
                     panels.append('recon_signal')
                 if check_cfg.get('plot_topo_psd', True):
-                    panels += ['stamp_by_patch', 'stamp_gallery']
+                    panels.append('stamp_gallery')
                 panel_ctx = PanelContext(config=filtered, output_dir=out, device=device, args=args,
                                           model=mdl, dataset=ds, cmap=cmap, bundle=bundle)
                 run_panels(panels, 'finetune', panel_ctx)
