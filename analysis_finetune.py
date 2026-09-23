@@ -105,6 +105,10 @@ if __name__ == '__main__':
                               'every head/dataset_mode in the whole baseline matrix at once) '
                               '(repeatable; first path/match is the reference every later one '
                               'is paired against)')
+    parser.add_argument('--group-eval-out', default=None, dest='group_eval_out',
+                         help='(panel_group_summary only) dir to write group_summary.csv/'
+                              'group_summary_folds.csv into (default: the first --group-eval '
+                              "match's own output/<backbone>/finetune/analysis/)")
     args = parser.parse_args()
 
     if args.panel:

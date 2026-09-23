@@ -1,15 +1,18 @@
 """group_summary panel: cross-fold/cross-subject stats over train_finetune.py's
-artifacts/group_eval.json (tools/analysis/group_summary.py's print_group_summary).
-No checkpoint/dataset needed -- reads one or more group_eval.json paths from
-ctx.args.group_eval (--group-eval, repeatable; first path is the reference every later
-one gets paired against). Each value may be a literal path or a glob pattern (e.g.
-'output/<backbone>/finetune/*/*/artifacts/group_eval.json' -- the whole baseline
-matrix's group_eval.json files in one shot, per head/dataset_mode); glob matches are
-sorted and deduped against any already-collected path, preserving first-seen order
-(a literal path listed before a glob still becomes the reference)."""
+artifacts/group_eval.json (tools/analysis/group_summary.py's print_group_summary +
+write_group_summary_csv). No checkpoint/dataset needed -- reads one or more
+group_eval.json paths from ctx.args.group_eval (--group-eval, repeatable; first path is
+the reference every later one gets paired against). Each value may be a literal path or
+a glob pattern (e.g. 'output/<backbone>/finetune/*/*/artifacts/group_eval.json' -- the
+whole baseline matrix's group_eval.json files in one shot, per head/dataset_mode); glob
+matches are sorted and deduped against any already-collected path, preserving
+first-seen order (a literal path listed before a glob still becomes the reference).
+Always writes group_summary.csv (pooled rollup + paired comparisons) and
+group_summary_folds.csv (every raw per-fold row) to
+output/<backbone>/finetune/analysis/, or --group-eval-out if given."""
 import glob
 
-from tools.analysis.group_summary import print_group_summary
+from tools.analysis.group_summary import print_group_summary, write_group_summary_csv
 
 
 def _expand(patterns):
@@ -39,3 +42,5 @@ def run(ctx):
     if not paths:
         raise ValueError(f"no group_eval.json files matched: {raw}")
     print_group_summary(paths)
+    out_dir = getattr(ctx.args, 'group_eval_out', None) or None
+    write_group_summary_csv(paths, out_dir=out_dir)
