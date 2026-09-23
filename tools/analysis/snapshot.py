@@ -20,6 +20,7 @@ import torch.nn as nn
 from IO.preprocessing import slice_patches
 from model.MeSAE.MeSAE_modules import overlap_add_patches
 from model.MeSAE.plugin import MeSAETrainer
+from tools.analysis import lookup_event_onset_sample
 
 
 @dataclass
@@ -54,28 +55,22 @@ class SnapshotBundle:
 
 
 def _lookup_event_onset(config, dataset, trial_idx):
-    """config['check']['event_onset_sample'] ({dataset_name: samples} dict, or a scalar
-    for all) -> seconds, or None. Only meaningful for a genuine single real trial: an
-    assembled continuous window (assemble_trials=True) mixes multiple real trials
-    together with no one event to mark, so this deliberately returns None whenever
-    base_dataset.assemble_trials is True rather than draw a misleading line. `is not
-    None` (not truthiness) throughout -- an onset of literal 0 is a real, legitimate
-    value, not "not configured"."""
+    """This trial's dataset's own metadata.json event_onset_sample (see
+    tools.analysis.lookup_event_onset_sample) -> seconds, or None. Only meaningful for a
+    genuine single real trial: an assembled continuous window (assemble_trials=True)
+    mixes multiple real trials together with no one event to mark, so this deliberately
+    returns None whenever base_dataset.assemble_trials is True rather than draw a
+    misleading line. `is not None` (not truthiness) throughout -- an onset of literal 0
+    is a real, legitimate value, not "not configured"."""
     base_dataset = dataset.base_dataset
     if getattr(base_dataset, 'assemble_trials', True):
-        return None
-    eo = config.get('check', {}).get('event_onset_sample')
-    if eo is None:
         return None
     fs = config.get('preprocess_params', {}).get('sample_freq')
     if not fs:
         return None
-    if isinstance(eo, dict):
-        base_idx = trial_idx % len(base_dataset)
-        ds_name = base_dataset.dataset_names[base_idx]
-        onset = eo.get(ds_name)
-    else:
-        onset = eo
+    base_idx = trial_idx % len(base_dataset)
+    ds_name = base_dataset.dataset_names[base_idx]
+    onset = lookup_event_onset_sample(config, ds_name)
     return (onset / fs) if onset is not None else None
 
 

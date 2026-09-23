@@ -303,14 +303,5 @@
         "every_n_epochs": 10
       }
     }
-  },
-  "check": {
-    "event_onset_sample": {
-      "_comment": "Samples at preprocess_params.sample_freq (200Hz) -- the cut_event_window pad point, round(pre_event_seconds * sample_freq) = round(1.0*200) = 200 for every event-anchored dataset (BNCI2014001/BCICIV1_Train/Inria_Train, and BNCI2014004/Inria_Test/BCICIV1_Test which share the same loaders). PhysionetMI stays 0/unshifted: it labels T0 (rest) as its own class with ~0 real pre-event headroom, so it's deliberately excluded from the pre/post-event buffer (see datas/PhysionetMI/loader.py, docs/model-analysis-checklist.md). Mirrors config/analysis.json's check.event_onset_sample -- used by model/base_checker.py's _lookup_event_onset to draw the event line in training-time recon_signal/stamp_by_patch snapshots too, not just check_model.py's standalone analysis.",
-      "BNCI2014001": 200,
-      "PhysionetMI": 0,
-      "BCICIV1_Train": 200,
-      "Inria_Train": 200
-    }
   }
 }

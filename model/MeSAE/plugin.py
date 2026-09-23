@@ -20,6 +20,7 @@ from tools.viz.codebook import (plot_stamp_similarity, plot_patch_position_consi
                            plot_pool_energy_share, plot_stamp_energy_rank,
                            plot_stamp_phase_consistency, plot_topography_distance,
                            plot_pool_ablation, plot_pool_label_probe)
+from tools.analysis import lookup_event_onset_sample
 from IO.preprocessing import slice_patches
 
 
@@ -537,9 +538,10 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         selection rate and power. Trials are onset-aligned (assemble_trials=False in the
         analysis path), so a fixed time within the trial is comparable across trials.
 
-        Event onset per dataset: config['check']['event_onset_sample'] ({ds: samples} dict
-        or a scalar for all); absent -> trajectory + heatmap only, no pre/post split. Same
-        expensive-on-a-subsample tradeoff as _render_patch_position_consistency."""
+        Event onset per dataset: this dataset's own metadata.json event_onset_sample (see
+        tools.analysis.lookup_event_onset_sample); absent -> trajectory + heatmap only, no
+        pre/post split. Same expensive-on-a-subsample tradeoff as
+        _render_patch_position_consistency."""
         if not ds_trials:
             return
         from collections import defaultdict
@@ -548,12 +550,11 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         patch_len = pp.get('patch_length', 100)
         native_stride = pp.get('patch_stride', patch_len)
 
-        eo = config.get('check', {}).get('event_onset_sample', {})
-        onset = eo.get(ds_name) if isinstance(eo, dict) else eo
+        onset = lookup_event_onset_sample(config, ds_name)
         # `is not None`, not truthiness -- an onset of literal 0 (event at trial start,
         # e.g. BCICIV1_Train/Inria_Train/PhysionetMI/BNCI2014001, all trigger-cut with no
-        # pre-event buffer, see config/analysis.json's event_onset_sample comment) is a
-        # real, legitimate value. `onset and fs` treated 0 as falsy and silently fell
+        # pre-event buffer, see that dataset's own metadata.json event_onset_sample_note)
+        # is a real, legitimate value. `onset and fs` treated 0 as falsy and silently fell
         # through to "not configured", which would have made every 0 entry a no-op.
         onset_sec = (onset / fs) if (onset is not None and fs) else (float(onset) if onset is not None else None)
 

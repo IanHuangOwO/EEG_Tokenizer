@@ -76,10 +76,10 @@ class BaseCodebookChecker:
         """Default: no-op. Override (e.g. MeSAECodebookChecker) to render an event-locked
         unit-selection / power trajectory -> event_stamp_dynamics_<ds_name>.png. Needs a
         fresh sliding-window forward pass per trial, so only subclasses with
-        needs_raw_tensors can implement it. Event onset per dataset comes from
-        config['check']['event_onset_sample'] (a {dataset_name: samples} dict, or a
-        scalar applied to all); datasets absent from it still get the trajectory + heatmap
-        without the pre/post split."""
+        needs_raw_tensors can implement it. Event onset per dataset comes from that
+        dataset's own metadata.json event_onset_sample (see
+        tools.analysis.lookup_event_onset_sample); datasets whose metadata.json has none
+        still get the trajectory + heatmap without the pre/post split."""
 
     def _render_fingerprint_similarity(self, viz_dir, model):
         """Default: no-op. Override to render decoder_fingerprint_matrix(model) (already

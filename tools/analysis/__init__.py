@@ -12,6 +12,32 @@ import numpy as np
 import torch
 
 
+def lookup_event_onset_sample(config: dict, ds_name: str):
+    """This dataset's own datas/<ds_name>/metadata.json data_metadata.event_onset_sample
+    (an int sample count, or None if absent) -- a per-dataset property of which loader
+    pre-event shift was applied, not a per-run setting, so it lives in the dataset's own
+    metadata rather than being copy-pasted into every config that references it (see
+    that file's sibling event_onset_sample_note for the per-dataset rationale). Finds
+    ds_name's dataset_path by searching every dataset_params.<mode> entry (pretrain,
+    finetune, ...) for a matching key. Returns None if the dataset isn't in config at
+    all, or its metadata.json has no event_onset_sample -- `is not None`, not truthiness,
+    at every call site: an onset of literal 0 is a real, legitimate value, not "not
+    configured"."""
+    dataset_path = None
+    for mode_params in config.get('dataset_params', {}).values():
+        if ds_name in mode_params:
+            dataset_path = mode_params[ds_name].get('dataset_path')
+            break
+    if dataset_path is None:
+        return None
+    meta_path = os.path.join(dataset_path, 'metadata.json')
+    if not os.path.exists(meta_path):
+        return None
+    with open(meta_path) as f:
+        meta = json.load(f)
+    return meta.get('data_metadata', {}).get('event_onset_sample')
+
+
 def _deep_merge(base: dict, override: dict) -> dict:
     result = copy.deepcopy(base)
     for k, v in override.items():

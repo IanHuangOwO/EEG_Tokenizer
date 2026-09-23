@@ -211,7 +211,9 @@
                 "label": "EOG",
                 "original_label": "EOG-right"
             }
-        }
+        },
+        "event_onset_sample": 200,
+        "event_onset_sample_note": "Cue-onset sample at preprocess_params.sample_freq (200Hz): round(pre_event_seconds * sample_freq) = round(1.0*200) = 200 -- the cut_event_window pad point. Verified >=3.58s real pre-event headroom, far more than the 1.0s pad."
     },
     "data_structure": {
         "1": {

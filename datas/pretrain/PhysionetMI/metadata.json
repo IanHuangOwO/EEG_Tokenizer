@@ -517,7 +517,9 @@
                 "label": "IZ",
                 "original_label": "Iz.."
             }
-        }
+        },
+        "event_onset_sample": 0,
+        "event_onset_sample_note": "0 (unshifted): T0 (rest) is labeled as its own class with ~0 real pre-event headroom -- deliberately excluded from the pre/post-event buffer other event-anchored datasets get, see this dataset's loader.py."
     },
     "data_structure": {
         "1": {
