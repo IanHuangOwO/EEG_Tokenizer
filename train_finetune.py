@@ -23,6 +23,7 @@ from model.factory import MODEL_REGISTRY, load_backbone
 from model.MeSAE.MeSAE_modules import (FeatureHead, StampExtractor, make_head_checkpoint,
                                        resolve_head_config, needs_stamp, needs_raw,
                                        _normalize_features)
+from tools.analysis import load_config
 
 torch.set_float32_matmul_precision('high')
 
@@ -73,7 +74,7 @@ def _trials_of(subject_data, subjects):
 
 def _resolve_auto_split(split, ds_name, pretrained_checkpoint):
     """split['eval_subjects'] == 'auto' -> the cached (or freshly generated)
-    config/subject_groups/<ds_name.lower()>.json seen/unseen split, filled into
+    config/finetune_eval_splits/<ds_name.lower()>.json seen/unseen split, filled into
     eval_subjects/train_subjects. Any other eval_subjects value (a list, or an explicit
     dict) passes through unchanged -- 'auto' is opt-in, not the default.
 
@@ -93,7 +94,7 @@ def _resolve_auto_split(split, ds_name, pretrained_checkpoint):
             f"split.eval_subjects='auto' needs '{ds_name}' registered in "
             f"tools.analysis.select_eval_subsets.DATASETS (currently: {sorted(DATASETS)}) "
             "-- add it there first, 'auto' does not fall back to a different split mode")
-    cache_path = os.path.join('config', 'subject_groups', f'{key}.json')
+    cache_path = os.path.join('config', 'finetune_eval_splits', f'{key}.json')
     if not os.path.exists(cache_path):
         run_config = os.path.join(os.path.dirname(os.path.dirname(pretrained_checkpoint)),
                                   'artifacts', 'config.json')
@@ -351,8 +352,7 @@ def main():
     ap = argparse.ArgumentParser(description='Finetune a FeatureHead on a frozen MeSAE backbone')
     ap.add_argument('--config', default='config/config.template.json')
     args = ap.parse_args()
-    with open(args.config) as f:
-        config = json.load(f)
+    config = load_config(args.config)
     tp = config['training_params']['finetune']
     if 'split' not in tp:
         raise ValueError("training_params.finetune.split is required (mode: intra_subject | inter_subject)")

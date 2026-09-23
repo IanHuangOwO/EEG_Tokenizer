@@ -1,9 +1,12 @@
-"""Reproducible seen/unseen subject subsets for group-holdout finetune evals. Ported from
-probes/select_eval_subsets.py -- CPU only, writes config/subject_groups/<name>.json,
-idempotent (seed 42). RUN/DATASETS/DS_ROOT/SEED below are the same defaults the original
-script hardcoded; select_eval_subsets()'s `names`/`run_config`/`out_dir` params let a
-caller override the parts that vary in practice. DATASETS/DS_ROOT/SEED stay module
-globals -- add real params for them if a caller ever needs to swap them.
+"""Reproducible subject train/eval subsets for finetune evals. No dataset in DATASETS is
+also used in pretrain, so there's no 'seen' (backbone-familiar) subject group anymore --
+every subject is a cold-start eval candidate; only a train/eval subject partition is
+generated. Ported from probes/select_eval_subsets.py -- CPU only, writes
+config/finetune_eval_splits/<name>.json, idempotent (seed 42). RUN/DATASETS/DS_ROOT/SEED
+below are the same defaults the original script hardcoded; select_eval_subsets()'s
+`names`/`run_config`/`out_dir` params let a caller override the parts that vary in
+practice. DATASETS/DS_ROOT/SEED stay module globals -- add real params for them if a
+caller ever needs to swap them.
 """
 import json
 import os
@@ -17,8 +20,8 @@ from IO.dataset import build_dataset_from_config
 
 RUN = 'output/mesae_v10_small/pretrain/artifacts/config.json'
 SEED, BANDS = 42, ((8, 13), (13, 30))
-DATASETS = {'physionetmi': 'PhysionetMI', 'beta4s': 'BETA_4s'}
-DS_ROOT = {'PhysionetMI': 'datas/pretrain', 'BETA_4s': 'datas/pretrain'}
+DATASETS = {}
+DS_ROOT = {}
 
 
 def _load(cfg, ds, ds_root):
@@ -53,40 +56,37 @@ def _run_one(name, ds, pre_cfg, ds_root, seed, out_dir):
     sid = b.subject_data.numpy(); y = b.labels.numpy() if hasattr(b.labels, 'numpy') else np.asarray(b.labels)
     subs = sorted(set(sid.tolist()))
     exist = {str(s) for s in subs}
-    seen = sorted({str(s) for s in pre_cfg['dataset_params']['pretrain'][ds]['subject_to_use']} & exist, key=int)
-    unseen = sorted(exist - set(seen), key=int)
     rng = np.random.RandomState(seed)
     out = {'dataset': ds, 'seed': seed}
+    # eval quota scales with pool size (~20%, at least 2, leaving >=1 for train)
+    n_eval = min(max(2, round(0.2 * len(exist))), len(exist) - 1)
     if name == 'physionetmi':
         px = {str(s): _proxy(np.asarray(b.data[sid == s]), y[sid == s], fs, seed) for s in subs}
-        order = sorted(unseen, key=lambda s: (px[s], int(s)))
-        bins = np.array_split(np.arange(len(order)), 10)
+        order = sorted(exist, key=lambda s: (px[s], int(s)))
+        bins = np.array_split(np.arange(len(order)), n_eval)
         ev = [order[bn[len(bn) // 2]] for bn in bins]
-        rest = [s for s in unseen if s not in ev]
-        tr = sorted(rng.choice(rest, 30, replace=False).tolist(), key=int)
-        pu = np.array([px[s] for s in unseen]); pe = np.array([px[s] for s in ev])
-        ks = ks_2samp(pe, pu)
+        tr = sorted([s for s in exist if s not in ev], key=int)
+        pa = np.array([px[s] for s in exist]); pe = np.array([px[s] for s in ev])
+        ks = ks_2samp(pe, pa)
         out.update(proxy=px, proxy_note='5-fold stratified shrinkage-LDA acc on log mu/beta band power',
-                   stats={'all_unseen': _summ(pu), 'eval_unseen': _summ(pe),
-                          'seen': _summ([px[s] for s in seen]) if seen else None,
-                          'ks_stat': float(ks.statistic), 'ks_p': float(ks.pvalue), 'n_unseen': len(unseen), 'n_seen': len(seen)})
+                   stats={'all': _summ(pa), 'eval': _summ(pe),
+                          'ks_stat': float(ks.statistic), 'ks_p': float(ks.pvalue), 'n_train': len(tr), 'n_eval': len(ev)})
     else:
-        ev = sorted(rng.choice(unseen, 10, replace=False).tolist(), key=int)
-        rest = [s for s in unseen if s not in ev]
-        tr = sorted(rng.choice(rest, min(30, len(rest)), replace=False).tolist(), key=int)
+        ev = sorted(rng.choice(sorted(exist, key=int), n_eval, replace=False).tolist(), key=int)
+        tr = sorted([s for s in exist if s not in ev], key=int)
         out.update(selection='random, seeded (no difficulty proxy for 40-class SSVEP)',
-                   stats={'n_unseen': len(unseen), 'n_train': len(tr), 'n_seen_eval': len(seen)})
-    out.update(train=tr, eval={'seen': seen, 'unseen': sorted(ev, key=int)})
-    assert not set(tr) & set(ev) and not set(tr) & set(seen) and not set(seen) & set(unseen)
-    assert set(tr) | set(ev) | set(seen) <= exist
+                   stats={'n_train': len(tr), 'n_eval': len(ev)})
+    out.update(train=tr, eval={'unseen': sorted(ev, key=int)})
+    assert not set(tr) & set(ev)
+    assert set(tr) | set(ev) <= exist
     os.makedirs(out_dir, exist_ok=True)
     p = os.path.join(out_dir, f'{name}.json')
     json.dump(out, open(p, 'w'), indent=1); open(p, 'a').write('\n')
-    print(f'== {ds}: train={tr}\n   eval seen={seen}\n   eval unseen={out["eval"]["unseen"]}')
+    print(f'== {ds}: train={tr}\n   eval={out["eval"]["unseen"]}')
     print('  stats', json.dumps(out['stats'], indent=1))
 
 
-def select_eval_subsets(names=None, run_config=RUN, out_dir='config/subject_groups'):
+def select_eval_subsets(names=None, run_config=RUN, out_dir='config/finetune_eval_splits'):
     """Writes out_dir/<name>.json for each name in `names` (default: every key in
     DATASETS). Pure side-effecting print + file write, no return value (matches the
     tools/panels/ contract: the analysis layer prints/saves, the panel just passes

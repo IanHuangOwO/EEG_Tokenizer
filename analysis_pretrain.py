@@ -114,7 +114,7 @@ if __name__ == '__main__':
                               'dataset_params.pretrain subject pools (default: that module\'s RUN)')
     parser.add_argument('--se-out-dir', default=None, dest='se_out_dir',
                          help='(panel_select_eval_subsets only) output dir '
-                              '(default: config/subject_groups)')
+                              '(default: config/finetune_eval_splits)')
     args = parser.parse_args()
 
     if args.panel:

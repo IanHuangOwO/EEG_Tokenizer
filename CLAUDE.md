@@ -50,14 +50,19 @@ No test suite exists. Validation runs during training.
 ### `config/` layout
 
 `config/config.template.json` / `config/analysis.template.json` are never pointed at by
-a real run directly — they're starting points. To start a new run: copy the template into
-`config/runs/`, named after the run's own `model_name` (mirroring the `output/` path it
-will produce, e.g. `config/runs/mesae_v10_small.json` for a pretrain run, or
-`config/runs/mesae_v10_small/finetune/learned.json` for a finetune head — see
-`docs/adr/0017` for why finetune runs nest under their backbone), and edit that copy —
-never the template. `config/subject_groups/*.json` (seeded seen/unseen subject splits,
-see `training_params.finetune.split.eval_subjects: "auto"` below) and `config/
-compile.json`/`config/montages.json` (not per-run) are unchanged by this convention.
+a real run directly — they're starting points. Pretrain and finetune configs are split: a
+finetune overlay sets `"base_config"` to its backbone's pretrain file and `load_config`
+(`tools/analysis/__init__.py`) deep-merges the two. To start a new run: copy the template
+into `config/runs/`, path mirroring the `output/` path it will produce (a backbone with no
+finetune runs yet keeps its pretrain config flat at `config/runs/<model_name>.json`; once
+it has finetune runs too, its pretrain config moves to
+`config/runs/<model_name>/pretrain.json`, and each finetune head/dataset gets its own
+overlay at `config/runs/<model_name>/finetune/<head>/<dataset>.json` — see `docs/adr/0017`
+for why finetune runs nest under their backbone, and `config/runs/README.md` for the full
+convention), and edit that copy — never the template. `config/finetune_eval_splits/*.json`
+(seeded train/eval subject splits, see `training_params.finetune.split.eval_subjects:
+"auto"` below) and `config/compile.json`/`config/montages.json` (not per-run) are
+unchanged by this convention.
 
 ## Architecture
 
@@ -135,8 +140,8 @@ Key fields:
 - `preprocess_params`: `window_length`, `window_pad_threshold`, `patch_length`, `patch_stride` (patch step in samples within a Window; equal to `patch_length` for non-overlapping patches, smaller for overlapping — see `IO/preprocessing.py`'s `slice_patches`), `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `masking_strategy` (random/complementary/random_to_complementary — the last ramps random into complementary over a curriculum, see `IO/masking.py`)
 - `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — used by `train_pretrain.py` (masking applied only in the masked phase)
 - `training_params.pretrain`: `model_name` (output dir), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields
-- `dataset_params.finetune` (exactly one dataset per run) / `training_params.finetune`: `model_name`, `pretrained_checkpoint`, `learning_rate`, `min_learning_rate`, `weight_decay`, `epochs`, `warmup_epochs`, `batch_size`, `device`, `seed`, and the `split` block — `{"mode": "intra_subject", "n_folds": k}` (per-subject k-fold over that subject's own trials) or `{"mode": "inter_subject", ...}` with exactly one of `n_folds` (subject k-fold; k = number of subjects is LOSO) or `eval_subjects` (list, dict of named groups, or `"auto"` -- resolves to the cached/generated `config/subject_groups/<dataset>.json` seen/unseen split for datasets registered in `tools.analysis.select_eval_subsets.DATASETS`; errors rather than falling back to a different split mode for an unregistered dataset), plus optional `train_subjects` (ignored when `eval_subjects="auto"`, which fills it in) and `seed`. Old keys (`split_mode`, `cv_folds`, `train_val_split`, `freeze_backbone`, `backbone_lr_mult`) are gone; see `docs/superpowers/plans/2026-09-21-finetune-restructure-c-train-finetune.md`
-- `training_params.visualize_params`: diagnostic/plotting-only params, no effect on training data — `cmap` (matplotlib colormap for topomap/PSD panels), `fft_resolution` (Hz/bin for analysis_pretrain.py's/analysis_finetune.py's diagnostic PSD panels — `model/base_checker.py`/`model/MeSAE/plugin.py`'s `n_fft = round(sample_freq / fft_resolution)`; the dead train-time `fft_patches` path in `IO/dataset.py` is unrelated and stays unwired), `psd_freq_range` (`[l, h]` or `null` — overrides the PSD panel's plotted frequency range independent of `bandpass_filter`; `null` falls back to `bandpass_filter`'s `l_freq`/`h_freq`), `bands` (Delta/Theta/Alpha/Beta/Gamma `[lo, hi]` edges for the band-filtered reconstruction time-series panel, `tools/viz/timeseries.py`'s `_canonical_bands` — each band is still clipped to `bandpass_filter`'s range), plus per-mode `pretrain`/`finetune` sub-keys (`targets`, `every_n_epochs`)
+- `dataset_params.finetune` (exactly one dataset per run) / `training_params.finetune`: `model_name`, `pretrained_checkpoint`, `learning_rate`, `min_learning_rate`, `weight_decay`, `epochs`, `warmup_epochs`, `batch_size`, `device`, `seed`, and the `split` block — `{"mode": "intra_subject", "n_folds": k}` (per-subject k-fold over that subject's own trials) or `{"mode": "inter_subject", ...}` with exactly one of `n_folds` (subject k-fold; k = number of subjects is LOSO) or `eval_subjects` (list, dict of named groups, or `"auto"` -- resolves to the cached/generated `config/finetune_eval_splits/<dataset>.json` seen/unseen split for datasets registered in `tools.analysis.select_eval_subsets.DATASETS` (currently empty -- register a dataset there before using `"auto"`); errors rather than falling back to a different split mode for an unregistered dataset), plus optional `train_subjects` (ignored when `eval_subjects="auto"`, which fills it in) and `seed`. Old keys (`split_mode`, `cv_folds`, `train_val_split`, `freeze_backbone`, `backbone_lr_mult`) are gone; see `docs/superpowers/plans/2026-09-21-finetune-restructure-c-train-finetune.md`
+- `training_params.visualize_params`: diagnostic/plotting-only params, no effect on training data — `cmap` (matplotlib colormap for topomap/PSD panels), `fft_resolution` (Hz/bin for analysis_pretrain.py's/analysis_finetune.py's diagnostic PSD panels — `tools/panels/panel_stamp_gallery.py`/`panel_stamp_by_patch.py`'s `n_fft = round(sample_freq / fft_resolution)`; the dead train-time `fft_patches` path in `IO/dataset.py` is unrelated and stays unwired), `psd_freq_range` (`[l, h]` or `null` — overrides the PSD panel's plotted frequency range independent of `bandpass_filter`; `null` falls back to `bandpass_filter`'s `l_freq`/`h_freq`), `bands` (Delta/Theta/Alpha/Beta/Gamma `[lo, hi]` edges for the band-filtered reconstruction time-series panel, `tools/viz/timeseries.py`'s `_canonical_bands` — each band is still clipped to `bandpass_filter`'s range), plus per-mode `pretrain`/`finetune` sub-keys (`targets`, `every_n_epochs`)
 
 ### Outputs
 

@@ -1,6 +1,6 @@
 # EEG Tokenizer
 
-An EEG signal tokenizer: converts multi-channel EEG time series into per-patch features via masked-reconstruction pretraining. Two model families share the training/viz infrastructure — **MeFSQ** (discrete codes, Multi-head Finite Scalar Quantization) and **MeSAE** (sparse stamp dictionary, non-discrete). `config.json` currently runs MeSAE for all three stages; see "Current MeSAE defaults" below.
+An EEG signal tokenizer: converts multi-channel EEG time series into per-patch features via masked-reconstruction pretraining. **MeSAE** (sparse stamp dictionary, non-discrete) is the only live model — **MeFSQ** (discrete codes, Multi-head Finite Scalar Quantization) was removed, see `docs/adr/0013`; its terms below are kept as a glossary for reading old docs/ADRs, not a current architecture. `config/config.template.json`, copied per run into `config/runs/`, builds MeSAE; see "Current MeSAE defaults" below.
 
 ## Language
 
@@ -12,7 +12,10 @@ _Avoid_: Segment, recording, epoch (for this meaning)
 A fixed-length chunk of signal (`window_length` samples) produced by flattening a subject's trials into one continuous stream and re-cutting it (`assemble_trials=True`). Distinct from a Trial — a Window has no direct 1:1 label relationship to the original trial(s) it was cut from.
 _Avoid_: Trial (for this meaning), chunk
 
-## Quantization (MeFSQ)
+## Quantization (MeFSQ, retired)
+
+MeFSQ itself is gone (`docs/adr/0013`) — terms below are a glossary only, for reading
+docs/ADRs written while it was live. No current code builds this model.
 
 **Patch**:
 One channel's raw `patch_len`-sample time slice within a Window — the smallest unit of signal before embedding, stepped by `patch_stride` (equal to `patch_len` for non-overlapping patches, smaller to overlap consecutive patches — see `IO/preprocessing.py`'s `slice_patches`).
@@ -119,6 +122,6 @@ trains only the transformer against masked reconstruction — encoder share of p
 
 ## Model plugin architecture
 
-**Unit**: Umbrella term for whatever a model quantizes per patch position — an Expert (MeFSQ) or a Stamp (MeSAE). Used in shared code (`model/base_checker.py`, `model/base_plotter.py`) that doesn't know which model it's plotting.
+**Unit**: Umbrella term for whatever a model quantizes per patch position — an Expert (MeFSQ, retired) or a Stamp (MeSAE). Used in shared code (`model/base_codebook_checker.py`, `model/base_plotter.py`, `tools/analysis/`, `tools/panels/`) that doesn't know which model it's plotting.
 
 Each model (MeFSQ, MeSAE, or a future one) plugs into shared training/viz infrastructure via a `model/<Name>/plugin.py` bundling a `Trainer`/`Checker`/`Plotter` into one `BasePlugin`, registered in `model/factory.py`'s `MODEL_REGISTRY`. See `docs/adr/0004-model-plugin-base-classes.md` and `docs/agents/adding-a-model.md` for the full contract.
