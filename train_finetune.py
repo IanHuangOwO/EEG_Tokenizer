@@ -324,11 +324,12 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
         logits, val_loss = _predict(head, source, ev_idx, bs, device)
         val_pred = logits.argmax(1)
         val_metrics = _metrics(y_ev, val_pred, val_loss)
-        if epoch > tail_start:                       # per-subject balanced accuracy, from the same pass
+        if epoch > tail_start:                       # per-subject balanced accuracy + kappa, from the same pass
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore')
                 for key, p in pos.items():
-                    hist.setdefault(key, []).append(balanced_accuracy_score(y_ev[p], val_pred[p]))
+                    hist.setdefault(key, []).append(
+                        (balanced_accuracy_score(y_ev[p], val_pred[p]), cohen_kappa_score(y_ev[p], val_pred[p])))
         logger.info(f"--- [{tag}] Epoch {epoch}/{E} Summary ---")
         for name, m in (('Train', train_metrics), ('Val  ', val_metrics)):
             logger.info(f"  [{name}] loss: {m['loss']:.4f} | acc: {m['acc']:.4f} | f1: {m['f1']:.4f} | f1_w: {m['f1_weighted']:.4f}"
@@ -340,11 +341,17 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
                os.path.join(out_dir['ckpt'], 'head.pth'))
     out = {}
     for g, subs in run['eval'].items():
-        sd = {s: {'tail': float(np.mean(hist[(g, s)])), 'last': float(hist[(g, s)][-1]), 'n_trials': int(len(i))}
-              for s, i in subs.items()}
+        sd = {}
+        for s, i in subs.items():
+            bal_acc_hist, kappa_hist = zip(*hist[(g, s)])
+            sd[s] = {'tail': float(np.mean(bal_acc_hist)), 'last': float(bal_acc_hist[-1]),
+                      'kappa_tail': float(np.mean(kappa_hist)), 'kappa_last': float(kappa_hist[-1]),
+                      'n_trials': int(len(i))}
         out[g] = {'subjects': sd, 'n_subjects': len(sd),
                   'mean_tail': float(np.mean([v['tail'] for v in sd.values()])),
-                  'mean_last': float(np.mean([v['last'] for v in sd.values()]))}
+                  'mean_last': float(np.mean([v['last'] for v in sd.values()])),
+                  'mean_kappa_tail': float(np.mean([v['kappa_tail'] for v in sd.values()])),
+                  'mean_kappa_last': float(np.mean([v['kappa_last'] for v in sd.values()]))}
     return out
 
 
@@ -356,7 +363,10 @@ def main():
     tp = config['training_params']['finetune']
     if 'split' not in tp:
         raise ValueError("training_params.finetune.split is required (mode: intra_subject | inter_subject)")
-    base = f"output/{tp.get('model_name', 'default_finetune_run')}"
+    # output_path: where this run writes under output/ -- separate from model_name (a
+    # clean identity string), same split as train_pretrain.py's. Falls back to
+    # model_name for configs that don't set it.
+    base = f"output/{tp.get('output_path', tp.get('model_name', 'default_finetune_run'))}"
     artifact_dir = os.path.join(base, 'artifacts')
     os.makedirs(artifact_dir, exist_ok=True)
     logger, timestamp = setup_logger(artifact_dir)

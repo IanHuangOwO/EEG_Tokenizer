@@ -60,10 +60,20 @@ def load_config(path: str) -> dict:
     return cfg
 
 
+def resolve_output_path(config: dict, mode: str = 'pretrain') -> str:
+    """Return this run's path segment under output/ -- training_params.<mode>.output_path
+    if set, else model_name (back-compat for configs that don't set output_path yet).
+    output_path is separate from model_name (a clean identity string, e.g. logged in
+    train_pretrain.py) so a path can carry a subfolder (e.g. 'mesae_v10_small/pretrain',
+    CLAUDE.md's Outputs convention for a backbone with finetune runs) without model_name
+    itself doing double duty as a path."""
+    tp = config['training_params'][mode]
+    return tp.get('output_path', tp['model_name'])
+
+
 def resolve_output_dir(config: dict, *sub_dirs: str, mode: str = 'pretrain') -> str:
-    """Return output/{model_name}/{sub_dirs...} and create it."""
-    model_name = config['training_params'][mode]['model_name']
-    path = os.path.join('output', model_name, *sub_dirs)
+    """Return output/{output_path}/{sub_dirs...} and create it."""
+    path = os.path.join('output', resolve_output_path(config, mode=mode), *sub_dirs)
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -71,21 +81,21 @@ def resolve_output_dir(config: dict, *sub_dirs: str, mode: str = 'pretrain') -> 
 def resolve_finetune_analysis_dir(config: dict, dataset_name: str) -> str:
     """Return analysis_finetune.py's output dir for one dataset and create it.
 
-    For a baseline-matrix run (training_params.finetune.model_name ==
+    For a baseline-matrix run (training_params.finetune.output_path ==
     '<backbone>/finetune/<head>/<dataset>_<mode>', see ADR 0017) this is
     output/<backbone>/finetune/analysis/<head>/<dataset>_<mode>/<dataset_name>/ -- one
     shared analysis/ root directly under finetune/ (sibling to every head's own run dirs),
     instead of nested inside each individual run, so every run's snapshots land in one
-    place. Falls back to resolve_output_dir's plain output/<model_name>/analysis/
-    <dataset_name>/ for any model_name that isn't shaped like a baseline-matrix run (no
-    literal '/finetune/' marker -- e.g. an ad-hoc model_name from a one-off run)."""
-    model_name = config['training_params']['finetune']['model_name']
+    place. Falls back to resolve_output_dir's plain output/<output_path>/analysis/
+    <dataset_name>/ for any output_path that isn't shaped like a baseline-matrix run (no
+    literal '/finetune/' marker -- e.g. an ad-hoc one-off run)."""
+    output_path = resolve_output_path(config, mode='finetune')
     marker = '/finetune/'
-    if marker in model_name:
-        backbone, rest = model_name.split(marker, 1)   # rest = '<head>/<dataset>_<mode>'
+    if marker in output_path:
+        backbone, rest = output_path.split(marker, 1)   # rest = '<head>/<dataset>_<mode>'
         path = os.path.join('output', backbone, 'finetune', 'analysis', rest, dataset_name)
     else:
-        path = os.path.join('output', model_name, 'analysis', dataset_name)
+        path = os.path.join('output', output_path, 'analysis', dataset_name)
     os.makedirs(path, exist_ok=True)
     return path
 

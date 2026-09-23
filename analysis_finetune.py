@@ -3,13 +3,14 @@ Post-training checker for the FINETUNE stage only: per-target correct/wrong snap
 pairs via tools/analysis/snapshot.py's build_finetune_bundle + tools/panels/. Pretrain-stage
 analysis (snapshot + codebook) lives in analysis_pretrain.py.
 
-Config resolution: --config is a small overlay — checkpoint (a finetune head.pth),
+Config resolution: config/analysis_finetune.template.json (or --config) is a small overlay
+— checkpoint (a finetune head.pth),
 dataset_params.finetune (one dataset entry), check.plot_* toggles. It's deep-merged onto
 the head checkpoint's own run config, taken via --base-config (finetune runs write a
 timestamped artifacts/config_<timestamp>.json, not a fixed name, so this cannot be
 auto-derived from the checkpoint path the way analysis_pretrain.py's --base-config default
 can — always pass --base-config explicitly). Output goes to
-output/<model_name>/analysis/<dataset_name>/recon/.
+output/<output_path>/analysis/<dataset_name>/recon/.
 """
 
 import os
@@ -85,7 +86,7 @@ if __name__ == '__main__':
     from tools.panels import PanelContext, run_panels
 
     parser = argparse.ArgumentParser(description='Post-training EEG finetune checker (MeSAE)')
-    parser.add_argument('--config',      default=None)
+    parser.add_argument('--config',      default='config/analysis_finetune.template.json')
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
     parser.add_argument('--dataset',     type=str, default=None)
@@ -126,9 +127,6 @@ if __name__ == '__main__':
         ctx = build_panel_context(args, args.panel, 'finetune', _resolve_base_path)
         run_panels(args.panel, 'finetune', ctx)
         raise SystemExit(0)
-
-    if not args.config:
-        parser.error('--config is required')
 
     with open(args.config, 'r') as f:
         overlay = json.load(f)

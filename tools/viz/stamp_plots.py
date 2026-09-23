@@ -536,3 +536,39 @@ def plot_event_stamp_dynamics(out_path, t_sec, sel_rate, amp_mean, pow_mean, pow
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
+
+
+def plot_stamp_ab_violin(out_path, stamp_ab, title='', n_routed=None, shared_color='crimson'):
+    """4-row violin grid (a, b, amp=sqrt(a^2+b^2), phase=atan2(b,a)) -- one violin per
+    stamp id, x-axis ordered by firing count (tools/analysis/stamp_dist.py's
+    accumulate_stamp_ab already ranks/caps stamp_ab that way). stamp_ab: {stamp_id: (a
+    [n], b [n])} np.ndarray pairs. n_routed: global id threshold for shared_color
+    (ids >= n_routed are always-on shared stamps, same convention as
+    plot_stamp_by_patch/plot_stamp_gallery's n_routed)."""
+    ids = list(stamp_ab.keys())
+    a_list = [stamp_ab[i][0] for i in ids]
+    b_list = [stamp_ab[i][1] for i in ids]
+    amp_list = [np.hypot(a, b) for a, b in zip(a_list, b_list)]
+    phase_list = [np.arctan2(b, a) for a, b in zip(a_list, b_list)]
+
+    positions = np.arange(1, len(ids) + 1)
+    colors = ['black' if n_routed is None or i < n_routed else shared_color for i in ids]
+
+    fig, axes = plt.subplots(4, 1, figsize=(max(8, 0.35 * len(ids)), 11), sharex=True)
+    rows = [('a', a_list), ('b', b_list), ('amp', amp_list), ('phase (rad)', phase_list)]
+    for ax, (label, data) in zip(axes, rows):
+        parts = ax.violinplot(data, positions=positions, showmedians=True, widths=0.8)
+        for pc, c in zip(parts['bodies'], colors):
+            pc.set_facecolor(c)
+            pc.set_alpha(0.6)
+        ax.set_ylabel(label)
+        ax.axhline(0, color='gray', lw=0.5, ls='--')
+        ax.grid(True, axis='y', alpha=0.3)
+
+    axes[-1].set_xticks(positions)
+    axes[-1].set_xticklabels([str(i) for i in ids], rotation=90, fontsize=6)
+    axes[-1].set_xlabel('Stamp id (ranked by firing count)')
+    fig.suptitle(title, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=100)
+    plt.close(fig)

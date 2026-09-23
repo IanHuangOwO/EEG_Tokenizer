@@ -176,8 +176,14 @@ def main():
     train_params = config['training_params']['pretrain']
     device     = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     model_name = train_params.get('model_name', 'default_run')
+    # output_path: where this run writes under output/ -- separate from model_name (a
+    # clean identity string) so a backbone gaining finetune runs can move its pretrain
+    # artifacts to output/<model_name>/pretrain/ (CLAUDE.md's Outputs convention)
+    # without model_name itself carrying a path segment. Falls back to model_name for
+    # configs that don't set it.
+    output_path = train_params.get('output_path', model_name)
 
-    base_output_dir = f"output/{model_name}"
+    base_output_dir = f"output/{output_path}"
     checkpoint_dir  = os.path.join(base_output_dir, "checkpoint")
     artifact_dir    = os.path.join(base_output_dir, "artifacts")
     vis_dir         = os.path.join(base_output_dir, "visualization")
@@ -232,36 +238,52 @@ def main():
     val_dataset   = build_dataset_from_config(val_config,   transform=None, mode='pretrain')
     logger.info(f"Dataset Sizes: Train={len(train_dataset)}, Val={len(val_dataset)}")
 
-    # Separate assemble_trials=False dataset just for periodic snapshot viz -- val_dataset
-    # itself stays assembled (assemble_trials=True, continuous windows) for real
-    # train/val loss. A snapshot built from an assembled window mixes multiple real
+    # Separate assemble_trials=False dataset(s) just for periodic snapshot viz --
+    # val_dataset itself stays assembled (assemble_trials=True, continuous windows) for
+    # real train/val loss. A snapshot built from an assembled window mixes multiple real
     # trials with no single event to mark, so _lookup_event_onset
     # (tools/analysis/snapshot.py) silently drops recon_signal's onset line whenever it's
     # handed one. Same assemble_trials=False dataset analysis_pretrain.py's own snapshot
     # path already uses.
-    logger.info("Building Viz Snapshot Dataset (assemble_trials=False)...")
-    viz_dataset = build_dataset_from_config(val_config, transform=None, mode='pretrain', assemble_trials=False)
-
-    def _first_subject(dataset_name=None):
-        """subject: null in a target config -> first val subject (of that dataset, if
-        dataset_name is given — subject ids aren't unique across datasets)."""
-        sub_data = viz_dataset.base_dataset.subject_data
-        if dataset_name is not None:
-            names = viz_dataset.base_dataset.dataset_names
-            idx = next((i for i, n in enumerate(names) if n == dataset_name), None)
-            if idx is not None:
-                return sub_data[idx].item()
-        return sub_data[0].item()
-
+    #
+    # ONE ISOLATED single-dataset build per distinct target dataset name -- NOT one
+    # combined multi-dataset build (even restricted to just the wanted datasets isn't
+    # enough, see below). EEGDataset standardizes every trial's length to the single
+    # longest trial across EVERY dataset it loads in that one build (its "Standardize
+    # temporal length" step); combining a short-trial dataset (PhysionetMI, 800-sample
+    # trials -- its loader deliberately hardcodes pre_event_seconds=0, see
+    # datas/pretrain/PhysionetMI/loader.py) with a long-trial one in the SAME build (e.g.
+    # SRM_RestingState's one 48000-sample recording, itself one of this run's viz targets)
+    # pads the short one to 98%+ zero -- a near-empty recon_signal snapshot and, per the
+    # "CUDA out of memory" viz-failure log lines this caused, a real crash risk from the
+    # oversized padded tensor. Building each target dataset on its own keeps its max_T its
+    # own longest trial only.
     viz_params  = config.get('training_params', {}).get('visualize_params', {}).get('pretrain', {})
     viz_target_cfg = viz_params.get('targets') or [{'subject': None, 'trial': 0}]
     viz_every_n = viz_params.get('every_n_epochs', 2)
-    viz_targets = [
-        pick_trial(viz_dataset, t.get('subject') if t.get('subject') is not None else _first_subject(t.get('dataset')),
-                   trial=t.get('trial'), dataset_name=t.get('dataset'))
-        for t in viz_target_cfg
-    ]
-    logger.info(f"Recon viz targets (subject, trial_idx): {viz_targets} every_n_epochs={viz_every_n}")
+
+    default_viz_dataset_name = next(iter(val_config['dataset_params']['pretrain']))
+    wanted_viz_datasets = sorted({t.get('dataset') or default_viz_dataset_name for t in viz_target_cfg})
+
+    viz_datasets_by_name = {}
+    for ds_name in wanted_viz_datasets:
+        single_config = copy.deepcopy(val_config)
+        single_config['dataset_params']['pretrain'] = {ds_name: val_config['dataset_params']['pretrain'][ds_name]}
+        logger.info(f"Building Viz Snapshot Dataset for {ds_name} (assemble_trials=False)...")
+        viz_datasets_by_name[ds_name] = build_dataset_from_config(
+            single_config, transform=None, mode='pretrain', assemble_trials=False)
+
+    def _first_subject(dataset_name):
+        return viz_datasets_by_name[dataset_name].base_dataset.subject_data[0].item()
+
+    viz_targets = []
+    for t in viz_target_cfg:
+        ds_name = t.get('dataset') or default_viz_dataset_name
+        viz_ds = viz_datasets_by_name[ds_name]
+        subject = t.get('subject') if t.get('subject') is not None else _first_subject(ds_name)
+        trial_idx, subject_id = pick_trial(viz_ds, subject, trial=t.get('trial'), dataset_name=t.get('dataset'))
+        viz_targets.append((ds_name, trial_idx, subject_id))
+    logger.info(f"Recon viz targets (dataset, trial_idx, subject): {viz_targets} every_n_epochs={viz_every_n}")
 
     def _make_loader(dataset, shuffle):
         return DataLoader(dataset, batch_size=train_params['batch_size'], shuffle=shuffle,
@@ -392,14 +414,15 @@ def main():
             # every_n_epochs.
             if 'cuda' in str(device):
                 torch.cuda.empty_cache()
-            for topo_trial_idx, topo_subject_id in viz_targets:
+            for topo_dataset_name, topo_trial_idx, topo_subject_id in viz_targets:
                 try:
+                    topo_dataset = viz_datasets_by_name[topo_dataset_name]
                     bundle, _metrics = build_pretrain_bundle(
-                        model, viz_dataset, topo_trial_idx, config, device,
+                        model, topo_dataset, topo_trial_idx, config, device,
                         subject_id=topo_subject_id, epoch=epoch)
                     panel_ctx = PanelContext(
                         config=config, output_dir=vis_dir, device=device, args=None,
-                        model=model, dataset=viz_dataset, bundle=bundle,
+                        model=model, dataset=topo_dataset, bundle=bundle,
                         cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'))
                     run_panels(['recon_signal', 'stamp_gallery'], 'pretrain', panel_ctx)
                 except Exception as e:

@@ -1,0 +1,52 @@
+{
+  "base_config": "config/runs/mesae_v10_small/pretrain.json",
+  "dataset_params": {
+    "finetune": {
+      "EEGMAT": {
+        "dataset_path": "datas/finetune/EEGMAT",
+        "subject_to_use": [
+          "all"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      }
+    }
+  },
+  "model_params": {
+    "MeSAE": {
+      "finetune": {
+        "features": [
+          "raw_band"
+        ],
+        "spatial_k": 8,
+        "time_pool": "flat",
+        "dropout": 0.5
+      }
+    }
+  },
+  "training_params": {
+    "finetune": {
+      "model_type": "MeSAE",
+      "model_name": "raw_band_EEGMAT_inter",
+      "pretrained_checkpoint": "output/mesae_v10_small/pretrain/checkpoint/last.pth",
+      "learning_rate": 0.01,
+      "min_learning_rate": 0.001,
+      "epochs": 100,
+      "warmup_epochs": 2,
+      "batch_size": 16,
+      "weight_decay": 0.01,
+      "device": "cuda",
+      "split": {
+        "mode": "inter_subject",
+        "n_folds": 36
+      },
+      "output_path": "mesae_v10_small/finetune/raw_band/EEGMAT_inter"
+    },
+    "visualize_params": {
+      "finetune": {
+        "every_n_epochs": 10
+      }
+    }
+  }
+}

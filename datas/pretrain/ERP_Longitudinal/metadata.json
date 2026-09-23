@@ -11,7 +11,7 @@
         },
         "acquisition": {
             "sample_frequency": 1000,
-            "num_subjects": 1
+            "num_subjects": 15
         },
         "targets": {
             "count": 2,
@@ -197,13 +197,53 @@
             "57": {
                 "label": "O2"
             }
-        },
-        "event_onset_sample": 40,
-        "event_onset_sample_note": "RSVP/P300 scale, own hardcoded PRE_EVENT_S=0.2s (not the global 1.0s/4.0s tuned for motor-imagery), native 1000Hz -> round(0.2*200)=40."
+        }
     },
     "data_structure": {
         "1": {
             "file": "raw/S1.mat"
+        },
+        "10": {
+            "file": "raw/S10.mat"
+        },
+        "11": {
+            "file": "raw/S11.mat"
+        },
+        "12": {
+            "file": "raw/S12.mat"
+        },
+        "13": {
+            "file": "raw/S13.mat"
+        },
+        "14": {
+            "file": "raw/S14.mat"
+        },
+        "15": {
+            "file": "raw/S15.mat"
+        },
+        "2": {
+            "file": "raw/S2.mat"
+        },
+        "3": {
+            "file": "raw/S3.mat"
+        },
+        "4": {
+            "file": "raw/S4.mat"
+        },
+        "5": {
+            "file": "raw/S5.mat"
+        },
+        "6": {
+            "file": "raw/S6.mat"
+        },
+        "7": {
+            "file": "raw/S7.mat"
+        },
+        "8": {
+            "file": "raw/S8.mat"
+        },
+        "9": {
+            "file": "raw/S9.mat"
         }
     }
 }

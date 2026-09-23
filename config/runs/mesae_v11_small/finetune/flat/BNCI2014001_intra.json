@@ -1,0 +1,52 @@
+{
+  "base_config": "config/runs/mesae_v11_small/pretrain.json",
+  "dataset_params": {
+    "finetune": {
+      "BNCI2014001": {
+        "dataset_path": "datas/finetune/BNCI2014001",
+        "subject_to_use": [
+          "all"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      }
+    }
+  },
+  "model_params": {
+    "MeSAE": {
+      "finetune": {
+        "features": [
+          "stamp_power"
+        ],
+        "spatial_k": 8,
+        "time_pool": "flat",
+        "dropout": 0.5
+      }
+    }
+  },
+  "training_params": {
+    "finetune": {
+      "model_type": "MeSAE",
+      "model_name": "flat_BNCI2014001_intra",
+      "pretrained_checkpoint": "output/mesae_v11_small/checkpoint/last.pth",
+      "learning_rate": 0.01,
+      "min_learning_rate": 0.001,
+      "epochs": 100,
+      "warmup_epochs": 2,
+      "batch_size": 16,
+      "weight_decay": 0.01,
+      "device": "cuda",
+      "split": {
+        "mode": "intra_subject",
+        "n_folds": 5
+      },
+      "output_path": "mesae_v11_small/finetune/flat/BNCI2014001_intra"
+    },
+    "visualize_params": {
+      "finetune": {
+        "every_n_epochs": 10
+      }
+    }
+  }
+}

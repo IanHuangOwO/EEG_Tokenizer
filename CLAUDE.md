@@ -19,19 +19,21 @@ python analysis_pretrain.py --panel profile [--train]
 
 # Run Finetune stage: trains only the head on the frozen backbone's stamp-amplitude cache (or the
 # patched raw signal for raw_* features); training_params.finetune.split picks intra_subject / inter_subject
-python train_finetune.py --config config/runs/<backbone>/finetune/<head>.json
+python train_finetune.py --config config/runs/<backbone>/finetune/<head>/<dataset>_<mode>.json
 
 # Post-training checker, PRETRAIN stage (checkpoint -> topo/PSD/attn snapshot per subject,
 # plus cross-dataset codebook/vocab diagnostics; base config auto-derived from the
-# checkpoint's output/<model>/artifacts/config.json, config/analysis.template.json is a small
-# overlay; tools/viz/extract.py, stamp_plots.py, timeseries.py, topomap.py are shared primitives
-# it and tools/panels/ both call — not run directly)
-python analysis_pretrain.py --config config/analysis.template.json --checkpoint <path>
+# checkpoint's output/<model>/artifacts/config.json, config/analysis_pretrain.template.json
+# is a small overlay; tools/viz/extract.py, stamp_plots.py, timeseries.py, topomap.py are
+# shared primitives it and tools/panels/ both call — not run directly)
+python analysis_pretrain.py --config config/analysis_pretrain.template.json --checkpoint <path>
 
 # Post-training checker, FINETUNE stage (checkpoint -> per-class correct/wrong snapshot
-# pairs; --base-config is required, a finetune run's artifacts/config_<timestamp>.json
+# pairs; config/analysis_finetune.template.json is a small overlay, different shape from
+# the pretrain one -- no codebook block, dataset_params.finetune instead of .pretrain;
+# --base-config is still required, a finetune run's artifacts/config_<timestamp>.json
 # has no fixed name to auto-derive)
-python analysis_finetune.py --config <overlay.json> --base-config <path/to/artifacts/config.json> --checkpoint <head.pth>
+python analysis_finetune.py --config config/analysis_finetune.template.json --base-config <path/to/artifacts/config.json> --checkpoint <head.pth>
 
 # Compile raw datasets into per-subject bandpass+resample-baked .npz caches (run once, or
 # after changing sample_freq/bandpass_filter — see config/compile.json, docs/agents/adding-a-dataset.md).
@@ -42,22 +44,30 @@ python cache_dataset.py --config config/compile.json
 
 # Build the stamp-amplitude cache of the finetune datasets (frozen backbone run once per subject;
 # the runner will do this automatically)
-python cache_feature.py --config config/runs/<backbone>/finetune/<head>.json
+python cache_feature.py --config config/runs/<backbone>/finetune/<head>/<dataset>_<mode>.json
 ```
 
 No test suite exists. Validation runs during training.
 
 ### `config/` layout
 
-`config/config.template.json` / `config/analysis.template.json` are never pointed at by
-a real run directly — they're starting points. Pretrain and finetune configs are split: a
+`config/config.template.json` / `config/analysis_pretrain.template.json` /
+`config/analysis_finetune.template.json` are never pointed at by a real run directly —
+they're starting points. Analysis configs are split the same way run configs are (below):
+`analysis_pretrain.py` defaults `--config` to `analysis_pretrain.template.json`
+(`dataset_params.pretrain`, `check.codebook` — pretrain-only), `analysis_finetune.py`
+to `analysis_finetune.template.json` (`dataset_params.finetune`, no codebook block) —
+different panels, different summaries, so one shared file stopped making sense once
+finetune analysis grew its own shape. Pretrain and finetune RUN configs are split too: a
 finetune overlay sets `"base_config"` to its backbone's pretrain file and `load_config`
 (`tools/analysis/__init__.py`) deep-merges the two. To start a new run: copy the template
 into `config/runs/<model_name>/` — every model version gets its own folder from the start,
 regardless of whether it has finetune runs yet (stricter than `output/`'s own rule below,
 which stays flat until a backbone's first finetune run). Pretrain config lives at
 `config/runs/<model_name>/pretrain.json`; each finetune head/dataset gets its own overlay
-at `config/runs/<model_name>/finetune/<head>/<dataset>.json` — see `docs/adr/0017` for why
+at `config/runs/<model_name>/finetune/<head>/<dataset>_<mode>.json` (`<mode>` is `intra`/`inter`,
+matching `output/`'s own leaf-dir suffix exactly -- a dataset run under both protocols gets
+two files, not one overwritten by the other) — see `docs/adr/0017` for why
 finetune runs nest under their backbone, and `config/runs/README.md` for the full
 convention — and edit that copy — never the template. `config/finetune_eval_splits/*.json`
 (seeded train/eval subject splits, see `training_params.finetune.split.eval_subjects:
@@ -139,27 +149,35 @@ Key fields:
 - `model_params.MeSAE.pretrain`: the one architecture block — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks` (also the tokenizer-phase block set), `moe_ffn`, `stamp_bank`, `loss`. `model_params.MeSAE.finetune`: head keys (numeric, validated at build; the checkpoint stores the resolved `head_config`) — `features` (list, one or more of `stamp_power`/`stamp_band`/`raw_band`/`raw_signal`/`phase_advance`/`evoked`; `phase_advance`/`evoked` need exactly one of `stamp_power`/`stamp_band` in the same list — see `docs/superpowers/specs/2026-09-22-list-feature-head-design.md`), `spatial_k` (one shared value across every entry), `time_pool` (`flat`/`learned`/`window`/`none`, default for every entry), `time_rank`, `window` (`[lo, hi]` s), `evoked_rank`, `overrides` (`{entry_name: {time_pool/time_rank/window/evoked_rank}}`, per-entry override of the defaults above), `dropout`; old bare `feature: "<name>"` configs/checkpoints still load (normalized to a one-element `features` list); defaults in `docs/adr/0016`
 - `preprocess_params`: `window_length`, `window_pad_threshold`, `patch_length`, `patch_stride` (patch step in samples within a Window; equal to `patch_length` for non-overlapping patches, smaller for overlapping — see `IO/preprocessing.py`'s `slice_patches`), `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `masking_strategy` (random/complementary/random_to_complementary — the last ramps random into complementary over a curriculum, see `IO/masking.py`)
 - `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — used by `train_pretrain.py` (masking applied only in the masked phase)
-- `training_params.pretrain`: `model_name` (output dir), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields
-- `dataset_params.finetune` (exactly one dataset per run) / `training_params.finetune`: `model_name`, `pretrained_checkpoint`, `learning_rate`, `min_learning_rate`, `weight_decay`, `epochs`, `warmup_epochs`, `batch_size`, `device`, `seed`, and the `split` block — `{"mode": "intra_subject", "n_folds": k}` (per-subject k-fold over that subject's own trials) or `{"mode": "inter_subject", ...}` with exactly one of `n_folds` (subject k-fold; k = number of subjects is LOSO) or `eval_subjects` (list, dict of named groups, or `"auto"` -- resolves to the cached/generated `config/finetune_eval_splits/<dataset>.json` seen/unseen split for datasets registered in `tools.analysis.select_eval_subsets.DATASETS` (currently empty -- register a dataset there before using `"auto"`); errors rather than falling back to a different split mode for an unregistered dataset), plus optional `train_subjects` (ignored when `eval_subjects="auto"`, which fills it in) and `seed`. Old keys (`split_mode`, `cv_folds`, `train_val_split`, `freeze_backbone`, `backbone_lr_mult`) are gone; see `docs/superpowers/plans/2026-09-21-finetune-restructure-c-train-finetune.md`
+- `training_params.pretrain`: `model_name` (clean identity string, e.g. logged at startup — not a path), `output_path` (optional; where this run writes under `output/`, e.g. `mesae_v10_small/pretrain` — falls back to `model_name` when omitted, see "Outputs" below), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields
+- `dataset_params.finetune` (exactly one dataset per run) / `training_params.finetune`: `model_name`, `output_path` (same split as `training_params.pretrain`'s), `pretrained_checkpoint`, `learning_rate`, `min_learning_rate`, `weight_decay`, `epochs`, `warmup_epochs`, `batch_size`, `device`, `seed`, and the `split` block — `{"mode": "intra_subject", "n_folds": k}` (per-subject k-fold over that subject's own trials) or `{"mode": "inter_subject", ...}` with exactly one of `n_folds` (subject k-fold; k = number of subjects is LOSO) or `eval_subjects` (list, dict of named groups, or `"auto"` -- resolves to the cached/generated `config/finetune_eval_splits/<dataset>.json` seen/unseen split for datasets registered in `tools.analysis.select_eval_subsets.DATASETS` (currently empty -- register a dataset there before using `"auto"`); errors rather than falling back to a different split mode for an unregistered dataset), plus optional `train_subjects` (ignored when `eval_subjects="auto"`, which fills it in) and `seed`. Old keys (`split_mode`, `cv_folds`, `train_val_split`, `freeze_backbone`, `backbone_lr_mult`) are gone; see `docs/superpowers/plans/2026-09-21-finetune-restructure-c-train-finetune.md`
 - `training_params.visualize_params`: diagnostic/plotting-only params, no effect on training data — `cmap` (matplotlib colormap for topomap/PSD panels), `fft_resolution` (Hz/bin for analysis_pretrain.py's/analysis_finetune.py's diagnostic PSD panels — `tools/panels/panel_stamp_gallery.py`/`panel_stamp_by_patch.py`'s `n_fft = round(sample_freq / fft_resolution)`; the dead train-time `fft_patches` path in `IO/dataset.py` is unrelated and stays unwired), `psd_freq_range` (`[l, h]` or `null` — overrides the PSD panel's plotted frequency range independent of `bandpass_filter`; `null` falls back to `bandpass_filter`'s `l_freq`/`h_freq`), `bands` (Delta/Theta/Alpha/Beta/Gamma `[lo, hi]` edges for the band-filtered reconstruction time-series panel, `tools/viz/timeseries.py`'s `_canonical_bands` — each band is still clipped to `bandpass_filter`'s range), plus per-mode `pretrain`/`finetune` sub-keys (`targets`, `every_n_epochs`)
 
 ### Outputs
 
+A run's actual write location under `output/` is `training_params.<mode>.output_path`
+(falls back to `model_name` when `output_path` is unset — `tools/analysis/__init__.py`'s
+`resolve_output_path`, read by `train_pretrain.py`/`train_finetune.py` and every
+`resolve_output_dir`/`resolve_finetune_analysis_dir` call). `model_name` itself stays a
+clean identity string (what gets logged at startup, e.g. `"mesae_v10_small"`) and never
+carries a path segment — `output_path` is the only field allowed to.
+
 `output/<backbone>/` holds every pretrain/tokenizer run -- e.g. `output/mesae_v10_small/`;
 there is no wrapping `output/pretrain/` layer. A backbone with no finetune runs of its own
 keeps its pretrain artifacts (`checkpoint/`, `artifacts/`, `visualization/`,
-`feature_cache/`) flat at that top level. Once a backbone has finetune runs nested under
-it too (below), its own pretrain artifacts move under `output/<backbone>/pretrain/` so the
-two stay visually separate (`mesae_v10_small` is the only backbone finetuned so far, so
-it's currently the only one with this extra `pretrain/` layer).
+`feature_cache/`) flat at that top level (`output_path` = plain `model_name`). Once a
+backbone has finetune runs nested under it too (below), its own pretrain artifacts move
+under `output/<backbone>/pretrain/` so the two stay visually separate — set
+`output_path` to `"<model_name>/pretrain"` (`mesae_v10_small` is the only backbone
+finetuned so far, so it's currently the only one with this extra `pretrain/` layer).
 `output/archive/` holds the earlier finetune experiments (`experiment_b`, `experiment_c`, `loso_phase1`, `phase2`): superseded
 by the restart on the corrected pipeline, kept as the record of why the head was chosen (their stamp-head numbers ran without
-MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<model_name>/` (`model_name` may contain a
+MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<output_path>/` (`output_path` may contain a
 subfolder, e.g. `mesae_v10_small/finetune/learned/BNCI2014001_intra` — finetune runs nest under the backbone's own
 `output/<backbone>/` dir rather than top-level, one subfolder per head, since a second backbone finetuning the
 same baseline matrix would otherwise collide at the same paths; see ADR 0017).
 
-`output/<model_name>/` (pretrain runs; a finetune run instead writes `finetune/run_<name>/head.pth` (head checkpoint), `artifacts/group_eval.json` (per-subject tail/last balanced accuracy), `artifacts/config_<timestamp>.json` (config plus `env` stamp) and `visualization/run_<name>/training_dashboard.png`)
+`output/<output_path>/` (pretrain runs; a finetune run instead writes `finetune/run_<name>/head.pth` (head checkpoint), `artifacts/group_eval.json` (per-subject tail/last balanced accuracy), `artifacts/config_<timestamp>.json` (config plus `env` stamp) and `visualization/run_<name>/training_dashboard.png`)
 - `checkpoint/best.pth` — best val-loss checkpoint (reset at the phase boundary; during
   the mask curriculum it locks onto the easiest epoch, so prefer `last.pth`)
 - `checkpoint/last.pth` — every epoch
@@ -220,7 +238,9 @@ Step-by-step protocol for adding a new standard (MNE-sourced) or custom montage.
 `panel_<name>.py` CLI entrypoints, discovered by filename glob, no registry). Protocol
 for which subpackage new code belongs in, the panel contract
 (`STAGES`/`NEEDS_CHECKPOINT`/`NEEDS_DATASET`/`run(ctx)`), and CLI wiring. See
-`docs/agents/adding-a-tool.md`.
+`docs/agents/adding-a-tool.md`. `tools/misc/` holds one-off ad-hoc analysis scripts
+(run directly, `python tools/misc/<script>.py`, no panel contract/CLI wiring) -- graduate
+a script into `analysis/`+`panels/` if it becomes routine.
 
 ### Reshape/view pitfalls
 

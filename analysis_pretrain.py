@@ -4,14 +4,14 @@ snapshot (MeSAE, resolved from the model instance) via BaseEpochChecker.check_pr
 (model/base_checker.py), plus cross-dataset codebook/vocab diagnostics
 (model/base_codebook_checker.py). Finetune-stage analysis lives in analysis_finetune.py.
 
-Config resolution: config/analysis.template.json (or --config) is a small overlay — checkpoint,
+Config resolution: config/analysis_pretrain.template.json (or --config) is a small overlay — checkpoint,
 dataset_params.pretrain (one dataset entry, subject_to_use = subjects to visualize;
 shared by Tokenizer and Pretrain-stage checkpoints, see CLAUDE.md), check.plot_* toggles.
 It's deep-merged onto the full run config, taken from the checkpoint's own
-output/<model_name>/artifacts/config.json snapshot unless overlay['base_config'] or
+output/<output_path>/artifacts/config.json snapshot unless overlay['base_config'] or
 --base-config points elsewhere. Output goes to
-output/<model_name>/analysis/<dataset_name>/recon/ (separate from training's own
-output/<model_name>/visualization/).
+output/<output_path>/analysis/<dataset_name>/recon/ (separate from training's own
+output/<output_path>/visualization/).
 """
 
 import os
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     from tools.panels import PanelContext, run_panels
 
     parser = argparse.ArgumentParser(description='Post-training EEG checker (MeSAE)')
-    parser.add_argument('--config',      default='config/analysis.template.json')
+    parser.add_argument('--config',      default='config/analysis_pretrain.template.json')
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
     parser.add_argument('--analysis',    default=None, choices=['snapshot', 'codebook', 'both'],
@@ -115,6 +115,12 @@ if __name__ == '__main__':
     parser.add_argument('--se-out-dir', default=None, dest='se_out_dir',
                          help='(panel_select_eval_subsets only) output dir '
                               '(default: config/finetune_eval_splits)')
+    parser.add_argument('--sd-max-stamps', type=int, default=30, dest='sd_max_stamps',
+                         help='(panel_stamp_distribution only) cap on stamps shown per '
+                              'violin plot, ranked by firing count')
+    parser.add_argument('--sd-max-trials', type=int, default=None, dest='sd_max_trials',
+                         help='(panel_stamp_distribution only) cap on trials accumulated '
+                              'per dataset (default: every trial)')
     args = parser.parse_args()
 
     if args.panel:
@@ -216,6 +222,18 @@ if __name__ == '__main__':
         gc.collect()
 
     if analysis in ('snapshot', 'both'):
+        if check_cfg.get('plot_topo_psd', True):
+            # Runs ONCE here, not inside the per-target loop below -- unlike recon_signal/
+            # stamp_by_patch/stamp_gallery (one real trial's bundle each), stamp_distribution
+            # builds its own dataset and loops every dataset_params.pretrain entry itself
+            # (tools/panels/panel_stamp_distribution.py), writing into the same per-dataset
+            # output/<model>/analysis/<Dataset>/recon/ dirs the per-target loop below also
+            # writes into -- calling it per-target would just repeat the same full-dataset
+            # scan once per target trial for no reason.
+            panel_ctx = PanelContext(config=cfg, output_dir=resolve_output_dir(cfg, 'analysis', mode=mode),
+                                      device=device, args=args, model=mdl, cmap=cmap)
+            run_panels(['stamp_distribution'], 'pretrain', panel_ctx)
+
         if cfg.get('training_params', {}).get('visualize_params', {}).get(data_mode, {}).get('targets'):
             # Same visualize_params.<mode>.targets key/shape as config.json's own periodic-viz config
             # (see train_pretrain.py's viz_targets) — a list of {dataset, subject, trial} triples

@@ -19,7 +19,7 @@ from tools.viz.codebook import (plot_stamp_similarity, plot_patch_position_consi
                            plot_stamp_identity_consistency, plot_fingerprint_similarity,
                            plot_pool_energy_share, plot_stamp_energy_rank,
                            plot_stamp_phase_consistency, plot_topography_distance,
-                           plot_pool_ablation, plot_pool_label_probe)
+                           plot_pool_ablation)
 from tools.analysis import lookup_event_onset_sample
 from IO.preprocessing import slice_patches
 
@@ -252,77 +252,6 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         plot_pool_ablation(
             os.path.join(viz_dir, 'pool_ablation.png'), baseline, no_shared, no_routed,
             unit_label=self.unit_label)
-
-    def _render_pool_label_probe(self, trial_usage_by_dataset, trial_labels_by_dataset, trial_records, viz_dir,
-                                  model, min_per_class=5, n_folds=5):
-        """Which pool's usage actually predicts the task label, as opposed to which pool
-        carries more reconstruction mass (_render_pool_energy_share/_render_pool_ablation,
-        a different question -- see plot_pool_label_probe's docstring). Logistic
-        regression (standardized features, k-fold CV) on trial-level usage
-        (trial_usage_by_dataset, patches already mean-pooled by check_codebook), same
-        features for all three stamp-usage probes (routed-only / shared-only / both) so
-        the comparison isn't confounded by anything but which columns are visible.
-
-        Also probes a RAW-signal baseline (per-channel power of the stitched trial, no
-        learned structure at all) on the SAME trials in the SAME order (trial_records is
-        appended dataset-by-dataset, trial-by-trial in exactly the loop order that built
-        trial_usage_by_dataset -- see check_codebook) -- without it, a chance-level stamp
-        probe is ambiguous between "the tokenizer failed to preserve task info" and "this
-        task has ~no linearly-decodable info in anything", and a high stamp-probe score is
-        ambiguous between "the tokenizer learned something task-relevant" and "the task is
-        just trivially decodable from raw power and the tokenizer didn't need to do
-        anything clever".
-
-        Datasets with fewer than 2 classes or fewer than min_per_class trials in their
-        smallest class are skipped -- a probe on 1-2 examples of a class is noise, not
-        signal."""
-        from sklearn.linear_model import LogisticRegression
-        from sklearn.model_selection import StratifiedKFold, cross_val_score
-        from sklearn.pipeline import make_pipeline
-        from sklearn.preprocessing import StandardScaler
-
-        n_routed = model.n_routed_stamps
-        by_ds_records = {}
-        for t in trial_records:
-            by_ds_records.setdefault(t['dataset'], []).append(t)
-
-        results = {}
-        for ds_name, X in trial_usage_by_dataset.items():
-            y = trial_labels_by_dataset[ds_name]
-            classes, counts = np.unique(y, return_counts=True)
-            if len(classes) < 2 or counts.min() < min_per_class:
-                continue
-            cv = StratifiedKFold(n_splits=min(n_folds, int(counts.min())), shuffle=True, random_state=0)
-            accs = {}
-            for name, feats in (('routed', X[:, :n_routed]), ('shared', X[:, n_routed:]), ('both', X)):
-                if feats.shape[1] == 0:
-                    continue
-                clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000))
-                accs[name] = float(cross_val_score(clf, feats, y, cv=cv).mean())
-
-            records = by_ds_records.get(ds_name, [])
-            if len(records) == len(y) and all('raw' in t for t in records):
-                stride = model.patch_stride
-                raw_feats = []
-                for t in records:
-                    x_in = t['raw'][0]                                          # [1, C, N, L] cpu
-                    vc_in = t['raw'][3][0].bool()                                # [C]
-                    stitched = overlap_add_patches(x_in[0], stride)             # [C, T]
-                    power = stitched.pow(2).mean(dim=-1).numpy()                # [C]
-                    power[~vc_in.numpy()] = 0.0
-                    raw_feats.append(power)
-                raw_X = np.stack(raw_feats)                                     # [n_trials, C]
-                clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000))
-                accs['raw'] = float(cross_val_score(clf, raw_X, y, cv=cv).mean())
-
-            results[ds_name] = dict(accs, n_classes=len(classes), n_trials=len(y), chance=1.0 / len(classes))
-
-        if not results:
-            print('  [codebook] pool label probe skipped (no dataset with >=2 classes and '
-                  f'>={min_per_class} trials/class)')
-            return
-        plot_pool_label_probe(
-            os.path.join(viz_dir, 'pool_label_probe.png'), results, unit_label=self.unit_label)
 
     @torch.no_grad()
     def extract_stamp_content(self, model, x_in, c_in, t_in, vc_in):

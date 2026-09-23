@@ -8,11 +8,29 @@ are pooled per subject. Then, per group, paired head - reference over the same s
 not a gate.
 """
 import csv
+import glob
 import json
 import os
 
 import numpy as np
 from scipy import stats
+
+
+def expand_glob_paths(patterns):
+    """Expand a list of literal paths/glob patterns (e.g.
+    'output/<backbone>/finetune/*/*/artifacts/group_eval.json') into a deduped,
+    first-seen-order path list -- shared by every finetune baseline-matrix panel
+    (group_summary, head_dataset_bars, protocol_gap) so --group-eval's glob behavior
+    stays identical across all of them. A literal path listed before a glob still
+    becomes the reference (group_summary.py's paired-vs-first-path convention)."""
+    paths, seen = [], set()
+    for p in patterns:
+        matches = sorted(glob.glob(p)) if any(c in p for c in '*?[') else [p]
+        for m in matches:
+            if m not in seen:
+                seen.add(m)
+                paths.append(m)
+    return paths
 
 
 def _locate(path):
@@ -43,14 +61,21 @@ def head_name(path):
     return _locate(path)[1]
 
 
-def load(path):
-    """-> (runs, pooled): pooled[group][subject] = tail, averaged if a subject repeats."""
+def load(path, metric='tail'):
+    """-> (runs, pooled): pooled[group][subject] = mean of `metric` across runs, averaged
+    if a subject repeats. metric defaults to 'tail' (unchanged from before this had a
+    parameter); pass 'kappa_tail'/'last'/'kappa_last' for the other per-subject fields
+    train_finetune.py's run_one writes. A subject/run missing `metric` entirely (e.g.
+    kappa_tail on a group_eval.json written before kappa was added) is skipped for that
+    reading, not treated as 0 -- head_dataset_matrix.py's build_matrix relies on this to
+    tell "no kappa recorded" apart from "kappa recorded as zero"."""
     runs = json.load(open(path))
     acc = {}
     for run in runs.values():
         for g, d in run['groups'].items():
             for s, v in d['subjects'].items():
-                acc.setdefault(g, {}).setdefault(s, []).append(v['tail'])
+                if metric in v:
+                    acc.setdefault(g, {}).setdefault(s, []).append(v[metric])
     return runs, {g: {s: float(np.mean(v)) for s, v in d.items()} for g, d in acc.items()}
 
 
