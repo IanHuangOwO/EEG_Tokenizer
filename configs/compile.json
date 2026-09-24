@@ -82,9 +82,6 @@
       "MDD_Mumtaz": {
         "dataset_path": "datas/pretrain/MDD_Mumtaz"
       },
-      "AAD_KUL": {
-        "dataset_path": "datas/pretrain/AAD_KUL"
-      },
       "UCSD_PD": {
         "dataset_path": "datas/pretrain/UCSD_PD"
       },

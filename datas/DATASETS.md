@@ -10,19 +10,19 @@ Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.1
 Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the
 trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).
 
-## finetune (19 datasets, 2543.0 h compiled)
+## finetune (19 datasets, 2527.6 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| BNCI2014001 | Motor imagery (4-class) | B, C | 9 | 25 | 250 | 4 | 1 s | 3.6 | compiled |
-| BNCI2014004 | Motor imagery (L/R hand) | C | 9 | 6 | 250 | 2 | 1 s | 5.1 | compiled |
-| BNCI2014008 | P300 speller (ALS) | C | 8 | 8 | 256 | 2 | 0.2 s | 9.3 | compiled |
-| BNCI2014009 | P300 speller | C | 10 | 16 | 256 | 2 | 0.2 s | 4.8 | compiled |
-| BNCI2015001 | Motor imagery (hand/feet) | C | 12 | 13 | 512 | 2 | — | 7.7 | compiled |
+| BNCI2014001 | Motor imagery (4-class) | B, C | 9 | 22 | 250 | 4 | 1 s | 7.2 | compiled (MOABB) |
+| BNCI2014004 | Motor imagery (L/R hand) | C | 9 | 3 | 250 | 2 | 1 s | 9.1 | compiled (MOABB) |
+| BNCI2014008 | P300 speller (ALS) | C | 8 | 8 | 256 | 2 | 0.2 s | 9.3 | compiled (MOABB) |
+| BNCI2014009 | P300 speller | C | 10 | 16 | 256 | 2 | 0.2 s | 4.8 | compiled (MOABB) |
+| BNCI2015001 | Motor imagery (hand/feet) | C | 12 | 13 | 512 | 2 | 1 s | 7.8 | compiled (MOABB) |
 | CHB_MIT | Seizure detection (pediatric) | C | 4 | 16 | 256 | 2 | — |  | not compiled |
 | EEGMAT | Mental workload (arithmetic) | B, C | 36 | 19 | 500 | 2 | — | 0.6 | compiled |
-| Nakanishi2015 | SSVEP (12-class) | C | 10 | 8 | 256 | 12 | 0 s | 2.0 | compiled |
-| PhysionetMI | Motor imagery (5-class) | B | 109 | 64 | 160 | 3 | 0 s | 44.0 | compiled |
+| Nakanishi2015 | SSVEP (12-class) | C | 9 | 8 | 256 | 12 | 0 s | 1.8 | compiled (MOABB) |
+| PhysionetMI | Motor imagery (5-class) | B | 109 | 64 | 160 | 5 | 0 s | 21.1 | compiled (MOABB) |
 | SEED | Emotion (3-class) | B, C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | SEED_V | Emotion (5-class) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | SEED_VIG | Vigilance (PERCLOS regression) | C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
@@ -37,11 +37,10 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 | ADFTD | Clinical: Alzheimer's / FTD | B |  |  |  |  |  |  | open (OpenNeuro ds004504), not fetched |
 
-## pretrain (25 datasets, 363.1 h compiled)
+## pretrain (24 datasets, 372.9 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| AAD_KUL | Auditory attention |  | 16 | 64 | 128 | 2 | — | 20.2 | compiled |
 | BCIC2020-3 | Imagined speech |  | 15 | 64 | 256 | 5 | — | 5.2 | compiled |
 | BCMI_MusicEmotion | Emotion (music) |  | 31 | 19 | 1000 | none | 0 s | 26.1 | compiled |
 | BETA_3s | SSVEP (40-class) |  | 15 | 64 | 250 | 40 | 0.5 s | 2.0 | compiled |
@@ -55,8 +54,8 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 1 s | 7.6 | compiled |
 | Lee2019_ERP | P300 speller (continuous) |  |  |  |  |  |  |  | no metadata |
 | Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s | 30.0 | compiled (MOABB) |
-| Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s |  | not compiled (MOABB) |
-| Liu2022EldBETA | SSVEP (9-class, elderly) |  |  |  |  |  |  |  | no metadata |
+| Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s | 30.0 | compiled (MOABB) |
+| Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s |  | not compiled (MOABB) |
 | MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 111.9 | compiled |
 | Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s | 18.7 | compiled (MOABB) |
@@ -67,12 +66,13 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s | 11.3 | compiled (MOABB) |
 | Weibo2014 | Motor imagery (7-class) |  | 10 | 60 | 200 | 7 | 1 s | 7.7 | compiled (MOABB) |
 
-## archive (4 datasets, not compiled into any run)
+## archive (5 datasets, not compiled into any run)
 
 Moved out of `datas/pretrain/` and `configs/compile.json`; loaders, metadata and cache kept.
 
 | Dataset | Paradigm | Reason |
 |---|---|---|
+| AAD_KUL | Auditory attention | Public release (Zenodo 4004271) is downsampled to 128 Hz, 0.5 Hz high-passed and MWF artifact-removed -- no >64 Hz content; raw 8192 Hz data only on request from KU Leuven (Bertrand / Francart) |
 | BCICIV1_Test | Motor imagery (uncued) | Same subjects as BCICIV1_Train (3 of 7 synthetic) |
 | BCICIV1_Train | Motor imagery | Subjects c, d, e of BCI Competition IV ds1 are artificially generated, not real EEG; the 4 real subjects are ~3.5 h, not worth keeping |
 | DEAP | Emotion (music video) | Only the data_preprocessed_python release is on disk: downsampled to 128 Hz, band-passed 4-45 Hz, EOG-removed and re-referenced -- no delta or >45 Hz content, unlike the 0.5-100 Hz corpus. Revisit with the raw 512 Hz BDF release (data_original, same EULA) |

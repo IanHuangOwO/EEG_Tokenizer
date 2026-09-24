@@ -65,6 +65,9 @@ MISSING = [
 
 # Why each datas/archive/ dataset was dropped from pretraining (2026-09-24 rebalance).
 ARCHIVED = {
+    'AAD_KUL': 'Public release (Zenodo 4004271) is downsampled to 128 Hz, 0.5 Hz high-passed and '
+               'MWF artifact-removed -- no >64 Hz content; raw 8192 Hz data only on request from '
+               'KU Leuven (Bertrand / Francart)',
     'BCICIV1_Train': 'Subjects c, d, e of BCI Competition IV ds1 are artificially generated, not real EEG; '
                      'the 4 real subjects are ~3.5 h, not worth keeping',
     'BCICIV1_Test': 'Same subjects as BCICIV1_Train (3 of 7 synthetic)',
