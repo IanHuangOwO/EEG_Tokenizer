@@ -17,7 +17,7 @@ from sklearn.metrics import balanced_accuracy_score, cohen_kappa_score, f1_score
 from sklearn.model_selection import StratifiedKFold
 
 from IO.dataset import build_dataset_from_config
-from IO.preprocessing import num_patches, slice_patches
+from IO.preprocessing import cache_suffix, num_patches, slice_patches
 from cache_feature import CachedStampDataset, get_stamp_cache
 from model.factory import MODEL_REGISTRY, load_backbone
 from model.MeSAE.MeSAE_modules import (FeatureHead, StampExtractor, make_head_checkpoint,
@@ -68,10 +68,6 @@ def resolve_subjects(entry, pool):
     return [by_str[str(s)] for s in entry]
 
 
-def _trials_of(subject_data, subjects):
-    return np.flatnonzero(np.isin(subject_data, [int(s) for s in subjects]))
-
-
 def _resolve_auto_split(split, ds_name, pretrained_checkpoint):
     """split['eval_subjects'] == 'auto' -> the cached (or freshly generated)
     configs/finetune_eval_splits/<ds_name.lower()>.json seen/unseen split, filled into
@@ -104,18 +100,79 @@ def _resolve_auto_split(split, ds_name, pretrained_checkpoint):
     return {**split, 'eval_subjects': cached['eval'], 'train_subjects': cached['train']}
 
 
-def make_runs(split, pool, subject_data, labels):
-    """split block -> runs [{name, train, train_subjects, eval}] (see the plan's contract)."""
+def _load_sessions(config, ds_args, pool, subject_data):
+    """Per-trial session index (0 = the subject's first recorded session) for the pool, read
+    from the compiled cache's 'session' array (MoabbLoader datasets); None if any subject's
+    cache predates it. Both sources keep each subject's trials in cache order, so the
+    subject's array maps onto its rows of subject_data directly."""
+    pp = config['preprocess_params']
+    suffix = cache_suffix(pp['sample_freq'], pp['bandpass_filter'],
+                          pp.get('pre_event_seconds', 0.0), pp.get('post_event_seconds', 0.0))
+    session = np.zeros(len(subject_data), dtype=np.int64)
+    for s in pool:
+        z = np.load(os.path.join(ds_args['dataset_path'], 'cache', f'{s}_{suffix}.npz'))
+        if 'session' not in z:
+            return None
+        rows = np.flatnonzero(subject_data == int(s))
+        assert len(rows) == len(z['session']), f"subject {s}: {len(rows)} trials vs {len(z['session'])} cached sessions"
+        session[rows] = z['session']
+    return session
+
+
+def make_runs(split, pool, subject_data, labels, session=None):
+    """split block -> runs [{name, train, train_subjects, eval}] (see the plan's contract).
+
+    Optional for both modes: sessions (list of session indices, 0 = each subject's first;
+    trials of other sessions are dropped before splitting -- EEG-FM-Compass uses one session
+    per subject for MI/P300). intra_subject takes exactly one of
+      n_folds         k folds per subject; blocked: true makes them contiguous chronological
+                      blocks (default: shuffled StratifiedKFold, optimistic -- neighbouring
+                      trials land on both sides)
+      train_fraction  few-shot calibration (Compass within-subject): per class, the first
+                      ceil(f * n_class) trials in recording order train, the rest evaluate.
+    purge (intra only, default 0): also drop eval trials within that many positions (recording
+    order) of any train trial -- for datasets whose neighbouring trials overlap in time."""
     mode, seed = split.get('mode'), split.get('seed', 42)
+    keep = np.ones(len(subject_data), dtype=bool)
+    if split.get('sessions') is not None:
+        if session is None:
+            raise ValueError("split.sessions needs a cache with per-trial sessions -- recompile the dataset")
+        keep = np.isin(session, split['sessions'])
+    for s in pool:
+        if not keep[subject_data == int(s)].any():
+            raise ValueError(f"subject {s} has no trials in sessions {split.get('sessions')}")
+
+    def trials(subjects):
+        return np.flatnonzero(np.isin(subject_data, [int(x) for x in subjects]) & keep)
+
     if mode == 'intra_subject':
-        k = int(split['n_folds'])
+        if ('n_folds' in split) == ('train_fraction' in split):
+            raise ValueError("intra_subject needs exactly one of n_folds / train_fraction")
         runs = []
         for s in pool:
-            idx = np.flatnonzero(subject_data == int(s))
-            skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=seed)
-            for i, (tr, va) in enumerate(skf.split(idx, labels[idx])):
-                runs.append(dict(name=f'{s}_fold{i}', train=np.sort(idx[tr]), train_subjects=[str(s)],
-                                 eval={'heldout': {str(s): np.sort(idx[va])}}))
+            idx = trials([s])                      # recording order
+            if 'train_fraction' in split:
+                f = float(split['train_fraction'])
+                tr = np.concatenate([ic[:max(1, int(np.ceil(f * len(ic))))]
+                                     for ic in (idx[labels[idx] == c] for c in np.unique(labels[idx]))])
+                folds = [('fewshot', np.sort(tr), np.setdiff1d(idx, tr))]
+            elif split.get('blocked'):
+                blocks = np.array_split(idx, int(split['n_folds']))
+                folds = [(f'fold{i}', np.setdiff1d(idx, b), b) for i, b in enumerate(blocks)]
+            else:
+                skf = StratifiedKFold(n_splits=int(split['n_folds']), shuffle=True, random_state=seed)
+                folds = [(f'fold{i}', np.sort(idx[tr]), np.sort(idx[va]))
+                         for i, (tr, va) in enumerate(skf.split(idx, labels[idx]))]
+            purge = int(split.get('purge', 0))
+            for name, tr, va in folds:
+                if purge:   # drop eval trials within `purge` positions of a train trial (overlapping P300 windows)
+                    pos = np.searchsorted(idx, tr)
+                    near = np.zeros(len(idx), dtype=bool)
+                    for d in range(-purge, purge + 1):
+                        near[np.clip(pos + d, 0, len(idx) - 1)] = True
+                    va = va[~near[np.searchsorted(idx, va)]]
+                runs.append(dict(name=f'{s}_{name}', train=tr, train_subjects=[str(s)],
+                                 eval={'heldout': {str(s): va}}))
         return runs
     if mode != 'inter_subject':
         raise ValueError(f"split.mode must be 'intra_subject' or 'inter_subject', got {mode!r}")
@@ -141,8 +198,8 @@ def make_runs(split, pool, subject_data, labels):
             raise ValueError(f"run {name}: empty training set or evaluation group")
         if 'eval_subjects' in split and train_pool is not None and set(train_pool) & ev_subs:   # n_folds: the fold is subtracted instead
             raise ValueError(f"run {name}: train_subjects and evaluation subjects overlap: {sorted(set(train_pool) & ev_subs)}")
-        runs.append(dict(name=name, train=_trials_of(subject_data, train_subs), train_subjects=[str(s) for s in train_subs],
-                         eval={g: {str(s): _trials_of(subject_data, [s]) for s in v} for g, v in groups.items()}))
+        runs.append(dict(name=name, train=trials(train_subs), train_subjects=[str(s) for s in train_subs],
+                         eval={g: {str(s): trials([s]) for s in v} for g, v in groups.items()}))
     return runs
 
 
@@ -387,7 +444,8 @@ def main():
     head_cfg, new_head = build_head_factory(config, source, num_classes)
     logger.info(f"dataset={ds_name} pool={len(pool)} subjects, {len(labels)} trials, classes={num_classes}, head={head_cfg}")
     tp['split'] = _resolve_auto_split(tp['split'], ds_name, tp['pretrained_checkpoint'])
-    runs = make_runs(tp['split'], pool, source.subject_data.numpy(), labels)
+    subject_data = source.subject_data.numpy()
+    runs = make_runs(tp['split'], pool, subject_data, labels, _load_sessions(config, ds_args, pool, subject_data))
     result = {}
     for run in runs:
         tag = f"{ds_name}_{run['name']}"

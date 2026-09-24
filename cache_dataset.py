@@ -80,7 +80,7 @@ def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_fi
             data[i, :, valid_end[i]:] = 0.0
         out_path = os.path.join(cache_dir, f"{sub_id}_{suffix}.npz")
         np.savez(out_path, data=data.astype(np.float32), labels=subject_data['labels'].astype(np.int64),
-                 valid_start=valid_start, valid_end=valid_end)
+                 valid_start=valid_start, valid_end=valid_end, session=subject_data['session'])
         print(f"  [{ds_name} S{sub_id}] {data.shape} -> {out_path}")
         n_written += 1
 
@@ -143,6 +143,8 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
     # from before this existed -- only a real problem once pre/post_event_seconds is
     # actually in use (0/0 means every loader falls back to full validity anyway, so an
     # old-format cache is equivalent, not stale).
+    if 'session' in npz and len(npz['session']) != N:
+        problems.append(f"session length {len(npz['session'])} != trial count N={N}")
     has_valid_range = 'valid_start' in npz and 'valid_end' in npz
     if not has_valid_range and (pre_event_seconds or post_event_seconds):
         problems.append("cache predates valid_start/valid_end (pre/post_event_seconds is "

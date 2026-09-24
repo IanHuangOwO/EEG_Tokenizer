@@ -311,6 +311,42 @@
         "channels_to_use": [
           "all"
         ]
+      },
+      "Wang2016": {
+        "dataset_path": "datas/pretrain/Wang2016",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "Lee2019_SSVEP": {
+        "dataset_path": "datas/pretrain/Lee2019_SSVEP",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
       }
     }
   },

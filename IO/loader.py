@@ -44,6 +44,9 @@ class BaseSubjectLoader(ABC):
         # cut_event_window. None (default, and every loader that never sets this) means
         # "every trial fully real", read by get_subject_data below.
         self._last_valid_ranges = None
+        # Optional per-trial session index (0 = the subject's first session, in recording
+        # order), set by loaders that know it (MoabbLoader). None = every trial session 0.
+        self._last_sessions = None
 
     def _require_subject(self, subject_id) -> Dict:
         """Looks up this subject's data_structure entry, raising a clear error if missing."""
@@ -122,7 +125,7 @@ class BaseSubjectLoader(ABC):
         pass
 
     def get_subject_data(self) -> Optional[Dict[str, Any]]:
-        self._last_valid_ranges = None  # reset -- only a loader that calls
+        self._last_valid_ranges = self._last_sessions = None  # reset -- only a loader that calls
                                          # _segment_by_annotations (or sets it itself)
                                          # below overrides this before returning
         data, labels = self._load_data()
@@ -142,6 +145,8 @@ class BaseSubjectLoader(ABC):
             # set self._last_valid_ranges -- i.e. all of them except the event-anchored
             # ones (see IO/preprocessing.py's cut_event_window / _segment_by_annotations).
             'valid_ranges': valid_ranges,
+            'session': np.asarray(self._last_sessions if self._last_sessions is not None else [0] * n,
+                                  dtype=np.int64),
         }
 
 
@@ -284,8 +289,10 @@ class MoabbLoader(BaseSubjectLoader):
     def _load_data(self):
         import mne
         lo, hi = self.ds.interval
-        trials, labels, ranges = [], [], []
-        for _, _, raw in subject_runs(self.ds, self.moabb_subject):
+        trials, labels, ranges, sessions = [], [], [], []
+        runs = subject_runs(self.ds, self.moabb_subject)
+        session_idx = {s: i for i, s in enumerate(dict.fromkeys(s for s, _, _ in runs))}
+        for session, _, raw in runs:
             self._resample_if_needed(raw)
             sf = raw.info['sfreq']
             if self.continuous:
@@ -296,6 +303,7 @@ class MoabbLoader(BaseSubjectLoader):
                     trials += list(data[:, :n * win].reshape(data.shape[0], n, win).transpose(1, 0, 2))
                     labels += [0] * n
                     ranges += [(0, win)] * n
+                    sessions += [session_idx[session]] * n
                 continue
             if self.window:
                 shift, pre, post = 0, int(round(-self.window[0] * sf)), int(round(self.window[1] * sf))
@@ -321,9 +329,10 @@ class MoabbLoader(BaseSubjectLoader):
                 trials.append(window)
                 labels.append(code_to_label[code])
                 ranges.append((vs, ve))
+                sessions.append(session_idx[session])
         if not trials:
             return None, None
-        self._last_valid_ranges = ranges
+        self._last_valid_ranges, self._last_sessions = ranges, sessions
         return np.stack(trials), np.array(labels, dtype=np.int64)
 
 

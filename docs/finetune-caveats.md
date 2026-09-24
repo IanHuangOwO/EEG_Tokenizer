@@ -27,11 +27,13 @@ don't touch the finetune path.
   ≥ window length, see the event-spacing check of 2026-09-24. So this is optimism, not a
   data leak.
 
-**Fix for 1 and 2 (planned, not implemented yet):** block-wise intra folds, each fold a
-contiguous stretch of the recording, with a purge gap of one window on each side of the test
-block so no window overlaps across the split. They'll be built together with the
-EEG-FM-Compass protocols (few-shot, one-session LOSO) after the MOABB switch-over. Runs until
-then, including the v13 chain, keep the shuffled folds so they stay comparable with v10.
+**Fix for 1 and 2 (implemented 2026-09-24, `train_finetune.py`'s `make_runs`):**
+`split.blocked: true` makes intra folds contiguous chronological blocks, `split.purge: n` drops
+eval trials within n positions of a train trial (set it for the P300 sets, whose neighbouring
+windows overlap), and `split.train_fraction` gives the EEG-FM-Compass few-shot split (first
+fraction of each class in recording order). `split.sessions: [0]` restricts either mode to one
+session, as Compass does for MI/P300. Runs made before this (v10-v13, archived) used the
+shuffled folds.
 
 ## 3. PhysionetMI is in the v10–v13 pretrain corpus
 
