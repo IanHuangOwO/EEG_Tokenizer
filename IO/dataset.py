@@ -1,5 +1,6 @@
 import os
 import json
+import zlib
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -176,6 +177,18 @@ class EEGDataset(Dataset):
                 padded, target_L, ds_name, subject_id,
                 valid_ranges=list(zip(cache_valid_start, cache_valid_end)),
                 min_real_fraction=self.assembly_params.get('window_min_real', 0.5))
+            # preprocess_params.window_fraction (pretrain only): keep this fraction of the
+            # subject's windows -- the first n_keep of one fixed permutation seeded by
+            # (window_fraction_seed, dataset, subject), so every subject stays in the corpus
+            # and, at one seed, a smaller fraction is a subset of a larger one (corpus
+            # sizes tiny 5% < small 20% < medium 50% < large 100%, 2026-09-24).
+            frac = self.assembly_params.get('window_fraction', 1.0)
+            if frac < 1.0 and len(padded):
+                seed = zlib.crc32(f"{self.assembly_params.get('window_fraction_seed', 0)}/{ds_name}/{subject_id}".encode())
+                n_keep = max(1, int(round(frac * len(padded))))
+                keep = torch.from_numpy(np.sort(np.random.default_rng(seed).permutation(len(padded))[:n_keep]))
+                padded, labels = padded[keep], labels[keep]
+                row_valid_start, row_valid_end = row_valid_start[keep], row_valid_end[keep]
         else:
             labels = torch.from_numpy(npz['labels'].astype(np.int64))
             # Every row here is one real, untouched-by-assembly trial -- use the cache's

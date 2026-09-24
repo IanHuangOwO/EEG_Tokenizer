@@ -2,14 +2,13 @@
 Builds dataset_params.pretrain for the balanced pretrain corpus (2026-09-24 design): motor
 (MI + motor execution) ~50%, the other paradigms ~12.5% each, whole subjects only.
 
-ALLOC below is the full corpus in hours per dataset. For --fraction f, each dataset gets
-f * its allocation. Subjects are taken in one seeded order per dataset, adding whole
-subjects while that brings the total closer to the target, so a smaller fraction is always a
-prefix (a subset) of a larger one. A dataset whose target is under half a subject is left
-out of that fraction.
+ALLOC below is the full corpus in hours per dataset. Subjects are taken in one seeded order
+per dataset, adding whole subjects while that brings the total closer to the allocation.
+The fast tiny corpus is NOT a subject subset: configs/pretrain_tiny.template.json uses the
+same subjects with preprocess_params.window_fraction = 0.05 (5% of each subject's windows,
+IO/dataset.py), so every subject stays in.
 
-    python -m tools.misc.build_pretrain_corpus --fraction 1.0  --out configs/pretrain.template.json
-    python -m tools.misc.build_pretrain_corpus --fraction 0.05 --out configs/pretrain_tiny5.template.json
+    python -m tools.misc.build_pretrain_corpus --out configs/pretrain.template.json
 
 --out must already exist (a pretrain config); only its dataset_params.pretrain is replaced.
 """
@@ -43,15 +42,13 @@ def subject_hours(ds):
     return out
 
 
-def pick(ds, hours, fraction):
+def pick(ds, hours):
     h = subject_hours(ds)
     if not h:
         raise SystemExit(f'{ds}: no compiled cache')
     order = sorted(h, key=lambda s: (len(s), s))
     random.Random(SEED).shuffle(order)
-    target = fraction * (sum(h.values()) if hours is None else hours)
-    if target < 0.5 * np.mean(list(h.values())):
-        return [], 0.0
+    target = sum(h.values()) if hours is None else hours
     chosen, t = [], 0.0
     for s in order:
         if chosen and t + h[s] / 2 > target:   # stop at the subject count closest to the target
@@ -63,16 +60,14 @@ def pick(ds, hours, fraction):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--fraction', type=float, default=1.0)
     ap.add_argument('--out', required=True)
     args = ap.parse_args()
     cfg = json.load(open(args.out))
     dp, total, per = {}, 0.0, {}
     for paradigm, sets in ALLOC.items():
         for ds, hours in sets.items():
-            subs, t = pick(ds, hours, args.fraction)
-            if subs:
-                dp[ds] = {'dataset_path': f'datas/pretrain/{ds}', 'subject_to_use': subs, 'channels_to_use': ['all']}
+            subs, t = pick(ds, hours)
+            dp[ds] = {'dataset_path': f'datas/pretrain/{ds}', 'subject_to_use': subs, 'channels_to_use': ['all']}
             per[paradigm] = per.get(paradigm, 0.0) + t
             total += t
             print(f'  {paradigm:22} {ds:20} {len(subs):3} subjects {t:6.1f} h')
