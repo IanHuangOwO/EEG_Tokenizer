@@ -39,7 +39,7 @@ PARADIGM = {
     'GraspAndLift_Train': 'Motor execution (grasp-and-lift)',
     'Inria_Test': 'Error-related potential', 'Inria_Train': 'Error-related potential',
     'Lee2019_MI': 'Motor imagery (L/R hand)', 'MDD_Mumtaz': 'Clinical: depression (rest + P300)',
-    'Neonatal_Helsinki': 'Clinical: neonatal (NICU)', 'SHU_MI': 'Motor imagery (L/R hand)',
+    'Neonatal_Helsinki': 'Clinical: neonatal (NICU)',
     'SPIS': 'Resting state (eyes open/closed)', 'SRM_RestingState': 'Resting state',
     'STEW': 'Mental workload (multitasking)', 'UCSD_PD': "Clinical: Parkinson's (rest)",
 }

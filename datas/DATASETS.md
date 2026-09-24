@@ -31,7 +31,7 @@ P300 rows overstate the recording: their 1 s windows around flashes ~0.25 s apar
 | TUEV | Event classification (clinical) |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | TUSL | Slowing classification (clinical) |  |  |  |  |  | gated, not fetched (2026-09-24) |
 
-## pretrain (22 datasets, 382.8 h compiled)
+## pretrain (21 datasets, 382.8 h compiled)
 
 | Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Hours | Status |
 |---|---|---|---|---|---|---|---|
@@ -52,7 +52,6 @@ P300 rows overstate the recording: their 1 s windows around flashes ~0.25 s apar
 | Lee2019_MI | Motor imagery (L/R hand) | 54 | 62 | 1000 | 2 |  | not compiled (MOABB) |
 | MDD_Mumtaz | Clinical: depression (rest + P300) | 64 | 19 | 256 | 2 | 20.5 | compiled |
 | Neonatal_Helsinki | Clinical: neonatal (NICU) | 79 | 19 | 256 | none | 111.9 | compiled |
-| SHU_MI | Motor imagery (L/R hand) |  |  |  |  |  | password-locked, user fetching it themselves (2026-09-24) |
 | SPIS | Resting state (eyes open/closed) | 10 | 64 | 256 | 2 | 0.8 | compiled |
 | SRM_RestingState | Resting state | 111 | 64 | 1024 | 1 | 10.1 | partial (110/111) |
 | STEW | Mental workload (multitasking) | 48 | 14 | 128 | 2 | 4.0 | compiled |
