@@ -194,6 +194,11 @@ def main():
     dataset_params = config['dataset_params']['pretrain']
     split_ratio = train_params.get('train_val_split', 0.9)
     random.seed(42)
+    # training_params.pretrain.seed (optional): weight init, masking and batch order all draw
+    # from torch's RNG. The subject train/val split keeps Python's seed 42 above, so runs that
+    # differ only in this seed share the same split. Unset = unseeded, as before.
+    if 'seed' in train_params:
+        torch.manual_seed(int(train_params['seed']))
 
     train_config = copy.deepcopy(config)
     val_config   = copy.deepcopy(config)

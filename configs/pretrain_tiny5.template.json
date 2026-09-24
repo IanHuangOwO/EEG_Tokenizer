@@ -321,12 +321,12 @@
       "pretrain": {
         "targets": [
           {
-            "dataset": "BETA_4s",
+            "dataset": "Dreyer2023",
             "subject": null,
             "trial": 0
           },
           {
-            "dataset": "Inria_Train",
+            "dataset": "Liu2022EldBETA",
             "subject": null,
             "trial": 0
           }
