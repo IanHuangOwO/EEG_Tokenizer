@@ -105,6 +105,30 @@
       },
       "Lee2019_MI": {
         "dataset_path": "datas/pretrain/Lee2019_MI"
+      },
+      "Weibo2014": {
+        "dataset_path": "datas/pretrain/Weibo2014"
+      },
+      "Cho2017": {
+        "dataset_path": "datas/pretrain/Cho2017"
+      },
+      "Schirrmeister2017": {
+        "dataset_path": "datas/pretrain/Schirrmeister2017"
+      },
+      "Dreyer2023": {
+        "dataset_path": "datas/pretrain/Dreyer2023"
+      },
+      "Wang2016": {
+        "dataset_path": "datas/pretrain/Wang2016"
+      },
+      "Lee2019_SSVEP": {
+        "dataset_path": "datas/pretrain/Lee2019_SSVEP"
+      },
+      "Liu2022EldBETA": {
+        "dataset_path": "datas/pretrain/Liu2022EldBETA"
+      },
+      "Lee2019_ERP": {
+        "dataset_path": "datas/pretrain/Lee2019_ERP"
       }
     }
   }

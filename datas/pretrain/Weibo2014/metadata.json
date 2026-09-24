@@ -1,0 +1,327 @@
+{
+    "data_metadata": {
+        "dataset_name": "Weibo2014",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.Weibo2014.html",
+            "file_format": "via MOABB",
+            "description": "Motor imagery, 7 classes (single/combined limbs + rest): 10 subjects, 60 EEG ch at 200 Hz, 560 trials. Window: global pre/post around MI onset (MOABB interval [3, 7])."
+        },
+        "moabb": {
+            "class": "Weibo2014",
+            "kwargs": {},
+            "code": "Weibo2014"
+        },
+        "acquisition": {
+            "sample_frequency": 200.0,
+            "window_size_seconds": 4,
+            "num_subjects": 10
+        },
+        "targets": {
+            "count": 7,
+            "type": "imagery",
+            "0": {
+                "label": "feet",
+                "moabb_event": "feet"
+            },
+            "1": {
+                "label": "hands",
+                "moabb_event": "hands"
+            },
+            "2": {
+                "label": "left_hand",
+                "moabb_event": "left_hand"
+            },
+            "3": {
+                "label": "left_hand_right_foot",
+                "moabb_event": "left_hand_right_foot"
+            },
+            "4": {
+                "label": "rest",
+                "moabb_event": "rest"
+            },
+            "5": {
+                "label": "right_hand",
+                "moabb_event": "right_hand"
+            },
+            "6": {
+                "label": "right_hand_left_foot",
+                "moabb_event": "right_hand_left_foot"
+            }
+        },
+        "channels": {
+            "count": 60,
+            "1": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "2": {
+                "label": "Fpz",
+                "original_label": "Fpz"
+            },
+            "3": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "4": {
+                "label": "AF3",
+                "original_label": "AF3"
+            },
+            "5": {
+                "label": "AF4",
+                "original_label": "AF4"
+            },
+            "6": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "7": {
+                "label": "F5",
+                "original_label": "F5"
+            },
+            "8": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "9": {
+                "label": "F1",
+                "original_label": "F1"
+            },
+            "10": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "11": {
+                "label": "F2",
+                "original_label": "F2"
+            },
+            "12": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "13": {
+                "label": "F6",
+                "original_label": "F6"
+            },
+            "14": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "15": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "16": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "17": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "18": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "19": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "20": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "21": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "22": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "23": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "24": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "25": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "26": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "27": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "28": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "29": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "30": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "31": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "32": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "33": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "34": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "35": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "36": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "37": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "38": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "39": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "40": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "41": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "42": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "43": {
+                "label": "P5",
+                "original_label": "P5"
+            },
+            "44": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "45": {
+                "label": "P1",
+                "original_label": "P1"
+            },
+            "46": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "47": {
+                "label": "P2",
+                "original_label": "P2"
+            },
+            "48": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "49": {
+                "label": "P6",
+                "original_label": "P6"
+            },
+            "50": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "51": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "52": {
+                "label": "PO5",
+                "original_label": "PO5"
+            },
+            "53": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "54": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "55": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "56": {
+                "label": "PO6",
+                "original_label": "PO6"
+            },
+            "57": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "58": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "59": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "60": {
+                "label": "O2",
+                "original_label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        }
+    }
+}

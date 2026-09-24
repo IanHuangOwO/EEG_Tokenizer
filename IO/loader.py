@@ -264,8 +264,10 @@ class MoabbLoader(BaseSubjectLoader):
     post_event_seconds] (post falls back to the interval length when unset). A dataset
     whose trials don't fit the global pre/post (P300 flashes, back-to-back PhysionetMI
     trials) sets metadata moabb.window = [t0, t1]: seconds relative to the raw event,
-    used instead. Channels are picked by name (metadata 'original_label'); labels come
-    from metadata targets' 'moabb_event'.
+    used instead. moabb.continuous = true (pretrain-only datasets whose trials overlap,
+    e.g. P300 flashes ~0.1 s apart) ignores events and cuts every run into non-overlapping
+    window_size_seconds windows with label 0. Channels are picked by name (metadata
+    'original_label'); labels come from metadata targets' 'moabb_event'.
     """
     def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
         super().__init__(config, subject_id, desired_channel_indices)
@@ -277,6 +279,7 @@ class MoabbLoader(BaseSubjectLoader):
         t = self.data_metadata['targets']
         self.event_to_label = {t[k]['moabb_event']: int(k) for k in t if k.isdigit()}
         self.window = m.get('window')
+        self.continuous = m.get('continuous', False)
 
     def _load_data(self):
         import mne
@@ -285,6 +288,15 @@ class MoabbLoader(BaseSubjectLoader):
         for _, _, raw in subject_runs(self.ds, self.moabb_subject):
             self._resample_if_needed(raw)
             sf = raw.info['sfreq']
+            if self.continuous:
+                data = raw.get_data(picks=self.pick_names).astype(np.float32)
+                win = int(round(self.standard_window * sf))
+                n = data.shape[1] // win
+                if n:
+                    trials += list(data[:, :n * win].reshape(data.shape[0], n, win).transpose(1, 0, 2))
+                    labels += [0] * n
+                    ranges += [(0, win)] * n
+                continue
             if self.window:
                 shift, pre, post = 0, int(round(-self.window[0] * sf)), int(round(self.window[1] * sf))
             else:
@@ -317,7 +329,7 @@ class MoabbLoader(BaseSubjectLoader):
 
 def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Dict,
                          target_labels: Dict[str, str], kwargs: Dict = None,
-                         window: List[float] = None) -> Dict:
+                         window: List[float] = None, continuous_seconds: float = None) -> Dict:
     """
     Writes <root>/metadata.json from MOABB: EEG channel names and sample rate from the
     first subject's first run (downloads it if needed), subjects from ds.subject_list,
@@ -337,13 +349,16 @@ def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Di
             "dataset_name": name,
             "dataset_info": dataset_info,
             "moabb": {"class": class_name, "kwargs": kwargs, "code": ds.code,
-                      **({"window": window} if window else {})},
+                      **({"window": window} if window else {}),
+                      **({"continuous": True} if continuous_seconds else {})},
             "acquisition": {
                 "sample_frequency": raw.info['sfreq'],
-                "window_size_seconds": (window[1] - window[0]) if window else hi - lo,
+                "window_size_seconds": continuous_seconds or ((window[1] - window[0]) if window else hi - lo),
                 "num_subjects": len(ds.subject_list),
             },
-            "targets": {"count": len(events), "type": ds.paradigm,
+            "targets": {"count": 1, "type": "pretrain_dummy",
+                        "0": {"label": "dummy (continuous window, no task label)", "moabb_event": None}}
+            if continuous_seconds else {"count": len(events), "type": ds.paradigm,
                         **{str(i): {"label": target_labels.get(e, e), "moabb_event": e}
                            for i, e in enumerate(events)}},
             "channels": {"count": len(eeg), **{str(i + 1): {"label": n, "original_label": n}
@@ -356,3 +371,26 @@ def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Di
     print(f"wrote {name}/metadata.json: {len(ds.subject_list)} subjects, {len(eeg)} EEG channels, "
           f"{raw.info['sfreq']} Hz, events {events}")
     return meta
+
+
+def fetch_moabb(dataset_path: str, retries: int = 10) -> None:
+    """Downloads every subject of a MOABB-backed dataset (metadata.json already written)
+    into <dataset_path>/raw/. Resumable: complete files are skipped. Retries on the
+    connection drops the big mirrors (wasabi, figshare) throw."""
+    import time
+    meta = json.load(open(os.path.join(dataset_path, 'metadata.json')))
+    m = meta['data_metadata']['moabb']
+    ds = moabb_dataset(m['class'], dataset_path, **m.get('kwargs', {}))
+    raw_dir = os.path.abspath(os.path.join(dataset_path, 'raw'))
+    for s in ds.subject_list:
+        for attempt in range(retries):
+            try:
+                ds.data_path(s, path=raw_dir)
+                break
+            except Exception as e:
+                print(f"subject {s} attempt {attempt} failed: {e}", flush=True)
+                time.sleep(30)
+        else:
+            print(f"subject {s} FAILED after {retries} attempts", flush=True)
+            continue
+        print(f"subject {s} ok", flush=True)

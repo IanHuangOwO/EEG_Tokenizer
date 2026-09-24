@@ -199,8 +199,10 @@ def build_finetune_bundle(model, dataset, trial_idx, config, device,
 
         bundle = SnapshotBundle(
             x_in=x_in, c_in=c_in, t_in=t_in, vc_in=vc_in, psd_model=backbone,
-            raw_t=torch.from_numpy(raw_cnl.reshape(1, C, N * L)),
-            recon_t=torch.from_numpy(recon_cnl.reshape(1, C, N * L)),
+            # overlap-add, not reshape(N * L): with overlapping patches (stride < L) a
+            # plain reshape repeats every sample len/stride times and stretches the trace.
+            raw_t=overlap_add_patches(torch.from_numpy(raw_cnl), patch_stride).unsqueeze(0),
+            recon_t=overlap_add_patches(torch.from_numpy(recon_cnl), patch_stride).unsqueeze(0),
             raw_cnl=raw_cnl, recon_cnl=recon_cnl,
             coords=coords.numpy(), channel_names=channel_names,
             valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=None,

@@ -31,6 +31,7 @@ def run(ctx):
         channel_names=bundle.channel_names,
         subject_id=bundle.subject_id, trial_idx=bundle.trial_idx,
         mask=bundle.mask_np, patch_len=bundle.patch_len,
+        patch_stride=pp.get('patch_stride', bundle.patch_len),
         tag=bundle.filename_tag.lstrip('_') + ('_' if bundle.filename_tag else ''),
         fs=fs or 200.0, l_freq=l_freq, h_freq=h_freq, band_edges=band_edges,
         event_onset_sec=bundle.event_onset_sec,

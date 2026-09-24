@@ -1,0 +1,449 @@
+{
+    "data_metadata": {
+        "dataset_name": "Cho2017",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.Cho2017.html",
+            "file_format": "via MOABB",
+            "description": "Motor imagery L/R hand (GigaDB 100295): 52 subjects, 64 EEG ch (+4 EMG dropped) at 512 Hz, 200-240 trials. Window: global pre/post around the cue (MOABB interval [0, 3])."
+        },
+        "moabb": {
+            "class": "Cho2017",
+            "kwargs": {},
+            "code": "Cho2017"
+        },
+        "acquisition": {
+            "sample_frequency": 512.0,
+            "window_size_seconds": 3,
+            "num_subjects": 52
+        },
+        "targets": {
+            "count": 2,
+            "type": "imagery",
+            "0": {
+                "label": "left_hand",
+                "moabb_event": "left_hand"
+            },
+            "1": {
+                "label": "right_hand",
+                "moabb_event": "right_hand"
+            }
+        },
+        "channels": {
+            "count": 64,
+            "1": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "2": {
+                "label": "AF7",
+                "original_label": "AF7"
+            },
+            "3": {
+                "label": "AF3",
+                "original_label": "AF3"
+            },
+            "4": {
+                "label": "F1",
+                "original_label": "F1"
+            },
+            "5": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "6": {
+                "label": "F5",
+                "original_label": "F5"
+            },
+            "7": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "8": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "9": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "10": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "11": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "12": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "13": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "14": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "15": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "16": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "17": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "18": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "19": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "20": {
+                "label": "P1",
+                "original_label": "P1"
+            },
+            "21": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "22": {
+                "label": "P5",
+                "original_label": "P5"
+            },
+            "23": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "24": {
+                "label": "P9",
+                "original_label": "P9"
+            },
+            "25": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "26": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "27": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "28": {
+                "label": "Iz",
+                "original_label": "Iz"
+            },
+            "29": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "30": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "31": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "32": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "33": {
+                "label": "Fpz",
+                "original_label": "Fpz"
+            },
+            "34": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "35": {
+                "label": "AF8",
+                "original_label": "AF8"
+            },
+            "36": {
+                "label": "AF4",
+                "original_label": "AF4"
+            },
+            "37": {
+                "label": "AFz",
+                "original_label": "AFz"
+            },
+            "38": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "39": {
+                "label": "F2",
+                "original_label": "F2"
+            },
+            "40": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "41": {
+                "label": "F6",
+                "original_label": "F6"
+            },
+            "42": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "43": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "44": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "45": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "46": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "47": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "48": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "49": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "50": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "51": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "52": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "53": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "54": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "55": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "56": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "57": {
+                "label": "P2",
+                "original_label": "P2"
+            },
+            "58": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "59": {
+                "label": "P6",
+                "original_label": "P6"
+            },
+            "60": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "61": {
+                "label": "P10",
+                "original_label": "P10"
+            },
+            "62": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "63": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "64": {
+                "label": "O2",
+                "original_label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        },
+        "11": {
+            "moabb_subject": 11
+        },
+        "12": {
+            "moabb_subject": 12
+        },
+        "13": {
+            "moabb_subject": 13
+        },
+        "14": {
+            "moabb_subject": 14
+        },
+        "15": {
+            "moabb_subject": 15
+        },
+        "16": {
+            "moabb_subject": 16
+        },
+        "17": {
+            "moabb_subject": 17
+        },
+        "18": {
+            "moabb_subject": 18
+        },
+        "19": {
+            "moabb_subject": 19
+        },
+        "20": {
+            "moabb_subject": 20
+        },
+        "21": {
+            "moabb_subject": 21
+        },
+        "22": {
+            "moabb_subject": 22
+        },
+        "23": {
+            "moabb_subject": 23
+        },
+        "24": {
+            "moabb_subject": 24
+        },
+        "25": {
+            "moabb_subject": 25
+        },
+        "26": {
+            "moabb_subject": 26
+        },
+        "27": {
+            "moabb_subject": 27
+        },
+        "28": {
+            "moabb_subject": 28
+        },
+        "29": {
+            "moabb_subject": 29
+        },
+        "30": {
+            "moabb_subject": 30
+        },
+        "31": {
+            "moabb_subject": 31
+        },
+        "32": {
+            "moabb_subject": 32
+        },
+        "33": {
+            "moabb_subject": 33
+        },
+        "34": {
+            "moabb_subject": 34
+        },
+        "35": {
+            "moabb_subject": 35
+        },
+        "36": {
+            "moabb_subject": 36
+        },
+        "37": {
+            "moabb_subject": 37
+        },
+        "38": {
+            "moabb_subject": 38
+        },
+        "39": {
+            "moabb_subject": 39
+        },
+        "40": {
+            "moabb_subject": 40
+        },
+        "41": {
+            "moabb_subject": 41
+        },
+        "42": {
+            "moabb_subject": 42
+        },
+        "43": {
+            "moabb_subject": 43
+        },
+        "44": {
+            "moabb_subject": 44
+        },
+        "45": {
+            "moabb_subject": 45
+        },
+        "46": {
+            "moabb_subject": 46
+        },
+        "47": {
+            "moabb_subject": 47
+        },
+        "48": {
+            "moabb_subject": 48
+        },
+        "49": {
+            "moabb_subject": 49
+        },
+        "50": {
+            "moabb_subject": 50
+        },
+        "51": {
+            "moabb_subject": 51
+        },
+        "52": {
+            "moabb_subject": 52
+        }
+    }
+}

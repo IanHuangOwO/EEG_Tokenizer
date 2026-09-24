@@ -41,7 +41,11 @@ PARADIGM = {
     'Lee2019_MI': 'Motor imagery (L/R hand)', 'MDD_Mumtaz': 'Clinical: depression (rest + P300)',
     'Neonatal_Helsinki': 'Clinical: neonatal (NICU)',
     'SPIS': 'Resting state (eyes open/closed)', 'SRM_RestingState': 'Resting state',
-    'STEW': 'Mental workload (multitasking)', 'UCSD_PD': "Clinical: Parkinson's (rest)",
+    'STEW': 'Mental workload (multitasking)',
+    'Weibo2014': 'Motor imagery (7-class)', 'Cho2017': 'Motor imagery (L/R hand)',
+    'Schirrmeister2017': 'Motor execution (4-class)', 'Dreyer2023': 'Motor imagery (L/R hand)',
+    'Wang2016': 'SSVEP (40-class)', 'Lee2019_SSVEP': 'SSVEP (4-class)',
+    'Liu2022EldBETA': 'SSVEP (9-class, elderly)', 'Lee2019_ERP': 'P300 speller (continuous)', 'UCSD_PD': "Clinical: Parkinson's (rest)",
 }
 
 # Which external finetune benchmark lists each dataset: B = EEG-FM-Bench (arXiv 2508.17742),

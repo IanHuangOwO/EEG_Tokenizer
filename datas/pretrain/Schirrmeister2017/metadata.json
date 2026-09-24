@@ -1,0 +1,599 @@
+{
+    "data_metadata": {
+        "dataset_name": "Schirrmeister2017",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.Schirrmeister2017.html",
+            "file_format": "via MOABB",
+            "description": "High-gamma dataset: motor EXECUTION (L/R hand, feet, rest), 14 subjects, 128 EEG ch at 500 Hz, ~960 trials per subject (train + test runs). Window: global pre/post around the cue (MOABB interval [0, 4])."
+        },
+        "moabb": {
+            "class": "Schirrmeister2017",
+            "kwargs": {},
+            "code": "Schirrmeister2017"
+        },
+        "acquisition": {
+            "sample_frequency": 500.0,
+            "window_size_seconds": 4,
+            "num_subjects": 14
+        },
+        "targets": {
+            "count": 4,
+            "type": "imagery",
+            "0": {
+                "label": "feet",
+                "moabb_event": "feet"
+            },
+            "1": {
+                "label": "left_hand",
+                "moabb_event": "left_hand"
+            },
+            "2": {
+                "label": "rest",
+                "moabb_event": "rest"
+            },
+            "3": {
+                "label": "right_hand",
+                "moabb_event": "right_hand"
+            }
+        },
+        "channels": {
+            "count": 128,
+            "1": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "2": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "3": {
+                "label": "Fpz",
+                "original_label": "Fpz"
+            },
+            "4": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "5": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "6": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "7": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "8": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "9": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "10": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "11": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "12": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "13": {
+                "label": "M1",
+                "original_label": "M1"
+            },
+            "14": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "15": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "16": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "17": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "18": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "19": {
+                "label": "M2",
+                "original_label": "M2"
+            },
+            "20": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "21": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "22": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "23": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "24": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "25": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "26": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "27": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "28": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "29": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "30": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "31": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "32": {
+                "label": "O2",
+                "original_label": "O2"
+            },
+            "33": {
+                "label": "AF7",
+                "original_label": "AF7"
+            },
+            "34": {
+                "label": "AF3",
+                "original_label": "AF3"
+            },
+            "35": {
+                "label": "AF4",
+                "original_label": "AF4"
+            },
+            "36": {
+                "label": "AF8",
+                "original_label": "AF8"
+            },
+            "37": {
+                "label": "F5",
+                "original_label": "F5"
+            },
+            "38": {
+                "label": "F1",
+                "original_label": "F1"
+            },
+            "39": {
+                "label": "F2",
+                "original_label": "F2"
+            },
+            "40": {
+                "label": "F6",
+                "original_label": "F6"
+            },
+            "41": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "42": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "43": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "44": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "45": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "46": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "47": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "48": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "49": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "50": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "51": {
+                "label": "P5",
+                "original_label": "P5"
+            },
+            "52": {
+                "label": "P1",
+                "original_label": "P1"
+            },
+            "53": {
+                "label": "P2",
+                "original_label": "P2"
+            },
+            "54": {
+                "label": "P6",
+                "original_label": "P6"
+            },
+            "55": {
+                "label": "PO5",
+                "original_label": "PO5"
+            },
+            "56": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "57": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "58": {
+                "label": "PO6",
+                "original_label": "PO6"
+            },
+            "59": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "60": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "61": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "62": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "63": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "64": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "65": {
+                "label": "FT9",
+                "original_label": "FT9"
+            },
+            "66": {
+                "label": "FT10",
+                "original_label": "FT10"
+            },
+            "67": {
+                "label": "TPP9h",
+                "original_label": "TPP9h"
+            },
+            "68": {
+                "label": "TPP10h",
+                "original_label": "TPP10h"
+            },
+            "69": {
+                "label": "PO9",
+                "original_label": "PO9"
+            },
+            "70": {
+                "label": "PO10",
+                "original_label": "PO10"
+            },
+            "71": {
+                "label": "P9",
+                "original_label": "P9"
+            },
+            "72": {
+                "label": "P10",
+                "original_label": "P10"
+            },
+            "73": {
+                "label": "AFF1",
+                "original_label": "AFF1"
+            },
+            "74": {
+                "label": "AFz",
+                "original_label": "AFz"
+            },
+            "75": {
+                "label": "AFF2",
+                "original_label": "AFF2"
+            },
+            "76": {
+                "label": "FFC5h",
+                "original_label": "FFC5h"
+            },
+            "77": {
+                "label": "FFC3h",
+                "original_label": "FFC3h"
+            },
+            "78": {
+                "label": "FFC4h",
+                "original_label": "FFC4h"
+            },
+            "79": {
+                "label": "FFC6h",
+                "original_label": "FFC6h"
+            },
+            "80": {
+                "label": "FCC5h",
+                "original_label": "FCC5h"
+            },
+            "81": {
+                "label": "FCC3h",
+                "original_label": "FCC3h"
+            },
+            "82": {
+                "label": "FCC4h",
+                "original_label": "FCC4h"
+            },
+            "83": {
+                "label": "FCC6h",
+                "original_label": "FCC6h"
+            },
+            "84": {
+                "label": "CCP5h",
+                "original_label": "CCP5h"
+            },
+            "85": {
+                "label": "CCP3h",
+                "original_label": "CCP3h"
+            },
+            "86": {
+                "label": "CCP4h",
+                "original_label": "CCP4h"
+            },
+            "87": {
+                "label": "CCP6h",
+                "original_label": "CCP6h"
+            },
+            "88": {
+                "label": "CPP5h",
+                "original_label": "CPP5h"
+            },
+            "89": {
+                "label": "CPP3h",
+                "original_label": "CPP3h"
+            },
+            "90": {
+                "label": "CPP4h",
+                "original_label": "CPP4h"
+            },
+            "91": {
+                "label": "CPP6h",
+                "original_label": "CPP6h"
+            },
+            "92": {
+                "label": "PPO1",
+                "original_label": "PPO1"
+            },
+            "93": {
+                "label": "PPO2",
+                "original_label": "PPO2"
+            },
+            "94": {
+                "label": "I1",
+                "original_label": "I1"
+            },
+            "95": {
+                "label": "Iz",
+                "original_label": "Iz"
+            },
+            "96": {
+                "label": "I2",
+                "original_label": "I2"
+            },
+            "97": {
+                "label": "AFp3h",
+                "original_label": "AFp3h"
+            },
+            "98": {
+                "label": "AFp4h",
+                "original_label": "AFp4h"
+            },
+            "99": {
+                "label": "AFF5h",
+                "original_label": "AFF5h"
+            },
+            "100": {
+                "label": "AFF6h",
+                "original_label": "AFF6h"
+            },
+            "101": {
+                "label": "FFT7h",
+                "original_label": "FFT7h"
+            },
+            "102": {
+                "label": "FFC1h",
+                "original_label": "FFC1h"
+            },
+            "103": {
+                "label": "FFC2h",
+                "original_label": "FFC2h"
+            },
+            "104": {
+                "label": "FFT8h",
+                "original_label": "FFT8h"
+            },
+            "105": {
+                "label": "FTT9h",
+                "original_label": "FTT9h"
+            },
+            "106": {
+                "label": "FTT7h",
+                "original_label": "FTT7h"
+            },
+            "107": {
+                "label": "FCC1h",
+                "original_label": "FCC1h"
+            },
+            "108": {
+                "label": "FCC2h",
+                "original_label": "FCC2h"
+            },
+            "109": {
+                "label": "FTT8h",
+                "original_label": "FTT8h"
+            },
+            "110": {
+                "label": "FTT10h",
+                "original_label": "FTT10h"
+            },
+            "111": {
+                "label": "TTP7h",
+                "original_label": "TTP7h"
+            },
+            "112": {
+                "label": "CCP1h",
+                "original_label": "CCP1h"
+            },
+            "113": {
+                "label": "CCP2h",
+                "original_label": "CCP2h"
+            },
+            "114": {
+                "label": "TTP8h",
+                "original_label": "TTP8h"
+            },
+            "115": {
+                "label": "TPP7h",
+                "original_label": "TPP7h"
+            },
+            "116": {
+                "label": "CPP1h",
+                "original_label": "CPP1h"
+            },
+            "117": {
+                "label": "CPP2h",
+                "original_label": "CPP2h"
+            },
+            "118": {
+                "label": "TPP8h",
+                "original_label": "TPP8h"
+            },
+            "119": {
+                "label": "PPO9h",
+                "original_label": "PPO9h"
+            },
+            "120": {
+                "label": "PPO5h",
+                "original_label": "PPO5h"
+            },
+            "121": {
+                "label": "PPO6h",
+                "original_label": "PPO6h"
+            },
+            "122": {
+                "label": "PPO10h",
+                "original_label": "PPO10h"
+            },
+            "123": {
+                "label": "POO9h",
+                "original_label": "POO9h"
+            },
+            "124": {
+                "label": "POO3h",
+                "original_label": "POO3h"
+            },
+            "125": {
+                "label": "POO4h",
+                "original_label": "POO4h"
+            },
+            "126": {
+                "label": "POO10h",
+                "original_label": "POO10h"
+            },
+            "127": {
+                "label": "OI1h",
+                "original_label": "OI1h"
+            },
+            "128": {
+                "label": "OI2h",
+                "original_label": "OI2h"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        },
+        "11": {
+            "moabb_subject": 11
+        },
+        "12": {
+            "moabb_subject": 12
+        },
+        "13": {
+            "moabb_subject": 13
+        },
+        "14": {
+            "moabb_subject": 14
+        }
+    }
+}

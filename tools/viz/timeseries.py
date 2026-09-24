@@ -43,14 +43,17 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
                              output_dir='output/visualization/reconstruction',
                              channel_names=None,
                              subject_id=None, trial_idx=None,
-                             mask=None, patch_len=100, tag='',
+                             mask=None, patch_len=100, patch_stride=None, tag='',
                              fs=200.0, l_freq=None, h_freq=None, band_edges=None,
                              event_onset_sec=None, valid_start=None, valid_end=None):
     """
     Band-filtered orig vs recon for all channels of one val sample.
     Rows: channels. Cols: Raw / Delta / Theta / Alpha / Beta / Gamma.
     Masked patches highlighted in red per channel.
-    mask: [C, N] bool numpy array or None.
+    mask: [C, N] bool numpy array or None. Patch p covers samples
+    [p * patch_stride, p * patch_stride + patch_len) -- patch_stride defaults to patch_len
+    (non-overlapping); with overlapping patches (stride < len) placing patch p at
+    p * patch_len stretched the shading to (len/stride)x the real trial length.
     fs: sample rate in Hz (preprocess_params.sample_freq) — used for both the time axis
     and the band-filter cutoffs; defaults to 200.0 only for callers that don't pass one.
     l_freq/h_freq: preprocess_params bandpass — clips the canonical band edges to what the
@@ -82,6 +85,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     n = min(orig.shape[-1], recon.shape[-1])
     orig, recon = orig[:, :n], recon[:, :n]
     t = np.arange(n) / fs
+    stride = patch_stride or patch_len
 
     vs = max(0, min(valid_start, n)) if valid_start is not None else None
     ve = max(0, min(valid_end,   n)) if valid_end   is not None else None
@@ -114,11 +118,12 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
                 ch_mask = mask[row] if mask.ndim == 2 else mask  # [N]
                 for p_idx, is_masked in enumerate(ch_mask):
                     if is_masked:
-                        t0 = p_idx * patch_len / fs
-                        t1 = (p_idx + 1) * patch_len / fs
+                        t0 = p_idx * stride / fs
+                        t1 = (p_idx * stride + patch_len) / fs
                         ax.axvspan(t0, t1, color='red', alpha=0.15, linewidth=0)
             if event_onset_sec is not None:
                 ax.axvline(event_onset_sec, color='k', ls='--', lw=0.8, alpha=0.8)
+            ax.set_xlim(0, n / fs)
             ax.set_yticks([])
             ax.grid(True, alpha=0.08)
             if row == 0:
