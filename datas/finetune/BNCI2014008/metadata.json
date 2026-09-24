@@ -2,16 +2,22 @@
     "data_metadata": {
         "dataset_name": "BNCI2014008",
         "dataset_info": {
-            "source_url": "http://bnci-horizon-2020.eu/database/data-sets/008-2014",
-            "file_format": "MATLAB (.mat)",
-            "description": "8 subjects with ALS, 8ch EEG, P300 matrix speller (6x6, row/column intensification) target-vs-non-target classification.",
-            "task_type": "P300 (Event-Related Potential)",
-            "reference": "Riccio A, Simione L, Schettini F, Pizzimenti A, Inghilleri M, Belardinelli MO, Mattia D, Cincotti F. Attention and P300-based BCI performance in people with amyotrophic lateral sclerosis. Front Hum Neurosci. 2013;7:732.",
-            "contact": "BNCI Horizon 2020, http://bnci-horizon-2020.eu",
-            "notes": "Real per-flash target/non-target label from `y`'s rising edges (see this file's module docstring). Epoch window hardcoded in loader.py to -0.2s/+0.8s (P300 scale, matches Table 14's 1.0s trial length exactly), not compile.json's global pre/post_event_seconds (tuned for ~5s motor-imagery trials). Clinical metadata (age/gender/ALSfrs-R/onset site) present in the raw .mat but not carried into this pipeline."
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.BNCI2014_008.html",
+            "file_format": "via MOABB",
+            "description": "P300 speller (ALS patients): 8 subjects, 1 session, 8 EEG at 256 Hz. Window [-0.2, 0.8] s around each flash (overrides global pre/post; flashes are ~0.25 s apart)."
+        },
+        "event_onset_seconds": 0.2,
+        "moabb": {
+            "class": "BNCI2014_008",
+            "kwargs": {},
+            "code": "BNCI2014-008",
+            "window": [
+                -0.2,
+                0.8
+            ]
         },
         "acquisition": {
-            "sample_frequency": 256,
+            "sample_frequency": 256.0,
             "window_size_seconds": 1.0,
             "num_subjects": 8
         },
@@ -19,67 +25,74 @@
             "count": 2,
             "type": "p300",
             "0": {
-                "label": "non-target"
+                "label": "non-target",
+                "moabb_event": "NonTarget"
             },
             "1": {
-                "label": "target"
+                "label": "target",
+                "moabb_event": "Target"
             }
         },
         "channels": {
             "count": 8,
-            "system": "10-20 International System (10-10)",
             "1": {
-                "label": "Fz"
+                "label": "Fz",
+                "original_label": "Fz"
             },
             "2": {
-                "label": "Cz"
+                "label": "Cz",
+                "original_label": "Cz"
             },
             "3": {
-                "label": "Pz"
+                "label": "Pz",
+                "original_label": "Pz"
             },
             "4": {
-                "label": "Oz"
+                "label": "Oz",
+                "original_label": "Oz"
             },
             "5": {
-                "label": "P3"
+                "label": "P3",
+                "original_label": "P3"
             },
             "6": {
-                "label": "P4"
+                "label": "P4",
+                "original_label": "P4"
             },
             "7": {
-                "label": "PO7"
+                "label": "PO7",
+                "original_label": "PO7"
             },
             "8": {
-                "label": "PO8"
+                "label": "PO8",
+                "original_label": "PO8"
             }
-        },
-        "event_onset_sample": 40,
-        "event_onset_sample_note": "P300 epoch, own hardcoded PRE_EVENT_S=0.2s (not the global 1.0s), native 256Hz -> round(0.2*200)=40."
+        }
     },
     "data_structure": {
         "1": {
-            "file": "raw/A01.mat"
+            "moabb_subject": 1
         },
         "2": {
-            "file": "raw/A02.mat"
+            "moabb_subject": 2
         },
         "3": {
-            "file": "raw/A03.mat"
+            "moabb_subject": 3
         },
         "4": {
-            "file": "raw/A04.mat"
+            "moabb_subject": 4
         },
         "5": {
-            "file": "raw/A05.mat"
+            "moabb_subject": 5
         },
         "6": {
-            "file": "raw/A06.mat"
+            "moabb_subject": 6
         },
         "7": {
-            "file": "raw/A07.mat"
+            "moabb_subject": 7
         },
         "8": {
-            "file": "raw/A08.mat"
+            "moabb_subject": 8
         }
     }
 }

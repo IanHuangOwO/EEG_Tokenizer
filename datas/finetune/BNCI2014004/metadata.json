@@ -2,148 +2,76 @@
     "data_metadata": {
         "dataset_name": "BNCI2014004",
         "dataset_info": {
-            "source_url": "https://www.bbci.de/competition/iv/#dataset2b",
-            "file_format": "GDF",
-            "description": "BCI Competition IV Dataset 2b - 2-class motor imagery (left hand, right hand), bipolar C3/Cz/C4 montage, 3 training sessions per subject",
-            "task_type": "Motor Imagery",
-            "reference": "Leeb, R., Brunner, C., Muller-Putz, G., Schlogl, A., Pfurtscheller, G. (2008). BCI Competition 2008 - Graz data set B.",
-            "contact": "BCI Competition IV organizers",
-            "note": "Only the 3 *T (training) sessions per subject are included. The 2 *E (evaluation) sessions' true labels were distributed separately as .mat files not present in this raw download, so E-session trials cannot be labeled and are excluded. Cue-onset event codes (769/770) mark the start of a 4s motor-imagery window (verified 3.0s after the 768 trial-start marker, matching the published paradigm timing)."
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.BNCI2014_004.html",
+            "file_format": "via MOABB",
+            "description": "BCI Competition IV 2b: 9 subjects, 5 sessions (3 T + 2 E, all labelled via MOABB), 2-class MI, bipolar C3/Cz/C4 (+3 EOG dropped) at 250 Hz. Window: global pre/post around the MI onset (MOABB interval [3, 7.5])."
+        },
+        "event_onset_seconds": 1.0,
+        "moabb": {
+            "class": "BNCI2014_004",
+            "kwargs": {},
+            "code": "BNCI2014-004"
         },
         "acquisition": {
-            "sample_frequency": 250,
-            "window_size_seconds": 4.0,
-            "num_sessions_per_subject": 3,
-            "trials_per_subject": 400,
+            "sample_frequency": 250.0,
+            "window_size_seconds": 4.5,
             "num_subjects": 9
         },
         "targets": {
             "count": 2,
-            "type": "motor_imagery",
+            "type": "imagery",
             "0": {
                 "label": "Left hand",
-                "description": "Event code 769"
+                "moabb_event": "left_hand"
             },
             "1": {
                 "label": "Right hand",
-                "description": "Event code 770"
+                "moabb_event": "right_hand"
             }
         },
         "channels": {
-            "count": 6,
-            "system": "10-20 International System (central line only)",
+            "count": 3,
             "1": {
                 "label": "C3",
-                "original_label": "EEG:C3",
-                "coordinates": {
-                    "polar_angle_deg": -100.091205,
-                    "polar_radius": 0.663851
-                }
+                "original_label": "C3"
             },
             "2": {
                 "label": "Cz",
-                "original_label": "EEG:Cz",
-                "coordinates": {
-                    "polar_angle_deg": 177.495882,
-                    "polar_radius": 0.091758
-                }
+                "original_label": "Cz"
             },
             "3": {
                 "label": "C4",
-                "original_label": "EEG:C4",
-                "coordinates": {
-                    "polar_angle_deg": 99.224598,
-                    "polar_radius": 0.679973
-                }
-            },
-            "4": {
-                "label": "EOG",
-                "original_label": "EOG:ch01"
-            },
-            "5": {
-                "label": "EOG",
-                "original_label": "EOG:ch02"
-            },
-            "6": {
-                "label": "EOG",
-                "original_label": "EOG:ch03"
+                "original_label": "C4"
             }
-        },
-        "event_onset_sample": 200,
-        "event_onset_sample_note": "Cue-onset sample at preprocess_params.sample_freq (200Hz): global pre_event_seconds=1.0, native 250Hz -> round(1.0*200)=200, same convention as BNCI2014001."
+        }
     },
     "data_structure": {
         "1": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0101T.gdf",
-                "B0102T.gdf",
-                "B0103T.gdf"
-            ]
+            "moabb_subject": 1
         },
         "2": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0201T.gdf",
-                "B0202T.gdf",
-                "B0203T.gdf"
-            ]
+            "moabb_subject": 2
         },
         "3": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0301T.gdf",
-                "B0302T.gdf",
-                "B0303T.gdf"
-            ]
+            "moabb_subject": 3
         },
         "4": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0401T.gdf",
-                "B0402T.gdf",
-                "B0403T.gdf"
-            ]
+            "moabb_subject": 4
         },
         "5": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0501T.gdf",
-                "B0502T.gdf",
-                "B0503T.gdf"
-            ]
+            "moabb_subject": 5
         },
         "6": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0601T.gdf",
-                "B0602T.gdf",
-                "B0603T.gdf"
-            ]
+            "moabb_subject": 6
         },
         "7": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0701T.gdf",
-                "B0702T.gdf",
-                "B0703T.gdf"
-            ]
+            "moabb_subject": 7
         },
         "8": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0801T.gdf",
-                "B0802T.gdf",
-                "B0803T.gdf"
-            ]
+            "moabb_subject": 8
         },
         "9": {
-            "folder": "raw/BCICIV_2b_gdf",
-            "runs": [
-                "B0901T.gdf",
-                "B0902T.gdf",
-                "B0903T.gdf"
-            ]
+            "moabb_subject": 9
         }
     }
 }

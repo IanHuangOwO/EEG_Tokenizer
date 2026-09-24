@@ -2,149 +2,125 @@
     "data_metadata": {
         "dataset_name": "BNCI2015001",
         "dataset_info": {
-            "source_url": "http://bnci-horizon-2020.eu/database/data-sets/001-2015",
-            "file_format": "MATLAB (.mat)",
-            "description": "12 subjects, 13ch EEG, 2-class motor imagery (right hand vs both feet), synchronous Graz BCI paradigm, 2-3 sessions/subject on different days.",
-            "task_type": "motor_imagery",
-            "reference": "Faller J, Vidaurre C, Solis-Escalante T, Neuper C, Scherer R (2012). Autocalibration and recurrent adaptation: Towards a plug and play online ERD-BCI. IEEE Trans Neural Syst Rehabil Eng. 20(3):313-319. doi:10.1109/tnsre.2012.2189584",
-            "contact": "Reinhold Scherer (reini.scherer@gmail.com), Josef Faller (josef.faller@gmx.at)",
-            "notes": "2 sessions/subject (S01-S07, S12) or 3 (S08-S11, a 3rd was recorded for subjects who hadn't reached the 70% criterion after 2) -- confirmed via real HTTP probes of every subject/session combination, not assumed from the paper text alone. Real trial label from each file's `y` array (1=right hand, 2=both feet). Epoch window hardcoded in loader.py to offset 3.0s/duration 5.0s post-trial-onset (the cue-to-end-of-imagery window, description.pdf Figure 1), NOT compile.json's global pre/post_event_seconds."
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.BNCI2015_001.html",
+            "file_format": "via MOABB",
+            "description": "MI right hand vs both feet: 12 subjects, 2-3 sessions, 13 EEG at 512 Hz. Window: global pre/post around the event, which marks the CUE (MOABB interval [0, 5]). The old hand-written loader assumed it marked trial start and cut [3, 8] s, i.e. mostly post-imagery rebound -- verified 2026-09-24 from the C3/C4 8-30 Hz power time course (ERD 1-5 s, beta rebound 5-7 s after the event)."
+        },
+        "event_onset_seconds": 1.0,
+        "moabb": {
+            "class": "BNCI2015_001",
+            "kwargs": {},
+            "code": "BNCI2015-001"
         },
         "acquisition": {
-            "sample_frequency": 512,
-            "window_size_seconds": 5.0,
+            "sample_frequency": 512.0,
+            "window_size_seconds": 5,
             "num_subjects": 12
         },
         "targets": {
             "count": 2,
-            "type": "motor_imagery",
+            "type": "imagery",
             "0": {
-                "label": "right hand"
+                "label": "right hand",
+                "moabb_event": "right_hand"
             },
             "1": {
-                "label": "both feet"
+                "label": "both feet",
+                "moabb_event": "feet"
             }
         },
         "channels": {
             "count": 13,
-            "system": "10-20 International System (10-10)",
             "1": {
-                "label": "FC3"
+                "label": "FC3",
+                "original_label": "FC3"
             },
             "2": {
-                "label": "FCz"
+                "label": "FCz",
+                "original_label": "FCz"
             },
             "3": {
-                "label": "FC4"
+                "label": "FC4",
+                "original_label": "FC4"
             },
             "4": {
-                "label": "C5"
+                "label": "C5",
+                "original_label": "C5"
             },
             "5": {
-                "label": "C3"
+                "label": "C3",
+                "original_label": "C3"
             },
             "6": {
-                "label": "C1"
+                "label": "C1",
+                "original_label": "C1"
             },
             "7": {
-                "label": "Cz"
+                "label": "Cz",
+                "original_label": "Cz"
             },
             "8": {
-                "label": "C2"
+                "label": "C2",
+                "original_label": "C2"
             },
             "9": {
-                "label": "C4"
+                "label": "C4",
+                "original_label": "C4"
             },
             "10": {
-                "label": "C6"
+                "label": "C6",
+                "original_label": "C6"
             },
             "11": {
-                "label": "CP3"
+                "label": "CP3",
+                "original_label": "CP3"
             },
             "12": {
-                "label": "CPz"
+                "label": "CPz",
+                "original_label": "CPz"
             },
             "13": {
-                "label": "CP4"
+                "label": "CP4",
+                "original_label": "CP4"
             }
         }
     },
     "data_structure": {
         "1": {
-            "files": [
-                "raw/S01A.mat",
-                "raw/S01B.mat"
-            ]
+            "moabb_subject": 1
         },
         "2": {
-            "files": [
-                "raw/S02A.mat",
-                "raw/S02B.mat"
-            ]
+            "moabb_subject": 2
         },
         "3": {
-            "files": [
-                "raw/S03A.mat",
-                "raw/S03B.mat"
-            ]
+            "moabb_subject": 3
         },
         "4": {
-            "files": [
-                "raw/S04A.mat",
-                "raw/S04B.mat"
-            ]
+            "moabb_subject": 4
         },
         "5": {
-            "files": [
-                "raw/S05A.mat",
-                "raw/S05B.mat"
-            ]
+            "moabb_subject": 5
         },
         "6": {
-            "files": [
-                "raw/S06A.mat",
-                "raw/S06B.mat"
-            ]
+            "moabb_subject": 6
         },
         "7": {
-            "files": [
-                "raw/S07A.mat",
-                "raw/S07B.mat"
-            ]
+            "moabb_subject": 7
         },
         "8": {
-            "files": [
-                "raw/S08A.mat",
-                "raw/S08B.mat",
-                "raw/S08C.mat"
-            ]
+            "moabb_subject": 8
         },
         "9": {
-            "files": [
-                "raw/S09A.mat",
-                "raw/S09B.mat",
-                "raw/S09C.mat"
-            ]
+            "moabb_subject": 9
         },
         "10": {
-            "files": [
-                "raw/S10A.mat",
-                "raw/S10B.mat",
-                "raw/S10C.mat"
-            ]
+            "moabb_subject": 10
         },
         "11": {
-            "files": [
-                "raw/S11A.mat",
-                "raw/S11B.mat",
-                "raw/S11C.mat"
-            ]
+            "moabb_subject": 11
         },
         "12": {
-            "files": [
-                "raw/S12A.mat",
-                "raw/S12B.mat"
-            ]
+            "moabb_subject": 12
         }
     }
 }
