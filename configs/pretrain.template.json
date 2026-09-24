@@ -1,40 +1,19 @@
 {
   "dataset_params": {
     "pretrain": {
-      "Nakanishi2015": {
-        "dataset_path": "datas/finetune/Nakanishi2015",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
       "BETA_4s": {
         "dataset_path": "datas/pretrain/BETA_4s",
         "subject_to_use": [
           "16",
           "17",
           "18",
-          "31",
-          "32",
-          "33",
-          "34",
-          "35",
-          "36",
-          "37",
-          "38",
-          "39",
-          "40",
-          "41",
-          "42"
+          "19",
+          "20",
+          "21",
+          "22",
+          "23",
+          "24",
+          "25"
         ],
         "channels_to_use": [
           "all"
@@ -52,9 +31,7 @@
           "7",
           "8",
           "9",
-          "10",
-          "11",
-          "12"
+          "10"
         ],
         "channels_to_use": [
           "all"
@@ -70,7 +47,9 @@
           "5",
           "6",
           "7",
-          "8"
+          "8",
+          "9",
+          "10"
         ],
         "channels_to_use": [
           "all"
@@ -103,13 +82,7 @@
           "14",
           "16",
           "17",
-          "18",
-          "20",
-          "21",
-          "22",
-          "23",
-          "24",
-          "26"
+          "18"
         ],
         "channels_to_use": [
           "all"
@@ -132,13 +105,105 @@
         "channels_to_use": [
           "all"
         ]
-      }
-    },
-    "finetune": {
-      "BNCI2014001": {
-        "dataset_path": "datas/finetune/BNCI2014001",
-        "subject_to_use": ["all"],
-        "channels_to_use": ["all"]
+      },
+      "BCMI_MusicEmotion": {
+        "dataset_path": "datas/pretrain/BCMI_MusicEmotion",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "DEAP": {
+        "dataset_path": "datas/pretrain/DEAP",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "EmotionVideo": {
+        "dataset_path": "datas/pretrain/EmotionVideo",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "ERP_Longitudinal": {
+        "dataset_path": "datas/pretrain/ERP_Longitudinal",
+        "subject_to_use": [
+          "1"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "SPIS": {
+        "dataset_path": "datas/pretrain/SPIS",
+        "subject_to_use": [
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10",
+          "11"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "SRM_RestingState": {
+        "dataset_path": "datas/pretrain/SRM_RestingState",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
       }
     }
   },
@@ -209,21 +274,13 @@
           "aux_weight": 0.01,
           "mp_weight": 1.0
         }
-      },
-      "finetune": {
-        "features": ["stamp_power"],
-        "spatial_k": 8,
-        "time_pool": "learned",
-        "time_rank": 2,
-        "evoked_rank": 0,
-        "dropout": 0.5
       }
     }
   },
   "training_params": {
     "pretrain": {
       "model_type": "MeSAE",
-      "model_name": "mesae_v10_full_v2",
+      "model_name": "mesae_vXX_small",
       "tokenizer_epochs": 10,
       "freeze_stamps": false,
       "learning_rate": 0.001,
@@ -234,19 +291,6 @@
       "weight_decay": 0.01,
       "device": "cuda",
       "train_val_split": 0.9
-    },
-    "finetune": {
-      "model_type": "MeSAE",
-      "model_name": "mesae_finetune_c1_rerun",
-      "pretrained_checkpoint": "output/mesae_v10_small/pretrain/checkpoint/last.pth",
-      "learning_rate": 0.01,
-      "min_learning_rate": 0.001,
-      "epochs": 100,
-      "warmup_epochs": 2,
-      "batch_size": 16,
-      "weight_decay": 0.01,
-      "device": "cuda",
-      "split": {"mode": "intra_subject", "n_folds": 5}
     },
     "visualize_params": {
       "cmap": "YlOrRd",
@@ -292,9 +336,6 @@
             "trial": 0
           }
         ],
-        "every_n_epochs": 10
-      },
-      "finetune": {
         "every_n_epochs": 10
       }
     }

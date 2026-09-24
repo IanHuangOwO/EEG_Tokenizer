@@ -14,7 +14,7 @@ class Loader(BaseSubjectLoader):
     subject key -- keeps the train/val subject split (train_pretrain.py) from
     ever putting two sessions of the same person on opposite sides.
 
-    self.pre_event_seconds/post_event_seconds (config/compile.json's global
+    self.pre_event_seconds/post_event_seconds (configs/compile.json's global
     setting -- see IO/loader.py's BaseSubjectLoader) only apply in the
     standard_window branch below (where headroom was actually measured: min
     6.57s pre-event, comfortably more than post_event_seconds too since the

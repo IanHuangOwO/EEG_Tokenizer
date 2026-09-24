@@ -13,10 +13,10 @@ class Loader(BaseSubjectLoader):
     real labels -- referenced via 'runs' in metadata.json. The 2 *E
     (evaluation) sessions' true labels ship as separate .mat files not
     included in this raw download, so they're excluded. Segments each
-    recording into [pre_event_seconds + post_event_seconds] windows (config/
+    recording into [pre_event_seconds + post_event_seconds] windows (configs/
     compile.json's global setting, see IO/loader.py's BaseSubjectLoader) around
     the per-class cue event (769/770), concatenated across all 3 runs for the
-    subject. Not currently in any active dataset_params (see config/compile.json's
+    subject. Not currently in any active dataset_params (see configs/compile.json's
     _comment) -- shares BNCI2014001's paradigm/timing convention, treated the same
     way here, but its own real headroom hasn't been directly measured the way
     docs/model-analysis-checklist.md does for the datasets actually in use.

@@ -374,7 +374,7 @@ No registration step — `datas/MyDataset/loader.py` existing IS the
 registration (`IO/loader.py`'s `resolve_dataset_loader()` dynamically imports
 it by directory convention). Instead, run the compile step:
 
-1. Add an entry to `config/compile.json`:
+1. Add an entry to `configs/compile.json`:
    ```jsonc
    "datasets": {
        "MyDataset": { "dataset_path": "datas/MyDataset" }
@@ -386,7 +386,7 @@ it by directory convention). Instead, run the compile step:
    cache won't be found at train time.)
 2. Run it:
    ```bash
-   python cache_dataset.py --config config/compile.json --dataset MyDataset
+   python cache_dataset.py --config configs/compile.json --dataset MyDataset
    ```
 3. Confirm `datas/MyDataset/cache/<subject>_fs<...>_bp<...>.npz` files were
    written, one per subject with real data — `[MyDataset SX] (N, C, T) -> ...`
@@ -446,7 +446,7 @@ your config JSON:
 python -c "
 import json
 from IO.dataset import build_dataset_from_config
-config = json.load(open('config/config_pretrain.json'))
+config = json.load(open('configs/pretrain.template.json'))
 config['dataset_params']['pretrain'] = {
     'MyDataset': {'dataset_path': 'datas/MyDataset', 'subject_to_use': ['all'], 'channels_to_use': ['all']}
 }

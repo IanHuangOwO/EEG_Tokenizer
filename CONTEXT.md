@@ -1,6 +1,6 @@
 # EEG Tokenizer
 
-An EEG signal tokenizer: converts multi-channel EEG time series into per-patch features via masked-reconstruction pretraining. **MeSAE** (sparse stamp dictionary, non-discrete) is the only live model — **MeFSQ** (discrete codes, Multi-head Finite Scalar Quantization) was removed, see `docs/adr/0013`; its terms below are kept as a glossary for reading old docs/ADRs, not a current architecture. `config/config.template.json`, copied per run into `config/runs/`, builds MeSAE; see "Current MeSAE defaults" below.
+An EEG signal tokenizer: converts multi-channel EEG time series into per-patch features via masked-reconstruction pretraining. **MeSAE** (sparse stamp dictionary, non-discrete) is the only live model — **MeFSQ** (discrete codes, Multi-head Finite Scalar Quantization) was removed, see `docs/adr/0013`; its terms below are kept as a glossary for reading old docs/ADRs, not a current architecture. `configs/pretrain.template.json`, copied per run into `configs/runs/`, builds MeSAE; see "Current MeSAE defaults" below.
 
 ## Language
 
@@ -78,7 +78,7 @@ MeSAE's second training phase: the Tokenizer-stage StampBank is frozen (weights 
 
 ## Current MeSAE defaults
 
-What `config/config.template.json` builds today. Rationale for each choice lives in the ADRs;
+What `configs/pretrain.template.json` builds today. Rationale for each choice lives in the ADRs;
 this is the snapshot, so a reader does not have to reconstruct it from the config.
 
 **Signal path**: bandpass 0.5–100Hz → 200Hz (baked into the cache) → Window 800 (4s) →

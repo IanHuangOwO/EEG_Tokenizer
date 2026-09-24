@@ -12,7 +12,7 @@ class Loader(BaseSubjectLoader):
     *E (evaluation) session's true labels ship as separate .mat files not
     included in this raw download, so E trials have no usable label.
     Segments each recording into [self.pre_event_seconds + self.post_event_seconds]
-    windows around the per-class cue event (769/770/771/772) — config/compile.json's
+    windows around the per-class cue event (769/770/771/772) — configs/compile.json's
     global pre_event_seconds/post_event_seconds (see IO/loader.py's BaseSubjectLoader),
     which now define this dataset's trial length directly (replacing standard_window
     for this loader). Measured real headroom before the cue (raw event 768 fires 2.0s

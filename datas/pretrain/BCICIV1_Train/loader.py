@@ -10,7 +10,7 @@ class Loader(BaseSubjectLoader):
     # Real marker-triggered trials (the 'mrk' branch below) measured with >=4.0s
     # headroom before every trial in the dataset (evenly-spaced, back-to-back at
     # trial_len + headroom) -- see docs/model-analysis-checklist.md. self.pre_event_
-    # seconds/post_event_seconds (config/compile.json's global setting) only apply
+    # seconds/post_event_seconds (configs/compile.json's global setting) only apply
     # there; the no-marker fallback branch has no real event to be "pre"/"post" of,
     # its trial_len stays standard_window-derived, always fully valid by
     # construction (np.arange already stops short of running past the recording).

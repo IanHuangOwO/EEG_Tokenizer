@@ -10,7 +10,7 @@ class Loader(BaseSubjectLoader):
     Loader for PhysioNet Motor Imagery (BCI2000) dataset.
     Segments EDF files by T0 (rest), T1, and T2 annotations.
 
-    Deliberately ignores self.pre_event_seconds/post_event_seconds (config/
+    Deliberately ignores self.pre_event_seconds/post_event_seconds (configs/
     compile.json's global setting) even though it's injected into every loader's
     dataset_params -- pre_pts is hardcoded 0 and post_pts stays standard_window-
     derived below, regardless of what the global compile-time setting is, unlike

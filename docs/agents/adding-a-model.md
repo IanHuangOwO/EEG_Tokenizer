@@ -227,7 +227,7 @@ No test suite exists for this repo — verify by hand:
 python -c "
 import json
 from model.factory import build_pretrain_from_config
-cfg = json.load(open('config/config.template.json'))
+cfg = json.load(open('configs/pretrain.template.json'))
 cfg['training_params']['pretrain']['model_type'] = 'MeXXX'
 m = build_pretrain_from_config(cfg)
 print(type(m).__name__, sum(p.numel() for p in m.parameters()))

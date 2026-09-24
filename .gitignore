@@ -3,8 +3,9 @@
 /resources
 /output
 # per-run configs (each run also snapshots its config into output/<run>/artifacts/)
-/config/runs/*
-!/config/runs/README.md
+/configs/runs/
+# temporary: old-path copies for jobs queued before the config/ -> configs/ rename; delete when they finish
+/config/
 
 # Python
 __pycache__/

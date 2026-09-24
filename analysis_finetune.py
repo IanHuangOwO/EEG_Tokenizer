@@ -3,7 +3,7 @@ Post-training checker for the FINETUNE stage only: per-target correct/wrong snap
 pairs via tools/analysis/snapshot.py's build_finetune_bundle + tools/panels/. Pretrain-stage
 analysis (snapshot + codebook) lives in analysis_pretrain.py.
 
-Config resolution: config/analysis_finetune.template.json (or --config) is a small overlay
+Config resolution: configs/analysis_finetune.template.json (or --config) is a small overlay
 — checkpoint (a finetune head.pth),
 dataset_params.finetune (one dataset entry), check.plot_* toggles. It's deep-merged onto
 the head checkpoint's own run config, taken via --base-config (finetune runs write a
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     from tools.panels import PanelContext, run_panels
 
     parser = argparse.ArgumentParser(description='Post-training EEG finetune checker (MeSAE)')
-    parser.add_argument('--config',      default='config/analysis_finetune.template.json')
+    parser.add_argument('--config',      default='configs/analysis_finetune.template.json')
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
     parser.add_argument('--dataset',     type=str, default=None)

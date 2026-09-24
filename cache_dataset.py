@@ -270,7 +270,7 @@ def main():
                      'dead-channels/bandpass-rolloff). Verification is baked in and runs by '
                      'default after compiling; --verify-only skips compiling and checks an '
                      'existing cache instead (was the separate cache_verify.py).')
-    parser.add_argument('--config', type=str, default='config/compile.json')
+    parser.add_argument('--config', type=str, default='configs/compile.json')
     parser.add_argument('--dataset', type=str, default=None,
                          help='Limit to one dataset name (default: every dataset in the config).')
     parser.add_argument('--workers', type=int, default=1,

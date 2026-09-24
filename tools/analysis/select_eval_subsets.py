@@ -2,7 +2,7 @@
 also used in pretrain, so there's no 'seen' (backbone-familiar) subject group anymore --
 every subject is a cold-start eval candidate; only a train/eval subject partition is
 generated. Ported from probes/select_eval_subsets.py -- CPU only, writes
-config/finetune_eval_splits/<name>.json, idempotent (seed 42). RUN/DATASETS/DS_ROOT/SEED
+configs/finetune_eval_splits/<name>.json, idempotent (seed 42). RUN/DATASETS/DS_ROOT/SEED
 below are the same defaults the original script hardcoded; select_eval_subsets()'s
 `names`/`run_config`/`out_dir` params let a caller override the parts that vary in
 practice. DATASETS/DS_ROOT/SEED stay module globals -- add real params for them if a
@@ -86,7 +86,7 @@ def _run_one(name, ds, pre_cfg, ds_root, seed, out_dir):
     print('  stats', json.dumps(out['stats'], indent=1))
 
 
-def select_eval_subsets(names=None, run_config=RUN, out_dir='config/finetune_eval_splits'):
+def select_eval_subsets(names=None, run_config=RUN, out_dir='configs/finetune_eval_splits'):
     """Writes out_dir/<name>.json for each name in `names` (default: every key in
     DATASETS). Pure side-effecting print + file write, no return value (matches the
     tools/panels/ contract: the analysis layer prints/saves, the panel just passes

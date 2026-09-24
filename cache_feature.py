@@ -1,6 +1,6 @@
 """Stamp-amplitude cache for the frozen backbone (finetune restructure, sub-project B).
 Pipeline stage between the compiled data (cache_dataset.py) and the finetune head, hence a root script:
-    python cache_feature.py --config config/config.template.json
+    python cache_feature.py --config configs/runs/<backbone>/finetune/<head>/<dataset>_<mode>.json
 
 The backbone never changes during finetuning, so its stamp amplitudes are computed once per
 (checkpoint, dataset, preprocessing) and stored next to the backbone:
@@ -47,7 +47,7 @@ def cache_key(config, dataset_name, keep, checkpoint_path):
         preprocess=config.get('preprocess_params', {}),
         dataset={k: v for k, v in ds_args.items() if k != 'subject_to_use'},
         metadata=_fingerprint(os.path.join(ds_args['dataset_path'], 'metadata.json')),
-        montages=_fingerprint(os.path.join('config', 'montages.json')),
+        montages=_fingerprint(os.path.join('configs', 'montages.json')),
         mne=_mne_version(),
     )
     return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:12]
@@ -166,11 +166,11 @@ def _subjects(ds_args):
 
 def main():
     ap = argparse.ArgumentParser(description="Build the stamp-amplitude cache for every finetune dataset in a config.")
-    ap.add_argument('--config', default='config/config.template.json')
+    ap.add_argument('--config', default='configs/finetune.template.json')
     ap.add_argument('--batch-size', type=int, default=64)
     args = ap.parse_args()
-    with open(args.config, encoding='utf-8') as f:
-        config = json.load(f)
+    from tools.analysis import load_config  # merges a finetune overlay onto its base_config
+    config = load_config(args.config)
     for name, ds_args in config['dataset_params']['finetune'].items():
         folder = get_stamp_cache(config, name, _subjects(ds_args), batch_size=args.batch_size)
         print(f"{name}: cache ready in {folder}")

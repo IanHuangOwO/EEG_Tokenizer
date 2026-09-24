@@ -132,7 +132,7 @@ class EEGDataset(Dataset):
         if not os.path.exists(cache_path):
             raise FileNotFoundError(
                 f"No compiled cache at {cache_path}. Run "
-                f"`python cache_dataset.py --config config/compile.json` first "
+                f"`python cache_dataset.py --config configs/compile.json` first "
                 f"(and make sure compile.json's sample_freq/bandpass_filter match "
                 f"this config's preprocess_params)."
             )
@@ -482,11 +482,11 @@ class FinetuneDataset(Dataset):
 # --- Factory ---
 
 def load_montage_channels(name: str) -> List[str]:
-    """Looks up a named montage's ordered channel-label list from config/montages.json —
+    """Looks up a named montage's ordered channel-label list from configs/montages.json —
     see docs/agents/adding-a-montage.md. Coordinates in that file are reference/QA data
     only (per-dataset coords are still resolved independently in IO/loader.py); only the
     label order matters here."""
-    montage_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'montages.json')
+    montage_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'configs', 'montages.json')
     with open(montage_path, 'r', encoding='utf-8') as f:
         montages = json.load(f)
     if name not in montages:
@@ -512,7 +512,7 @@ def _resolve_target_channels(dataset_params: Dict, pp: Dict = None) -> List[str]
     If preprocess_params contains 'canonical_channels', that fixed ordered list is used
     directly — channel index = electrode identity across all datasets. It may be given as
     a literal list (custom, used as-is) or a string naming a montage in
-    config/montages.json (see docs/agents/adding-a-montage.md).
+    configs/montages.json (see docs/agents/adding-a-montage.md).
     Otherwise falls back to reading from the first dataset's metadata.
     """
     if pp:

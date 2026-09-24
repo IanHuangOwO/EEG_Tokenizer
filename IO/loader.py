@@ -24,7 +24,7 @@ class BaseSubjectLoader(ABC):
         self.sample_freq = acquisition['sample_frequency']
         self.standard_window = acquisition.get('window_size_seconds', None)
         self.target_points = int(self.standard_window * self.sample_freq) if self.standard_window else None
-        # Global compile-time setting (config/compile.json's compile_params, passed into
+        # Global compile-time setting (configs/compile.json's compile_params, passed into
         # every loader's dataset_params by cache_dataset.py -- same mechanism dataset_path
         # already uses). 0.0 default = old behavior (window starts exactly at the event,
         # zero-length post) for every loader that hasn't opted in. Only meaningful for a

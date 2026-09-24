@@ -74,7 +74,7 @@ def _trials_of(subject_data, subjects):
 
 def _resolve_auto_split(split, ds_name, pretrained_checkpoint):
     """split['eval_subjects'] == 'auto' -> the cached (or freshly generated)
-    config/finetune_eval_splits/<ds_name.lower()>.json seen/unseen split, filled into
+    configs/finetune_eval_splits/<ds_name.lower()>.json seen/unseen split, filled into
     eval_subjects/train_subjects. Any other eval_subjects value (a list, or an explicit
     dict) passes through unchanged -- 'auto' is opt-in, not the default.
 
@@ -94,7 +94,7 @@ def _resolve_auto_split(split, ds_name, pretrained_checkpoint):
             f"split.eval_subjects='auto' needs '{ds_name}' registered in "
             f"tools.analysis.select_eval_subsets.DATASETS (currently: {sorted(DATASETS)}) "
             "-- add it there first, 'auto' does not fall back to a different split mode")
-    cache_path = os.path.join('config', 'finetune_eval_splits', f'{key}.json')
+    cache_path = os.path.join('configs', 'finetune_eval_splits', f'{key}.json')
     if not os.path.exists(cache_path):
         run_config = os.path.join(os.path.dirname(os.path.dirname(pretrained_checkpoint)),
                                   'artifacts', 'config.json')
@@ -357,7 +357,7 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
 
 def main():
     ap = argparse.ArgumentParser(description='Finetune a FeatureHead on a frozen MeSAE backbone')
-    ap.add_argument('--config', default='config/config.template.json')
+    ap.add_argument('--config', default='configs/finetune.template.json')
     args = ap.parse_args()
     config = load_config(args.config)
     tp = config['training_params']['finetune']

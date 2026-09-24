@@ -4,7 +4,7 @@ snapshot (MeSAE, resolved from the model instance) via BaseEpochChecker.check_pr
 (model/base_checker.py), plus cross-dataset codebook/vocab diagnostics
 (model/base_codebook_checker.py). Finetune-stage analysis lives in analysis_finetune.py.
 
-Config resolution: config/analysis_pretrain.template.json (or --config) is a small overlay — checkpoint,
+Config resolution: configs/analysis_pretrain.template.json (or --config) is a small overlay — checkpoint,
 dataset_params.pretrain (one dataset entry, subject_to_use = subjects to visualize;
 shared by Tokenizer and Pretrain-stage checkpoints, see CLAUDE.md), check.plot_* toggles.
 It's deep-merged onto the full run config, taken from the checkpoint's own
@@ -86,7 +86,7 @@ if __name__ == '__main__':
     from tools.panels import PanelContext, run_panels
 
     parser = argparse.ArgumentParser(description='Post-training EEG checker (MeSAE)')
-    parser.add_argument('--config',      default='config/analysis_pretrain.template.json')
+    parser.add_argument('--config',      default='configs/analysis_pretrain.template.json')
     parser.add_argument('--base-config', default=None, dest='base_config')
     parser.add_argument('--checkpoint',  default=None)
     parser.add_argument('--analysis',    default=None, choices=['snapshot', 'codebook', 'both'],
@@ -114,7 +114,7 @@ if __name__ == '__main__':
                               'dataset_params.pretrain subject pools (default: that module\'s RUN)')
     parser.add_argument('--se-out-dir', default=None, dest='se_out_dir',
                          help='(panel_select_eval_subsets only) output dir '
-                              '(default: config/finetune_eval_splits)')
+                              '(default: configs/finetune_eval_splits)')
     parser.add_argument('--sd-max-stamps', type=int, default=30, dest='sd_max_stamps',
                          help='(panel_stamp_distribution only) cap on stamps shown per '
                               'violin plot, ranked by firing count')

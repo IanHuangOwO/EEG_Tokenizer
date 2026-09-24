@@ -1,7 +1,7 @@
 """One-off: multi-seed backbone comparison with an equivalence (TOST) test.
 
 Reads output/<backbone>/finetune/<head>_seed<s>/<dataset_mode>/artifacts/group_eval.json
-(configs in config/runs/<backbone>/finetune/<head>_seed<s>/; seeds change only weight
+(configs in configs/runs/<backbone>/finetune/<head>_seed<s>/; seeds change only weight
 init + batch order -- training_params.finetune.seed -- folds stay fixed via split.seed).
 
 Per backbone x dataset_mode: mean +- std of the subject-mean balanced accuracy (tail)

@@ -110,7 +110,7 @@ def build_panel_context(args, names, stage, resolve_base_path):
         mdl = load_model(cfg, checkpoint, device, mode=stage)
         out_dir = resolve_output_dir(cfg, 'analysis', mode=stage)
     else:
-        with open('config/config.template.json', 'r') as f:
+        with open('configs/pretrain.template.json', 'r') as f:
             cfg = json.load(f)
         checkpoint, mdl = None, None
         out_dir = 'output/tools-profile'

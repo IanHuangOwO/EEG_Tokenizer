@@ -1,6 +1,6 @@
 # Adding a montage (standard or custom)
 
-`config/montages.json` and the `IO/dataset.py` lookup branch described here are live.
+`configs/montages.json` and the `IO/dataset.py` lookup branch described here are live.
 Currently populated: `10-20` (21ch, classic Jasper 1958 subset) and `10-10` (64ch, this
 project's original canonical channel set) — both built from real
 `mne.channels.make_standard_montage('standard_1020')` cartesian coordinates. See
@@ -24,7 +24,7 @@ model (`coords [B, C, 3]`) — those are resolved per-dataset at load time in
 reference/documentation/QA data — useful for sanity-checking a dataset's reported
 positions against the standard, not required for the pipeline to run.
 
-## File: `config/montages.json`
+## File: `configs/montages.json`
 
 One JSON object, keyed by montage name:
 
@@ -71,7 +71,7 @@ tell a verified reference from a hand-entered guess.
 ```json
 "canonical_channels": "10-10"
 ```
-— string, resolved by name against `config/montages.json`.
+— string, resolved by name against `configs/montages.json`.
 
 ```json
 "canonical_channels": ["Fp1", "Fp2", "F7", "..."]
@@ -82,7 +82,7 @@ this for one-off/experimental channel sets that don't deserve a named, reusable 
 `IO/dataset.py`'s existing canonical-channels resolution (around
 `build_dataset_from_config`, currently reading `pp.get('canonical_channels', [])`
 directly as a list) gains one branch: if the value is a `str`, load
-`config/montages.json` and pull that key's `channels[*].label` list, in order; if it's
+`configs/montages.json` and pull that key's `channels[*].label` list, in order; if it's
 already a `list`, use it as-is (today's behavior, untouched).
 
 ## Procedure: adding a STANDARD montage (10-5, an equipment layout, etc.)
@@ -96,7 +96,7 @@ already a `list`, use it as-is (today's behavior, untouched).
    typing anything by hand.
 2. Write a small one-off script (not part of the training pipeline) that builds the
    montage, calls `.get_positions()['ch_pos']` for cartesian coordinates, and writes the
-   `config/montages.json` entry — set `source` to say exactly which MNE montage/version
+   `configs/montages.json` entry — set `source` to say exactly which MNE montage/version
    was used.
 3. If the standard introduces channel names not already covered by
    `EEGDataset._LABEL_ALIASES` (`IO/dataset.py`) — old-style names, intermediate-ring
