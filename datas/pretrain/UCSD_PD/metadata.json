@@ -1,0 +1,441 @@
+{
+    "data_metadata": {
+        "dataset_name": "UCSD_PD",
+        "dataset_info": {
+            "source_url": "https://openneuro.org/datasets/ds002778",
+            "file_format": "BIDS (BDF)",
+            "description": "31 subjects (16 healthy controls, 15 Parkinson's disease recorded off and on dopaminergic medication), 32-channel BioSemi EEG at 512 Hz, ~3 min eyes-open rest.",
+            "task_type": "clinical_pd",
+            "reference": "Rockhill AP, Jackson N, George J, Aron A, Swann NC (2020). UC San Diego Resting State EEG Data from Patients with Parkinson's Disease. OpenNeuro ds002778. doi:10.18112/openneuro.ds002778. Jackson N et al. (2019) eNeuro 6(3); Swann NC et al. (2015) Ann Neurol 78(5):742-50.",
+            "notes": "5 s non-overlapping windows, label 0 healthy / 1 PD off meds / 2 PD on meds. Average-referenced over the 32 scalp channels in the loader. Authors ask that PD-vs-HC classification not be reported from this dataset alone (see README)."
+        },
+        "acquisition": {
+            "sample_frequency": 512,
+            "window_size_seconds": 5.0,
+            "num_subjects": 31
+        },
+        "targets": {
+            "count": 3,
+            "type": "clinical_group",
+            "0": {
+                "label": "healthy control"
+            },
+            "1": {
+                "label": "Parkinson's disease, off medication"
+            },
+            "2": {
+                "label": "Parkinson's disease, on medication"
+            }
+        },
+        "channels": {
+            "count": 32,
+            "system": "BioSemi 32 (10-20)",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "AF3"
+            },
+            "3": {
+                "label": "F7"
+            },
+            "4": {
+                "label": "F3"
+            },
+            "5": {
+                "label": "FC1"
+            },
+            "6": {
+                "label": "FC5"
+            },
+            "7": {
+                "label": "T7"
+            },
+            "8": {
+                "label": "C3"
+            },
+            "9": {
+                "label": "CP1"
+            },
+            "10": {
+                "label": "CP5"
+            },
+            "11": {
+                "label": "P7"
+            },
+            "12": {
+                "label": "P3"
+            },
+            "13": {
+                "label": "Pz"
+            },
+            "14": {
+                "label": "PO3"
+            },
+            "15": {
+                "label": "O1"
+            },
+            "16": {
+                "label": "Oz"
+            },
+            "17": {
+                "label": "O2"
+            },
+            "18": {
+                "label": "PO4"
+            },
+            "19": {
+                "label": "P4"
+            },
+            "20": {
+                "label": "P8"
+            },
+            "21": {
+                "label": "CP6"
+            },
+            "22": {
+                "label": "CP2"
+            },
+            "23": {
+                "label": "C4"
+            },
+            "24": {
+                "label": "T8"
+            },
+            "25": {
+                "label": "FC6"
+            },
+            "26": {
+                "label": "FC2"
+            },
+            "27": {
+                "label": "F4"
+            },
+            "28": {
+                "label": "F8"
+            },
+            "29": {
+                "label": "AF4"
+            },
+            "30": {
+                "label": "Fp2"
+            },
+            "31": {
+                "label": "Fz"
+            },
+            "32": {
+                "label": "Cz"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc1/ses-hc/eeg/sub-hc1_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "2": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc2/ses-hc/eeg/sub-hc2_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "3": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd3/ses-off/eeg/sub-pd3_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd3/ses-on/eeg/sub-pd3_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "4": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc4/ses-hc/eeg/sub-hc4_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "5": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd5/ses-off/eeg/sub-pd5_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd5/ses-on/eeg/sub-pd5_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "6": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd6/ses-off/eeg/sub-pd6_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd6/ses-on/eeg/sub-pd6_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "7": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc7/ses-hc/eeg/sub-hc7_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "8": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc8/ses-hc/eeg/sub-hc8_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "9": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd9/ses-off/eeg/sub-pd9_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd9/ses-on/eeg/sub-pd9_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "10": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc10/ses-hc/eeg/sub-hc10_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "11": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd11/ses-off/eeg/sub-pd11_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd11/ses-on/eeg/sub-pd11_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "12": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd12/ses-off/eeg/sub-pd12_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd12/ses-on/eeg/sub-pd12_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "13": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd13/ses-off/eeg/sub-pd13_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd13/ses-on/eeg/sub-pd13_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "14": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd14/ses-off/eeg/sub-pd14_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd14/ses-on/eeg/sub-pd14_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "16": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd16/ses-off/eeg/sub-pd16_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd16/ses-on/eeg/sub-pd16_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "17": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd17/ses-off/eeg/sub-pd17_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd17/ses-on/eeg/sub-pd17_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "18": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc18/ses-hc/eeg/sub-hc18_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "19": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd19/ses-off/eeg/sub-pd19_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd19/ses-on/eeg/sub-pd19_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "20": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc20/ses-hc/eeg/sub-hc20_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "21": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc21/ses-hc/eeg/sub-hc21_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "22": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd22/ses-off/eeg/sub-pd22_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd22/ses-on/eeg/sub-pd22_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "23": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd23/ses-off/eeg/sub-pd23_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd23/ses-on/eeg/sub-pd23_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "24": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc24/ses-hc/eeg/sub-hc24_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "25": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc25/ses-hc/eeg/sub-hc25_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "26": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd26/ses-off/eeg/sub-pd26_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd26/ses-on/eeg/sub-pd26_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "28": {
+            "runs": [
+                {
+                    "file": "raw/sub-pd28/ses-off/eeg/sub-pd28_ses-off_task-rest_eeg.bdf",
+                    "label": 1
+                },
+                {
+                    "file": "raw/sub-pd28/ses-on/eeg/sub-pd28_ses-on_task-rest_eeg.bdf",
+                    "label": 2
+                }
+            ]
+        },
+        "29": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc29/ses-hc/eeg/sub-hc29_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "30": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc30/ses-hc/eeg/sub-hc30_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "31": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc31/ses-hc/eeg/sub-hc31_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "32": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc32/ses-hc/eeg/sub-hc32_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        },
+        "33": {
+            "runs": [
+                {
+                    "file": "raw/sub-hc33/ses-hc/eeg/sub-hc33_ses-hc_task-rest_eeg.bdf",
+                    "label": 0
+                }
+            ]
+        }
+    }
+}

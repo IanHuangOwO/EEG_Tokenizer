@@ -13,7 +13,7 @@
       "GraspAndLift_Test": { "dataset_path": "datas/pretrain/GraspAndLift_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "Inria_Train": { "dataset_path": "datas/pretrain/Inria_Train", "subject_to_use": ["all"], "channels_to_use": ["all"] },
       "Inria_Test": { "dataset_path": "datas/pretrain/Inria_Test", "subject_to_use": ["all"], "channels_to_use": ["all"] },
-      "PhysionetMI": { "dataset_path": "datas/pretrain/PhysionetMI", "subject_to_use": ["all"], "channels_to_use": ["all"] }
+      "PhysionetMI": { "dataset_path": "datas/finetune/PhysionetMI", "subject_to_use": ["all"], "channels_to_use": ["all"] }
     }
   },
   "check": {

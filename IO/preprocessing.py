@@ -145,7 +145,7 @@ def cut_event_window(data: np.ndarray, event_pts: int, pre_pts: int, post_pts: i
     Padding here only covers running off the EDGE OF THE RECORDING — it does NOT
     protect against reading real content that belongs to a DIFFERENT, adjacent
     trial/event in the middle of a continuous recording (that's a labeling problem,
-    not a bounds problem — see datas/pretrain/PhysionetMI/loader.py's docstring for why that
+    not a bounds problem — see datas/finetune/PhysionetMI/loader.py's docstring for why that
     dataset doesn't use this at all)."""
     C, T = data.shape
     total = pre_pts + post_pts

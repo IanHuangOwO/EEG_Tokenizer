@@ -89,7 +89,7 @@
         ]
       },
       "PhysionetMI": {
-        "dataset_path": "datas/pretrain/PhysionetMI",
+        "dataset_path": "datas/finetune/PhysionetMI",
         "subject_to_use": [
           "1",
           "2",

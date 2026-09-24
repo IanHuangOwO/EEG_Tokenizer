@@ -247,7 +247,7 @@ def main():
     # longest trial across EVERY dataset it loads in that one build (its "Standardize
     # temporal length" step); combining a short-trial dataset (PhysionetMI, 800-sample
     # trials -- its loader deliberately hardcodes pre_event_seconds=0, see
-    # datas/pretrain/PhysionetMI/loader.py) with a long-trial one in the SAME build (e.g.
+    # datas/finetune/PhysionetMI/loader.py) with a long-trial one in the SAME build (e.g.
     # SRM_RestingState's one 48000-sample recording, itself one of this run's viz targets)
     # pads the short one to 98%+ zero -- a near-empty recon_signal snapshot and, per the
     # "CUDA out of memory" viz-failure log lines this caused, a real crash risk from the

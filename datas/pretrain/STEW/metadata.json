@@ -1,0 +1,652 @@
+{
+    "data_metadata": {
+        "dataset_name": "STEW",
+        "dataset_info": {
+            "source_url": "https://ieee-dataport.org/open-access/stew-simultaneous-task-eeg-workload-dataset",
+            "file_format": "plain text (whitespace-separated, 14 columns)",
+            "description": "48 subjects, Emotiv EPOC 14-channel EEG at 128 Hz: 2.5 min at rest and 2.5 min during the SIMKAP multitasking workload test.",
+            "task_type": "mental_workload",
+            "reference": "Lim WL, Sourina O, Wang LP. STEW: Simultaneous Task EEG Workload Data Set. IEEE Trans Neural Syst Rehabil Eng 2018;26(11):2106-2114. doi:10.1109/TNSRE.2018.2872924",
+            "notes": "5 s non-overlapping windows; label 0 = rest (lo), 1 = multitask test (hi). ratings.txt (self-reported workload 1-9) not used; ratings missing for subjects 5, 24, 42. Values are raw Emotiv units with a ~4000 DC offset."
+        },
+        "acquisition": {
+            "sample_frequency": 128,
+            "window_size_seconds": 5.0,
+            "num_subjects": 48
+        },
+        "targets": {
+            "count": 2,
+            "type": "mental_workload",
+            "0": {
+                "label": "rest (lo)"
+            },
+            "1": {
+                "label": "multitask test (hi)"
+            }
+        },
+        "channels": {
+            "count": 14,
+            "system": "10-20 (Emotiv EPOC)",
+            "1": {
+                "label": "AF3"
+            },
+            "2": {
+                "label": "F7"
+            },
+            "3": {
+                "label": "F3"
+            },
+            "4": {
+                "label": "FC5"
+            },
+            "5": {
+                "label": "T7"
+            },
+            "6": {
+                "label": "P7"
+            },
+            "7": {
+                "label": "O1"
+            },
+            "8": {
+                "label": "O2"
+            },
+            "9": {
+                "label": "P8"
+            },
+            "10": {
+                "label": "T8"
+            },
+            "11": {
+                "label": "FC6"
+            },
+            "12": {
+                "label": "F4"
+            },
+            "13": {
+                "label": "F8"
+            },
+            "14": {
+                "label": "AF4"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub01_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub01_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "2": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub02_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub02_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "3": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub03_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub03_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "4": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub04_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub04_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "5": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub05_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub05_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "6": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub06_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub06_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "7": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub07_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub07_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "8": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub08_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub08_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "9": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub09_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub09_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "10": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub10_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub10_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "11": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub11_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub11_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "12": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub12_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub12_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "13": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub13_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub13_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "14": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub14_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub14_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "15": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub15_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub15_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "16": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub16_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub16_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "17": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub17_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub17_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "18": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub18_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub18_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "19": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub19_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub19_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "20": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub20_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub20_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "21": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub21_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub21_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "22": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub22_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub22_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "23": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub23_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub23_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "24": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub24_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub24_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "25": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub25_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub25_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "26": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub26_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub26_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "27": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub27_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub27_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "28": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub28_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub28_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "29": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub29_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub29_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "30": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub30_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub30_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "31": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub31_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub31_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "32": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub32_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub32_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "33": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub33_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub33_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "34": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub34_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub34_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "35": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub35_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub35_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "36": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub36_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub36_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "37": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub37_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub37_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "38": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub38_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub38_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "39": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub39_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub39_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "40": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub40_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub40_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "41": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub41_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub41_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "42": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub42_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub42_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "43": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub43_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub43_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "44": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub44_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub44_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "45": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub45_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub45_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "46": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub46_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub46_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "47": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub47_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub47_lo.txt",
+                    "label": 0
+                }
+            ]
+        },
+        "48": {
+            "files": [
+                {
+                    "file": "raw/STEW Dataset/sub48_hi.txt",
+                    "label": 1
+                },
+                {
+                    "file": "raw/STEW Dataset/sub48_lo.txt",
+                    "label": 0
+                }
+            ]
+        }
+    }
+}

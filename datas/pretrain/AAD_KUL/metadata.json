@@ -1,0 +1,274 @@
+{
+    "data_metadata": {
+        "dataset_name": "AAD_KUL",
+        "dataset_info": {
+            "source_url": "https://zenodo.org/records/3997352",
+            "file_format": "MATLAB v7.3 (HDF5)",
+            "description": "16 normal-hearing subjects, 64-channel BioSemi EEG (downsampled to 128 Hz, 0.5 Hz high-pass), listening to one of two competing Dutch stories presented dichotically or HRTF-filtered; 20 trials (~77 min) per subject.",
+            "task_type": "auditory_attention",
+            "reference": "Das N, Francart T, Bertrand A (2020). Auditory Attention Detection Dataset KULeuven. Zenodo. doi:10.5281/zenodo.3997352. Biesmans W et al. (2016) IEEE TNSRE 25(5):402-412.",
+            "notes": "5 s non-overlapping windows, label = attended ear (0 left, 1 right). Units uV. Trial identity leaks into short windows (see README), so don't use this label as a finetune benchmark without trial-level splits."
+        },
+        "acquisition": {
+            "sample_frequency": 128,
+            "window_size_seconds": 5.0,
+            "num_subjects": 16
+        },
+        "targets": {
+            "count": 2,
+            "type": "attended_ear",
+            "0": {
+                "label": "left"
+            },
+            "1": {
+                "label": "right"
+            }
+        },
+        "channels": {
+            "count": 64,
+            "system": "BioSemi 64 (10-10)",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "AF7"
+            },
+            "3": {
+                "label": "AF3"
+            },
+            "4": {
+                "label": "F1"
+            },
+            "5": {
+                "label": "F3"
+            },
+            "6": {
+                "label": "F5"
+            },
+            "7": {
+                "label": "F7"
+            },
+            "8": {
+                "label": "FT7"
+            },
+            "9": {
+                "label": "FC5"
+            },
+            "10": {
+                "label": "FC3"
+            },
+            "11": {
+                "label": "FC1"
+            },
+            "12": {
+                "label": "C1"
+            },
+            "13": {
+                "label": "C3"
+            },
+            "14": {
+                "label": "C5"
+            },
+            "15": {
+                "label": "T7"
+            },
+            "16": {
+                "label": "TP7"
+            },
+            "17": {
+                "label": "CP5"
+            },
+            "18": {
+                "label": "CP3"
+            },
+            "19": {
+                "label": "CP1"
+            },
+            "20": {
+                "label": "P1"
+            },
+            "21": {
+                "label": "P3"
+            },
+            "22": {
+                "label": "P5"
+            },
+            "23": {
+                "label": "P7"
+            },
+            "24": {
+                "label": "P9"
+            },
+            "25": {
+                "label": "PO7"
+            },
+            "26": {
+                "label": "PO3"
+            },
+            "27": {
+                "label": "O1"
+            },
+            "28": {
+                "label": "Iz"
+            },
+            "29": {
+                "label": "Oz"
+            },
+            "30": {
+                "label": "POz"
+            },
+            "31": {
+                "label": "Pz"
+            },
+            "32": {
+                "label": "CPz"
+            },
+            "33": {
+                "label": "Fpz"
+            },
+            "34": {
+                "label": "Fp2"
+            },
+            "35": {
+                "label": "AF8"
+            },
+            "36": {
+                "label": "AF4"
+            },
+            "37": {
+                "label": "AFz"
+            },
+            "38": {
+                "label": "Fz"
+            },
+            "39": {
+                "label": "F2"
+            },
+            "40": {
+                "label": "F4"
+            },
+            "41": {
+                "label": "F6"
+            },
+            "42": {
+                "label": "F8"
+            },
+            "43": {
+                "label": "FT8"
+            },
+            "44": {
+                "label": "FC6"
+            },
+            "45": {
+                "label": "FC4"
+            },
+            "46": {
+                "label": "FC2"
+            },
+            "47": {
+                "label": "FCz"
+            },
+            "48": {
+                "label": "Cz"
+            },
+            "49": {
+                "label": "C2"
+            },
+            "50": {
+                "label": "C4"
+            },
+            "51": {
+                "label": "C6"
+            },
+            "52": {
+                "label": "T8"
+            },
+            "53": {
+                "label": "TP8"
+            },
+            "54": {
+                "label": "CP6"
+            },
+            "55": {
+                "label": "CP4"
+            },
+            "56": {
+                "label": "CP2"
+            },
+            "57": {
+                "label": "P2"
+            },
+            "58": {
+                "label": "P4"
+            },
+            "59": {
+                "label": "P6"
+            },
+            "60": {
+                "label": "P8"
+            },
+            "61": {
+                "label": "P10"
+            },
+            "62": {
+                "label": "PO8"
+            },
+            "63": {
+                "label": "PO4"
+            },
+            "64": {
+                "label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "file": "raw/S1.mat"
+        },
+        "2": {
+            "file": "raw/S2.mat"
+        },
+        "3": {
+            "file": "raw/S3.mat"
+        },
+        "4": {
+            "file": "raw/S4.mat"
+        },
+        "5": {
+            "file": "raw/S5.mat"
+        },
+        "6": {
+            "file": "raw/S6.mat"
+        },
+        "7": {
+            "file": "raw/S7.mat"
+        },
+        "8": {
+            "file": "raw/S8.mat"
+        },
+        "9": {
+            "file": "raw/S9.mat"
+        },
+        "10": {
+            "file": "raw/S10.mat"
+        },
+        "11": {
+            "file": "raw/S11.mat"
+        },
+        "12": {
+            "file": "raw/S12.mat"
+        },
+        "13": {
+            "file": "raw/S13.mat"
+        },
+        "14": {
+            "file": "raw/S14.mat"
+        },
+        "15": {
+            "file": "raw/S15.mat"
+        },
+        "16": {
+            "file": "raw/S16.mat"
+        }
+    }
+}

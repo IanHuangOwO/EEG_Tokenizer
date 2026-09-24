@@ -38,7 +38,7 @@
         "dataset_path": "datas/pretrain/Inria_Test"
       },
       "PhysionetMI": {
-        "dataset_path": "datas/pretrain/PhysionetMI"
+        "dataset_path": "datas/finetune/PhysionetMI"
       },
       "GraspAndLift_Train": {
         "dataset_path": "datas/pretrain/GraspAndLift_Train"
@@ -80,10 +80,25 @@
         "dataset_path": "datas/finetune/Sleep_EDFx"
       },
       "Siena": {
-        "dataset_path": "datas/pretrain/Siena"
+        "dataset_path": "datas/finetune/Siena"
       },
       "CHB_MIT": {
         "dataset_path": "datas/finetune/CHB_MIT"
+      },
+      "STEW": {
+        "dataset_path": "datas/pretrain/STEW"
+      },
+      "BCIC2020-3": {
+        "dataset_path": "datas/pretrain/BCIC2020-3"
+      },
+      "MDD_Mumtaz": {
+        "dataset_path": "datas/pretrain/MDD_Mumtaz"
+      },
+      "AAD_KUL": {
+        "dataset_path": "datas/pretrain/AAD_KUL"
+      },
+      "UCSD_PD": {
+        "dataset_path": "datas/pretrain/UCSD_PD"
       }
     }
   }

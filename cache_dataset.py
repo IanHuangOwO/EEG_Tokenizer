@@ -35,7 +35,7 @@ def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_fi
     loader_config = {
         # pre_event_seconds/post_event_seconds are a GLOBAL compile-time setting (unlike
         # dataset_path), injected into every dataset's dataset_params uniformly -- most
-        # loaders never reference them (see e.g. datas/pretrain/PhysionetMI/loader.py, which
+        # loaders never reference them (see e.g. datas/finetune/PhysionetMI/loader.py, which
         # deliberately opts out even though it receives them) and are unaffected.
         'dataset_params': {**ds_args, 'pre_event_seconds': pre_event_seconds,
                             'post_event_seconds': post_event_seconds},

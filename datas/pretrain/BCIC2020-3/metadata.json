@@ -1,0 +1,475 @@
+{
+    "data_metadata": {
+        "dataset_name": "BCIC2020-3",
+        "dataset_info": {
+            "source_url": "https://nemar.org/dataset/nm000113",
+            "file_format": "BIDS (EDF + events.tsv)",
+            "description": "15 subjects, 64-channel EEG at 256 Hz, imagined speech of 5 commands (Hello, Help me, Stop, Thank you, Yes); 300 training + 50 validation + 50 test trials per subject, 3.1 s each.",
+            "task_type": "imagined_speech",
+            "reference": "Lee S, Mueller K-R, Millan JdR (2026). 2020 BCI competition, track 3 (v1.0.0). NEMAR. doi:10.82901/nemar.nm000113. Competition: https://osf.io/pq7vb/",
+            "notes": "One window per trial (795 samples, 3.1 s), real 5-class labels, all three runs (train/validation/test) used. EDF units are Volts."
+        },
+        "acquisition": {
+            "sample_frequency": 256,
+            "window_size_seconds": 3.10546875,
+            "num_subjects": 15
+        },
+        "targets": {
+            "count": 5,
+            "type": "imagined_speech",
+            "0": {
+                "label": "Hello"
+            },
+            "1": {
+                "label": "Help me"
+            },
+            "2": {
+                "label": "Stop"
+            },
+            "3": {
+                "label": "Thank you"
+            },
+            "4": {
+                "label": "Yes"
+            }
+        },
+        "channels": {
+            "count": 64,
+            "system": "extended 10-20",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "Fp2"
+            },
+            "3": {
+                "label": "F7"
+            },
+            "4": {
+                "label": "F3"
+            },
+            "5": {
+                "label": "Fz"
+            },
+            "6": {
+                "label": "F4"
+            },
+            "7": {
+                "label": "F8"
+            },
+            "8": {
+                "label": "FC5"
+            },
+            "9": {
+                "label": "FC1"
+            },
+            "10": {
+                "label": "FC2"
+            },
+            "11": {
+                "label": "FC6"
+            },
+            "12": {
+                "label": "T7"
+            },
+            "13": {
+                "label": "C3"
+            },
+            "14": {
+                "label": "Cz"
+            },
+            "15": {
+                "label": "C4"
+            },
+            "16": {
+                "label": "T8"
+            },
+            "17": {
+                "label": "TP9"
+            },
+            "18": {
+                "label": "CP5"
+            },
+            "19": {
+                "label": "CP1"
+            },
+            "20": {
+                "label": "CP2"
+            },
+            "21": {
+                "label": "CP6"
+            },
+            "22": {
+                "label": "TP10"
+            },
+            "23": {
+                "label": "P7"
+            },
+            "24": {
+                "label": "P3"
+            },
+            "25": {
+                "label": "Pz"
+            },
+            "26": {
+                "label": "P4"
+            },
+            "27": {
+                "label": "P8"
+            },
+            "28": {
+                "label": "PO9"
+            },
+            "29": {
+                "label": "O1"
+            },
+            "30": {
+                "label": "Oz"
+            },
+            "31": {
+                "label": "O2"
+            },
+            "32": {
+                "label": "PO10"
+            },
+            "33": {
+                "label": "AF7"
+            },
+            "34": {
+                "label": "AF3"
+            },
+            "35": {
+                "label": "AF4"
+            },
+            "36": {
+                "label": "AF8"
+            },
+            "37": {
+                "label": "F5"
+            },
+            "38": {
+                "label": "F1"
+            },
+            "39": {
+                "label": "F2"
+            },
+            "40": {
+                "label": "F6"
+            },
+            "41": {
+                "label": "FT9"
+            },
+            "42": {
+                "label": "FT7"
+            },
+            "43": {
+                "label": "FC3"
+            },
+            "44": {
+                "label": "FC4"
+            },
+            "45": {
+                "label": "FT8"
+            },
+            "46": {
+                "label": "FT10"
+            },
+            "47": {
+                "label": "C5"
+            },
+            "48": {
+                "label": "C1"
+            },
+            "49": {
+                "label": "C2"
+            },
+            "50": {
+                "label": "C6"
+            },
+            "51": {
+                "label": "TP7"
+            },
+            "52": {
+                "label": "CP3"
+            },
+            "53": {
+                "label": "CPz"
+            },
+            "54": {
+                "label": "CP4"
+            },
+            "55": {
+                "label": "TP8"
+            },
+            "56": {
+                "label": "P5"
+            },
+            "57": {
+                "label": "P1"
+            },
+            "58": {
+                "label": "P2"
+            },
+            "59": {
+                "label": "P6"
+            },
+            "60": {
+                "label": "PO7"
+            },
+            "61": {
+                "label": "PO3"
+            },
+            "62": {
+                "label": "POz"
+            },
+            "63": {
+                "label": "PO4"
+            },
+            "64": {
+                "label": "PO8"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "runs": [
+                {
+                    "edf": "raw/sub-01/eeg/sub-01_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-01/eeg/sub-01_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-01/eeg/sub-01_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-01/eeg/sub-01_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-01/eeg/sub-01_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-01/eeg/sub-01_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "2": {
+            "runs": [
+                {
+                    "edf": "raw/sub-02/eeg/sub-02_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-02/eeg/sub-02_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-02/eeg/sub-02_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-02/eeg/sub-02_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-02/eeg/sub-02_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-02/eeg/sub-02_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "3": {
+            "runs": [
+                {
+                    "edf": "raw/sub-03/eeg/sub-03_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-03/eeg/sub-03_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-03/eeg/sub-03_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-03/eeg/sub-03_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-03/eeg/sub-03_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-03/eeg/sub-03_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "4": {
+            "runs": [
+                {
+                    "edf": "raw/sub-04/eeg/sub-04_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-04/eeg/sub-04_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-04/eeg/sub-04_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-04/eeg/sub-04_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-04/eeg/sub-04_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-04/eeg/sub-04_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "5": {
+            "runs": [
+                {
+                    "edf": "raw/sub-05/eeg/sub-05_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-05/eeg/sub-05_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-05/eeg/sub-05_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-05/eeg/sub-05_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-05/eeg/sub-05_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-05/eeg/sub-05_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "6": {
+            "runs": [
+                {
+                    "edf": "raw/sub-06/eeg/sub-06_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-06/eeg/sub-06_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-06/eeg/sub-06_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-06/eeg/sub-06_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-06/eeg/sub-06_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-06/eeg/sub-06_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "7": {
+            "runs": [
+                {
+                    "edf": "raw/sub-07/eeg/sub-07_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-07/eeg/sub-07_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-07/eeg/sub-07_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-07/eeg/sub-07_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-07/eeg/sub-07_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-07/eeg/sub-07_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "8": {
+            "runs": [
+                {
+                    "edf": "raw/sub-08/eeg/sub-08_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-08/eeg/sub-08_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-08/eeg/sub-08_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-08/eeg/sub-08_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-08/eeg/sub-08_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-08/eeg/sub-08_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "9": {
+            "runs": [
+                {
+                    "edf": "raw/sub-09/eeg/sub-09_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-09/eeg/sub-09_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-09/eeg/sub-09_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-09/eeg/sub-09_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-09/eeg/sub-09_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-09/eeg/sub-09_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "10": {
+            "runs": [
+                {
+                    "edf": "raw/sub-10/eeg/sub-10_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-10/eeg/sub-10_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-10/eeg/sub-10_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-10/eeg/sub-10_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-10/eeg/sub-10_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-10/eeg/sub-10_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "11": {
+            "runs": [
+                {
+                    "edf": "raw/sub-11/eeg/sub-11_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-11/eeg/sub-11_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-11/eeg/sub-11_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-11/eeg/sub-11_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-11/eeg/sub-11_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-11/eeg/sub-11_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "12": {
+            "runs": [
+                {
+                    "edf": "raw/sub-12/eeg/sub-12_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-12/eeg/sub-12_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-12/eeg/sub-12_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-12/eeg/sub-12_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-12/eeg/sub-12_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-12/eeg/sub-12_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "13": {
+            "runs": [
+                {
+                    "edf": "raw/sub-13/eeg/sub-13_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-13/eeg/sub-13_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-13/eeg/sub-13_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-13/eeg/sub-13_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-13/eeg/sub-13_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-13/eeg/sub-13_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "14": {
+            "runs": [
+                {
+                    "edf": "raw/sub-14/eeg/sub-14_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-14/eeg/sub-14_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-14/eeg/sub-14_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-14/eeg/sub-14_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-14/eeg/sub-14_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-14/eeg/sub-14_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        },
+        "15": {
+            "runs": [
+                {
+                    "edf": "raw/sub-15/eeg/sub-15_task-imaginedSpeech_run-00_eeg.edf",
+                    "events": "raw/sub-15/eeg/sub-15_task-imaginedSpeech_run-00_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-15/eeg/sub-15_task-imaginedSpeech_run-01_eeg.edf",
+                    "events": "raw/sub-15/eeg/sub-15_task-imaginedSpeech_run-01_events.tsv"
+                },
+                {
+                    "edf": "raw/sub-15/eeg/sub-15_task-imaginedSpeech_run-02_eeg.edf",
+                    "events": "raw/sub-15/eeg/sub-15_task-imaginedSpeech_run-02_events.tsv"
+                }
+            ]
+        }
+    }
+}

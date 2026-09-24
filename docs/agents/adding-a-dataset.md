@@ -233,7 +233,7 @@ recording run/session:
 "1": { "folder": "raw/S001", "runs": ["S001R01.edf", "S001R02.edf", "..."] }
 ```
 The loader loads and concatenates events across all runs
-(`datas/pretrain/PhysionetMI/loader.py`'s `Loader._load_data`).
+(`datas/finetune/PhysionetMI/loader.py`'s `Loader._load_data`).
 
 Subject keys need not be contiguous or start at 1 — `BETA_4s` only has
 subjects 16-70, `Inria_Train` skips several subject numbers entirely.
@@ -298,7 +298,7 @@ there, not from this snippet, if the two ever drift.
 |------------------|-----------------------------------|-------|
 | `.mat` (MATLAB)  | `scipy.io.loadmat`                | Struct fields come back as nested numpy structured arrays — index like `mat['data']['EEG'][0, 0]` (see `datas/pretrain/BETA_4s/loader.py`). |
 | `.csv`           | `pandas.read_csv`                 | Common for Kaggle-style exports: one column per channel + a marker/label column (see `datas/pretrain/Inria_Train/loader.py`). |
-| `.edf` / `.edf+`  | `mne.io.read_raw_edf(path, preload=True)` | Use `raw.get_data(picks=self.channel_indices)`; resample via `raw.resample(self.sample_freq)` if native rate differs from metadata. Events via `mne.events_from_annotations(raw)` (see `datas/pretrain/PhysionetMI/loader.py`). |
+| `.edf` / `.edf+`  | `mne.io.read_raw_edf(path, preload=True)` | Use `raw.get_data(picks=self.channel_indices)`; resample via `raw.resample(self.sample_freq)` if native rate differs from metadata. Events via `mne.events_from_annotations(raw)` (see `datas/finetune/PhysionetMI/loader.py`). |
 | `.gdf`           | `mne.io.read_raw_gdf(path, preload=True)` | Same API shape as `read_raw_edf` above — GDF stores its own event/annotation table, read via `mne.events_from_annotations` same as EDF. Common for BCI Competition IV datasets (2a/2b). |
 | `.bdf` (BioSemi) | `mne.io.read_raw_bdf(path, preload=True)` | Same MNE API shape as EDF/GDF. |
 | `.fif` (MNE-native) | `mne.io.read_raw_fif(path, preload=True)` | Same MNE API shape. |
@@ -336,7 +336,7 @@ Things the existing loaders show you need to handle per format:
   trial whose window runs past the end of the recording. Remap
   arbitrary/bipolar label encodings (`{-1,+1}`, 1-indexed) to dense 0-indexed
   via `{v: i for i, v in enumerate(np.unique(raw_labels))}`.
-- **Multi-run folder + annotation-based segmentation** (`datas/pretrain/PhysionetMI/loader.py`):
+- **Multi-run folder + annotation-based segmentation** (`datas/finetune/PhysionetMI/loader.py`):
   loop over each run file, `mne.io.read_raw_edf` / `read_raw_gdf`, resample
   to `self.sample_freq` if the file's native rate differs,
   `mne.events_from_annotations`, map annotation codes to class ints, and
@@ -463,7 +463,7 @@ parsing raw files.
 
 ## Currently unconverted raw datasets in `./datas`
 
-`Siena` is blocked, not just unconverted: `datas/pretrain/Siena/archive.zip` (as
+`Siena` is blocked, not just unconverted: `datas/finetune/Siena/archive.zip` (as
 staged, 2026-09-22) contains a single flat file, `Siena_Sleep_EEG_Data.csv` —
 944,640 rows x 20 channel columns (`Fp1,F3,C3,P3,O1,F7,T3,T5,Fc1,Fc5,Cp1,Cp5,
 F9,Fz,Cz,Pz,Pf2,F4,C4,P4`) + one binary `diagnosis` column (536,320 rows `1`,
