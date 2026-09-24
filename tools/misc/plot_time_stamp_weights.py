@@ -31,9 +31,12 @@ LEARNED_HEADS = ('learned', 'learned_advance', 'learned_evoked')
 def _time_pool_weights(head_pth):
     ckpt = torch.load(head_pth, map_location='cpu', weights_only=False)
     sd = ckpt['model_state_dict']
-    if 'time.p' not in sd or 'time.q' not in sd:
+    # bare 'time.p' (pre-list heads) or 'entries.<feature>.time.p' (list-feature heads);
+    # takes the first entry that has a learned pool
+    p_key = next((k for k in sd if k == 'time.p' or k.endswith('.time.p')), None)
+    if p_key is None:
         return None
-    p, q = sd['time.p'], sd['time.q']
+    p, q = sd[p_key], sd[p_key[:-1] + 'q']
     return torch.softmax(torch.einsum('rs,rn->sn', p, q), dim=-1).numpy()  # [S, N]
 
 
