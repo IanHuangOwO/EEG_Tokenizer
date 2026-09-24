@@ -37,21 +37,17 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 | ADFTD | Clinical: Alzheimer's / FTD | B |  |  |  |  |  |  | open (OpenNeuro ds004504), not fetched |
 
-## pretrain (29 datasets, 362.0 h compiled)
+## pretrain (25 datasets, 363.1 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | AAD_KUL | Auditory attention |  | 16 | 64 | 128 | 2 | — | 20.2 | compiled |
 | BCIC2020-3 | Imagined speech |  | 15 | 64 | 256 | 5 | — | 5.2 | compiled |
-| BCICIV1_Test | Motor imagery (uncued) |  | 7 | 59 | 1000 | 2 | — | 4.5 | compiled |
-| BCICIV1_Train | Motor imagery |  | 7 | 59 | 1000 | 2 | 1 s | 1.9 | compiled |
 | BCMI_MusicEmotion | Emotion (music) |  | 31 | 19 | 1000 | none | 0 s | 26.1 | compiled |
 | BETA_3s | SSVEP (40-class) |  | 15 | 64 | 250 | 40 | 0.5 s | 2.0 | compiled |
 | BETA_4s | SSVEP (40-class) |  | 55 | 64 | 250 | 40 | 0.5 s | 9.8 | compiled |
 | Cho2017 | Motor imagery (L/R hand) |  | 52 | 64 | 512 | 2 | 1 s | 14.6 | compiled (MOABB) |
-| DEAP | Emotion (music video) |  | 32 | 32 | 128 | 4 | 3 s | 22.4 | compiled |
-| Dreyer2023 | Motor imagery (L/R hand) |  |  |  |  |  |  |  | no metadata |
-| EmotionVideo | Emotion (video) |  | 30 | 8 | 250 | none | 0 s | 10.2 | compiled |
+| Dreyer2023 | Motor imagery (L/R hand) |  | 87 | 27 | 512 | 2 | 1 s | 28.9 | compiled (MOABB) |
 | ERP_Longitudinal | RSVP oddball ERP |  | 15 | 57 | 1000 | none | — | 14.8 | compiled |
 | GraspAndLift_Test | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 1.7 | compiled |
 | GraspAndLift_Train | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 9.9 | compiled |
@@ -59,7 +55,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 1 s | 7.6 | compiled |
 | Lee2019_ERP | P300 speller (continuous) |  |  |  |  |  |  |  | no metadata |
 | Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s | 30.0 | compiled (MOABB) |
-| Lee2019_SSVEP | SSVEP (4-class) |  |  |  |  |  |  |  | no metadata |
+| Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s |  | not compiled (MOABB) |
 | Liu2022EldBETA | SSVEP (9-class, elderly) |  |  |  |  |  |  |  | no metadata |
 | MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 111.9 | compiled |
@@ -68,5 +64,16 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.1 | partial (110/111) |
 | STEW | Mental workload (multitasking) |  | 48 | 14 | 128 | 2 | — | 4.0 | compiled |
 | UCSD_PD | Clinical: Parkinson's (rest) |  | 31 | 32 | 512 | 3 | — | 2.5 | compiled |
-| Wang2016 | SSVEP (40-class) |  |  |  |  |  |  |  | no metadata |
+| Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s | 11.3 | compiled (MOABB) |
 | Weibo2014 | Motor imagery (7-class) |  | 10 | 60 | 200 | 7 | 1 s | 7.7 | compiled (MOABB) |
+
+## archive (4 datasets, not compiled into any run)
+
+Moved out of `datas/pretrain/` and `configs/compile.json`; loaders, metadata and cache kept.
+
+| Dataset | Paradigm | Reason |
+|---|---|---|
+| BCICIV1_Test | Motor imagery (uncued) | Same subjects as BCICIV1_Train (3 of 7 synthetic) |
+| BCICIV1_Train | Motor imagery | Subjects c, d, e of BCI Competition IV ds1 are artificially generated, not real EEG; the 4 real subjects are ~3.5 h, not worth keeping |
+| DEAP | Emotion (music video) | Only the data_preprocessed_python release is on disk: downsampled to 128 Hz, band-passed 4-45 Hz, EOG-removed and re-referenced -- no delta or >45 Hz content, unlike the 0.5-100 Hz corpus. Revisit with the raw 512 Hz BDF release (data_original, same EULA) |
+| EmotionVideo | Emotion (video) | g.tec Unicorn, 8 dry electrodes: sparse montage (mostly zero-padded on the 10-10 grid) and dry-electrode artifacts, little spatial signal |

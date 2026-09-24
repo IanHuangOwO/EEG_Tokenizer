@@ -63,6 +63,18 @@ MISSING = [
     ('ADFTD', "Clinical: Alzheimer's / FTD", 'B', 'open (OpenNeuro ds004504), not fetched'),
 ]
 
+# Why each datas/archive/ dataset was dropped from pretraining (2026-09-24 rebalance).
+ARCHIVED = {
+    'BCICIV1_Train': 'Subjects c, d, e of BCI Competition IV ds1 are artificially generated, not real EEG; '
+                     'the 4 real subjects are ~3.5 h, not worth keeping',
+    'BCICIV1_Test': 'Same subjects as BCICIV1_Train (3 of 7 synthetic)',
+    'DEAP': 'Only the data_preprocessed_python release is on disk: downsampled to 128 Hz, band-passed '
+            '4-45 Hz, EOG-removed and re-referenced -- no delta or >45 Hz content, unlike the 0.5-100 Hz '
+            'corpus. Revisit with the raw 512 Hz BDF release (data_original, same EULA)',
+    'EmotionVideo': 'g.tec Unicorn, 8 dry electrodes: sparse montage (mostly zero-padded on the 10-10 '
+                    'grid) and dry-electrode artifacts, little spatial signal',
+}
+
 
 def row(split, path, suffix):
     name = os.path.basename(path)
@@ -126,5 +138,11 @@ for split in ('finetune', 'pretrain'):
     if split == 'finetune':
         lines += [f'| {n} | {p} | {b} |  |  |  |  |  |  | {st} |' for n, p, b, st in MISSING]
     lines.append('')
+archived = sorted(os.path.basename(p.rstrip('/')) for p in glob.glob('datas/archive/*/'))
+lines += [f'## archive ({len(archived)} datasets, not compiled into any run)', '',
+          'Moved out of `datas/pretrain/` and `configs/compile.json`; loaders, metadata and cache kept.', '',
+          '| Dataset | Paradigm | Reason |', '|---|---|---|']
+lines += [f"| {n} | {PARADIGM.get(n, '?')} | {ARCHIVED.get(n, '?')} |" for n in archived]
+lines.append('')
 open('datas/DATASETS.md', 'w').write('\n'.join(lines))
 print('\n'.join(lines))

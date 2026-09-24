@@ -19,12 +19,6 @@
       "BETA_3s": {
         "dataset_path": "datas/pretrain/BETA_3s"
       },
-      "BCICIV1_Train": {
-        "dataset_path": "datas/pretrain/BCICIV1_Train"
-      },
-      "BCICIV1_Test": {
-        "dataset_path": "datas/pretrain/BCICIV1_Test"
-      },
       "BNCI2014001": {
         "dataset_path": "datas/finetune/BNCI2014001"
       },
@@ -46,9 +40,6 @@
       "GraspAndLift_Test": {
         "dataset_path": "datas/pretrain/GraspAndLift_Test"
       },
-      "DEAP": {
-        "dataset_path": "datas/pretrain/DEAP"
-      },
       "SRM_RestingState": {
         "dataset_path": "datas/pretrain/SRM_RestingState"
       },
@@ -57,9 +48,6 @@
       },
       "ERP_Longitudinal": {
         "dataset_path": "datas/pretrain/ERP_Longitudinal"
-      },
-      "EmotionVideo": {
-        "dataset_path": "datas/pretrain/EmotionVideo"
       },
       "EEGMAT": {
         "dataset_path": "datas/finetune/EEGMAT"

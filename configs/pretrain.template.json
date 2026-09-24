@@ -55,21 +55,6 @@
           "all"
         ]
       },
-      "BCICIV1_Train": {
-        "dataset_path": "datas/pretrain/BCICIV1_Train",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
       "Inria_Train": {
         "dataset_path": "datas/pretrain/Inria_Train",
         "subject_to_use": [
@@ -90,42 +75,6 @@
       },
       "BCMI_MusicEmotion": {
         "dataset_path": "datas/pretrain/BCMI_MusicEmotion",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8",
-          "9",
-          "10"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "DEAP": {
-        "dataset_path": "datas/pretrain/DEAP",
-        "subject_to_use": [
-          "1",
-          "2",
-          "3",
-          "4",
-          "5",
-          "6",
-          "7",
-          "8",
-          "9",
-          "10"
-        ],
-        "channels_to_use": [
-          "all"
-        ]
-      },
-      "EmotionVideo": {
-        "dataset_path": "datas/pretrain/EmotionVideo",
         "subject_to_use": [
           "1",
           "2",
@@ -171,6 +120,182 @@
       },
       "SRM_RestingState": {
         "dataset_path": "datas/pretrain/SRM_RestingState",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "Neonatal_Helsinki": {
+        "dataset_path": "datas/pretrain/Neonatal_Helsinki",
+        "subject_to_use": [
+          "24",
+          "31",
+          "50",
+          "51",
+          "56",
+          "64"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "STEW": {
+        "dataset_path": "datas/pretrain/STEW",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "BCIC2020-3": {
+        "dataset_path": "datas/pretrain/BCIC2020-3",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "MDD_Mumtaz": {
+        "dataset_path": "datas/pretrain/MDD_Mumtaz",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "UCSD_PD": {
+        "dataset_path": "datas/pretrain/UCSD_PD",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "Lee2019_MI": {
+        "dataset_path": "datas/pretrain/Lee2019_MI",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "Cho2017": {
+        "dataset_path": "datas/pretrain/Cho2017",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "Schirrmeister2017": {
+        "dataset_path": "datas/pretrain/Schirrmeister2017",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "Weibo2014": {
+        "dataset_path": "datas/pretrain/Weibo2014",
+        "subject_to_use": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9",
+          "10"
+        ],
+        "channels_to_use": [
+          "all"
+        ]
+      },
+      "Dreyer2023": {
+        "dataset_path": "datas/pretrain/Dreyer2023",
         "subject_to_use": [
           "1",
           "2",
