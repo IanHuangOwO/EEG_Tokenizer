@@ -44,6 +44,21 @@ PARADIGM = {
     'STEW': 'Mental workload (multitasking)', 'UCSD_PD': "Clinical: Parkinson's (rest)",
 }
 
+# Which external finetune benchmark lists each dataset: B = EEG-FM-Bench (arXiv 2508.17742),
+# C = EEG-FM-Compass (arXiv 2601.17883). Notes on both: docs/papers/*.md (local, git-ignored).
+BENCH = {
+    'BNCI2014001': 'B, C', 'BNCI2014004': 'C', 'BNCI2014008': 'C', 'BNCI2014009': 'C',
+    'BNCI2015001': 'C', 'CHB_MIT': 'C', 'EEGMAT': 'B, C', 'Nakanishi2015': 'C', 'PhysionetMI': 'B',
+    'SEED': 'B, C', 'SEED_V': 'B', 'SEED_VII': 'B', 'SEED_VIG': 'C', 'Siena': 'B',
+    'Sleep_EDFx': 'C', 'Things_EEG2': 'B, C', 'TUAB': 'B, C', 'TUEV': 'B', 'TUSL': 'B',
+}
+# Benchmark datasets with no datas/ folder yet (all open access).
+MISSING = [
+    ('Mimul-11', 'Motor imagery (upper limb, 3-class)', 'B', 'open (GigaDB, Jeong 2020), not fetched'),
+    ('HMC', 'Sleep staging', 'B', 'open (PhysioNet hmc-sleep-staging), not fetched'),
+    ('ADFTD', "Clinical: Alzheimer's / FTD", 'B', 'open (OpenNeuro ds004504), not fetched'),
+]
+
 
 def row(split, path, suffix):
     name = os.path.basename(path)
@@ -51,7 +66,7 @@ def row(split, path, suffix):
     meta_path = os.path.join(path, 'metadata.json')
     if not os.path.exists(meta_path):
         status = open(notes).readline().split('--', 1)[-1].strip() if os.path.exists(notes) else 'no metadata'
-        return [name, split, PARADIGM.get(name, '?'), '', '', '', '', '', status], 0.0
+        return [name, split, PARADIGM.get(name, '?'), BENCH.get(name, ''), '', '', '', '', '', status], 0.0
     m = json.load(open(meta_path))
     d = m['data_metadata']
     n_subj = len(m['data_structure'])
@@ -67,7 +82,8 @@ def row(split, path, suffix):
     hours = samples / SAMPLE_FREQ / 3600
     status = 'compiled' if len(caches) >= n_subj else (f'partial ({len(caches)}/{n_subj})' if caches else 'not compiled')
     via = ' (MOABB)' if 'moabb' in d else ''
-    return [name, split, PARADIGM.get(name, d.get('dataset_info', {}).get('task_type', '?')), str(n_subj),
+    return [name, split, PARADIGM.get(name, d.get('dataset_info', {}).get('task_type', '?')),
+            BENCH.get(name, ''), str(n_subj),
             str(d['channels']['count']), f"{float(d['acquisition']['sample_frequency']):g}", str(n_cls),
             f'{hours:.1f}' if caches else '', status + via], hours
 
@@ -81,7 +97,8 @@ lines = ['# Datasets', '',
          'compiled or migrated (docs/agents/adding-a-dataset.md Step 9). Hand-maintained part: the',
          '`PARADIGM` table in that script.', '',
          f'Hours = real (non-padded) samples over every compiled trial in the current cache (`*_{suffix}.npz`).',
-         'P300 rows overstate the recording: their 1 s windows around flashes ~0.25 s apart overlap.', '']
+         'P300 rows overstate the recording: their 1 s windows around flashes ~0.25 s apart overlap.',
+         'Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.17883).', '']
 for split in ('finetune', 'pretrain'):
     rows, total = [], 0.0
     for p in sorted(glob.glob(f'datas/{split}/*/'), key=str.lower):
@@ -89,9 +106,11 @@ for split in ('finetune', 'pretrain'):
         rows.append(r)
         total += h
     lines += [f'## {split} ({len(rows)} datasets, {total:.1f} h compiled)', '',
-              '| Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Hours | Status |',
-              '|---|---|---|---|---|---|---|---|']
+              '| Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Hours | Status |',
+              '|---|---|---|---|---|---|---|---|---|']
     lines += ['| ' + ' | '.join([r[0]] + r[2:]) + ' |' for r in rows]
+    if split == 'finetune':
+        lines += [f'| {n} | {p} | {b} |  |  |  |  |  | {st} |' for n, p, b, st in MISSING]
     lines.append('')
 open('datas/DATASETS.md', 'w').write('\n'.join(lines))
 print('\n'.join(lines))

@@ -6,53 +6,57 @@ compiled or migrated (docs/agents/adding-a-dataset.md Step 9). Hand-maintained p
 
 Hours = real (non-padded) samples over every compiled trial in the current cache (`*_fs200_bp0.5-100.0_pre1_post4.npz`).
 P300 rows overstate the recording: their 1 s windows around flashes ~0.25 s apart overlap.
+Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.17883).
 
 ## finetune (19 datasets, 2543.0 h compiled)
 
-| Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Hours | Status |
-|---|---|---|---|---|---|---|---|
-| BNCI2014001 | Motor imagery (4-class) | 9 | 25 | 250 | 4 | 3.6 | compiled |
-| BNCI2014004 | Motor imagery (L/R hand) | 9 | 6 | 250 | 2 | 5.1 | compiled |
-| BNCI2014008 | P300 speller (ALS) | 8 | 8 | 256 | 2 | 9.3 | compiled |
-| BNCI2014009 | P300 speller | 10 | 16 | 256 | 2 | 4.8 | compiled |
-| BNCI2015001 | Motor imagery (hand/feet) | 12 | 13 | 512 | 2 | 7.7 | compiled |
-| CHB_MIT | Seizure detection (pediatric) | 4 | 16 | 256 | 2 |  | not compiled |
-| EEGMAT | Mental workload (arithmetic) | 36 | 19 | 500 | 2 | 0.6 | compiled |
-| Nakanishi2015 | SSVEP (12-class) | 10 | 8 | 256 | 12 | 2.0 | compiled |
-| PhysionetMI | Motor imagery (5-class) | 109 | 64 | 160 | 3 | 44.0 | compiled |
-| SEED | Emotion (3-class) |  |  |  |  |  | gated, not fetched (2026-09-22) |
-| SEED_V | Emotion (5-class) |  |  |  |  |  | gated, not fetched (2026-09-24) |
-| SEED_VIG | Vigilance (PERCLOS regression) |  |  |  |  |  | gated, not fetched (2026-09-22) |
-| SEED_VII | Emotion (7-class) |  |  |  |  |  | gated, not fetched (2026-09-24) |
-| Siena | Seizure detection (adult) | 14 | 29 | 512 | none |  | not compiled |
-| Sleep_EDFx | Sleep staging | 78 | 2 | 100 | 5 | 2465.9 | compiled |
-| Things_EEG2 | Visual decoding (images) |  |  |  |  |  | skipped for now (2026-09-22) |
-| TUAB | Abnormal EEG (clinical) |  |  |  |  |  | gated, not fetched (2026-09-22) |
-| TUEV | Event classification (clinical) |  |  |  |  |  | gated, not fetched (2026-09-24) |
-| TUSL | Slowing classification (clinical) |  |  |  |  |  | gated, not fetched (2026-09-24) |
+| Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Hours | Status |
+|---|---|---|---|---|---|---|---|---|
+| BNCI2014001 | Motor imagery (4-class) | B, C | 9 | 25 | 250 | 4 | 3.6 | compiled |
+| BNCI2014004 | Motor imagery (L/R hand) | C | 9 | 6 | 250 | 2 | 5.1 | compiled |
+| BNCI2014008 | P300 speller (ALS) | C | 8 | 8 | 256 | 2 | 9.3 | compiled |
+| BNCI2014009 | P300 speller | C | 10 | 16 | 256 | 2 | 4.8 | compiled |
+| BNCI2015001 | Motor imagery (hand/feet) | C | 12 | 13 | 512 | 2 | 7.7 | compiled |
+| CHB_MIT | Seizure detection (pediatric) | C | 4 | 16 | 256 | 2 |  | not compiled |
+| EEGMAT | Mental workload (arithmetic) | B, C | 36 | 19 | 500 | 2 | 0.6 | compiled |
+| Nakanishi2015 | SSVEP (12-class) | C | 10 | 8 | 256 | 12 | 2.0 | compiled |
+| PhysionetMI | Motor imagery (5-class) | B | 109 | 64 | 160 | 3 | 44.0 | compiled |
+| SEED | Emotion (3-class) | B, C |  |  |  |  |  | gated, not fetched (2026-09-22) |
+| SEED_V | Emotion (5-class) | B |  |  |  |  |  | gated, not fetched (2026-09-24) |
+| SEED_VIG | Vigilance (PERCLOS regression) | C |  |  |  |  |  | gated, not fetched (2026-09-22) |
+| SEED_VII | Emotion (7-class) | B |  |  |  |  |  | gated, not fetched (2026-09-24) |
+| Siena | Seizure detection (adult) | B | 14 | 29 | 512 | none |  | not compiled |
+| Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | 2465.9 | compiled |
+| Things_EEG2 | Visual decoding (images) | B, C |  |  |  |  |  | skipped for now (2026-09-22) |
+| TUAB | Abnormal EEG (clinical) | B, C |  |  |  |  |  | gated, not fetched (2026-09-22) |
+| TUEV | Event classification (clinical) | B |  |  |  |  |  | gated, not fetched (2026-09-24) |
+| TUSL | Slowing classification (clinical) | B |  |  |  |  |  | gated, not fetched (2026-09-24) |
+| Mimul-11 | Motor imagery (upper limb, 3-class) | B |  |  |  |  |  | open (GigaDB, Jeong 2020), not fetched |
+| HMC | Sleep staging | B |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
+| ADFTD | Clinical: Alzheimer's / FTD | B |  |  |  |  |  | open (OpenNeuro ds004504), not fetched |
 
 ## pretrain (21 datasets, 382.8 h compiled)
 
-| Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Hours | Status |
-|---|---|---|---|---|---|---|---|
-| AAD_KUL | Auditory attention | 16 | 64 | 128 | 2 | 20.2 | compiled |
-| BCIC2020-3 | Imagined speech | 15 | 64 | 256 | 5 | 5.2 | compiled |
-| BCICIV1_Test | Motor imagery (uncued) | 7 | 59 | 1000 | 2 | 4.5 | compiled |
-| BCICIV1_Train | Motor imagery | 7 | 59 | 1000 | 2 | 1.9 | compiled |
-| BCMI_MusicEmotion | Emotion (music) | 31 | 19 | 1000 | none | 26.1 | compiled |
-| BETA_3s | SSVEP (40-class) | 15 | 64 | 250 | 40 | 2.0 | compiled |
-| BETA_4s | SSVEP (40-class) | 55 | 64 | 250 | 40 | 9.8 | compiled |
-| DEAP | Emotion (music video) | 32 | 32 | 128 | 4 | 22.4 | compiled |
-| EmotionVideo | Emotion (video) | 30 | 8 | 250 | none | 10.2 | compiled |
-| ERP_Longitudinal | RSVP oddball ERP | 15 | 57 | 1000 | 2 | 106.7 | compiled |
-| GraspAndLift_Test | Motor execution (grasp-and-lift) | 12 | 32 | 500 | none | 1.7 | compiled |
-| GraspAndLift_Train | Motor execution (grasp-and-lift) | 12 | 32 | 500 | none | 9.9 | compiled |
-| Inria_Test | Error-related potential | 10 | 57 | 200 | 2 | 4.7 | compiled |
-| Inria_Train | Error-related potential | 16 | 57 | 200 | 2 | 7.6 | compiled |
-| Lee2019_MI | Motor imagery (L/R hand) | 54 | 62 | 1000 | 2 |  | not compiled (MOABB) |
-| MDD_Mumtaz | Clinical: depression (rest + P300) | 64 | 19 | 256 | 2 | 20.5 | compiled |
-| Neonatal_Helsinki | Clinical: neonatal (NICU) | 79 | 19 | 256 | none | 111.9 | compiled |
-| SPIS | Resting state (eyes open/closed) | 10 | 64 | 256 | 2 | 0.8 | compiled |
-| SRM_RestingState | Resting state | 111 | 64 | 1024 | 1 | 10.1 | partial (110/111) |
-| STEW | Mental workload (multitasking) | 48 | 14 | 128 | 2 | 4.0 | compiled |
-| UCSD_PD | Clinical: Parkinson's (rest) | 31 | 32 | 512 | 3 | 2.5 | compiled |
+| Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Hours | Status |
+|---|---|---|---|---|---|---|---|---|
+| AAD_KUL | Auditory attention |  | 16 | 64 | 128 | 2 | 20.2 | compiled |
+| BCIC2020-3 | Imagined speech |  | 15 | 64 | 256 | 5 | 5.2 | compiled |
+| BCICIV1_Test | Motor imagery (uncued) |  | 7 | 59 | 1000 | 2 | 4.5 | compiled |
+| BCICIV1_Train | Motor imagery |  | 7 | 59 | 1000 | 2 | 1.9 | compiled |
+| BCMI_MusicEmotion | Emotion (music) |  | 31 | 19 | 1000 | none | 26.1 | compiled |
+| BETA_3s | SSVEP (40-class) |  | 15 | 64 | 250 | 40 | 2.0 | compiled |
+| BETA_4s | SSVEP (40-class) |  | 55 | 64 | 250 | 40 | 9.8 | compiled |
+| DEAP | Emotion (music video) |  | 32 | 32 | 128 | 4 | 22.4 | compiled |
+| EmotionVideo | Emotion (video) |  | 30 | 8 | 250 | none | 10.2 | compiled |
+| ERP_Longitudinal | RSVP oddball ERP |  | 15 | 57 | 1000 | 2 | 106.7 | compiled |
+| GraspAndLift_Test | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | 1.7 | compiled |
+| GraspAndLift_Train | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | 9.9 | compiled |
+| Inria_Test | Error-related potential |  | 10 | 57 | 200 | 2 | 4.7 | compiled |
+| Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 7.6 | compiled |
+| Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 |  | not compiled (MOABB) |
+| MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | 20.5 | compiled |
+| Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | 111.9 | compiled |
+| SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0.8 | compiled |
+| SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 10.1 | partial (110/111) |
+| STEW | Mental workload (multitasking) |  | 48 | 14 | 128 | 2 | 4.0 | compiled |
+| UCSD_PD | Clinical: Parkinson's (rest) |  | 31 | 32 | 512 | 3 | 2.5 | compiled |
