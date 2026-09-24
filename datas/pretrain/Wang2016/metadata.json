@@ -1,0 +1,552 @@
+{
+    "data_metadata": {
+        "dataset_name": "Wang2016",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.Wang2016.html",
+            "file_format": "via MOABB",
+            "description": "Tsinghua SSVEP benchmark: 34 subjects, 64 EEG ch at 250 Hz, 40 targets x 6 blocks. MOABB stores 6 s epochs back to back (0.5 s cue, 5 s flicker, 0.5 s tail), so the window is fixed to the flicker, [0.5, 5.5] s."
+        },
+        "event_onset_seconds": -0.5,
+        "moabb": {
+            "class": "Wang2016",
+            "kwargs": {},
+            "code": "Wang2016",
+            "window": [
+                0.5,
+                5.5
+            ]
+        },
+        "acquisition": {
+            "sample_frequency": 250.0,
+            "window_size_seconds": 5.0,
+            "num_subjects": 34
+        },
+        "targets": {
+            "count": 40,
+            "type": "ssvep",
+            "0": {
+                "label": "10",
+                "moabb_event": "10"
+            },
+            "1": {
+                "label": "10.2",
+                "moabb_event": "10.2"
+            },
+            "2": {
+                "label": "10.4",
+                "moabb_event": "10.4"
+            },
+            "3": {
+                "label": "10.6",
+                "moabb_event": "10.6"
+            },
+            "4": {
+                "label": "10.8",
+                "moabb_event": "10.8"
+            },
+            "5": {
+                "label": "11",
+                "moabb_event": "11"
+            },
+            "6": {
+                "label": "11.2",
+                "moabb_event": "11.2"
+            },
+            "7": {
+                "label": "11.4",
+                "moabb_event": "11.4"
+            },
+            "8": {
+                "label": "11.6",
+                "moabb_event": "11.6"
+            },
+            "9": {
+                "label": "11.8",
+                "moabb_event": "11.8"
+            },
+            "10": {
+                "label": "12",
+                "moabb_event": "12"
+            },
+            "11": {
+                "label": "12.2",
+                "moabb_event": "12.2"
+            },
+            "12": {
+                "label": "12.4",
+                "moabb_event": "12.4"
+            },
+            "13": {
+                "label": "12.6",
+                "moabb_event": "12.6"
+            },
+            "14": {
+                "label": "12.8",
+                "moabb_event": "12.8"
+            },
+            "15": {
+                "label": "13",
+                "moabb_event": "13"
+            },
+            "16": {
+                "label": "13.2",
+                "moabb_event": "13.2"
+            },
+            "17": {
+                "label": "13.4",
+                "moabb_event": "13.4"
+            },
+            "18": {
+                "label": "13.6",
+                "moabb_event": "13.6"
+            },
+            "19": {
+                "label": "13.8",
+                "moabb_event": "13.8"
+            },
+            "20": {
+                "label": "14",
+                "moabb_event": "14"
+            },
+            "21": {
+                "label": "14.2",
+                "moabb_event": "14.2"
+            },
+            "22": {
+                "label": "14.4",
+                "moabb_event": "14.4"
+            },
+            "23": {
+                "label": "14.6",
+                "moabb_event": "14.6"
+            },
+            "24": {
+                "label": "14.8",
+                "moabb_event": "14.8"
+            },
+            "25": {
+                "label": "15",
+                "moabb_event": "15"
+            },
+            "26": {
+                "label": "15.2",
+                "moabb_event": "15.2"
+            },
+            "27": {
+                "label": "15.4",
+                "moabb_event": "15.4"
+            },
+            "28": {
+                "label": "15.6",
+                "moabb_event": "15.6"
+            },
+            "29": {
+                "label": "15.8",
+                "moabb_event": "15.8"
+            },
+            "30": {
+                "label": "8",
+                "moabb_event": "8"
+            },
+            "31": {
+                "label": "8.2",
+                "moabb_event": "8.2"
+            },
+            "32": {
+                "label": "8.4",
+                "moabb_event": "8.4"
+            },
+            "33": {
+                "label": "8.6",
+                "moabb_event": "8.6"
+            },
+            "34": {
+                "label": "8.8",
+                "moabb_event": "8.8"
+            },
+            "35": {
+                "label": "9",
+                "moabb_event": "9"
+            },
+            "36": {
+                "label": "9.2",
+                "moabb_event": "9.2"
+            },
+            "37": {
+                "label": "9.4",
+                "moabb_event": "9.4"
+            },
+            "38": {
+                "label": "9.6",
+                "moabb_event": "9.6"
+            },
+            "39": {
+                "label": "9.8",
+                "moabb_event": "9.8"
+            }
+        },
+        "channels": {
+            "count": 64,
+            "1": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "2": {
+                "label": "Fpz",
+                "original_label": "Fpz"
+            },
+            "3": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "4": {
+                "label": "AF3",
+                "original_label": "AF3"
+            },
+            "5": {
+                "label": "AF4",
+                "original_label": "AF4"
+            },
+            "6": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "7": {
+                "label": "F5",
+                "original_label": "F5"
+            },
+            "8": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "9": {
+                "label": "F1",
+                "original_label": "F1"
+            },
+            "10": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "11": {
+                "label": "F2",
+                "original_label": "F2"
+            },
+            "12": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "13": {
+                "label": "F6",
+                "original_label": "F6"
+            },
+            "14": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "15": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "16": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "17": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "18": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "19": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "20": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "21": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "22": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "23": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "24": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "25": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "26": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "27": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "28": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "29": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "30": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "31": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "32": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "33": {
+                "label": "M1",
+                "original_label": "M1"
+            },
+            "34": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "35": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "36": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "37": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "38": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "39": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "40": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "41": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "42": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "43": {
+                "label": "M2",
+                "original_label": "M2"
+            },
+            "44": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "45": {
+                "label": "P5",
+                "original_label": "P5"
+            },
+            "46": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "47": {
+                "label": "P1",
+                "original_label": "P1"
+            },
+            "48": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "49": {
+                "label": "P2",
+                "original_label": "P2"
+            },
+            "50": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "51": {
+                "label": "P6",
+                "original_label": "P6"
+            },
+            "52": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "53": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "54": {
+                "label": "PO5",
+                "original_label": "PO5"
+            },
+            "55": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "56": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "57": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "58": {
+                "label": "PO6",
+                "original_label": "PO6"
+            },
+            "59": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "60": {
+                "label": "CB1",
+                "original_label": "CB1"
+            },
+            "61": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "62": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "63": {
+                "label": "O2",
+                "original_label": "O2"
+            },
+            "64": {
+                "label": "CB2",
+                "original_label": "CB2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        },
+        "11": {
+            "moabb_subject": 11
+        },
+        "12": {
+            "moabb_subject": 12
+        },
+        "13": {
+            "moabb_subject": 13
+        },
+        "14": {
+            "moabb_subject": 14
+        },
+        "15": {
+            "moabb_subject": 15
+        },
+        "16": {
+            "moabb_subject": 16
+        },
+        "17": {
+            "moabb_subject": 17
+        },
+        "18": {
+            "moabb_subject": 18
+        },
+        "19": {
+            "moabb_subject": 19
+        },
+        "20": {
+            "moabb_subject": 20
+        },
+        "21": {
+            "moabb_subject": 21
+        },
+        "22": {
+            "moabb_subject": 22
+        },
+        "23": {
+            "moabb_subject": 23
+        },
+        "24": {
+            "moabb_subject": 24
+        },
+        "25": {
+            "moabb_subject": 25
+        },
+        "26": {
+            "moabb_subject": 26
+        },
+        "27": {
+            "moabb_subject": 27
+        },
+        "28": {
+            "moabb_subject": 28
+        },
+        "29": {
+            "moabb_subject": 29
+        },
+        "30": {
+            "moabb_subject": 30
+        },
+        "31": {
+            "moabb_subject": 31
+        },
+        "32": {
+            "moabb_subject": 32
+        },
+        "33": {
+            "moabb_subject": 33
+        },
+        "34": {
+            "moabb_subject": 34
+        }
+    }
+}

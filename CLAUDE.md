@@ -92,8 +92,11 @@ dictionary.
 
 ```
 EEG signals (raw dataset files)
-  └─ datas/<Name>/loader.py    # dataset-specific loader, compile-time only (never runs at train time)
-  └─ cache_dataset.py          # bandpass filter → resample, baked once into datas/<Name>/cache/*.npz
+  └─ datas/<split>/<Name>/loader.py   # <split> = pretrain | finetune; compile-time only (never runs at
+  │                                   # train time). Cuts Trials: event-anchored ones [event-1 s, event+4 s)
+  │                                   # (configs/compile.json pre/post_event_seconds), others per dataset;
+  │                                   # MOABB-covered datasets use IO/loader.py's MoabbLoader
+  └─ cache_dataset.py          # bandpass filter → resample, baked once into datas/<split>/<Name>/cache/*.npz
   └─ IO/dataset.py             # EEGDataset reads the compiled cache directly, channel-maps/pads,
   │                            # applies IO/preprocessing.py's Normalizer (zscore/robust/fixed)
   │    └─ EEGDataset → PretrainDataset / FinetuneDataset
@@ -193,12 +196,18 @@ same baseline matrix would otherwise collide at the same paths; see ADR 0017).
 
 ### Dataset metadata
 
-Each dataset under `datas/<name>/metadata.json` uses a unified schema:
+Each dataset under `datas/<split>/<name>/metadata.json` uses a unified schema:
 - `data_metadata.acquisition.sample_frequency` — used for compiling (`cache_dataset.py`)
 - `data_metadata.channels` — 1-indexed dict with `label` + `coordinates` (polar angle/radius, converted to 3D for spatial embedding — see `IO/loader.py`'s `load_coords_from_metadata`)
-- `data_structure` — per-subject file references, `raw/`-prefixed (relative to `datas/<name>/`)
+- `data_metadata.event_onset_seconds` (MOABB datasets) or `event_onset_sample` (older ones, at 200 Hz) — where the event sits inside each compiled trial; absent = no event (continuous windows). Read by `tools.analysis.lookup_event_onset_sample` / `event_onset_patch` to draw the event line on every time-axis plot
+- `data_metadata.moabb` (MOABB datasets) — class, kwargs, optional `window` / `continuous`
+- `data_structure` — per-subject file references, `raw/`-prefixed (relative to the dataset folder), or `moabb_subject` for MOABB datasets
+
+`datas/DATASETS.md` (generated) lists every dataset with paradigm, benchmark membership, event position, compiled hours and status.
 
 Pretrain's subject-level train/val split is done by shuffling subject IDs (seed 42) at `train_val_split` ratio — **data never leaks between subjects**.
+
+Finetune numbers have known caveats (P300 intra-subject folds share overlapping windows, shuffled intra folds are optimistic, PhysionetMI is in the v10–v13 pretrain corpus) — read `docs/finetune-caveats.md` before reporting or comparing them.
 
 ### Multi-dataset training
 

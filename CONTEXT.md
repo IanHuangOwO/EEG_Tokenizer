@@ -9,7 +9,7 @@ A raw, labeled recording segment as it comes from the source dataset (variable l
 _Avoid_: Segment, recording, epoch (for this meaning)
 
 **Window**:
-A fixed-length chunk of signal (`window_length` samples) produced by flattening a subject's trials into one continuous stream and re-cutting it (`assemble_trials=True`). Distinct from a Trial — a Window has no direct 1:1 label relationship to the original trial(s) it was cut from.
+A fixed-length chunk of signal (`window_length` samples, 5 s) — the pretrain model's input unit. Pretraining (`assemble_trials=True`) cuts each Trial's real content into its own non-overlapping Windows; a Window never spans two Trials. A leftover shorter than `window_min_real` × `window_length` is dropped, a longer one is zero-padded at the end, and that padding is excluded from masking and the loss (`IO/preprocessing.py`'s `window_continuous_signal`). Distinct from a Trial — a Window carries no task label (dummy 0), and one long Trial yields several Windows. Finetuning does not use Windows: it keeps whole Trials.
 _Avoid_: Trial (for this meaning), chunk
 
 ## Quantization (MeFSQ, retired)
@@ -70,42 +70,46 @@ A parallel, non-discrete tokenizer approach (`model/MeSAE/`) — goal is explain
 
 **Dead-atom rescue** (`aux_loss`): Routed atoms whose firing EMA falls below `dead_threshold` are aimed at the current residual, reviving them on content nobody covers. Dropped once stamps freeze, since a frozen dictionary's atoms cannot be reshaped.
 
-**Tokenizer stage**:
-MeSAE's first training phase: the encoder (kept shallow/local, see `docs/adr/0003-mesae-two-stage-masked-training.md`) and the StampBank train jointly, unmasked, full reconstruction only. No masked-patch pretext task at this stage — that's deferred to the Masked stage. Spatial mixing and coordinate embedding are both OFF here: StampBank must learn from patch-local single-channel content, or a "stamp" just re-encodes an already-mixed vector.
+**Tokenizer phase**:
+The first phase of the single pretrain run (epochs 1..`tokenizer_epochs`, `MeSAEPretrain.enter_tokenizer_phase()`; `docs/adr/0013`): only the `pool_after_blocks` encoder blocks run, temporal mixing only, no masking, and the encoder and StampBank train jointly on full reconstruction. Spatial mixing and the coordinate embedding are OFF, so StampBank learns from patch-local single-channel content rather than an already-mixed vector (`docs/adr/0003`).
+_Avoid_: Tokenizer stage (the old separate-run name)
 
-**Masked stage**:
-MeSAE's second training phase: the Tokenizer-stage StampBank is frozen (weights fixed) and only the backbone trains, on masked input, to reconstruct through it. Mirrors MeFSQ's `freeze_vq_and_decoder()` split but two-stage/sequential rather than joint-warmup-then-freeze — deliberate, to keep the frozen target local rather than already-contextualized (see ADR 0003). `embed_dim` must match the tokenizer stage that produced the checkpoint (the StampBank and patch embedding both consume `z` of that width); `enc_depth`/`pool_after_blocks` may differ freely, and `train_pretrain.py` fails loudly on any other mismatch.
+**Masked phase**:
+The second phase of the same run (`enter_masked_phase(freeze_stamps)`): all encoder blocks, spatial attention and coordinate embedding on, masked-patch reconstruction with the `preprocess_params.mask` curriculum counted from here. The StampBank is frozen only when `training_params.pretrain.freeze_stamps` is true (default false); `mp`/`aux` losses stop once it is. The phase is stored as a buffer (`masked_phase`) and restored on `load_state_dict`, so no loader calls `enable_*` by hand.
+_Avoid_: Masked stage, Pretrain stage (old two-run names — there is no separate checkpoint hand-off any more)
 
 ## Current MeSAE defaults
 
 What `configs/pretrain.template.json` builds today. Rationale for each choice lives in the ADRs;
 this is the snapshot, so a reader does not have to reconstruct it from the config.
 
-**Signal path**: bandpass 0.5–100Hz → 200Hz (baked into the cache) → Window 800 (4s) →
-`slice_patches(patch_len=50, patch_stride=25)` → 31 patches at 50% overlap →
-`[B, C=64, N=31, L=50]`. `patch_len=50` at `fs=200` fixes the per-patch FFT grid at
+**Signal path**: bandpass 0.5–100Hz → 200Hz (baked into the cache) → per-trial Windows of 1000
+samples (5 s; event trials are cut 1 s before to 4 s after the event) → z-score per trial →
+`slice_patches(patch_len=50, patch_stride=25)` → 39 patches at 50% overlap →
+`[B, C=64, N=39, L=50]`. `patch_len=50` at `fs=200` fixes the per-patch FFT grid at
 **Δf = 4Hz**, which is why 60Hz lands exactly on a bin and 50Hz never does — a trap for
 anyone measuring narrowband content per patch (see adr/0010's measurement note).
 
-**Modules** (1.64M params tokenizer / 3.15M pretrain):
+**Modules** (2.29M params, `analysis_pretrain.py --panel profile`):
 
-| module | params (tok) | what |
+| module | params | what |
 |---|---|---|
-| `SpatialTemporalEmbeddings` | 0.51M | patch proj 50→100, **learnable** temporal position embedding (sinusoidal warm start), 3D coord MLP (Pretrain only) |
-| `TSAEncoder` | 1.09M / 2.61M | depth 5 / 12 `TSABlock`: temporal ConvAdditiveAttn → spatial MHA → MoE ConvFFN (4 routed + 1 shared, top-2); UNet pooling at `pool_after_blocks` |
-| `StampBank` | 0.042M | the dictionary — 2.6% of params and the entire point of the model |
+| `SpatialTemporalEmbeddings` | 0.51M | patch proj 50→100, **learnable** temporal position embedding (sinusoidal warm start), 3D coord MLP (masked phase only) |
+| `TSAEncoder` | 1.74M | depth 8 `TSABlock`: temporal ConvAdditiveAttn → spatial MHA → MoE ConvFFN (4 routed + 1 shared, top-2); UNet pooling at `pool_after_blocks` [1, 3, 5, 7] |
+| `StampBank` | 0.04M | the dictionary — ~2% of params and the entire point of the model |
 
 Each `TSABlock` branch carries a LayerNorm *before* its LayerScale multiply: LayerScale
 throttles a branch's residual contribution but not its internal magnitude, which let
 `branch_max` reach thousands.
 
-**StampBank**: 60 routed + 4 shared (tokenizer) / 56 + 8 (pretrain), `stamp_top_k=12`,
-bottleneck widths 6 routed / 3 shared. Sparsity budget 32 and 40, both under
-`patch_len=50`.
+**StampBank**: 60 routed + 4 shared, `stamp_top_k=12`, bottleneck widths 6 routed / 8 shared.
+Sparsity budget 2·(12+4) = 32, under `patch_len=50`. (v11–v13 experiment with static-only
+dictionaries of 32 / 16 / 24 stamps; this template is still the v10 routed design.)
 
-**Loss**: `patch + trial + 1.0·mp + 0.01·aux + 0.01·ffn_lb`
+**Loss**: `patch + trial + 1.0·mp + 0.01·aux + 0.01·ffn_lb`, with visible (unmasked) positions
+weighted `unmasked_weight=0.1` in the masked phase
 
-- `patch` — plain time-domain MSE per patch, valid channels only
+- `patch` — plain time-domain MSE per patch, valid channels and non-padded patches only
 - `trial` — same MSE on the real continuous trial, patches overlap-added back
   (`overlap_add_patches`, linear crossfade, weight-normalized), so gradient reaches each
   patch through its true position in the trial
@@ -115,10 +119,10 @@ bottleneck widths 6 routed / 3 shared. Sparsity budget 32 and 40, both under
 `mp` and `aux` are both dropped once stamps freeze. `ffn_lb` runs in both stages (it comes
 from the encoder, which keeps training).
 
-**Two stages**: Tokenizer trains encoder+StampBank jointly, unmasked, temporal mixing only.
-Pretrain loads that checkpoint, enables spatial + coord embedding, freezes the stamps, and
-trains only the transformer against masked reconstruction — encoder share of params goes
-66% → 83%.
+**One run, two phases** (50 epochs, `tokenizer_epochs=10`): the Tokenizer phase trains the
+shallow encoder + StampBank jointly, unmasked; the Masked phase turns on every block, spatial
+attention and the coordinate embedding and trains on masked reconstruction, with the stamps
+still trainable unless `freeze_stamps` is set (see the phase entries above, `docs/adr/0013`).
 
 ## Model plugin architecture
 
