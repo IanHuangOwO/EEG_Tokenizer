@@ -229,7 +229,10 @@ wiring a new tokenizer model into the shared plugin architecture (see
 Step-by-step protocol for converting a raw EEG dataset into the standard `datas/<name>/`
 layout (`loader.py`, `gen_metadata.py`, `raw/`) and compiling it into the per-subject
 cache `cache_dataset.py` reads — no registry to edit, directory presence is the
-registration. See `docs/agents/adding-a-dataset.md`.
+registration. See `docs/agents/adding-a-dataset.md`. Datasets MOABB covers use
+`IO/loader.py`'s `MoabbLoader` instead of hand-written parsing. `datas/DATASETS.md` lists every
+dataset (paradigm, subjects, compiled hours, status); regenerate it with
+`python -m tools.misc.dataset_inventory` whenever a dataset is added, compiled or migrated.
 
 ### Adding a montage
 

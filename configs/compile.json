@@ -1,6 +1,6 @@
 {
   "compile_params": {
-    "_comment": "sample_freq/bandpass_filter/pre_event_seconds/post_event_seconds here MUST match config.json's preprocess_params \u2014 that's how the compiled cache filename is derived on both the write side (this script) and the read side (IO/dataset.py). A mismatch just misses the cache with a clear FileNotFoundError, never silently reads stale data.",
+    "_comment": "sample_freq/bandpass_filter/pre_event_seconds/post_event_seconds here MUST match config.json's preprocess_params — that's how the compiled cache filename is derived on both the write side (this script) and the read side (IO/dataset.py). A mismatch just misses the cache with a clear FileNotFoundError, never silently reads stale data.",
     "sample_freq": 200,
     "bandpass_filter": {
       "l_freq": 0.5,
@@ -8,7 +8,7 @@
     },
     "pre_event_seconds": 1.0,
     "post_event_seconds": 4.0,
-    "_pre_post_comment": "Global \u2014 injected into every loader's dataset_params uniformly (see cache_dataset.py), same mechanism dataset_path already uses. Only the trigger/annotation-anchored loaders read them (BCICIV1_Train, BNCI2014001, BNCI2014004, Inria_Train); everyone else's loader ignores them (see e.g. datas/PhysionetMI/loader.py, which deliberately opts out even though it receives them \u2014 real headroom there is ~0, see docs/model-analysis-checklist.md). Total window = pre+post = 5.0s = 1000 samples @ 200Hz, must match config.json's preprocess_params.window_length.",
+    "_pre_post_comment": "Global — injected into every loader's dataset_params uniformly (see cache_dataset.py), same mechanism dataset_path already uses. Only the trigger/annotation-anchored loaders read them (BCICIV1_Train, BNCI2014001, BNCI2014004, Inria_Train); everyone else's loader ignores them (see e.g. datas/PhysionetMI/loader.py, which deliberately opts out even though it receives them — real headroom there is ~0, see docs/model-analysis-checklist.md). Total window = pre+post = 5.0s = 1000 samples @ 200Hz, must match config.json's preprocess_params.window_length.",
     "datasets": {
       "Nakanishi2015": {
         "dataset_path": "datas/finetune/Nakanishi2015"
@@ -99,6 +99,12 @@
       },
       "UCSD_PD": {
         "dataset_path": "datas/pretrain/UCSD_PD"
+      },
+      "Neonatal_Helsinki": {
+        "dataset_path": "datas/pretrain/Neonatal_Helsinki"
+      },
+      "Lee2019_MI": {
+        "dataset_path": "datas/pretrain/Lee2019_MI"
       }
     }
   }

@@ -1,5 +1,6 @@
 /datas/**/raw
 /datas/**/cache
+/datas/**/cache_premoabb
 /resources
 /output
 # per-run configs (each run also snapshots its config into output/<run>/artifacts/)

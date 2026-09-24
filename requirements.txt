@@ -7,3 +7,4 @@ scipy
 h5py
 mne
 mne-icalabel==0.9.0
+moabb==1.5.0

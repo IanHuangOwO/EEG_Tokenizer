@@ -1,4 +1,6 @@
+import json
 import os
+import warnings
 import numpy as np
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional, Tuple, Any
@@ -204,3 +206,153 @@ def resolve_dataset_loader(dataset_path: str):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.Loader
+
+
+# --- MOABB-backed loading ------------------------------------------------------------
+# MOABB-backed dataset loading (compile-time only, like every datas/<Name>/loader.py).
+#
+# For a dataset MOABB covers, datas/<Name>/loader.py is just `class Loader(MoabbLoader): pass`
+# and gen_metadata.py calls write_moabb_metadata(). MOABB does the download and the file
+# parsing (events, sessions, runs); everything after -- trial cutting with the global
+# pre/post_event_seconds, bandpass/resample, channel unification -- stays ours
+# (cache_dataset.py). MOABB's paradigm/evaluation layers are deliberately not used.
+#
+# Raw files live in datas/<Name>/raw/ in MOABB's own layout (MNE-<code>-data/...):
+# moabb_dataset() redirects MOABB's storage-path lookup there.
+
+_RAW_DIR = None
+
+
+def _get_dataset_path(sign, path=None):
+    return path if path is not None else _RAW_DIR
+
+
+def moabb_dataset(class_name: str, dataset_path: str, **kwargs):
+    """MOABB dataset whose downloads land in <dataset_path>/raw/."""
+    global _RAW_DIR
+    import sys
+    import moabb.datasets
+    ds = getattr(moabb.datasets, class_name)(**kwargs)
+    # ponytail: module-global redirect of MOABB's storage-path lookup. Its MNE_DATASETS_<SIGN>_PATH
+    # keys use a per-module sign (e.g. every BNCI dataset shares "BNCI"), not ds.code, and
+    # several modules import get_dataset_path by name -- so patch every copy. One raw dir at
+    # a time: fine for cache_dataset.py's per-dataset loop, not for two datasets in one process
+    # concurrently.
+    _RAW_DIR = os.path.abspath(os.path.join(dataset_path, 'raw'))
+    for name, mod in list(sys.modules.items()):
+        if name.startswith('moabb.datasets') and hasattr(mod, 'get_dataset_path'):
+            mod.get_dataset_path = _get_dataset_path
+    return ds
+
+
+def subject_runs(ds, subject: int):
+    """[(session, run, mne.io.Raw)] for one subject, downloading it if needed."""
+    # ponytail: private _get_single_subject_data instead of get_data -- get_data's session
+    # filter drops Lee2019's first session (selected_sessions (1, 2) vs session keys
+    # '0'/'1', MOABB 1.5.0), and it also skips MOABB's cache layer we don't need.
+    # Switch to get_data if a MOABB upgrade removes the private method.
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        sessions = ds._get_single_subject_data(subject)
+    return [(s, r, raw) for s, runs in sessions.items() for r, raw in runs.items()]
+
+
+class MoabbLoader(BaseSubjectLoader):
+    """
+    Cuts one trial per labelled event. Default: anchor = event + dataset.interval[0] (the
+    MI/ERP onset MOABB defines), window = [anchor - pre_event_seconds, anchor +
+    post_event_seconds] (post falls back to the interval length when unset). A dataset
+    whose trials don't fit the global pre/post (P300 flashes, back-to-back PhysionetMI
+    trials) sets metadata moabb.window = [t0, t1]: seconds relative to the raw event,
+    used instead. Channels are picked by name (metadata 'original_label'); labels come
+    from metadata targets' 'moabb_event'.
+    """
+    def __init__(self, config: Dict, subject_id: int, desired_channel_indices: List[int]):
+        super().__init__(config, subject_id, desired_channel_indices)
+        self.moabb_subject = int(self._require_subject(subject_id)['moabb_subject'])
+        m = self.data_metadata['moabb']
+        self.ds = moabb_dataset(m['class'], self.data_root, **m.get('kwargs', {}))
+        ch = self.data_metadata['channels']
+        self.pick_names = [ch[str(i + 1)]['original_label'] for i in desired_channel_indices]
+        t = self.data_metadata['targets']
+        self.event_to_label = {t[k]['moabb_event']: int(k) for k in t if k.isdigit()}
+        self.window = m.get('window')
+
+    def _load_data(self):
+        import mne
+        lo, hi = self.ds.interval
+        trials, labels, ranges = [], [], []
+        for _, _, raw in subject_runs(self.ds, self.moabb_subject):
+            self._resample_if_needed(raw)
+            sf = raw.info['sfreq']
+            if self.window:
+                shift, pre, post = 0, int(round(-self.window[0] * sf)), int(round(self.window[1] * sf))
+            else:
+                shift = int(round(lo * sf))
+                pre = int(round(self.pre_event_seconds * sf))
+                post = int(round((self.post_event_seconds or (hi - lo)) * sf))
+            # Raw straight from _get_single_subject_data: events are on the stim channel
+            # (MOABB's get_data pipeline is what would turn them into annotations).
+            if mne.pick_types(raw.info, stim=True).size:
+                events = mne.find_events(raw, shortest_event=0, verbose=False)
+            else:
+                events, _ = mne.events_from_annotations(raw, event_id=self.ds.event_id, verbose=False)
+            code_to_label = {self.ds.event_id[k]: v for k, v in self.event_to_label.items()}
+            data = raw.get_data(picks=self.pick_names).astype(np.float32)
+            for sample, _, code in events:
+                if code not in code_to_label:
+                    continue
+                anchor = sample - raw.first_samp + shift
+                window, vs, ve = cut_event_window(data, anchor, pre, post)
+                if ve <= vs:
+                    continue
+                trials.append(window)
+                labels.append(code_to_label[code])
+                ranges.append((vs, ve))
+        if not trials:
+            return None, None
+        self._last_valid_ranges = ranges
+        return np.stack(trials), np.array(labels, dtype=np.int64)
+
+
+def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Dict,
+                         target_labels: Dict[str, str], kwargs: Dict = None,
+                         window: List[float] = None) -> Dict:
+    """
+    Writes <root>/metadata.json from MOABB: EEG channel names and sample rate from the
+    first subject's first run (downloads it if needed), subjects from ds.subject_list,
+    targets = MOABB event names. target_labels maps event name -> readable label; its key
+    order sets the label indices (so a migrated dataset can keep its old label order),
+    events it leaves out follow in sorted order.
+    """
+    import mne
+    kwargs = kwargs or {}
+    ds = moabb_dataset(class_name, root, **kwargs)
+    raw = subject_runs(ds, ds.subject_list[0])[0][2]
+    eeg = [raw.ch_names[i] for i in mne.pick_types(raw.info, eeg=True)]
+    events = [e for e in target_labels if e in ds.event_id] + sorted(set(ds.event_id) - set(target_labels))
+    lo, hi = ds.interval
+    meta = {
+        "data_metadata": {
+            "dataset_name": name,
+            "dataset_info": dataset_info,
+            "moabb": {"class": class_name, "kwargs": kwargs, "code": ds.code,
+                      **({"window": window} if window else {})},
+            "acquisition": {
+                "sample_frequency": raw.info['sfreq'],
+                "window_size_seconds": (window[1] - window[0]) if window else hi - lo,
+                "num_subjects": len(ds.subject_list),
+            },
+            "targets": {"count": len(events), "type": ds.paradigm,
+                        **{str(i): {"label": target_labels.get(e, e), "moabb_event": e}
+                           for i, e in enumerate(events)}},
+            "channels": {"count": len(eeg), **{str(i + 1): {"label": n, "original_label": n}
+                                               for i, n in enumerate(eeg)}},
+        },
+        "data_structure": {str(s): {"moabb_subject": s} for s in ds.subject_list},
+    }
+    with open(os.path.join(root, "metadata.json"), "w") as f:
+        json.dump(meta, f, indent=4)
+    print(f"wrote {name}/metadata.json: {len(ds.subject_list)} subjects, {len(eeg)} EEG channels, "
+          f"{raw.info['sfreq']} Hz, events {events}")
+    return meta

@@ -368,6 +368,35 @@ whole loading run — return `None, None` from `_load_data()` rather than
 raising; `EEGDataset.__init__` (`IO/dataset.py`) already
 try/excepts around each task and just skips it with a printed warning.
 
+## Shortcut: datasets MOABB covers
+
+If MOABB (`moabb` in the `eeg_fm` env, 1.5.0) has the dataset, skip Steps 3-6's hand-written
+parsing and use `IO/loader.py` (MoabbLoader, write_moabb_metadata):
+
+- `loader.py` is just `class Loader(MoabbLoader): pass`.
+- `gen_metadata.py` calls `write_moabb_metadata(root, name, "<MoabbClass>", dataset_info,
+  target_labels, kwargs)`. It reads channels and sample rate from the first subject and
+  writes the usual `metadata.json`, plus a `moabb` block (class + constructor kwargs) and one
+  `moabb_subject` entry per subject in `data_structure`.
+- `target_labels`' key order sets the label indices; pass the old order when migrating a
+  dataset so its labels don't change.
+- Raw files download into `datas/<Name>/raw/` in MOABB's own layout (`MNE-<code>-data/...`);
+  `moabb_dataset()` redirects MOABB's storage-path lookup there. A resumable per-subject fetch is
+  `for s in ds.subject_list: ds.data_path(s, path=raw)` (see `datas/pretrain/Lee2019_MI/fetch.py`).
+- Trials: one per labelled event, anchored at event + `ds.interval[0]`, cut with the global
+  `pre_event_seconds`/`post_event_seconds` like the other event-anchored loaders -- or, when
+  that doesn't fit (P300 flashes, back-to-back trials), pass `window=[t0, t1]` (seconds
+  relative to the raw event) to `write_moabb_metadata`. Only
+  MOABB's dataset layer is used; its paradigm (filter/resample/crop) and evaluation layers
+  are not.
+- Check MOABB's class name first (`moabb.datasets.BNCI2014_001`, not `BNCI2014001`).
+
+Verified 2026-09-24: BNCI2014001 through this path matched the hand-written loader's cache on
+all 9 subjects (same labels, max relative difference ~1e-8), and additionally yields the
+labelled E session (576 trials per subject instead of 288). Always compare a migrated dataset
+against its old cache before swapping: BNCI2015001's hand-written loader turned out to cut
+[3, 8] s after the cue instead of the 0-5 s imagery period.
+
 ## Step 7: compile the cache
 
 No registration step — `datas/MyDataset/loader.py` existing IS the
@@ -460,6 +489,12 @@ your channel labels don't line up with the 10-20 naming convention
 through the compiled cache — if Step 7 wasn't run, `EEGDataset._load_task`
 raises a clear `FileNotFoundError` naming the missing `.npz` path instead of
 parsing raw files.
+
+**Record it in the dataset list.** Add the dataset's paradigm to `PARADIGM` in
+`tools/misc/dataset_inventory.py`, then regenerate `datas/DATASETS.md`
+(`python -m tools.misc.dataset_inventory`). The generated list has subjects, channels, rate,
+classes, compiled hours and status for every `datas/<split>/<Name>/`. Re-run it after
+compiling, migrating or dropping a dataset too.
 
 ## Currently unconverted raw datasets in `./datas`
 

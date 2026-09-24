@@ -1,0 +1,344 @@
+{
+    "data_metadata": {
+        "dataset_name": "Neonatal_Helsinki",
+        "dataset_info": {
+            "source_url": "https://zenodo.org/records/4940267",
+            "file_format": "EDF",
+            "description": "79 term neonates in the NICU, 19-channel 10-20 EEG at 256 Hz, median 74 min per recording; seizures annotated by three experts (not used here).",
+            "task_type": "pretrain_dummy",
+            "reference": "Stevenson NJ, Tapani K, Lauronen L, Vanhatalo S (2019). A dataset of neonatal EEG recordings with seizure annotations. Sci Data 6:190039. doi:10.1038/sdata.2019.39. Zenodo doi:10.5281/zenodo.4940267",
+            "notes": "Pretraining only: 5 s non-overlapping windows, dummy label 0; seizure annotations ignored."
+        },
+        "acquisition": {
+            "sample_frequency": 256,
+            "window_size_seconds": 5.0,
+            "num_subjects": 79
+        },
+        "targets": {
+            "count": 1,
+            "type": "pretrain_dummy",
+            "0": {
+                "label": "dummy (continuous EEG window, no task label)"
+            }
+        },
+        "channels": {
+            "count": 19,
+            "system": "10-20",
+            "1": {
+                "label": "Fp1",
+                "original_label": "EEG Fp1-Ref"
+            },
+            "2": {
+                "label": "Fp2",
+                "original_label": "EEG Fp2-Ref"
+            },
+            "3": {
+                "label": "F3",
+                "original_label": "EEG F3-Ref"
+            },
+            "4": {
+                "label": "F4",
+                "original_label": "EEG F4-Ref"
+            },
+            "5": {
+                "label": "F7",
+                "original_label": "EEG F7-Ref"
+            },
+            "6": {
+                "label": "F8",
+                "original_label": "EEG F8-Ref"
+            },
+            "7": {
+                "label": "Fz",
+                "original_label": "EEG Fz-Ref"
+            },
+            "8": {
+                "label": "C3",
+                "original_label": "EEG C3-Ref"
+            },
+            "9": {
+                "label": "C4",
+                "original_label": "EEG C4-Ref"
+            },
+            "10": {
+                "label": "Cz",
+                "original_label": "EEG Cz-Ref"
+            },
+            "11": {
+                "label": "T7",
+                "original_label": "EEG T3-Ref"
+            },
+            "12": {
+                "label": "P7",
+                "original_label": "EEG T5-Ref"
+            },
+            "13": {
+                "label": "T8",
+                "original_label": "EEG T4-Ref"
+            },
+            "14": {
+                "label": "P8",
+                "original_label": "EEG T6-Ref"
+            },
+            "15": {
+                "label": "P3",
+                "original_label": "EEG P3-Ref"
+            },
+            "16": {
+                "label": "P4",
+                "original_label": "EEG P4-Ref"
+            },
+            "17": {
+                "label": "Pz",
+                "original_label": "EEG Pz-Ref"
+            },
+            "18": {
+                "label": "O1",
+                "original_label": "EEG O1-Ref"
+            },
+            "19": {
+                "label": "O2",
+                "original_label": "EEG O2-Ref"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "file": "raw/eeg1.edf"
+        },
+        "2": {
+            "file": "raw/eeg2.edf"
+        },
+        "3": {
+            "file": "raw/eeg3.edf"
+        },
+        "4": {
+            "file": "raw/eeg4.edf"
+        },
+        "5": {
+            "file": "raw/eeg5.edf"
+        },
+        "6": {
+            "file": "raw/eeg6.edf"
+        },
+        "7": {
+            "file": "raw/eeg7.edf"
+        },
+        "8": {
+            "file": "raw/eeg8.edf"
+        },
+        "9": {
+            "file": "raw/eeg9.edf"
+        },
+        "10": {
+            "file": "raw/eeg10.edf"
+        },
+        "11": {
+            "file": "raw/eeg11.edf"
+        },
+        "12": {
+            "file": "raw/eeg12.edf"
+        },
+        "13": {
+            "file": "raw/eeg13.edf"
+        },
+        "14": {
+            "file": "raw/eeg14.edf"
+        },
+        "15": {
+            "file": "raw/eeg15.edf"
+        },
+        "16": {
+            "file": "raw/eeg16.edf"
+        },
+        "17": {
+            "file": "raw/eeg17.edf"
+        },
+        "18": {
+            "file": "raw/eeg18.edf"
+        },
+        "19": {
+            "file": "raw/eeg19.edf"
+        },
+        "20": {
+            "file": "raw/eeg20.edf"
+        },
+        "21": {
+            "file": "raw/eeg21.edf"
+        },
+        "22": {
+            "file": "raw/eeg22.edf"
+        },
+        "23": {
+            "file": "raw/eeg23.edf"
+        },
+        "24": {
+            "file": "raw/eeg24.edf"
+        },
+        "25": {
+            "file": "raw/eeg25.edf"
+        },
+        "26": {
+            "file": "raw/eeg26.edf"
+        },
+        "27": {
+            "file": "raw/eeg27.edf"
+        },
+        "28": {
+            "file": "raw/eeg28.edf"
+        },
+        "29": {
+            "file": "raw/eeg29.edf"
+        },
+        "30": {
+            "file": "raw/eeg30.edf"
+        },
+        "31": {
+            "file": "raw/eeg31.edf"
+        },
+        "32": {
+            "file": "raw/eeg32.edf"
+        },
+        "33": {
+            "file": "raw/eeg33.edf"
+        },
+        "34": {
+            "file": "raw/eeg34.edf"
+        },
+        "35": {
+            "file": "raw/eeg35.edf"
+        },
+        "36": {
+            "file": "raw/eeg36.edf"
+        },
+        "37": {
+            "file": "raw/eeg37.edf"
+        },
+        "38": {
+            "file": "raw/eeg38.edf"
+        },
+        "39": {
+            "file": "raw/eeg39.edf"
+        },
+        "40": {
+            "file": "raw/eeg40.edf"
+        },
+        "41": {
+            "file": "raw/eeg41.edf"
+        },
+        "42": {
+            "file": "raw/eeg42.edf"
+        },
+        "43": {
+            "file": "raw/eeg43.edf"
+        },
+        "44": {
+            "file": "raw/eeg44.edf"
+        },
+        "45": {
+            "file": "raw/eeg45.edf"
+        },
+        "46": {
+            "file": "raw/eeg46.edf"
+        },
+        "47": {
+            "file": "raw/eeg47.edf"
+        },
+        "48": {
+            "file": "raw/eeg48.edf"
+        },
+        "49": {
+            "file": "raw/eeg49.edf"
+        },
+        "50": {
+            "file": "raw/eeg50.edf"
+        },
+        "51": {
+            "file": "raw/eeg51.edf"
+        },
+        "52": {
+            "file": "raw/eeg52.edf"
+        },
+        "53": {
+            "file": "raw/eeg53.edf"
+        },
+        "54": {
+            "file": "raw/eeg54.edf"
+        },
+        "55": {
+            "file": "raw/eeg55.edf"
+        },
+        "56": {
+            "file": "raw/eeg56.edf"
+        },
+        "57": {
+            "file": "raw/eeg57.edf"
+        },
+        "58": {
+            "file": "raw/eeg58.edf"
+        },
+        "59": {
+            "file": "raw/eeg59.edf"
+        },
+        "60": {
+            "file": "raw/eeg60.edf"
+        },
+        "61": {
+            "file": "raw/eeg61.edf"
+        },
+        "62": {
+            "file": "raw/eeg62.edf"
+        },
+        "63": {
+            "file": "raw/eeg63.edf"
+        },
+        "64": {
+            "file": "raw/eeg64.edf"
+        },
+        "65": {
+            "file": "raw/eeg65.edf"
+        },
+        "66": {
+            "file": "raw/eeg66.edf"
+        },
+        "67": {
+            "file": "raw/eeg67.edf"
+        },
+        "68": {
+            "file": "raw/eeg68.edf"
+        },
+        "69": {
+            "file": "raw/eeg69.edf"
+        },
+        "70": {
+            "file": "raw/eeg70.edf"
+        },
+        "71": {
+            "file": "raw/eeg71.edf"
+        },
+        "72": {
+            "file": "raw/eeg72.edf"
+        },
+        "73": {
+            "file": "raw/eeg73.edf"
+        },
+        "74": {
+            "file": "raw/eeg74.edf"
+        },
+        "75": {
+            "file": "raw/eeg75.edf"
+        },
+        "76": {
+            "file": "raw/eeg76.edf"
+        },
+        "77": {
+            "file": "raw/eeg77.edf"
+        },
+        "78": {
+            "file": "raw/eeg78.edf"
+        },
+        "79": {
+            "file": "raw/eeg79.edf"
+        }
+    }
+}
