@@ -1,0 +1,856 @@
+{
+    "data_metadata": {
+        "dataset_name": "CHB_MIT",
+        "dataset_info": {
+            "source_url": "https://physionet.org/content/chbmit/1.0.0/",
+            "file_format": "EDF",
+            "description": "23 pediatric patients with intractable seizures (24 cases), Children's Hospital Boston, 256 Hz scalp EEG in bipolar double-banana montage, 198 annotated seizures. Binary ictal vs interictal detection, 5 s windows, class-balanced per subject.",
+            "task_type": "seizure_detection",
+            "reference": "Shoeb A. Application of Machine Learning to Epileptic Seizure Onset Detection and Treatment. PhD Thesis, MIT, 2009. Goldberger et al. (2000) PhysioBank, PhysioToolkit, and PhysioNet. Circulation 101(23):e215-e220.",
+            "notes": "Balanced 1:1 subsample: all non-overlapping 5 s windows fully inside seizures + equal count of interictal windows (fixed seed per subject) from seizure-free recordings not adjacent to a seizure recording. Bipolar derivations labelled by first electrode; 16 channels kept."
+        },
+        "acquisition": {
+            "sample_frequency": 256,
+            "window_size_seconds": 5.0,
+            "num_subjects": 4,
+            "num_recordings": 158,
+            "num_seizures": 21
+        },
+        "targets": {
+            "count": 2,
+            "type": "seizure_detection",
+            "0": {
+                "label": "interictal"
+            },
+            "1": {
+                "label": "ictal (seizure)"
+            }
+        },
+        "channels": {
+            "count": 16,
+            "system": "bipolar double banana, first-electrode labels",
+            "1": {
+                "label": "Fp1",
+                "original_label": "FP1-F7"
+            },
+            "2": {
+                "label": "F7",
+                "original_label": "F7-T7"
+            },
+            "3": {
+                "label": "T7",
+                "original_label": "T7-P7"
+            },
+            "4": {
+                "label": "P7",
+                "original_label": "P7-O1"
+            },
+            "5": {
+                "label": "F3",
+                "original_label": "F3-C3"
+            },
+            "6": {
+                "label": "C3",
+                "original_label": "C3-P3"
+            },
+            "7": {
+                "label": "P3",
+                "original_label": "P3-O1"
+            },
+            "8": {
+                "label": "Fp2",
+                "original_label": "FP2-F4"
+            },
+            "9": {
+                "label": "F4",
+                "original_label": "F4-C4"
+            },
+            "10": {
+                "label": "C4",
+                "original_label": "C4-P4"
+            },
+            "11": {
+                "label": "P4",
+                "original_label": "P4-O2"
+            },
+            "12": {
+                "label": "F8",
+                "original_label": "F8-T8"
+            },
+            "13": {
+                "label": "T8",
+                "original_label": "T8-P8"
+            },
+            "14": {
+                "label": "P8",
+                "original_label": "P8-O2"
+            },
+            "15": {
+                "label": "Fz",
+                "original_label": "FZ-CZ"
+            },
+            "16": {
+                "label": "Cz",
+                "original_label": "CZ-PZ"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "folder": "raw/chb01",
+            "runs": [
+                {
+                    "file": "chb01_01.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_02.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_03.edf",
+                    "seizures": [
+                        [
+                            2996,
+                            3036
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb01_04.edf",
+                    "seizures": [
+                        [
+                            1467,
+                            1494
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb01_05.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_06.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_07.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_08.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_09.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_10.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_11.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_12.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_13.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_14.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_15.edf",
+                    "seizures": [
+                        [
+                            1732,
+                            1772
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb01_16.edf",
+                    "seizures": [
+                        [
+                            1015,
+                            1066
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb01_17.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_18.edf",
+                    "seizures": [
+                        [
+                            1720,
+                            1810
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb01_19.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_20.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_21.edf",
+                    "seizures": [
+                        [
+                            327,
+                            420
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb01_22.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_23.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_24.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_25.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_26.edf",
+                    "seizures": [
+                        [
+                            1862,
+                            1963
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb01_27.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_29.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_30.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_31.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_32.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_33.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_34.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_36.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_37.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_38.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_39.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_40.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_41.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_42.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_43.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb01_46.edf",
+                    "seizures": []
+                }
+            ]
+        },
+        "2": {
+            "folder": "raw/chb02",
+            "runs": [
+                {
+                    "file": "chb02_01.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_02.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_03.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_04.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_05.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_06.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_07.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_08.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_09.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_10.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_11.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_12.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_13.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_14.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_15.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_16+.edf",
+                    "seizures": [
+                        [
+                            2972,
+                            3053
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb02_16.edf",
+                    "seizures": [
+                        [
+                            130,
+                            212
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb02_17.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_18.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_19.edf",
+                    "seizures": [
+                        [
+                            3369,
+                            3378
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb02_20.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_21.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_22.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_23.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_24.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_25.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_26.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_27.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_28.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_29.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_30.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_31.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_32.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_33.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_34.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb02_35.edf",
+                    "seizures": []
+                }
+            ]
+        },
+        "3": {
+            "folder": "raw/chb03",
+            "runs": [
+                {
+                    "file": "chb03_01.edf",
+                    "seizures": [
+                        [
+                            362,
+                            414
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb03_02.edf",
+                    "seizures": [
+                        [
+                            731,
+                            796
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb03_03.edf",
+                    "seizures": [
+                        [
+                            432,
+                            501
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb03_04.edf",
+                    "seizures": [
+                        [
+                            2162,
+                            2214
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb03_05.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_06.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_07.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_08.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_09.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_10.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_11.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_12.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_13.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_14.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_15.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_16.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_17.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_18.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_19.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_20.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_21.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_22.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_23.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_24.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_25.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_26.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_27.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_28.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_29.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_30.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_31.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_32.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_33.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_34.edf",
+                    "seizures": [
+                        [
+                            1982,
+                            2029
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb03_35.edf",
+                    "seizures": [
+                        [
+                            2592,
+                            2656
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb03_36.edf",
+                    "seizures": [
+                        [
+                            1725,
+                            1778
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb03_37.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb03_38.edf",
+                    "seizures": []
+                }
+            ]
+        },
+        "4": {
+            "folder": "raw/chb04",
+            "runs": [
+                {
+                    "file": "chb04_01.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_02.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_03.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_04.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_05.edf",
+                    "seizures": [
+                        [
+                            7804,
+                            7853
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb04_06.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_07.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_08.edf",
+                    "seizures": [
+                        [
+                            6446,
+                            6557
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb04_09.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_10.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_11.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_12.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_13.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_14.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_15.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_16.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_17.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_18.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_19.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_21.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_22.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_23.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_24.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_25.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_26.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_27.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_28.edf",
+                    "seizures": [
+                        [
+                            1679,
+                            1781
+                        ],
+                        [
+                            3782,
+                            3898
+                        ]
+                    ]
+                },
+                {
+                    "file": "chb04_29.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_30.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_31.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_32.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_33.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_34.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_35.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_36.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_37.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_38.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_39.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_40.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_41.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_42.edf",
+                    "seizures": []
+                },
+                {
+                    "file": "chb04_43.edf",
+                    "seizures": []
+                }
+            ]
+        }
+    }
+}
