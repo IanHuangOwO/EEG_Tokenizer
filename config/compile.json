@@ -1,34 +1,90 @@
 {
   "compile_params": {
-    "_comment": "sample_freq/bandpass_filter/pre_event_seconds/post_event_seconds here MUST match config.json's preprocess_params — that's how the compiled cache filename is derived on both the write side (this script) and the read side (IO/dataset.py). A mismatch just misses the cache with a clear FileNotFoundError, never silently reads stale data.",
+    "_comment": "sample_freq/bandpass_filter/pre_event_seconds/post_event_seconds here MUST match config.json's preprocess_params \u2014 that's how the compiled cache filename is derived on both the write side (this script) and the read side (IO/dataset.py). A mismatch just misses the cache with a clear FileNotFoundError, never silently reads stale data.",
     "sample_freq": 200,
-    "bandpass_filter": { "l_freq": 0.5, "h_freq": 100.0 },
+    "bandpass_filter": {
+      "l_freq": 0.5,
+      "h_freq": 100.0
+    },
     "pre_event_seconds": 1.0,
     "post_event_seconds": 4.0,
-    "_pre_post_comment": "Global — injected into every loader's dataset_params uniformly (see cache_dataset.py), same mechanism dataset_path already uses. Only the trigger/annotation-anchored loaders read them (BCICIV1_Train, BNCI2014001, BNCI2014004, Inria_Train); everyone else's loader ignores them (see e.g. datas/PhysionetMI/loader.py, which deliberately opts out even though it receives them — real headroom there is ~0, see docs/model-analysis-checklist.md). Total window = pre+post = 5.0s = 1000 samples @ 200Hz, must match config.json's preprocess_params.window_length.",
+    "_pre_post_comment": "Global \u2014 injected into every loader's dataset_params uniformly (see cache_dataset.py), same mechanism dataset_path already uses. Only the trigger/annotation-anchored loaders read them (BCICIV1_Train, BNCI2014001, BNCI2014004, Inria_Train); everyone else's loader ignores them (see e.g. datas/PhysionetMI/loader.py, which deliberately opts out even though it receives them \u2014 real headroom there is ~0, see docs/model-analysis-checklist.md). Total window = pre+post = 5.0s = 1000 samples @ 200Hz, must match config.json's preprocess_params.window_length.",
     "datasets": {
-      "Nakanishi2015": { "dataset_path": "datas/finetune/Nakanishi2015" },
-      "BETA_4s": { "dataset_path": "datas/pretrain/BETA_4s" },
-      "BETA_3s": { "dataset_path": "datas/pretrain/BETA_3s" },
-      "BCICIV1_Train": { "dataset_path": "datas/pretrain/BCICIV1_Train" },
-      "BCICIV1_Test": { "dataset_path": "datas/pretrain/BCICIV1_Test" },
-      "BNCI2014001": { "dataset_path": "datas/finetune/BNCI2014001" },
-      "BNCI2014004": { "dataset_path": "datas/finetune/BNCI2014004" },
-      "Inria_Train": { "dataset_path": "datas/pretrain/Inria_Train" },
-      "Inria_Test": { "dataset_path": "datas/pretrain/Inria_Test" },
-      "PhysionetMI": { "dataset_path": "datas/pretrain/PhysionetMI" },
-      "GraspAndLift_Train": { "dataset_path": "datas/pretrain/GraspAndLift_Train" },
-      "GraspAndLift_Test": { "dataset_path": "datas/pretrain/GraspAndLift_Test" },
-      "DEAP": { "dataset_path": "datas/pretrain/DEAP" },
-      "SRM_RestingState": { "dataset_path": "datas/pretrain/SRM_RestingState" },
-      "SPIS": { "dataset_path": "datas/pretrain/SPIS" },
-      "ERP_Longitudinal": { "dataset_path": "datas/pretrain/ERP_Longitudinal" },
-      "EmotionVideo": { "dataset_path": "datas/pretrain/EmotionVideo" },
-      "EEGMAT": { "dataset_path": "datas/finetune/EEGMAT" },
-      "BCMI_MusicEmotion": { "dataset_path": "datas/pretrain/BCMI_MusicEmotion" },
-      "BNCI2014009": { "dataset_path": "datas/finetune/BNCI2014009" },
-      "BNCI2014008": { "dataset_path": "datas/finetune/BNCI2014008" },
-      "BNCI2015001": { "dataset_path": "datas/finetune/BNCI2015001" }
+      "Nakanishi2015": {
+        "dataset_path": "datas/finetune/Nakanishi2015"
+      },
+      "BETA_4s": {
+        "dataset_path": "datas/pretrain/BETA_4s"
+      },
+      "BETA_3s": {
+        "dataset_path": "datas/pretrain/BETA_3s"
+      },
+      "BCICIV1_Train": {
+        "dataset_path": "datas/pretrain/BCICIV1_Train"
+      },
+      "BCICIV1_Test": {
+        "dataset_path": "datas/pretrain/BCICIV1_Test"
+      },
+      "BNCI2014001": {
+        "dataset_path": "datas/finetune/BNCI2014001"
+      },
+      "BNCI2014004": {
+        "dataset_path": "datas/finetune/BNCI2014004"
+      },
+      "Inria_Train": {
+        "dataset_path": "datas/pretrain/Inria_Train"
+      },
+      "Inria_Test": {
+        "dataset_path": "datas/pretrain/Inria_Test"
+      },
+      "PhysionetMI": {
+        "dataset_path": "datas/pretrain/PhysionetMI"
+      },
+      "GraspAndLift_Train": {
+        "dataset_path": "datas/pretrain/GraspAndLift_Train"
+      },
+      "GraspAndLift_Test": {
+        "dataset_path": "datas/pretrain/GraspAndLift_Test"
+      },
+      "DEAP": {
+        "dataset_path": "datas/pretrain/DEAP"
+      },
+      "SRM_RestingState": {
+        "dataset_path": "datas/pretrain/SRM_RestingState"
+      },
+      "SPIS": {
+        "dataset_path": "datas/pretrain/SPIS"
+      },
+      "ERP_Longitudinal": {
+        "dataset_path": "datas/pretrain/ERP_Longitudinal"
+      },
+      "EmotionVideo": {
+        "dataset_path": "datas/pretrain/EmotionVideo"
+      },
+      "EEGMAT": {
+        "dataset_path": "datas/finetune/EEGMAT"
+      },
+      "BCMI_MusicEmotion": {
+        "dataset_path": "datas/pretrain/BCMI_MusicEmotion"
+      },
+      "BNCI2014009": {
+        "dataset_path": "datas/finetune/BNCI2014009"
+      },
+      "BNCI2014008": {
+        "dataset_path": "datas/finetune/BNCI2014008"
+      },
+      "BNCI2015001": {
+        "dataset_path": "datas/finetune/BNCI2015001"
+      },
+      "Sleep_EDFx": {
+        "dataset_path": "datas/finetune/Sleep_EDFx"
+      },
+      "Siena": {
+        "dataset_path": "datas/pretrain/Siena"
+      },
+      "CHB_MIT": {
+        "dataset_path": "datas/finetune/CHB_MIT"
+      }
     }
   }
 }

@@ -1,0 +1,259 @@
+{
+    "data_metadata": {
+        "dataset_name": "Siena",
+        "dataset_info": {
+            "source_url": "https://physionet.org/content/siena-scalp-eeg/1.0.0/",
+            "file_format": "EDF",
+            "description": "14 adult epilepsy patients (Unit of Neurology and Neurophysiology, University of Siena), 41 continuous video-EEG recordings (~128 h), 512 Hz, 29 scalp EEG channels, 47 annotated seizures.",
+            "task_type": "pretrain_continuous",
+            "reference": "Detti P. (2020) Siena Scalp EEG Database (version 1.0.0). PhysioNet. Detti P, Vatti G, Zabalo Manrique de Lara G. EEG Synchronization Analysis for Seizure Prediction: A Study on Data of Noninvasive Recordings. Processes 2020;8(7):846.",
+            "notes": "Pretraining only: 5 s non-overlapping windows, dummy label 0; seizure annotations are not used. Channels picked by name per file (order/case vary between files). PN10 has only 20 EEG channels; the rest are zero-filled for that subject. Subject keys are the PN number without leading zeros (PN00 -> '0')."
+        },
+        "acquisition": {
+            "sample_frequency": 512,
+            "window_size_seconds": 5.0,
+            "num_subjects": 14,
+            "num_recordings": 41
+        },
+        "targets": {
+            "count": 1,
+            "type": "pretrain_dummy",
+            "0": {
+                "label": "dummy (continuous EEG window, no task label)"
+            }
+        },
+        "channels": {
+            "count": 29,
+            "system": "10-20 extended (Fc/Cp/F9/F10)",
+            "1": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "2": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "3": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "4": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "5": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "6": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "7": {
+                "label": "T7",
+                "original_label": "T3"
+            },
+            "8": {
+                "label": "P7",
+                "original_label": "T5"
+            },
+            "9": {
+                "label": "FC1",
+                "original_label": "Fc1"
+            },
+            "10": {
+                "label": "FC5",
+                "original_label": "Fc5"
+            },
+            "11": {
+                "label": "CP1",
+                "original_label": "Cp1"
+            },
+            "12": {
+                "label": "CP5",
+                "original_label": "Cp5"
+            },
+            "13": {
+                "label": "F9",
+                "original_label": "F9"
+            },
+            "14": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "15": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "16": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "17": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "18": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "19": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "20": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "21": {
+                "label": "O2",
+                "original_label": "O2"
+            },
+            "22": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "23": {
+                "label": "T8",
+                "original_label": "T4"
+            },
+            "24": {
+                "label": "P8",
+                "original_label": "T6"
+            },
+            "25": {
+                "label": "FC2",
+                "original_label": "Fc2"
+            },
+            "26": {
+                "label": "FC6",
+                "original_label": "Fc6"
+            },
+            "27": {
+                "label": "CP2",
+                "original_label": "Cp2"
+            },
+            "28": {
+                "label": "CP6",
+                "original_label": "Cp6"
+            },
+            "29": {
+                "label": "F10",
+                "original_label": "F10"
+            }
+        }
+    },
+    "data_structure": {
+        "0": {
+            "folder": "raw/PN00",
+            "runs": [
+                "PN00-1.edf",
+                "PN00-2.edf",
+                "PN00-3.edf",
+                "PN00-4.edf",
+                "PN00-5.edf"
+            ]
+        },
+        "1": {
+            "folder": "raw/PN01",
+            "runs": [
+                "PN01-1.edf"
+            ]
+        },
+        "3": {
+            "folder": "raw/PN03",
+            "runs": [
+                "PN03-1.edf",
+                "PN03-2.edf"
+            ]
+        },
+        "5": {
+            "folder": "raw/PN05",
+            "runs": [
+                "PN05-2.edf",
+                "PN05-3.edf",
+                "PN05-4.edf"
+            ]
+        },
+        "6": {
+            "folder": "raw/PN06",
+            "runs": [
+                "PN06-1.edf",
+                "PN06-2.edf",
+                "PN06-3.edf",
+                "PN06-4.edf",
+                "PN06-5.edf"
+            ]
+        },
+        "7": {
+            "folder": "raw/PN07",
+            "runs": [
+                "PN07-1.edf"
+            ]
+        },
+        "9": {
+            "folder": "raw/PN09",
+            "runs": [
+                "PN09-1.edf",
+                "PN09-2.edf",
+                "PN09-3.edf"
+            ]
+        },
+        "10": {
+            "folder": "raw/PN10",
+            "runs": [
+                "PN10-10.edf",
+                "PN10-1.edf",
+                "PN10-2.edf",
+                "PN10-3.edf",
+                "PN10-4.5.6.edf",
+                "PN10-7.8.9.edf"
+            ]
+        },
+        "11": {
+            "folder": "raw/PN11",
+            "runs": [
+                "PN11-1.edf"
+            ]
+        },
+        "12": {
+            "folder": "raw/PN12",
+            "runs": [
+                "PN12-1.2.edf",
+                "PN12-3.edf",
+                "PN12-4.edf"
+            ]
+        },
+        "13": {
+            "folder": "raw/PN13",
+            "runs": [
+                "PN13-1.edf",
+                "PN13-2.edf",
+                "PN13-3.edf"
+            ]
+        },
+        "14": {
+            "folder": "raw/PN14",
+            "runs": [
+                "PN14-1.edf",
+                "PN14-2.edf",
+                "PN14-3.edf",
+                "PN14-4.edf"
+            ]
+        },
+        "16": {
+            "folder": "raw/PN16",
+            "runs": [
+                "PN16-1.edf",
+                "PN16-2.edf"
+            ]
+        },
+        "17": {
+            "folder": "raw/PN17",
+            "runs": [
+                "PN17-1.edf",
+                "PN17-2.edf"
+            ]
+        }
+    }
+}

@@ -1,6 +1,8 @@
 # config/runs/
 
-A real run's config, never the templates directly. Every model version gets its own
+A real run's config, never the templates directly. Everything here except this README
+is git-ignored: each run snapshots its config into `output/<run>/artifacts/config.json`
+(plus a timestamped copy), so those snapshots are the record of what actually ran. Every model version gets its own
 folder from the start — `config/runs/<model_name>/` — even before any finetune run
 exists for it (mirrors `output/`, where pretrain always lands in
 `output/<model_name>/pretrain/`, see CLAUDE.md's "Outputs" section).

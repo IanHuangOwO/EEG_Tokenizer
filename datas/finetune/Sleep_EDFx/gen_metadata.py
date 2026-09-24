@@ -8,19 +8,17 @@ Source verified directly (2026-09-22) via physionet.org/content/sleep-edfx/
 pagination) plus one real PSG/Hypnogram pair's header (mne.io.read_raw_edf /
 mne.read_annotations).
 
-Sleep Cassette (SC) cohort only -- PhysioNet's own summary text claims "78
-subjects", but the real file listing (SHA256SUMS.txt, authoritative --
-counted directly, not assumed) has only 52 unique subject numbers (00-76,
-sparse, most missing entirely) across 153 PSG recordings, i.e. most of
-those 52 have 2 nights, a few 1. Table 14's "78" and PhysioNet's "78" appear
-to both be wrong/stale relative to what v1.0.0 actually ships -- flagged,
-not silently "corrected" to match either external claim. Healthy adults
+Sleep Cassette (SC) cohort only -- 78 subjects (numbers 00-82, a few missing)
+across 153 PSG recordings, most with 2 nights, a few with 1; matches both
+PhysioNet's summary and Table 14. (An earlier version of this file claimed
+52: its filename pattern only accepted the 'E0' session suffix and silently
+dropped the 51 'F0'/'G0' recordings -- the suffix letter varies.) Healthy adults
 aged 25-101, recorded 1987-1991. Does NOT include the separate Sleep
 Telemetry (ST) cohort (44 recordings, different study/population).
 
-2 bipolar EEG derivations (Fpz-Cz, Pz-Oz -- NOT single-electrode positions,
-so they don't resolve via MNE's standard_1020 montage; coordinates fall
-back to zero, same as any unrecognized channel name), 100 Hz. Each PSG file
+2 bipolar EEG derivations (Fpz-Cz, Pz-Oz), labelled by their first electrode
+(Fpz, Pz) so they land in the 10-10 channel space and get that electrode's
+position -- the signal stays the bipolar difference, 100 Hz. Each PSG file
 pairs with a Hypnogram file sharing the same 7-char prefix (e.g.
 "SC4001E0-PSG.edf" / "SC4001EC-Hypnogram.edf" -- the 8th character is a
 scorer code that varies unpredictably per file, matched by prefix here, not
@@ -48,9 +46,8 @@ DATASET_INFO = {
     "source_url": "https://physionet.org/content/sleep-edfx/1.0.0/",
     "file_format": "EDF (PSG) / EDF+ (Hypnogram annotations)",
     "description": (
-        "52 healthy subjects (Sleep Cassette cohort -- PhysioNet's own "
-        "summary text says 78, the real file listing says 52, see "
-        "dataset_info.notes), whole-night polysomnography, 2 EEG "
+        "78 healthy subjects (Sleep Cassette cohort, 153 nights), "
+        "whole-night polysomnography, 2 EEG "
         "derivations (Fpz-Cz, Pz-Oz), 5-class sleep stage classification "
         "(W/N1/N2/N3/REM)."
     ),
@@ -61,22 +58,23 @@ DATASET_INFO = {
                  "47(9):1185-1194. Also: Goldberger et al. (2000) PhysioBank, "
                  "PhysioToolkit, and PhysioNet. Circulation 101(23):e215-e220.",
     "notes": (
-        "Real subject count is 52 (counted directly from SHA256SUMS.txt's "
-        "153 PSG recordings), not the 78 claimed by both PhysioNet's own "
-        "summary text and Table 14 -- flagged, not silently matched to "
-        "either. Sleep Cassette (SC) cohort only, NOT Sleep Telemetry (ST) -- see "
+        "78 subjects / 153 PSG recordings, matching PhysioNet and Table 14. "
+        "Sleep Cassette (SC) cohort only, NOT Sleep Telemetry (ST) -- see "
         "this file's module docstring. 30s epochs, R&K stages 3+4 merged "
         "into N3 (AASM convention), '?' (unscored) and epochs outside the "
         "cropped sleep window dropped. Epoch window hardcoded in loader.py "
         "(30s @ 100Hz = 3000 samples), NOT compile.json's global pre/"
-        "post_event_seconds. Channels are bipolar derivations (not single "
-        "electrode sites) -- coordinates unresolvable, fall back to zero."
+        "post_event_seconds. Channels are bipolar derivations Fpz-Cz/Pz-Oz, "
+        "labelled by their first electrode (Fpz/Pz) to map into 10-10 space."
     ),
 }
 
+# Bipolar derivations are labelled with their FIRST electrode so they map into the
+# 10-10 channel space (a bipolar name matches no canonical channel and would be
+# zero-padded away); the signal itself is still the Fpz-Cz / Pz-Oz difference.
 CHANNELS = {
-    "1": {"label": "Fpz-Cz"},
-    "2": {"label": "Pz-Oz"},
+    "1": {"label": "Fpz", "original_label": "Fpz-Cz"},
+    "2": {"label": "Pz", "original_label": "Pz-Oz"},
 }
 
 TARGETS = {
@@ -101,7 +99,7 @@ def build_data_structure(raw_dir):
     structure = {}
     for psg_path in psg_files:
         fname = os.path.basename(psg_path)
-        m = re.match(r"SC4(\d{2})(\d)E0-PSG\.edf$", fname)
+        m = re.match(r"SC4(\d{2})(\d)[A-Z]0-PSG\.edf$", fname)  # session letter varies (E/F/G)
         if not m:
             continue
         sub, night = m.group(1), m.group(2)
