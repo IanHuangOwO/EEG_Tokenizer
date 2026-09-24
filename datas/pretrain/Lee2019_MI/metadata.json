@@ -8,6 +8,7 @@
             "task_type": "motor_imagery",
             "reference": "Lee MH et al. (2019). EEG dataset and OpenBMI toolbox for three BCI paradigms: an investigation into BCI illiteracy. GigaScience 8(5). doi:10.1093/gigascience/giz002. GigaDB 100542."
         },
+        "event_onset_seconds": 1.0,
         "moabb": {
             "class": "Lee2019_MI",
             "kwargs": {

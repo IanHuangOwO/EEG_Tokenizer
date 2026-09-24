@@ -97,7 +97,7 @@ def main():
             "dataset_info": DATASET_INFO,
             "acquisition": {
                 "sample_frequency": 1000,
-                "window_size_seconds": 4.0,
+                "window_size_seconds": 5.0,  # 5 s = the pretrain window, so windows map 1:1 (was 4.0: 4 s pieces got spliced into 5 s windows)
                 "num_subjects": 7,
             },
             "targets": {

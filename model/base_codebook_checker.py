@@ -14,6 +14,7 @@ import random
 import numpy as np
 import torch
 
+from tools.analysis import event_onset_patch
 from tools.viz.codebook import (
     plot_usage_and_activity, plot_embedding_scatter_by_dataset, plot_embedding_scatter_by_target,
     plot_patch_similarity_hierarchy,
@@ -62,7 +63,7 @@ class BaseCodebookChecker:
             os.path.join(viz_dir, 'patch_similarity_hierarchy.png'), trial_records,
             unit_label=self.unit_label, seed=seed)
 
-    def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed):
+    def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed, config=None):
         """Default: plot_patch_position_consistency off the already-computed (cheap,
         gating-strength) usage in ds_trials -> patch_position_consistency_<ds_name>.png.
         Override (e.g. MeSAECodebookChecker) to render a different question/basis
@@ -70,7 +71,8 @@ class BaseCodebookChecker:
         forward pass per trial (see needs_raw_tensors), unused by this default."""
         plot_patch_position_consistency(
             os.path.join(viz_dir, f'patch_position_consistency_{ds_name}.png'), ds_trials,
-            unit_label=self.unit_label, seed=seed)
+            unit_label=self.unit_label, seed=seed,
+            event_patch=event_onset_patch(config, ds_name) if config else None)
 
     def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
         """Default: no-op. Override (e.g. MeSAECodebookChecker) to render an event-locked
@@ -234,7 +236,7 @@ class BaseCodebookChecker:
         # only means the same timeline slot within one dataset's own trial length/patch_len).
         for ds_name in dataset_order:
             ds_trials = [t for t in trial_records if t['dataset'] == ds_name]
-            self._render_patch_position_consistency(ds_trials, ds_name, viz_dir, model, device, seed)
+            self._render_patch_position_consistency(ds_trials, ds_name, viz_dir, model, device, seed, config=config)
             self._render_event_stamp_dynamics(ds_trials, ds_name, viz_dir, model, device, seed, config)
 
         print(f"  [codebook] -> {viz_dir}")

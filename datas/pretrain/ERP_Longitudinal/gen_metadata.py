@@ -91,11 +91,12 @@ CHANNELS = {
     ])
 }
 
+# Pretraining only since 2026-09-24: continuous 5 s windows, no per-stimulus label
+# (target/non-target stimuli were triggers 1/2, see DATASET_INFO notes).
 TARGETS = {
-    "count": 2,
-    "type": "rsvp_oddball",
-    "0": {"label": "non-target (generated photo, trigger 2)"},
-    "1": {"label": "target (client photo, trigger 1)"},
+    "count": 1,
+    "type": "pretrain_dummy",
+    "0": {"label": "dummy (continuous 5 s window, no task label)"},
 }
 
 SESSIONS = ("Day_1", "Day_7", "Day_80", "Day_200")
@@ -126,6 +127,7 @@ def main():
             "dataset_info": DATASET_INFO,
             "acquisition": {
                 "sample_frequency": 1000,
+                "window_size_seconds": 5.0,
                 "num_subjects": len(structure),
             },
             "targets": TARGETS,

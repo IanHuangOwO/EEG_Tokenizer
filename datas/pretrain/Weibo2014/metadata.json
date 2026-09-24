@@ -6,6 +6,7 @@
             "file_format": "via MOABB",
             "description": "Motor imagery, 7 classes (single/combined limbs + rest): 10 subjects, 60 EEG ch at 200 Hz, 560 trials. Window: global pre/post around MI onset (MOABB interval [3, 7])."
         },
+        "event_onset_seconds": 1.0,
         "moabb": {
             "class": "Weibo2014",
             "kwargs": {},

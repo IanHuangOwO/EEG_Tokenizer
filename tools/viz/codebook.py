@@ -727,7 +727,8 @@ def _patch_position_consistency_grids(codes, subjects, max_trials, rng):
 
 
 def plot_patch_position_consistency(out_path, trial_records, unit_label='Filter',
-                                     max_trials=90, seed=0, code_label='activation vector'):
+                                     max_trials=90, seed=0, code_label='activation vector',
+                                     event_patch=None):
     """trial_records: trials from ONE dataset (usage [N, Q, F] each, same N across trials
     -- patch position n therefore means the same thing, e.g. time-since-trial-onset, in
     every trial; mixing datasets here would compare unrelated timelines). `usage` is
@@ -789,6 +790,8 @@ def plot_patch_position_consistency(out_path, trial_records, unit_label='Filter'
             for i, s in enumerate(unique_subjects):
                 subj_mean = np.nanmean(grid[subjects == s], axis=0)
                 ax.plot(x, subj_mean, color=cmap(i % 10), linewidth=0.8, alpha=0.6, label=f'S{s}')
+        if event_patch is not None:  # tools.analysis.event_onset_patch
+            ax.axvline(event_patch, color='k', ls='--', lw=1.0, alpha=0.8, label='event onset')
         ax.set_xlabel('Patch (time within trial)', fontsize=9)
         ax.set_ylabel('Similarity', fontsize=9)
         ax.set_title(title, fontsize=10, fontweight='bold')

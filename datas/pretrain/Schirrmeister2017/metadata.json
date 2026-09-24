@@ -6,6 +6,7 @@
             "file_format": "via MOABB",
             "description": "High-gamma dataset: motor EXECUTION (L/R hand, feet, rest), 14 subjects, 128 EEG ch at 500 Hz, ~960 trials per subject (train + test runs). Window: global pre/post around the cue (MOABB interval [0, 4])."
         },
+        "event_onset_seconds": 1.0,
         "moabb": {
             "class": "Schirrmeister2017",
             "kwargs": {},

@@ -344,10 +344,24 @@ def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Di
     eeg = [raw.ch_names[i] for i in mne.pick_types(raw.info, eeg=True)]
     events = [e for e in target_labels if e in ds.event_id] + sorted(set(ds.event_id) - set(target_labels))
     lo, hi = ds.interval
+    # Where the MOABB event sits inside each compiled trial, in seconds from trial start --
+    # read by tools.analysis.lookup_event_onset_sample for the event line on time-axis
+    # plots. window=[t0, t1] is relative to the raw event (-> -t0); the default window is
+    # centred on event + interval[0] (the MI/stimulus onset MOABB defines) with the global
+    # pre_event_seconds before it; continuous windows have no event.
+    if continuous_seconds:
+        onset = None
+    elif window:
+        onset = 0.0 - window[0]  # 0.0 - x, not -x: no '-0.0' in metadata
+    else:
+        with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               'configs', 'compile.json')) as f:
+            onset = json.load(f)['compile_params'].get('pre_event_seconds', 0.0)
     meta = {
         "data_metadata": {
             "dataset_name": name,
             "dataset_info": dataset_info,
+            **({"event_onset_seconds": onset} if onset is not None else {}),
             "moabb": {"class": class_name, "kwargs": kwargs, "code": ds.code,
                       **({"window": window} if window else {}),
                       **({"continuous": True} if continuous_seconds else {})},

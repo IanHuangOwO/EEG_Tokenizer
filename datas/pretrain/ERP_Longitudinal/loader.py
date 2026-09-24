@@ -9,12 +9,11 @@ from IO.loader import BaseSubjectLoader
 
 N_EEG_CHANNELS = 57  # columns 1-57 of each block; column 58 is the trigger, see gen_metadata.py
 
-# Hardcoded per-dataset epoch window (RSVP/P300 scale, ~1s), NOT the global
-# compile.json pre_event_seconds/post_event_seconds (tuned for ~5s
-# motor-imagery trials -- see gen_metadata.py's dataset_info.notes).
-PRE_EVENT_S = 0.2
-POST_EVENT_S = 0.8
-
+# Pretraining only: each continuous block is cut into non-overlapping
+# standard_window (5 s) windows with dummy label 0. It used to cut a [-0.2, 0.8] s epoch
+# around every stimulus, but RSVP stimuli come several per second, so those epochs
+# overlapped (each sample stored several times) and were then spliced back together
+# into 5 s pretrain windows -- changed 2026-09-24.
 TARGET_TRIGGER = 1      # -> label 1
 NONTARGET_TRIGGER = 2   # -> label 0
 SESSIONS = ("Day_1", "Day_7", "Day_80", "Day_200")
@@ -29,13 +28,9 @@ class Loader(BaseSubjectLoader):
     def _load_data(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         if not self._existing([self.file_path]):
             return None, None
-
         import h5py
-
-        pre_pts = int(PRE_EVENT_S * self.sample_freq)
-        post_pts = int(POST_EVENT_S * self.sample_freq)
-
-        all_epochs, all_labels = [], []
+        win = int(self.standard_window * self.sample_freq)
+        windows = []
         with h5py.File(self.file_path, 'r') as f:
             for session in SESSIONS:
                 if session not in f:
@@ -43,20 +38,11 @@ class Loader(BaseSubjectLoader):
                     continue
                 for ref in f[session][:].flatten():
                     block = f[ref][:]  # (T, 58) -- v7.3 cell-array dereference
-                    eeg = block[:, :N_EEG_CHANNELS]           # (T, 57)
-                    trig = block[:, N_EEG_CHANNELS]           # (T,)
-
-                    for trigger_val, label in ((TARGET_TRIGGER, 1), (NONTARGET_TRIGGER, 0)):
-                        for idx in np.where(trig == trigger_val)[0]:
-                            start, end = idx - pre_pts, idx + post_pts
-                            if start < 0 or end > eeg.shape[0]:
-                                continue  # boundary event, drop (rare, edge of block)
-                            all_epochs.append(eeg[start:end, self.channel_indices].T)  # (C, pre+post)
-                            all_labels.append(label)
-
-        if not all_epochs:
+                    eeg = block[:, :N_EEG_CHANNELS][:, self.channel_indices].T.astype(np.float32)  # (C, T)
+                    n = eeg.shape[1] // win
+                    if n:
+                        windows.append(eeg[:, :n * win].reshape(eeg.shape[0], n, win).transpose(1, 0, 2))
+        if not windows:
             return None, None
-
-        eeg_data = np.stack(all_epochs)  # (N, C, pre_pts+post_pts)
-        labels = np.array(all_labels, dtype=np.int64)
-        return eeg_data, labels
+        data = np.concatenate(windows)
+        return data, np.zeros(len(data), dtype=np.int64)

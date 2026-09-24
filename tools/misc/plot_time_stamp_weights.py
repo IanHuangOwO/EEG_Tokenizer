@@ -14,12 +14,14 @@ Usage: python -m tools.misc.plot_time_stamp_weights --group-eval '<glob>' [--out
 """
 import argparse
 import glob as globmod
+import json
 import os
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from tools.analysis import event_onset_patch
 from tools.analysis.group_summary import _locate
 from tools.analysis.head_dataset_matrix import build_matrix
 
@@ -71,6 +73,18 @@ def main():
 
         fig, ax = plt.subplots(figsize=(max(6, avg.shape[1] * 0.2), max(4, avg.shape[0] * 0.15)))
         im = ax.imshow(avg, aspect='auto', cmap='viridis', origin='lower')
+        # Event onset line: patch settings from this run's own config snapshot, dataset from
+        # the current datas/finetune/<name> (older snapshots carry pre-rename names/paths,
+        # e.g. BCICIV2a at datas/BCICIV2a).
+        cfgs = sorted(globmod.glob(os.path.join(backbone_dir, 'finetune', best_head, dataset_mode,
+                                                'artifacts', 'config_*.json')))
+        ds_name = dataset_mode.rsplit('_', 1)[0]
+        pp = json.load(open(cfgs[-1])).get('preprocess_params', {}) if cfgs else {}
+        ev = event_onset_patch({'preprocess_params': pp, 'dataset_params': {'finetune': {
+            ds_name: {'dataset_path': os.path.join('datas', 'finetune', ds_name)}}}}, ds_name)
+        if ev is not None:
+            ax.axvline(ev, color='w', ls='--', lw=1.2, label='event onset')
+            ax.legend(loc='upper right', fontsize=7)
         ax.set_xlabel('Patch (time) position')
         ax.set_ylabel('Stamp index')
         ax.set_title(f'{dataset_mode}: LearnedTimePool weights, {best_head} '

@@ -192,71 +192,56 @@ def slice_patches(x: torch.Tensor, patch_len: int, patch_stride: Optional[int] =
 
 
 def window_continuous_signal(trials: torch.Tensor, target_L: int, ds_name: str, subject_id,
-                              valid_ranges=None
+                              valid_ranges=None, min_real_fraction: float = 0.5,
                               ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Flatten all trials into a continuous signal, then cut into non-overlapping windows
-    of target_L. ALWAYS pads the final partial chunk now (previously conditional on a
-    window_pad_threshold — removed; every window gets used, none silently dropped for
-    running a few samples short). Moved out of EEGDataset so the base dataset class
-    stays focused on load/channel-map/normalize; this is pure slicing.
+    Cuts each trial's REAL content into non-overlapping target_L windows, one trial at a
+    time -- never splicing two trials into one window. (It used to flatten all trials into
+    one signal first, so any dataset whose trial length isn't a multiple of target_L --
+    BETA 3/4 s epochs, 1 s ERP epochs, 3.1 s BCIC2020-3 trials -- got a window with the end
+    of one trial glued to the start of an unrelated one, a step edge the model then
+    learned to reconstruct. Measured 2026-09-24: ~100% of those datasets' windows.)
 
-    valid_ranges: optional list of N (start, end) pairs, one per INPUT trial, marking
-    real (non-padded) content within that trial (see IO/loader.py's cut_event_window —
-    only event-anchored loaders produce these; None, the default, means every input
-    trial is fully real). Propagated through concatenation+rechunking as a per-sample
-    validity mask, then reduced back to one (valid_start, valid_end) per OUTPUT window —
-    safe because the real region within any one window is always contiguous here: either
-    an input trial is fully valid (the None/default case, or any complete input trial
-    that isn't the very first/last one touching a recording edge), or trial_len already
-    equals target_L (the event-anchored case, one input trial maps 1:1 onto one output
-    window, no splicing of two different trials' validity within a single window).
+    valid_ranges: optional list of N (start, end) pairs, one per input trial, marking
+    real (non-padded) content (see IO/loader.py's cut_event_window); None = every trial
+    fully real. Only [start, end) of each trial is windowed, so a trial's own edge
+    padding is dropped rather than carried into a window.
 
-    Returns (assembled [n_windows, C, target_L], labels [n_windows] (dummy, always 0 —
-    assembled windows don't carry a real per-trial label), valid_start [n_windows] long,
-    valid_end [n_windows] long — window[:, valid_start:valid_end] is real content,
-    everything outside is zero pad. See docs/model-analysis-checklist.md for why
-    IO/dataset.py's PretrainDataset needs this (masking must not treat pad as signal).
+    A trial's leftover shorter than target_L is kept, zero-padded at the end, only if it
+    holds at least min_real_fraction * target_L real samples (a whole short trial, e.g.
+    a 3 s BETA epoch, counts as a leftover); otherwise it's dropped. Padding is marked
+    via valid_end, so masking (and the recon loss) skip it.
+
+    Returns (windows [n_windows, C, target_L], labels [n_windows] (dummy, always 0 --
+    windows don't carry a per-trial label), valid_start [n_windows] long (always 0),
+    valid_end [n_windows] long) -- window[:, :valid_end] is real, the rest is zero pad.
     """
     N, C, T = trials.shape
     if valid_ranges is None:
         valid_ranges = [(0, T)] * N
-    # NOT trials.reshape(N*T, C).T — that reinterprets the (N,C,T) memory buffer
-    # directly without transposing, scrambling channel and time together. permute
-    # first so reshape only merges the N and T axes (already-adjacent after permute),
-    # keeping each channel's own timeseries intact and trial-concatenated in order.
-    signal = trials.permute(1, 0, 2).reshape(C, N * T)  # (C, N*T)
-    total_T = signal.shape[-1]
+    min_real = int(np.ceil(min_real_fraction * target_L))
 
-    valid_mask = np.zeros(total_T, dtype=bool)
+    windows, valid_ends, dropped = [], [], 0
     for i, (vs, ve) in enumerate(valid_ranges):
-        valid_mask[i * T + vs: i * T + ve] = True
-
-    def _bounds(seg):
-        idx = np.flatnonzero(seg)
-        return (int(idx[0]), int(idx[-1]) + 1) if len(idx) else (0, 0)
-
-    n_complete = total_T // target_L
-    remainder = total_T % target_L
-
-    windows, valid_starts, valid_ends = [], [], []
-    for i in range(n_complete):
-        windows.append(signal[:, i * target_L:(i + 1) * target_L])
-        vs, ve = _bounds(valid_mask[i * target_L:(i + 1) * target_L])
-        valid_starts.append(vs); valid_ends.append(ve)
-
-    if remainder > 0:
-        last = torch.zeros((C, target_L), dtype=signal.dtype)
-        last[:, :remainder] = signal[:, n_complete * target_L:]
-        windows.append(last)
-        vs, ve = _bounds(valid_mask[n_complete * target_L: n_complete * target_L + remainder])
-        valid_starts.append(vs); valid_ends.append(ve)
-        print(f"  [{ds_name} S{subject_id}] Last chunk {remainder}/{target_L}pts kept (padded {target_L - remainder}pts).")
+        real = trials[i, :, int(vs):int(ve)]
+        n_full, rem = divmod(real.shape[-1], target_L)
+        for w in range(n_full):
+            windows.append(real[:, w * target_L:(w + 1) * target_L])
+            valid_ends.append(target_L)
+        if rem >= max(min_real, 1):
+            last = torch.zeros((C, target_L), dtype=trials.dtype)
+            last[:, :rem] = real[:, n_full * target_L:]
+            windows.append(last)
+            valid_ends.append(rem)
+        elif rem:
+            dropped += rem
 
     if not windows:
-        raise RuntimeError(f"No windows produced for {ds_name} subject {subject_id} (total_T={total_T}, target_L={target_L}).")
-
+        raise RuntimeError(f"No windows produced for {ds_name} subject {subject_id} "
+                           f"({N} trials x {T}pts, target_L={target_L}, min_real={min_real}).")
     assembled = torch.stack(windows)
-    print(f"  [{ds_name} S{subject_id}] {N} trials x {T}pts -> {total_T}pts -> {len(assembled)} windows of {target_L}pts.")
+    n_pad = sum(v < target_L for v in valid_ends)
+    print(f"  [{ds_name} S{subject_id}] {N} trials x {T}pts -> {len(assembled)} windows of {target_L}pts "
+          f"({n_pad} end-padded, {dropped}pts of short leftovers dropped).")
     return (assembled, torch.zeros(len(assembled), dtype=torch.long),
-            torch.tensor(valid_starts, dtype=torch.long), torch.tensor(valid_ends, dtype=torch.long))
+            torch.zeros(len(assembled), dtype=torch.long), torch.tensor(valid_ends, dtype=torch.long))

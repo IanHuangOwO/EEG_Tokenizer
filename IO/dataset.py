@@ -174,7 +174,8 @@ class EEGDataset(Dataset):
             target_L = self.assembly_params.get('window_length', padded.shape[-1])
             padded, labels, row_valid_start, row_valid_end = window_continuous_signal(
                 padded, target_L, ds_name, subject_id,
-                valid_ranges=list(zip(cache_valid_start, cache_valid_end)))
+                valid_ranges=list(zip(cache_valid_start, cache_valid_end)),
+                min_real_fraction=self.assembly_params.get('window_min_real', 0.5))
         else:
             labels = torch.from_numpy(npz['labels'].astype(np.int64))
             # Every row here is one real, untouched-by-assembly trial -- use the cache's

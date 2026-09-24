@@ -444,13 +444,18 @@ class MeSAEPretrain(nn.Module):
 
     @staticmethod
     def _position_weights(x, bool_masked_pos, valid_channels, unmasked_weight):
-        """-> (valid, w), each [B, C, N, 1]. valid: 1 on real channels. w: the training
-        weight -- valid, times (1 on masked, unmasked_weight on visible) in the masked
-        phase. Shared by the recon MSE and mp_loss so both weight positions the same."""
+        """-> (valid, w), each [B, C, N, 1]. valid: 1 on real channels AND real patches.
+        A patch that is exactly zero on every channel is time padding (a window's zero
+        tail, see IO/preprocessing.py's window_continuous_signal) -- z-scored real EEG is
+        never all-zero across a whole patch -- so it's excluded here without plumbing a
+        separate per-patch mask through the batch. w: the training weight -- valid, times
+        (1 on masked, unmasked_weight on visible) in the masked phase. Shared by the recon
+        MSE and mp_loss so both weight positions the same."""
         B, C, N = x.shape[:3]
         valid = x.new_ones(B, C, 1, 1) if valid_channels is None \
             else valid_channels.view(B, C, 1, 1).to(x.dtype)
-        valid = valid.expand(B, C, N, 1)
+        real_patch = (x.abs().amax(dim=(1, 3)) > 0).to(x.dtype).view(B, 1, N, 1)
+        valid = valid * real_patch
         if bool_masked_pos is None:
             return valid, valid
         m = bool_masked_pos.unsqueeze(-1).to(x.dtype)

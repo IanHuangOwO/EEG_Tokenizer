@@ -35,7 +35,26 @@ def lookup_event_onset_sample(config: dict, ds_name: str):
         return None
     with open(meta_path) as f:
         meta = json.load(f)
-    return meta.get('data_metadata', {}).get('event_onset_sample')
+    dm = meta.get('data_metadata', {})
+    if dm.get('event_onset_seconds') is not None:
+        # MOABB-backed datasets store seconds (rate-independent), see IO/loader.py's
+        # write_moabb_metadata; convert with this run's sample rate.
+        fs = config.get('preprocess_params', {}).get('sample_freq', 200)
+        return int(round(dm['event_onset_seconds'] * fs))
+    return dm.get('event_onset_sample')
+
+
+def event_onset_patch(config: dict, ds_name: str):
+    """Event onset on a patch-index x-axis (patch n covers samples
+    [n*stride, n*stride+patch_len), plotted at its centre): (onset - patch_len/2) / stride,
+    or None when the dataset has no event (continuous windows)."""
+    onset = lookup_event_onset_sample(config, ds_name)
+    if onset is None:
+        return None
+    pp = config.get('preprocess_params', {})
+    L = pp.get('patch_length', 50)
+    stride = pp.get('patch_stride', L)
+    return (onset - L / 2) / stride
 
 
 def _deep_merge(base: dict, override: dict) -> dict:

@@ -11,7 +11,7 @@
         },
         "acquisition": {
             "sample_frequency": 500,
-            "window_size_seconds": 4.0,
+            "window_size_seconds": 5.0,
             "num_subjects": 12,
             "num_series_per_subject": 8
         },
@@ -226,9 +226,7 @@
             "32": {
                 "label": "PO10"
             }
-        },
-        "event_onset_sample": 0,
-        "event_onset_sample_note": "Continuous series chopped into fixed windows; real multi-label event columns are read but discarded, not used to cut trials -- no single onset to mark, same as GraspAndLift_Test."
+        }
     },
     "data_structure": {
         "1": {

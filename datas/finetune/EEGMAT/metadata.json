@@ -85,7 +85,6 @@
                 "label": "Pz"
             }
         },
-        "event_onset_sample": 0,
         "event_onset_sample_note": "Continuous EDF chopped into fixed non-overlapping windows, no cue/trigger read at all -- no real onset to mark."
     },
     "data_structure": {

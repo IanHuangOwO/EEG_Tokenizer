@@ -6,6 +6,7 @@
             "file_format": "via MOABB",
             "description": "Motor imagery L/R hand (GigaDB 100295): 52 subjects, 64 EEG ch (+4 EMG dropped) at 512 Hz, 200-240 trials. Window: global pre/post around the cue (MOABB interval [0, 3])."
         },
+        "event_onset_seconds": 1.0,
         "moabb": {
             "class": "Cho2017",
             "kwargs": {},

@@ -7,11 +7,11 @@
             "description": "Uncued continuous motor imagery, 2 of {left hand, right hand, foot} per subject (subject-chosen pair). Evaluation (Test) runs are continuous acoustically-cued recordings with NO released cue markers -- ground truth for the eval split was never published by the competition.",
             "task_type": "motor_imagery",
             "reference": "Blankertz, B., Dornhege, G., Krauledat, M., Muller, K.-R., & Curio, G. (2007). The non-invasive Berlin Brain-Computer Interface: Fast acquisition of effective performance in untrained subjects. NeuroImage, 37(2), 539-550.",
-            "notes": "59 EEG channels, 1000 Hz. Per-subject class pair varies -- see each data_structure entry's 'classes' field (targets.0/1 below are generic placeholders since the physical MI class differs per subject). Channel labels use BBCI's extended 10-10 ring naming (CFC*, CCP*, PO1/PO2); IO/dataset.py's _LABEL_ALIASES already maps these to canonical FC*/CP*/PO3/PO4 for cross-dataset channel matching. Some subjects' recordings are artificially generated (undisclosed which, per the competition's design) -- see source_url. This is the evaluation (Test) split: raw .mat files contain no 'mrk' variable (no cue timing/labels released). datas/BCICIV1_Test/loader.py falls back to evenly-spaced non-overlapping windows with dummy label 0 for every trial when 'mrk' is absent -- fine for self-supervised pretraining (label values unused), never use this split for supervised MI finetune/eval."
+            "notes": "59 EEG channels, 1000 Hz. Per-subject class pair varies -- see each data_structure entry's 'classes' field (targets.0/1 below are generic placeholders since the physical MI class differs per subject). Channel labels use BBCI's extended 10-10 ring naming (CFC*, CCP*, PO1/PO2); IO/dataset.py's _LABEL_ALIASES already maps these to canonical FC*/CP*/PO3/PO4 for cross-dataset channel matching. Some subjects' recordings are artificially generated (undisclosed which, per the competition's design) -- see source_url. This is the evaluation (Test) split: raw .mat files contain no 'mrk' variable (no cue timing/labels released). datas/pretrain/BCICIV1_Test/loader.py falls back to evenly-spaced non-overlapping windows with dummy label 0 for every trial when 'mrk' is absent -- fine for self-supervised pretraining (label values unused), never use this split for supervised MI finetune/eval."
         },
         "acquisition": {
             "sample_frequency": 1000,
-            "window_size_seconds": 4.0,
+            "window_size_seconds": 5.0,
             "num_subjects": 7
         },
         "targets": {
@@ -442,9 +442,7 @@
                     "polar_radius": 0.8772
                 }
             }
-        },
-        "event_onset_sample": 200,
-        "event_onset_sample_note": "Cue-onset sample at preprocess_params.sample_freq (200Hz): round(pre_event_seconds * sample_freq) = round(1.0*200) = 200 -- the cut_event_window pad point. Loader fixed to mirror its _Train counterpart (previously cut [marker:marker+len] with no pre-event buffer and dropped trials running off the recording edge instead of zero-padding)."
+        }
     },
     "data_structure": {
         "1": {

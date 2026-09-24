@@ -1,0 +1,407 @@
+{
+    "data_metadata": {
+        "dataset_name": "Dreyer2023",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.Dreyer2023.html",
+            "file_format": "via MOABB",
+            "description": "Motor imagery L/R hand, 87 subjects (A/B/C subsets), 27 EEG ch at 512 Hz, 240 trials. Window: global pre/post around the MI onset (MOABB interval [0, 5])."
+        },
+        "event_onset_seconds": 1.0,
+        "moabb": {
+            "class": "Dreyer2023",
+            "kwargs": {},
+            "code": "Dreyer2023"
+        },
+        "acquisition": {
+            "sample_frequency": 512.0,
+            "window_size_seconds": 5,
+            "num_subjects": 87
+        },
+        "targets": {
+            "count": 2,
+            "type": "imagery",
+            "0": {
+                "label": "left_hand",
+                "moabb_event": "left_hand"
+            },
+            "1": {
+                "label": "right_hand",
+                "moabb_event": "right_hand"
+            }
+        },
+        "channels": {
+            "count": 27,
+            "1": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "2": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "3": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "4": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "5": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "6": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "7": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "8": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "9": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "10": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "11": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "12": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "13": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "14": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "15": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "16": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "17": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "18": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "19": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "20": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "21": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "22": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "23": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "24": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "25": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "26": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "27": {
+                "label": "P3",
+                "original_label": "P3"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        },
+        "11": {
+            "moabb_subject": 11
+        },
+        "12": {
+            "moabb_subject": 12
+        },
+        "13": {
+            "moabb_subject": 13
+        },
+        "14": {
+            "moabb_subject": 14
+        },
+        "15": {
+            "moabb_subject": 15
+        },
+        "16": {
+            "moabb_subject": 16
+        },
+        "17": {
+            "moabb_subject": 17
+        },
+        "18": {
+            "moabb_subject": 18
+        },
+        "19": {
+            "moabb_subject": 19
+        },
+        "20": {
+            "moabb_subject": 20
+        },
+        "21": {
+            "moabb_subject": 21
+        },
+        "22": {
+            "moabb_subject": 22
+        },
+        "23": {
+            "moabb_subject": 23
+        },
+        "24": {
+            "moabb_subject": 24
+        },
+        "25": {
+            "moabb_subject": 25
+        },
+        "26": {
+            "moabb_subject": 26
+        },
+        "27": {
+            "moabb_subject": 27
+        },
+        "28": {
+            "moabb_subject": 28
+        },
+        "29": {
+            "moabb_subject": 29
+        },
+        "30": {
+            "moabb_subject": 30
+        },
+        "31": {
+            "moabb_subject": 31
+        },
+        "32": {
+            "moabb_subject": 32
+        },
+        "33": {
+            "moabb_subject": 33
+        },
+        "34": {
+            "moabb_subject": 34
+        },
+        "35": {
+            "moabb_subject": 35
+        },
+        "36": {
+            "moabb_subject": 36
+        },
+        "37": {
+            "moabb_subject": 37
+        },
+        "38": {
+            "moabb_subject": 38
+        },
+        "39": {
+            "moabb_subject": 39
+        },
+        "40": {
+            "moabb_subject": 40
+        },
+        "41": {
+            "moabb_subject": 41
+        },
+        "42": {
+            "moabb_subject": 42
+        },
+        "43": {
+            "moabb_subject": 43
+        },
+        "44": {
+            "moabb_subject": 44
+        },
+        "45": {
+            "moabb_subject": 45
+        },
+        "46": {
+            "moabb_subject": 46
+        },
+        "47": {
+            "moabb_subject": 47
+        },
+        "48": {
+            "moabb_subject": 48
+        },
+        "49": {
+            "moabb_subject": 49
+        },
+        "50": {
+            "moabb_subject": 50
+        },
+        "51": {
+            "moabb_subject": 51
+        },
+        "52": {
+            "moabb_subject": 52
+        },
+        "53": {
+            "moabb_subject": 53
+        },
+        "54": {
+            "moabb_subject": 54
+        },
+        "55": {
+            "moabb_subject": 55
+        },
+        "56": {
+            "moabb_subject": 56
+        },
+        "57": {
+            "moabb_subject": 57
+        },
+        "58": {
+            "moabb_subject": 58
+        },
+        "59": {
+            "moabb_subject": 59
+        },
+        "60": {
+            "moabb_subject": 60
+        },
+        "61": {
+            "moabb_subject": 61
+        },
+        "62": {
+            "moabb_subject": 62
+        },
+        "63": {
+            "moabb_subject": 63
+        },
+        "64": {
+            "moabb_subject": 64
+        },
+        "65": {
+            "moabb_subject": 65
+        },
+        "66": {
+            "moabb_subject": 66
+        },
+        "67": {
+            "moabb_subject": 67
+        },
+        "68": {
+            "moabb_subject": 68
+        },
+        "69": {
+            "moabb_subject": 69
+        },
+        "70": {
+            "moabb_subject": 70
+        },
+        "71": {
+            "moabb_subject": 71
+        },
+        "72": {
+            "moabb_subject": 72
+        },
+        "73": {
+            "moabb_subject": 73
+        },
+        "74": {
+            "moabb_subject": 74
+        },
+        "75": {
+            "moabb_subject": 75
+        },
+        "76": {
+            "moabb_subject": 76
+        },
+        "77": {
+            "moabb_subject": 77
+        },
+        "78": {
+            "moabb_subject": 78
+        },
+        "79": {
+            "moabb_subject": 79
+        },
+        "80": {
+            "moabb_subject": 80
+        },
+        "81": {
+            "moabb_subject": 81
+        },
+        "82": {
+            "moabb_subject": 82
+        },
+        "83": {
+            "moabb_subject": 83
+        },
+        "84": {
+            "moabb_subject": 84
+        },
+        "85": {
+            "moabb_subject": 85
+        },
+        "86": {
+            "moabb_subject": 86
+        },
+        "87": {
+            "moabb_subject": 87
+        }
+    }
+}

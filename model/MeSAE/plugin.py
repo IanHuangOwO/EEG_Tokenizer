@@ -20,7 +20,7 @@ from tools.viz.codebook import (plot_stamp_similarity, plot_patch_position_consi
                            plot_pool_energy_share, plot_stamp_energy_rank,
                            plot_stamp_phase_consistency, plot_topography_distance,
                            plot_pool_ablation)
-from tools.analysis import lookup_event_onset_sample
+from tools.analysis import event_onset_patch, lookup_event_onset_sample
 from IO.preprocessing import slice_patches
 
 
@@ -431,7 +431,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             np.asarray(within), np.asarray(between), ids, per_stamp,
             label_agree=agree or None, unit_label=self.unit_label)
 
-    def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed):
+    def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed, config=None):
         """Overrides the base's usage/gating-based panel with a content-based one (real
         decoder output, channel-collapsed to stay a [N, D] per-trial code like the base's
         `usage` — see extract_stamp_content and plot_patch_position_consistency's
@@ -453,7 +453,8 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
         plot_patch_position_consistency(
             os.path.join(viz_dir, f'patch_position_consistency_{ds_name}.png'), content_records,
-            unit_label=self.unit_label, seed=seed, code_label='decoder output')
+            unit_label=self.unit_label, seed=seed, code_label='decoder output',
+            event_patch=event_onset_patch(config, ds_name) if config else None)
 
     @torch.no_grad()
     def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):

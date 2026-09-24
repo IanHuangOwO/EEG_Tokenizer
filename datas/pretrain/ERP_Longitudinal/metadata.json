@@ -11,16 +11,14 @@
         },
         "acquisition": {
             "sample_frequency": 1000,
+            "window_size_seconds": 5.0,
             "num_subjects": 15
         },
         "targets": {
-            "count": 2,
-            "type": "rsvp_oddball",
+            "count": 1,
+            "type": "pretrain_dummy",
             "0": {
-                "label": "non-target (generated photo, trigger 2)"
-            },
-            "1": {
-                "label": "target (client photo, trigger 1)"
+                "label": "dummy (continuous 5 s window, no task label)"
             }
         },
         "channels": {
