@@ -18,7 +18,7 @@ from IO.dataset import build_dataset_from_config
 from IO.masking import build_masking_strategy_from_config, build_subsampler_from_config
 from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
-from tools.analysis import pick_trial, resolve_output_path
+from tools.analysis import apply_overrides, pick_trial, resolve_output_path
 from tools.analysis.snapshot import build_pretrain_bundle
 from tools.panels import PanelContext, run_panels
 
@@ -168,12 +168,17 @@ def main():
                                                    '(training_params.pretrain.tokenizer_epochs), then masked phase. '
                                                    'See docs/adr/0013.')
     parser.add_argument('--config', type=str, default='configs/pretrain.template.json')
+    parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
+                        help='override a config value, dotted path, JSON value (repeatable), '
+                             'e.g. --set training_params.pretrain.seed=2')
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
-        config = json.load(f)
+        config = apply_overrides(json.load(f), args.set)
 
     train_params = config['training_params']['pretrain']
+    if train_params.get('num_threads'):   # CPU threads for this process (parallel runs share the cores)
+        torch.set_num_threads(int(train_params['num_threads']))
     device     = train_params.get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
     model_name = train_params.get('model_name', 'default_run')
     train_params.setdefault('model_name', model_name)
@@ -188,8 +193,9 @@ def main():
     os.makedirs(vis_dir, exist_ok=True)
 
     logger, timestamp = setup_logger(artifact_dir)
-    shutil.copy(args.config, os.path.join(artifact_dir, 'config.json'))
-    shutil.copy(args.config, os.path.join(artifact_dir, f'config_{timestamp}.json'))
+    for name in ('config.json', f'config_{timestamp}.json'):     # the effective config, overrides applied
+        with open(os.path.join(artifact_dir, name), 'w') as f:
+            json.dump(config, f, indent=2)
 
     dataset_params = config['dataset_params']['pretrain']
     split_ratio = train_params.get('train_val_split', 0.9)

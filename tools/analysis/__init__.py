@@ -79,6 +79,30 @@ def load_config(path: str) -> dict:
     return cfg
 
 
+def apply_overrides(cfg: dict, sets) -> dict:
+    """In place: each 'dotted.key.path=value' in sets. value is parsed as JSON (numbers, true,
+    null, lists, objects) and falls back to a plain string; a numeric path segment indexes a
+    list (model_params.MeSAE.finetune.features.0.time_rank=1). Missing dict keys are created,
+    so a typo adds a key rather than failing -- check the config.json snapshot a run writes."""
+    for item in sets or []:
+        key, sep, raw = item.partition('=')
+        if not sep:
+            raise ValueError(f"--set expects key=value, got {item!r}")
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            value = raw
+        node, parts = cfg, key.split('.')
+        for part in parts[:-1]:
+            node = node[int(part)] if isinstance(node, list) else node.setdefault(part, {})
+        last = parts[-1]
+        if isinstance(node, list):
+            node[int(last)] = value
+        else:
+            node[last] = value
+    return cfg
+
+
 def resolve_output_path(config: dict, mode: str = 'pretrain') -> str:
     """Return this run's path segment under output/ -- training_params.<mode>.output_path
     if set, else '<model_name>/pretrain' for a pretrain run (pretrain artifacts always

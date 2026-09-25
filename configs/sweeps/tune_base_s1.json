@@ -1,0 +1,173 @@
+{
+  "_comment": "Finetune hyperparameter grid on DEV datasets (BNCI2015001 MI, BNCI2014009 P300; never reported), 2026-09-25. Expand with python -m tools.misc.sweep configs/sweeps/tune_base_s1.json, run with tools/misc/run_queue.py.",
+  "script": "train_finetune.py",
+  "config": "configs/runs/mesae_tiny_static16_base_s1/finetune/learned/BNCI2014001_loso.json",
+  "set": {
+    "training_params.finetune.epochs": 50,
+    "training_params.finetune.seed": 1
+  },
+  "cases": {
+    "mi_loso": {
+      "dataset_params.finetune": {
+        "BNCI2015001": {
+          "dataset_path": "datas/finetune/BNCI2015001",
+          "subject_to_use": [
+            "all"
+          ],
+          "channels_to_use": [
+            "all"
+          ]
+        }
+      },
+      "training_params.finetune.split": {
+        "mode": "inter_subject",
+        "n_folds": 12,
+        "sessions": [
+          0
+        ]
+      },
+      "training_params.finetune.class_weight": null,
+      "model_params.MeSAE.finetune": {
+        "features": [
+          {
+            "type": "stamp_power",
+            "time_pool": "learned",
+            "time_rank": 2
+          }
+        ]
+      }
+    },
+    "mi_fewshot": {
+      "dataset_params.finetune": {
+        "BNCI2015001": {
+          "dataset_path": "datas/finetune/BNCI2015001",
+          "subject_to_use": [
+            "all"
+          ],
+          "channels_to_use": [
+            "all"
+          ]
+        }
+      },
+      "training_params.finetune.split": {
+        "mode": "intra_subject",
+        "train_fraction": 0.3,
+        "sessions": [
+          0
+        ]
+      },
+      "training_params.finetune.class_weight": null,
+      "model_params.MeSAE.finetune": {
+        "features": [
+          {
+            "type": "stamp_power",
+            "time_pool": "learned",
+            "time_rank": 2
+          }
+        ]
+      }
+    },
+    "p300_loso": {
+      "dataset_params.finetune": {
+        "BNCI2014009": {
+          "dataset_path": "datas/finetune/BNCI2014009",
+          "subject_to_use": [
+            "all"
+          ],
+          "channels_to_use": [
+            "all"
+          ]
+        }
+      },
+      "training_params.finetune.split": {
+        "mode": "inter_subject",
+        "n_folds": 10,
+        "sessions": [
+          0
+        ]
+      },
+      "training_params.finetune.class_weight": "balanced",
+      "model_params.MeSAE.finetune": {
+        "features": [
+          {
+            "type": "stamp_power",
+            "time_pool": "learned",
+            "time_rank": 2
+          },
+          {
+            "type": "signed_ab",
+            "stamp_rank": 4,
+            "time_rank": 2
+          }
+        ]
+      }
+    },
+    "p300_fewshot": {
+      "dataset_params.finetune": {
+        "BNCI2014009": {
+          "dataset_path": "datas/finetune/BNCI2014009",
+          "subject_to_use": [
+            "all"
+          ],
+          "channels_to_use": [
+            "all"
+          ]
+        }
+      },
+      "training_params.finetune.split": {
+        "mode": "intra_subject",
+        "train_fraction": 0.1,
+        "purge": 5,
+        "sessions": [
+          0
+        ]
+      },
+      "training_params.finetune.class_weight": "balanced",
+      "model_params.MeSAE.finetune": {
+        "features": [
+          {
+            "type": "stamp_power",
+            "time_pool": "learned",
+            "time_rank": 2
+          },
+          {
+            "type": "signed_ab",
+            "stamp_rank": 4,
+            "time_rank": 2
+          }
+        ]
+      }
+    }
+  },
+  "grid": {
+    "training_params.finetune.learning_rate": [
+      0.001,
+      0.003,
+      0.01
+    ],
+    "training_params.finetune.weight_decay": [
+      0.01,
+      0.1,
+      0.5
+    ],
+    "model_params.MeSAE.finetune.dropout": [
+      0.3,
+      0.5
+    ],
+    "model_params.MeSAE.finetune.spatial_k": [
+      2,
+      4,
+      8
+    ]
+  },
+  "name": {
+    "training_params.finetune.learning_rate": "lr",
+    "training_params.finetune.weight_decay": "wd",
+    "model_params.MeSAE.finetune.dropout": "do",
+    "model_params.MeSAE.finetune.spatial_k": "k"
+  },
+  "derived": {
+    "training_params.finetune.min_learning_rate": "training_params.finetune.learning_rate / 10"
+  },
+  "output_path": "mesae_tiny_static16_base_s1/finetune/tune/{case}/{job}"
+}

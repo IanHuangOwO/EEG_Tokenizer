@@ -23,7 +23,7 @@ from model.factory import MODEL_REGISTRY, load_backbone
 from model.MeSAE.MeSAE_modules import (FeatureHead, StampExtractor, make_head_checkpoint,
                                        resolve_head_config, needs_stamp, needs_raw,
                                        _normalize_features)
-from tools.analysis import load_config
+from tools.analysis import apply_overrides, load_config
 
 torch.set_float32_matmul_precision('high')
 
@@ -421,9 +421,14 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
 def main():
     ap = argparse.ArgumentParser(description='Finetune a FeatureHead on a frozen MeSAE backbone')
     ap.add_argument('--config', default='configs/finetune.template.json')
+    ap.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
+                    help='override a config value after base_config merging, dotted path, JSON value '
+                         '(repeatable), e.g. --set training_params.finetune.learning_rate=0.003')
     args = ap.parse_args()
-    config = load_config(args.config)
+    config = apply_overrides(load_config(args.config), args.set)
     tp = config['training_params']['finetune']
+    if tp.get('num_threads'):          # CPU threads for this process (parallel runs share the cores)
+        torch.set_num_threads(int(tp['num_threads']))
     if 'split' not in tp:
         raise ValueError("training_params.finetune.split is required (mode: intra_subject | inter_subject)")
     # output_path: where this run writes under output/ -- separate from model_name (a

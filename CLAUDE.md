@@ -42,6 +42,19 @@ python analysis_finetune.py --config configs/analysis_finetune.template.json --b
 # --verify-only skips compiling and just checks an existing cache (--dataset/--subjects narrow it)
 python cache_dataset.py --config configs/compile.json
 
+# Any config value can be overridden on the command line (both training scripts; dotted path,
+# JSON value, repeatable; the run's artifacts/config.json records the effective config).
+# training_params.<mode>.num_threads caps a run's CPU threads (the machine is CPU-bound).
+python train_finetune.py --config <cfg> --set training_params.finetune.learning_rate=0.003
+
+# Experiments: a sweep file (configs/sweeps/*.json: one base config + cases x grid of --set
+# overrides) expands into queue jobs; run_queue runs a plan with a parallel limit and a thread
+# cap, resumable, state in output/queue/<plan>/ (plan lines: 'job <name> :: <cmd>' or 'wait')
+python -m tools.misc.sweep configs/sweeps/<sweep>.json > output/queue/<plan>.plan
+python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threads 8
+# One table for any set of finetune runs (backbones x heads, or --rank N for a grid)
+python -m tools.misc.summarize_runs 'output/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>]
+
 # Build the stamp-amplitude cache of the finetune datasets (frozen backbone run once per subject;
 # the runner will do this automatically)
 python cache_feature.py --config configs/runs/<backbone>/finetune/<head>/<dataset>_<mode>.json
