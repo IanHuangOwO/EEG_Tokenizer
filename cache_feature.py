@@ -82,8 +82,17 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
     patch_len = pp.get('patch_length', 100)
     patch_stride = pp.get('patch_stride', patch_len)
     valid = base.all_valid_channels[0]
-    channel_idx = torch.nonzero(valid).flatten().tolist()
-    coords, vlen = base.all_coords[0], int(base.all_valid_length[0])
+    coords, vlen = base.all_coords[0].clone(), int(base.all_valid_length[0])
+    # dataset_params.finetune.<ds>.impute_missing_channels (experiment): keep every canonical
+    # channel, missing ones filled in by the backbone (StampExtractor impute_missing) at their
+    # standard 10-10 position. Part of the dataset dict, so cache_key already separates it.
+    impute = bool(config['dataset_params']['finetune'][dataset_name].get('impute_missing_channels'))
+    if impute:
+        for i in torch.nonzero(~valid).flatten().tolist():
+            pos = get_standard_coords(base.channel_names[i])
+            assert pos is not None, f"no standard position for {base.channel_names[i]}"
+            coords[i] = torch.as_tensor(pos, dtype=coords.dtype)
+    channel_idx = list(range(len(valid))) if impute else torch.nonzero(valid).flatten().tolist()
     extractor = StampExtractor(backbone, channel_idx).to(device).eval()
     out = []
     for i in range(0, len(base.data), batch_size):
@@ -92,7 +101,7 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
         b, P = xp.shape[0], xp.shape[2]
         amp = extractor(xp.to(device), coords.unsqueeze(0).expand(b, -1, -1).to(device),
                         torch.arange(P, device=device).unsqueeze(0).expand(b, P),
-                        valid.unsqueeze(0).expand(b, -1).to(device))      # [b, N', Cv, S, 2] fp32
+                        valid.unsqueeze(0).expand(b, -1).to(device), impute_missing=impute)  # [b, N', Cv, S, 2] fp32
         out.append(amp.cpu())
     amp = torch.cat(out)
     if not torch.isfinite(amp).all() or amp.abs().max() >= 6e4:

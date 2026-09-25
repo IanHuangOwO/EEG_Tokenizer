@@ -73,6 +73,7 @@ class MeSAEPretrain(nn.Module):
         dropout=0.0,
         pool_after_blocks=(),
         num_channels=1,
+        legacy_mask_after_embed=False,
         n_routed_stamps=796,
         n_shared_stamps=4,
         stamp_top_k=32,
@@ -105,6 +106,12 @@ class MeSAEPretrain(nn.Module):
                                    ffn_top_k=ffn_top_k)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
+        # Masked tokens swap their CONTENT for mask_token before the time/coord embeddings
+        # are added (MAE convention), so a masked token still knows where and when it is.
+        # legacy_mask_after_embed=True restores the old behaviour -- mask_token replaced the
+        # whole embedded token, position included -- for runs that must match backbones
+        # pretrained before 2026-09-25 (the tiny dictionary experiment's seed 3).
+        self.legacy_mask_after_embed = legacy_mask_after_embed
 
         self.stamps = StampBank(
             embed_dim, patch_len,
@@ -249,10 +256,14 @@ class MeSAEPretrain(nn.Module):
         """Returns (z [B, C, N, D], ffn_lb_loss scalar) — ffn_lb_loss is the summed
         load-balance loss of every TSABlock's MoEFFN (see MeSAE_modules.TSAEncoder),
         distinct from the router (SAE Filter) load-balance loss produced in forward()."""
-        z = self.embed(x, coords=coords, time_idx=time_idx)  # [B, C, N, D]
-        if bool_masked_pos is not None:
-            mask = bool_masked_pos.unsqueeze(-1).type_as(z)  # [B, C, N, 1]
-            z = z * (1.0 - mask) + self.mask_token * mask
+        if bool_masked_pos is not None and not self.legacy_mask_after_embed:
+            z = self.embed(x, coords=coords, time_idx=time_idx,
+                           bool_masked_pos=bool_masked_pos, mask_token=self.mask_token)  # [B, C, N, D]
+        else:
+            z = self.embed(x, coords=coords, time_idx=time_idx)  # [B, C, N, D]
+            if bool_masked_pos is not None:
+                mask = bool_masked_pos.unsqueeze(-1).type_as(z)  # [B, C, N, 1]
+                z = z * (1.0 - mask) + self.mask_token * mask
         return self.encoder(z)  # [B, C, N, D], ffn_lb_loss
 
     # -- Finetune-only entry points, NOT used by the Tokenizer/Pretrain forward() path

@@ -38,6 +38,7 @@ def build_model(bp, num_channels):
         dropout=bp.get('dropout', 0.0),
         pool_after_blocks=bp.get('pool_after_blocks', []),
         num_channels=num_channels,
+        legacy_mask_after_embed=bp.get('legacy_mask_after_embed', False),
         n_routed_stamps=sb.get('n_routed_stamps', 60),
         n_shared_stamps=sb.get('n_shared_stamps', 4),
         stamp_top_k=sb.get('stamp_top_k', 32),

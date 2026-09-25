@@ -37,7 +37,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 | ADFTD | Clinical: Alzheimer's / FTD | B |  |  |  |  |  |  | open (OpenNeuro ds004504), not fetched |
 
-## pretrain (24 datasets, 372.9 h compiled)
+## pretrain (24 datasets, 439.7 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -52,10 +52,10 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | GraspAndLift_Train | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 9.9 | compiled |
 | Inria_Test | Error-related potential |  | 10 | 57 | 200 | 2 | 1 s | 4.7 | compiled |
 | Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 1 s | 7.6 | compiled |
-| Lee2019_ERP | P300 speller (continuous) |  |  |  |  |  |  |  | no metadata |
+| Lee2019_ERP | P300 speller (continuous) |  | 54 | 62 | 1000 | none | — | 58.0 | compiled (MOABB) |
 | Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s | 30.0 | compiled (MOABB) |
 | Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s | 30.0 | compiled (MOABB) |
-| Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s |  | not compiled (MOABB) |
+| Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s | 8.8 | compiled (MOABB) |
 | MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 111.9 | compiled |
 | Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s | 18.7 | compiled (MOABB) |
