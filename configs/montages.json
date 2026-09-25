@@ -860,5 +860,655 @@
         "hemisphere": "Z"
       }
     ]
+  },
+  "motor-3": {
+    "description": "C3/Cz/C4 motor triplet (BNCI2014004); pretrain sub-montage for ChannelSubsampler",
+    "source": "mne:standard_1020 (subset, copied from 10-10)",
+    "channels": [
+      {
+        "label": "C3",
+        "cartesian": {
+          "x": -0.06536,
+          "y": -0.01163,
+          "z": 0.06436
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Cz",
+        "cartesian": {
+          "x": 0.0004,
+          "y": -0.00917,
+          "z": 0.10024
+        },
+        "region": "central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "C4",
+        "cartesian": {
+          "x": 0.06712,
+          "y": -0.0109,
+          "z": 0.06358
+        },
+        "region": "central",
+        "hemisphere": "R"
+      }
+    ]
+  },
+  "p300-8": {
+    "description": "8-channel P300 cap (BNCI2014008); pretrain sub-montage for ChannelSubsampler",
+    "source": "mne:standard_1020 (subset, copied from 10-10)",
+    "channels": [
+      {
+        "label": "Fz",
+        "cartesian": {
+          "x": 0.00031,
+          "y": 0.05851,
+          "z": 0.06646
+        },
+        "region": "frontal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "Cz",
+        "cartesian": {
+          "x": 0.0004,
+          "y": -0.00917,
+          "z": 0.10024
+        },
+        "region": "central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "Pz",
+        "cartesian": {
+          "x": 0.00032,
+          "y": -0.08111,
+          "z": 0.08261
+        },
+        "region": "parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "Oz",
+        "cartesian": {
+          "x": 0.00011,
+          "y": -0.11489,
+          "z": 0.01466
+        },
+        "region": "occipital",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "P3",
+        "cartesian": {
+          "x": -0.05301,
+          "y": -0.07879,
+          "z": 0.05594
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "P4",
+        "cartesian": {
+          "x": 0.05567,
+          "y": -0.07856,
+          "z": 0.05656
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "PO7",
+        "cartesian": {
+          "x": -0.05484,
+          "y": -0.09753,
+          "z": 0.00279
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "L"
+      },
+      {
+        "label": "PO8",
+        "cartesian": {
+          "x": 0.05567,
+          "y": -0.09763,
+          "z": 0.00273
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "R"
+      }
+    ]
+  },
+  "motor-13": {
+    "description": "13-channel sensorimotor cap (BNCI2015001); pretrain sub-montage for ChannelSubsampler",
+    "source": "mne:standard_1020 (subset, copied from 10-10)",
+    "channels": [
+      {
+        "label": "FC3",
+        "cartesian": {
+          "x": -0.06018,
+          "y": 0.02272,
+          "z": 0.05554
+        },
+        "region": "frontal-central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "FCz",
+        "cartesian": {
+          "x": 0.00038,
+          "y": 0.02739,
+          "z": 0.08867
+        },
+        "region": "frontal-central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "FC4",
+        "cartesian": {
+          "x": 0.06229,
+          "y": 0.02372,
+          "z": 0.05563
+        },
+        "region": "frontal-central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "C5",
+        "cartesian": {
+          "x": -0.08028,
+          "y": -0.01376,
+          "z": 0.02916
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C3",
+        "cartesian": {
+          "x": -0.06536,
+          "y": -0.01163,
+          "z": 0.06436
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C1",
+        "cartesian": {
+          "x": -0.03616,
+          "y": -0.00998,
+          "z": 0.08975
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Cz",
+        "cartesian": {
+          "x": 0.0004,
+          "y": -0.00917,
+          "z": 0.10024
+        },
+        "region": "central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "C2",
+        "cartesian": {
+          "x": 0.03767,
+          "y": -0.00962,
+          "z": 0.08841
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "C4",
+        "cartesian": {
+          "x": 0.06712,
+          "y": -0.0109,
+          "z": 0.06358
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "C6",
+        "cartesian": {
+          "x": 0.08346,
+          "y": -0.01278,
+          "z": 0.02921
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "CP3",
+        "cartesian": {
+          "x": -0.06356,
+          "y": -0.04701,
+          "z": 0.06562
+        },
+        "region": "central-parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "CPz",
+        "cartesian": {
+          "x": 0.00039,
+          "y": -0.04732,
+          "z": 0.09943
+        },
+        "region": "central-parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "CP4",
+        "cartesian": {
+          "x": 0.06661,
+          "y": -0.04664,
+          "z": 0.06558
+        },
+        "region": "central-parietal",
+        "hemisphere": "R"
+      }
+    ]
+  },
+  "p300-16": {
+    "description": "16-channel P300 cap (BNCI2014009); pretrain sub-montage for ChannelSubsampler",
+    "source": "mne:standard_1020 (subset, copied from 10-10)",
+    "channels": [
+      {
+        "label": "Fz",
+        "cartesian": {
+          "x": 0.00031,
+          "y": 0.05851,
+          "z": 0.06646
+        },
+        "region": "frontal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "Cz",
+        "cartesian": {
+          "x": 0.0004,
+          "y": -0.00917,
+          "z": 0.10024
+        },
+        "region": "central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "Pz",
+        "cartesian": {
+          "x": 0.00032,
+          "y": -0.08111,
+          "z": 0.08261
+        },
+        "region": "parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "Oz",
+        "cartesian": {
+          "x": 0.00011,
+          "y": -0.11489,
+          "z": 0.01466
+        },
+        "region": "occipital",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "P3",
+        "cartesian": {
+          "x": -0.05301,
+          "y": -0.07879,
+          "z": 0.05594
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "P4",
+        "cartesian": {
+          "x": 0.05567,
+          "y": -0.07856,
+          "z": 0.05656
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "PO7",
+        "cartesian": {
+          "x": -0.05484,
+          "y": -0.09753,
+          "z": 0.00279
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "L"
+      },
+      {
+        "label": "PO8",
+        "cartesian": {
+          "x": 0.05567,
+          "y": -0.09763,
+          "z": 0.00273
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "R"
+      },
+      {
+        "label": "F3",
+        "cartesian": {
+          "x": -0.05024,
+          "y": 0.05311,
+          "z": 0.04219
+        },
+        "region": "frontal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "F4",
+        "cartesian": {
+          "x": 0.05184,
+          "y": 0.0543,
+          "z": 0.04081
+        },
+        "region": "frontal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "FCz",
+        "cartesian": {
+          "x": 0.00038,
+          "y": 0.02739,
+          "z": 0.08867
+        },
+        "region": "frontal-central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "C3",
+        "cartesian": {
+          "x": -0.06536,
+          "y": -0.01163,
+          "z": 0.06436
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C4",
+        "cartesian": {
+          "x": 0.06712,
+          "y": -0.0109,
+          "z": 0.06358
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "CP3",
+        "cartesian": {
+          "x": -0.06356,
+          "y": -0.04701,
+          "z": 0.06562
+        },
+        "region": "central-parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "CPz",
+        "cartesian": {
+          "x": 0.00039,
+          "y": -0.04732,
+          "z": 0.09943
+        },
+        "region": "central-parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "CP4",
+        "cartesian": {
+          "x": 0.06661,
+          "y": -0.04664,
+          "z": 0.06558
+        },
+        "region": "central-parietal",
+        "hemisphere": "R"
+      }
+    ]
+  },
+  "bci-22": {
+    "description": "22-channel BCI Competition IV 2a cap (BNCI2014001); pretrain sub-montage for ChannelSubsampler",
+    "source": "mne:standard_1020 (subset, copied from 10-10)",
+    "channels": [
+      {
+        "label": "Fz",
+        "cartesian": {
+          "x": 0.00031,
+          "y": 0.05851,
+          "z": 0.06646
+        },
+        "region": "frontal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "FC3",
+        "cartesian": {
+          "x": -0.06018,
+          "y": 0.02272,
+          "z": 0.05554
+        },
+        "region": "frontal-central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "FC1",
+        "cartesian": {
+          "x": -0.03406,
+          "y": 0.02601,
+          "z": 0.07999
+        },
+        "region": "frontal-central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "FCz",
+        "cartesian": {
+          "x": 0.00038,
+          "y": 0.02739,
+          "z": 0.08867
+        },
+        "region": "frontal-central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "FC2",
+        "cartesian": {
+          "x": 0.03478,
+          "y": 0.02644,
+          "z": 0.07881
+        },
+        "region": "frontal-central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "FC4",
+        "cartesian": {
+          "x": 0.06229,
+          "y": 0.02372,
+          "z": 0.05563
+        },
+        "region": "frontal-central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "C5",
+        "cartesian": {
+          "x": -0.08028,
+          "y": -0.01376,
+          "z": 0.02916
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C3",
+        "cartesian": {
+          "x": -0.06536,
+          "y": -0.01163,
+          "z": 0.06436
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "C1",
+        "cartesian": {
+          "x": -0.03616,
+          "y": -0.00998,
+          "z": 0.08975
+        },
+        "region": "central",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Cz",
+        "cartesian": {
+          "x": 0.0004,
+          "y": -0.00917,
+          "z": 0.10024
+        },
+        "region": "central",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "C2",
+        "cartesian": {
+          "x": 0.03767,
+          "y": -0.00962,
+          "z": 0.08841
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "C4",
+        "cartesian": {
+          "x": 0.06712,
+          "y": -0.0109,
+          "z": 0.06358
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "C6",
+        "cartesian": {
+          "x": 0.08346,
+          "y": -0.01278,
+          "z": 0.02921
+        },
+        "region": "central",
+        "hemisphere": "R"
+      },
+      {
+        "label": "CP3",
+        "cartesian": {
+          "x": -0.06356,
+          "y": -0.04701,
+          "z": 0.06562
+        },
+        "region": "central-parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "CP1",
+        "cartesian": {
+          "x": -0.03551,
+          "y": -0.04729,
+          "z": 0.09131
+        },
+        "region": "central-parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "CPz",
+        "cartesian": {
+          "x": 0.00039,
+          "y": -0.04732,
+          "z": 0.09943
+        },
+        "region": "central-parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "CP2",
+        "cartesian": {
+          "x": 0.03838,
+          "y": -0.04707,
+          "z": 0.09069
+        },
+        "region": "central-parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "CP4",
+        "cartesian": {
+          "x": 0.06661,
+          "y": -0.04664,
+          "z": 0.06558
+        },
+        "region": "central-parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "P1",
+        "cartesian": {
+          "x": -0.02862,
+          "y": -0.08052,
+          "z": 0.07544
+        },
+        "region": "parietal",
+        "hemisphere": "L"
+      },
+      {
+        "label": "Pz",
+        "cartesian": {
+          "x": 0.00032,
+          "y": -0.08111,
+          "z": 0.08261
+        },
+        "region": "parietal",
+        "hemisphere": "Z"
+      },
+      {
+        "label": "P2",
+        "cartesian": {
+          "x": 0.03192,
+          "y": -0.08049,
+          "z": 0.07672
+        },
+        "region": "parietal",
+        "hemisphere": "R"
+      },
+      {
+        "label": "POz",
+        "cartesian": {
+          "x": 0.00022,
+          "y": -0.10218,
+          "z": 0.05061
+        },
+        "region": "parieto-occipital",
+        "hemisphere": "Z"
+      }
+    ]
   }
 }

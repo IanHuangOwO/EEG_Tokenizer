@@ -8,7 +8,7 @@ from typing import List, Dict, Optional, Tuple, Callable, Any
 
 from .loader import load_coords_from_metadata
 from IO.preprocessing import build_normalizer_from_config, cache_suffix, slice_patches, num_patches, window_continuous_signal
-from IO.masking import BaseMaskingStrategy, RandomMaskingStrategy, ComplementaryMaskingStrategy, RandomToComplementaryMaskingStrategy
+from IO.masking import BaseMaskingStrategy, RandomMaskingStrategy, build_masking_strategy_from_config
 
 # Channels excluded by default when channels_to_use is "all".
 # Set include_non_eeg_channels: true in dataset_params to override.
@@ -364,42 +364,27 @@ class PretrainDataset(Dataset):
         base_dataset: EEGDataset,
         patch_len: Optional[int] = None,
         patch_stride: Optional[int] = None,
-        mask_ratio: float = 0.5,
         masking_strategy: Optional[BaseMaskingStrategy] = None,
+        subsampler=None,
     ):
-        self.base_dataset     = base_dataset
-        self.masking_strategy = masking_strategy or RandomMaskingStrategy()
-        self.mask_ratio       = self.masking_strategy.effective_mask_ratio(mask_ratio)
-
+        self.base_dataset = base_dataset
         if patch_len is None:
             patch_len = _resolve_default_patch_len(base_dataset)
-
         self.patch_len = patch_len
         self.patch_stride = patch_stride or patch_len
-        total_T     = base_dataset.data.shape[-1]
-        self.num_patches = num_patches(total_T, self.patch_len, self.patch_stride)
+        self.num_patches = num_patches(base_dataset.data.shape[-1], self.patch_len, self.patch_stride)
 
         # Per-trial (channel, patch) validity -- excludes zero-padded channels AND, for an
         # assembled window's zero tail (window_continuous_signal), patches that start past
-        # the window's real content. Computed once (patch_len/stride/num_patches never
-        # change after construction, only masking_strategy/mask_ratio do via set_masking)
-        # and reused by every generate_mask/resolve call below. See IO/masking.py's
-        # valid_mask docstring for why this matters.
+        # the window's real content. Fixed after construction; every mask is drawn inside it.
         self._valid_masks = self._build_valid_masks()
+        self.set_masking(masking_strategy or RandomMaskingStrategy(), subsampler)
 
-        # pre-generate one mask per trial so complementary pairs are exact inverses
-        self._masks = [
-            self.masking_strategy.generate_mask(base_dataset.Nc, self.num_patches, self.mask_ratio,
-                                                 valid_mask=self._valid_masks[i])
-            for i in range(len(base_dataset))
-        ]
-
-        strategy_name = type(self.masking_strategy).__name__.replace('MaskingStrategy', '').lower()
-        n_effective   = len(base_dataset) * self.masking_strategy.multiplier
+        n = len(base_dataset)
         print(f"\n--- PretrainDataset ---")
-        print(f"  {len(base_dataset)} trials | {self.num_patches} patches/trial "
-              f"(patch_len={self.patch_len}, patch_stride={self.patch_stride}) | mask_ratio={self.mask_ratio} | strategy={strategy_name}")
-        print(f"  effective dataset size: {n_effective}")
+        print(f"  {n} trials | {self.num_patches} patches/trial (patch_len={self.patch_len}, "
+              f"patch_stride={self.patch_stride}) | {self.masking_strategy.describe()}")
+        print(f"  effective dataset size: {n * self.masking_strategy.multiplier}")
         print(f"----------------------------\n")
 
     def _build_valid_masks(self):
@@ -408,9 +393,9 @@ class PretrainDataset(Dataset):
         patch whose start sample falls within [row_valid_start, row_valid_end) -- outside
         that, whether an assembled window's tail pad or an event-anchored trial's own
         leading/trailing pad near a recording edge, it's padding, see
-        IO/preprocessing.py's window_continuous_signal / cut_event_window). Feeds
-        generate_mask/resolve so masking never spends its budget on content that's
-        already known-zero."""
+        IO/preprocessing.py's window_continuous_signal / cut_event_window). Masks are never
+        drawn outside it, so masking never spends its budget on content that's already
+        known-zero."""
         bd = self.base_dataset
         patch_starts = torch.arange(self.num_patches) * self.patch_stride  # [P]
         masks = []
@@ -422,31 +407,41 @@ class PretrainDataset(Dataset):
             masks.append((valid_channels.unsqueeze(1) & valid_patch.unsqueeze(0)).reshape(-1))
         return masks
 
-    def set_masking(self, masking_strategy: BaseMaskingStrategy, mask_ratio: float = 0.5):
-        """Swap masking strategy/ratio and regenerate self._masks in place — e.g. for a
-        mask-ratio curriculum (ramp a RandomMaskingStrategy up before switching to a fixed
-        ComplementaryMaskingStrategy, since the latter structurally ignores any ratio
-        argument, see IO/masking.py). Changes __len__ if the new strategy's `multiplier`
-        differs from the old one (e.g. random 1x -> complementary 2x) — any DataLoader
-        already built against this dataset must be rebuilt afterward, not just re-iterated:
-        with persistent_workers=True, worker subprocesses hold their own copy of the
-        dataset from when they were spawned and never see this mutation otherwise.
-        self._valid_masks is untouched -- validity depends only on patch_len/stride/
-        num_patches, none of which set_masking changes."""
+    def set_masking(self, masking_strategy: BaseMaskingStrategy, subsampler=None):
+        """(Re)draw every trial's masks from the strategy's current state (the training loop
+        calls this when strategy/subsampler state() changes, see train_pretrain.py). Each
+        trial stores [multiplier, C*N] masks, one per dataset copy; __len__ follows the
+        multiplier, so any DataLoader built on this dataset must be rebuilt afterwards (with
+        persistent_workers, workers hold their own copy of the dataset from spawn time).
+
+        subsampler (IO/masking.py ChannelSubsampler, optional): per trial, a sparse montage
+        to keep; removed channels leave the valid set BEFORE the mask is drawn, and
+        __getitem__ turns them into padding (zero signal, not valid, no loss)."""
         self.masking_strategy = masking_strategy
-        self.mask_ratio = self.masking_strategy.effective_mask_ratio(mask_ratio)
-        self._masks = [
-            self.masking_strategy.generate_mask(self.base_dataset.Nc, self.num_patches, self.mask_ratio,
-                                                 valid_mask=self._valid_masks[i])
-            for i in range(len(self.base_dataset))
-        ]
+        bd = self.base_dataset
+        if subsampler is not None and not hasattr(self, '_montage_idx'):
+            norm = bd._normalize_label
+            name_to_idx = {norm(n): i for i, n in enumerate(bd.channel_names)}
+            self._montage_idx = [[name_to_idx[norm(n)] for n in load_montage_channels(m) if norm(n) in name_to_idx]
+                                 for m in subsampler.montages]
+        self._keep, self._masks = [], []
+        for i in range(len(bd)):
+            valid, keep = self._valid_masks[i], None
+            if subsampler is not None:
+                keep = subsampler.sample(bd.all_valid_channels[bd.trial_to_coords_idx[i]], self._montage_idx)
+                if keep is not None:
+                    valid = valid & keep.repeat_interleave(self.num_patches)
+            self._keep.append(keep)
+            coords = bd.all_coords[bd.trial_to_coords_idx[i]]
+            self._masks.append(masking_strategy.generate(bd.Nc, self.num_patches, valid, coords))
 
     def __len__(self):
         return len(self.base_dataset) * self.masking_strategy.multiplier
 
     def __getitem__(self, index):
         N = len(self.base_dataset)
-        trial_idx, mask = self.masking_strategy.resolve(self._masks, index, N, valid_masks=self._valid_masks)
+        trial_idx = index % N
+        mask = self._masks[trial_idx][index // N]
 
         x, y = self.base_dataset[trial_idx]
         x_patches, time_indices = slice_patches(x, self.patch_len, self.patch_stride)
@@ -461,6 +456,11 @@ class PretrainDataset(Dataset):
         coords_idx = self.base_dataset.trial_to_coords_idx[trial_idx]
         coords     = self.base_dataset.all_coords[coords_idx]
         valid_channels = self.base_dataset.all_valid_channels[coords_idx]
+        keep = self._keep[trial_idx]
+        if keep is not None:                       # subsampled window: removed channels become padding
+            x_patches = x_patches * keep[:, None, None]
+            coords = coords * keep[:, None]
+            valid_channels = valid_channels & keep
 
         return x_patches, coords, mask, time_indices, y, fft_patches, valid_channels
 
@@ -628,27 +628,11 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
     if mode == 'base':
         return base_dataset
     elif mode == 'pretrain':
-        mask_pp       = pp.get('mask', {})
-        strategy_name = mask_pp.get('masking_strategy', 'random')
-        strategy_cfg  = mask_pp.get(strategy_name, {})
-
-        if strategy_name == 'complementary':
-            strategy   = ComplementaryMaskingStrategy()
-            mask_ratio = ComplementaryMaskingStrategy.MASK_RATIO
-        elif strategy_name == 'random_to_complementary':
-            strategy = RandomToComplementaryMaskingStrategy(
-                target_ratio=ComplementaryMaskingStrategy.MASK_RATIO,
-                start_ratio=strategy_cfg.get('start_ratio', 0.1),
-                ramp_epochs=strategy_cfg.get('ramp_epochs', 25),
-                step_every=strategy_cfg.get('step_every', 5),
-            )
-            mask_ratio = strategy.effective_mask_ratio(ComplementaryMaskingStrategy.MASK_RATIO)
-        else:
-            strategy   = RandomMaskingStrategy()
-            mask_ratio = strategy_cfg.get('mask_ratio', 0.5)
-
+        # The tokenizer phase ignores masks; train_pretrain.py re-applies the strategy (with
+        # its epoch and subsampler) from the first masked epoch on.
+        strategy = build_masking_strategy_from_config(pp.get('mask', {}))
         ds = PretrainDataset(base_dataset, patch_len=patch_len, patch_stride=patch_stride,
-                             mask_ratio=mask_ratio, masking_strategy=strategy)
+                             masking_strategy=strategy)
         sanity_check_wrapper(ds)
         return ds
     elif mode == 'finetune':

@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from IO.dataset import build_dataset_from_config
-from IO.masking import build_masking_strategy_from_config
+from IO.masking import build_masking_strategy_from_config, build_subsampler_from_config
 from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
 from tools.analysis import pick_trial, resolve_output_path
@@ -327,22 +327,20 @@ def main():
 
     plotter = entry.plotter_cls(output_dir=vis_dir)
 
-    pp          = config.get('preprocess_params', {}).get('mask', {})
-    strat_name  = pp.get('masking_strategy', 'random')
-    mask_ratio  = 0.5 if strat_name in ('complementary', 'random_to_complementary') else pp.get(strat_name, {}).get('mask_ratio', 0.5)
+    mask_pp     = config.get('preprocess_params', {}).get('mask', {})
     loss_params = config.get('model_params', {}).get(model_type, {}).get('pretrain', {}).get('loss', {})
     loss_hparams = dict(loss_params)
-    logger.info(f"model_type={model_type}  mask_ratio={mask_ratio}  loss_hparams={loss_hparams}")
-    mask_strategy = build_masking_strategy_from_config(strat_name, pp)
-    if strat_name == 'random_to_complementary':
-        logger.info(f"  [mask curriculum] ramping random-mask ratio {mask_strategy.start_ratio} -> "
-                    f"{mask_strategy.target_ratio} over {mask_strategy.ramp_epochs} epochs "
-                    f"(step every {mask_strategy.step_every}), then switching to complementary")
+    # IO/masking.py: the strategy (and optional channel subsampler) owns its own schedule;
+    # this loop only tells them the masked-phase epoch and redraws when their state changes.
+    mask_strategy = build_masking_strategy_from_config(mask_pp)
+    subsampler = build_subsampler_from_config(mask_pp)
+    logger.info(f"model_type={model_type}  masking={mask_pp.get('masking_strategy', 'random')}  "
+                f"subsample={'on' if subsampler else 'off'}  loss_hparams={loss_hparams}")
 
     best_val_loss = float('inf')  # reset at the phase boundary: masked loss isn't comparable
     logger.info(f"Starting {model_type} Pretraining ({total_epochs} epochs)")
 
-    current_mask_state = None  # (ratio, multiplier) — tracks the last applied state
+    current_mask_state = None  # (strategy state, subsampler state) last applied
     for epoch in range(1, total_epochs + 1):
         masked = epoch > tokenizer_epochs
         if epoch == tokenizer_epochs + 1:
@@ -352,18 +350,21 @@ def main():
                         f"StampBank {'frozen' if freeze_stamps else 'TRAINING (aux/mp losses stay on)'}")
         # Curriculum counts from the first masked epoch. Tokenizer-phase epochs keep the
         # dataset's initial state (ramp start: random, 1x length) and ignore its masks.
-        mask_strategy.set_epoch(max(1, epoch - tokenizer_epochs))
-        epoch_ratio = mask_strategy.effective_mask_ratio(mask_ratio)
-        new_mask_state = (epoch_ratio, mask_strategy.multiplier)
+        masked_epoch = max(1, epoch - tokenizer_epochs)
+        mask_strategy.set_epoch(masked_epoch)
+        if subsampler is not None:
+            subsampler.set_epoch(masked_epoch)
+        new_mask_state = (mask_strategy.state(), subsampler.state() if subsampler is not None else None)
         if masked and new_mask_state != current_mask_state:
-            train_dataset.set_masking(mask_strategy, epoch_ratio)
-            val_dataset.set_masking(mask_strategy, epoch_ratio)
+            train_dataset.set_masking(mask_strategy, subsampler)
+            val_dataset.set_masking(mask_strategy, subsampler)
             # rebuild, don't just re-iterate: persistent_workers=True means worker
             # subprocesses hold their own copy of the dataset from spawn time and never
             # see the mutation above otherwise (see PretrainDataset.set_masking).
             train_loader = _make_loader(train_dataset, shuffle=True)
             val_loader   = _make_loader(val_dataset,   shuffle=False)
-            logger.info(f"  [mask curriculum] epoch {epoch}: strategy={type(mask_strategy).__name__} ratio={epoch_ratio:.3f}")
+            logger.info(f"  [mask curriculum] epoch {epoch}: {mask_strategy.describe()}"
+                        + (f" | {subsampler.describe()}" if subsampler is not None else ""))
             current_mask_state = new_mask_state
 
         train_metrics = train_one_epoch(model, trainer, train_loader, optimizer, scaler, device, epoch, masked,
