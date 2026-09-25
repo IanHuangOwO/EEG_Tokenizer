@@ -16,14 +16,16 @@
   "model_params": {
     "MeSAE": {
       "finetune": {
-        "features": [
-          "stamp_power"
-        ],
+        "_comment": "Modular head (MeSAE_modules FeatureHead): each features entry is {type, its own keys} and gets its own spatial filter. Types: stamp_power / stamp_band (log power, time_pool flat|learned|window|none, time_rank, window), signed_ab (signed phase-locked: stamp_rank, time_rank), evoked (evoked_rank), phase_advance, raw_band, raw_signal. Any entry may set its own spatial_k (default below).",
         "spatial_k": 8,
-        "time_pool": "learned",
-        "time_rank": 2,
-        "evoked_rank": 0,
-        "dropout": 0.5
+        "dropout": 0.5,
+        "features": [
+          {
+            "type": "stamp_power",
+            "time_pool": "learned",
+            "time_rank": 2
+          }
+        ]
       }
     }
   },
@@ -43,7 +45,8 @@
         "mode": "intra_subject",
         "n_folds": 5
       },
-      "output_path": "mesae_vXX_small/finetune/learned/BNCI2014001_intra"
+      "output_path": "mesae_vXX_small/finetune/learned/BNCI2014001_intra",
+      "class_weight": null
     },
     "visualize_params": {
       "finetune": {

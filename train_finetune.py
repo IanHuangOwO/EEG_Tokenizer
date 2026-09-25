@@ -361,6 +361,12 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
     pos = {(g, s): np.searchsorted(ev_idx, i) for g, subs in run['eval'].items() for s, i in subs.items()}
     y_all = source.labels.numpy()
     y_ev = y_all[ev_idx]
+    # training_params.finetune.class_weight "balanced": weight the loss by inverse class frequency
+    # of this run's training trials (BNCI2014008 is 5:1 non-target, so plain CE predicts the majority)
+    cw = None
+    if tp.get('class_weight') == 'balanced':
+        counts = np.bincount(y_all[run['train']], minlength=head_cfg['num_classes']).astype(float)
+        cw = torch.tensor(counts.sum() / (len(counts) * np.maximum(counts, 1)), dtype=torch.float32, device=device)
     gen = torch.Generator().manual_seed(seed)
     plotter = MODEL_REGISTRY[tp.get('model_type', 'MeSAE')].plotter_cls(output_dir=out_dir['vis'])
     tail_start, hist = max(0, E - 10), {}
@@ -371,7 +377,7 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
         for x, y in iter_batches(source, run['train'], bs, device, shuffle=True, gen=gen):
             opt.zero_grad()
             logits = head(x)
-            loss = F.cross_entropy(logits, y)
+            loss = F.cross_entropy(logits, y, weight=cw)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(head.parameters(), max_norm=1.0)
             opt.step()

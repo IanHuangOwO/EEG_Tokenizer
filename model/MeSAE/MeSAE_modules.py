@@ -1562,13 +1562,17 @@ def _selfcheck_head_modules():
 
 
 BANDS = ((8.0, 13.0), (13.0, 30.0))   # mu, beta
-FEATURES_ALL = ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal', 'phase_advance', 'evoked')
+FEATURES_ALL = ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal', 'phase_advance', 'evoked', 'signed_ab')
 _PRIMARY_FEATURES = ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal')
-_STAMP_ENTRIES = frozenset({'stamp_power', 'stamp_band', 'phase_advance', 'evoked'})
+_STAMP_ENTRIES = frozenset({'stamp_power', 'stamp_band', 'phase_advance', 'evoked', 'signed_ab'})
 _RAW_ENTRIES = frozenset({'raw_band', 'raw_signal'})
-_ENTRY_OVERRIDE_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank')
+_ENTRY_OVERRIDE_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'stamp_rank')
+# spatial_per_feature: every features entry gets its own spatial filter (the list-of-dicts config
+# form turns it on); False = one filter shared by every entry (the older form, and every head
+# trained before 2026-09-25).
 _HEAD_DEFAULTS = dict(features=['stamp_power'], spatial_k=8, time_pool='learned', time_rank=2,
-                      window=None, evoked_rank=0, overrides={}, dropout=0.5)
+                      window=None, evoked_rank=0, stamp_rank=4, overrides={}, dropout=0.5,
+                      spatial_per_feature=False)
 
 
 def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint):
@@ -1592,6 +1596,17 @@ def _normalize_features(cfg):
     checkpoint's head_config, which never passes through resolve_head_config again) -- see
     FinetuneModel.from_checkpoint in MeSAE.py. Raises if both keys are present (ambiguous,
     never legal)."""
+    feats = cfg.get('features')
+    if isinstance(feats, list) and any(isinstance(f, dict) for f in feats):
+        # modular form: features = [{"type": ..., <that entry's own keys>}, ...] -> the internal
+        # names + overrides form every consumer reads; each entry gets its own spatial filter
+        if not all(isinstance(f, dict) and 'type' in f for f in feats):
+            raise ValueError("features: use either names or {'type': ...} dicts, not a mix")
+        cfg['features'] = [f['type'] for f in feats]
+        cfg['overrides'] = {**(cfg.get('overrides') or {}),
+                            **{f['type']: {k: v for k, v in f.items() if k != 'type'} for f in feats}}
+        cfg.setdefault('spatial_per_feature', True)
+        return
     has_old, has_new = 'feature' in cfg, 'features' in cfg
     if has_old and has_new:
         raise ValueError("head config has both 'feature' (old) and 'features' (new) -- use only 'features'")
@@ -1642,13 +1657,18 @@ def resolve_head_config(ft_params, **derived):
         raise ValueError(f"features entries must be one of {FEATURES_ALL}, got {bad}")
     primaries = [f for f in feats if f in ('stamp_power', 'stamp_band')]
     for branch in ('phase_advance', 'evoked'):
-        if branch in feats and len(primaries) != 1:
+        # with per-feature spatial filters a branch stands on its own
+        if branch in feats and not cfg['spatial_per_feature'] and len(primaries) != 1:
             raise ValueError(f"'{branch}' requires exactly one of stamp_power/stamp_band in "
                               f"features, got primaries={primaries}")
     if tp not in ('flat', 'learned', 'window', 'none'):
         raise ValueError(f"time_pool must be flat|learned|window|none, got {tp!r}")
-    if cfg['spatial_k'] not in (None, 0) and not (isinstance(cfg['spatial_k'], int) and cfg['spatial_k'] > 0):
-        raise ValueError(f"spatial_k must be a positive int, or null/0 for no spatial mixing (channel concat), got {cfg['spatial_k']!r}")
+    for name in feats:
+        k = _entry_cfg(cfg, name)['spatial_k']
+        if k not in (None, 0) and not (isinstance(k, int) and k > 0):
+            raise ValueError(f"spatial_k ('{name}') must be a positive int, or null/0 for no spatial mixing (channel concat), got {k!r}")
+    if not cfg['spatial_per_feature'] and any('spatial_k' in (cfg.get('overrides') or {}).get(n, {}) for n in feats):
+        raise ValueError("a per-entry spatial_k needs spatial_per_feature (one shared filter has one width)")
     overrides = cfg.get('overrides') or {}
     bad_ov = set(overrides) - set(feats)
     if bad_ov:
@@ -1669,7 +1689,9 @@ def resolve_head_config(ft_params, **derived):
             raise ValueError(f"features['{name}'] effective time_pool='learned' requires time_rank >= 1")
         if name == 'evoked' and int(e['evoked_rank']) < 1:
             raise ValueError("features entry 'evoked' requires evoked_rank >= 1 (effective)")
-        if name == 'raw_signal' or etp in ('learned', 'none') or name == 'evoked':
+        if name == 'signed_ab' and (int(e['stamp_rank']) < 1 or int(e['time_rank']) < 1):
+            raise ValueError("features entry 'signed_ab' requires stamp_rank >= 1 and time_rank >= 1")
+        if name == 'raw_signal' or etp in ('learned', 'none') or name in ('evoked', 'signed_ab'):
             needs_np = True
     if needs_np and cfg.get('num_patches') is None:
         raise ValueError("this configuration needs num_patches (trial length in patches)")
@@ -1680,7 +1702,7 @@ def _entry_cfg(cfg, name):
     """Effective per-entry time_pool/time_rank/window/evoked_rank (top-level default,
     overrides[name] wins) plus the shape/derived keys every entry needs -- single source of
     truth for both FeatureHead's submodule construction (Task 2) and feature_dim below."""
-    eff = {k: cfg[k] for k in _ENTRY_OVERRIDE_KEYS}
+    eff = {k: cfg.get(k, _HEAD_DEFAULTS[k]) for k in _ENTRY_OVERRIDE_KEYS}   # older saved configs lack newer keys
     eff.update((cfg.get('overrides') or {}).get(name, {}))
     for k in ('num_patches', 'num_stamps', 'sample_freq', 'patch_stride', 'patch_len', 'num_channels'):
         eff[k] = cfg.get(k)
@@ -1697,15 +1719,19 @@ def needs_raw(cfg):
     return any(f in _RAW_ENTRIES for f in cfg['features'])
 
 
-def spatial_width(cfg):
-    """Effective K: spatial_k filters, or every real channel kept separate (spatial_k None/0 = concat, no mixing)."""
-    return cfg['spatial_k'] or cfg['num_channels']
+def spatial_width(cfg, name=None):
+    """Effective K of one entry's (or the shared) spatial filter: spatial_k filters, or every real
+    channel kept separate (spatial_k None/0 = concat, no mixing)."""
+    k = _entry_cfg(cfg, name)['spatial_k'] if name is not None else cfg['spatial_k']
+    return k or cfg['num_channels']
 
 
 def _entry_dim(cfg, name):
     """Feature-vector width contributed by one features[] entry."""
-    K = spatial_width(cfg)
+    K = spatial_width(cfg, name)
     e = _entry_cfg(cfg, name)
+    if name == 'signed_ab':
+        return 2 * K * int(e['stamp_rank']) * int(e['time_rank'])
     if name == 'raw_signal':
         pool = max(1, round(cfg['sample_freq'] / 20))
         return K * (((cfg['num_patches'] - 1) * cfg['patch_stride'] + cfg['patch_len']) // pool)
@@ -1866,6 +1892,25 @@ class _EvokedEntry(nn.Module):
         return self.branch(*ab).flatten(1)
 
 
+class _SignedABEntry(nn.Module):
+    """signed_ab (2026-09-25): the signed, phase-locked counterpart of stamp_power. Fully linear
+    and factored: spatially mixed a and b (kept signed, so polarity and phase survive) ->
+    learned stamp pooling S -> stamp_rank -> learned time filters N' -> time_rank (init: flat
+    average + small noise). A free linear readout on raw a/b would be the same function class
+    but ~10^4 weights per class; the factoring is the regularisation. Carries evoked /
+    phase-locked content only: induced (random-phase) power averages out, pair it with
+    stamp_power for that. -> [B, 2 * K * stamp_rank * time_rank]."""
+    def __init__(self, cfg):
+        super().__init__()
+        e = _entry_cfg(cfg, 'signed_ab')
+        M, R, N = int(e['stamp_rank']), int(e['time_rank']), e['num_patches']
+        self.stamp = nn.Linear(cfg['num_stamps'], M, bias=False)
+        self.q = nn.Parameter(torch.full((R, N), 1.0 / N) + torch.randn(R, N) * 0.02)
+
+    def forward(self, ab):
+        return torch.cat([torch.einsum('rn,bnkm->bkmr', self.q, self.stamp(t)) for t in ab], dim=1).flatten(1)
+
+
 class FeatureHead(nn.Module):
     """Composable finetune head, no backbone inside (ADR 0016; list-feature-head plan): one
     _PrimaryEntry/_PhaseAdvanceEntry/_EvokedEntry submodule per cfg['features'] entry, a single
@@ -1876,7 +1921,8 @@ class FeatureHead(nn.Module):
         feats = cfg['features']
         # spatial_k None/0 = no mixing (channel concat, ADR 0016 ablation control): spatial_mix(None, ...)
         # is identity, so each real channel stays its own feature row instead of being pooled to K filters.
-        self.spatial = nn.Linear(cfg['num_channels'], cfg['spatial_k'], bias=False) if cfg['spatial_k'] else None
+        self.spatial = nn.Linear(cfg['num_channels'], cfg['spatial_k'], bias=False) \
+            if cfg['spatial_k'] and not cfg.get('spatial_per_feature') else None
         self.entries = nn.ModuleDict()
         for name in feats:
             if name in ('stamp_power', 'stamp_band', 'raw_band', 'raw_signal'):
@@ -1885,6 +1931,13 @@ class FeatureHead(nn.Module):
                 self.entries[name] = _PhaseAdvanceEntry(cfg)
             elif name == 'evoked':
                 self.entries[name] = _EvokedEntry(cfg)
+            elif name == 'signed_ab':
+                self.entries[name] = _SignedABEntry(cfg)
+        # spatial_per_feature: one filter per entry (entries' own spatial_k), else one shared
+        self.spatials = nn.ModuleDict({
+            name: nn.Linear(cfg['num_channels'], k, bias=False)
+            for name in feats if (k := _entry_cfg(cfg, name)['spatial_k'])}) \
+            if cfg.get('spatial_per_feature') else None
         n_feat = feature_dim(cfg)
         # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
         self.cls = nn.Sequential(nn.BatchNorm1d(n_feat), nn.Dropout(cfg['dropout']),
@@ -1895,18 +1948,15 @@ class FeatureHead(nn.Module):
         # Feature math in fp32: under autocast, squared amplitudes overflow in fp16 and the 1e-12
         # epsilon rounds to 0 (NaN loss). The readout stays outside, as before.
         with torch.autocast(device_type=next(iter(inp.values())).device.type, enabled=False):
-            raw_mixed, ab = None, None
-            if 'raw' in inp:
-                raw_mixed = spatial_mix(self.spatial, inp['raw'].float(), 1)          # [B, K, N', L]
-            if 'stamp' in inp:
-                amp = inp['stamp'].float()
-                ab = (spatial_mix(self.spatial, amp[..., 0], 2),
-                      spatial_mix(self.spatial, amp[..., 1], 2))                      # each [B, N', K, S]
+            raw = inp['raw'].float() if 'raw' in inp else None
+            amp = inp['stamp'].float() if 'stamp' in inp else None
             outs = []
             for name, mod in self.entries.items():
+                spatial = self.spatial if self.spatials is None else self.spatials[name] if name in self.spatials else None
                 if name in ('raw_band', 'raw_signal'):
-                    outs.append(mod(raw_mixed=raw_mixed))
+                    outs.append(mod(raw_mixed=spatial_mix(spatial, raw, 1)))                 # [B, K, N', L]
                 else:
-                    outs.append(mod(ab=ab))
+                    outs.append(mod(ab=(spatial_mix(spatial, amp[..., 0], 2),
+                                        spatial_mix(spatial, amp[..., 1], 2))))              # each [B, N', K, S]
             feat = torch.cat(outs, dim=1) if len(outs) > 1 else outs[0]
         return self.cls(feat)
