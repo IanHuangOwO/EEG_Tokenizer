@@ -872,7 +872,8 @@
         "start_ratio": 0.1,
         "ramp_epochs": 10,
         "step_every": 2
-      }
+      },
+      "time_run": 3
     },
     "window_fraction": 0.05,
     "window_fraction_seed": 0
@@ -917,7 +918,8 @@
           "ffn_lb_weight": 0.01,
           "aux_weight": 0.01,
           "mp_weight": 1.0
-        }
+        },
+        "mask_padded_channels": true
       }
     }
   },

@@ -40,15 +40,40 @@ class BaseMaskingStrategy(ABC):
 
 
 class RandomMaskingStrategy(BaseMaskingStrategy):
+    """time_run r > 1 masks whole runs of r consecutive patches per channel instead of
+    single tokens: the patch axis is cut into r-patch blocks (random offset per window)
+    and whole (channel, block) units are drawn until mask_ratio of the valid tokens is
+    covered. Why: patches overlap by 50% (patch_stride = patch_len / 2), so a single
+    masked patch with both neighbours visible has every one of its samples in the input
+    and "reconstructing" it is copying. A run of >= 3 hides at least one patch fully.
+    r = 1 is the old token-level masking. Tokens are channel-major (c * N + n), matching
+    IO/dataset.py's (C, N) layout."""
+    def __init__(self, time_run: int = 1):
+        self.time_run = max(1, int(time_run))
+
     def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float,
                        valid_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         num_tokens = num_channels * num_patches
-        valid_idx = torch.arange(num_tokens) if valid_mask is None else valid_mask.nonzero(as_tuple=True)[0]
-        num_masked = int(len(valid_idx) * mask_ratio)
-        perm = valid_idx[torch.randperm(len(valid_idx))]
-        mask = torch.zeros(num_tokens, dtype=torch.bool)
-        mask[perm[:num_masked]] = True
-        return mask
+        valid = torch.ones(num_tokens, dtype=torch.bool) if valid_mask is None else valid_mask.bool()
+        num_masked = int(int(valid.sum()) * mask_ratio)
+        r = self.time_run
+        if r == 1:
+            valid_idx = valid.nonzero(as_tuple=True)[0]
+            perm = valid_idx[torch.randperm(len(valid_idx))]
+            mask = torch.zeros(num_tokens, dtype=torch.bool)
+            mask[perm[:num_masked]] = True
+            return mask
+        offset = int(torch.randint(r, (1,)))
+        block = (torch.arange(num_patches) + offset) // r                         # [N]
+        n_blocks = int(block.max()) + 1
+        unit = (torch.arange(num_channels)[:, None] * n_blocks + block[None, :]).flatten()  # [C*N]
+        unit_valid = torch.zeros(num_channels * n_blocks, dtype=torch.long).index_add_(0, unit, valid.long())
+        order = torch.randperm(len(unit_valid))
+        order = order[unit_valid[order] > 0]
+        take = order[:int((unit_valid[order].cumsum(0) < num_masked).sum()) + 1] if num_masked else order[:0]
+        chosen = torch.zeros(len(unit_valid), dtype=torch.bool)
+        chosen[take] = True
+        return chosen[unit] & valid
 
 
 class ComplementaryMaskingStrategy(BaseMaskingStrategy):
@@ -60,9 +85,12 @@ class ComplementaryMaskingStrategy(BaseMaskingStrategy):
     MASK_RATIO = 0.5
     multiplier = 2
 
+    def __init__(self, time_run: int = 1):
+        self._random = RandomMaskingStrategy(time_run)   # the inverse of a run mask is a run mask on the same grid
+
     def generate_mask(self, num_channels: int, num_patches: int, mask_ratio: float = 0.5,
                        valid_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-        return RandomMaskingStrategy().generate_mask(num_channels, num_patches, self.MASK_RATIO, valid_mask=valid_mask)
+        return self._random.generate_mask(num_channels, num_patches, self.MASK_RATIO, valid_mask=valid_mask)
 
     def effective_mask_ratio(self, requested_ratio: float) -> float:
         return self.MASK_RATIO
@@ -102,12 +130,13 @@ class RandomToComplementaryMaskingStrategy(BaseMaskingStrategy):
     nonlinear generator than it was to the old linear decode chain.
     """
     def __init__(self, target_ratio: float = ComplementaryMaskingStrategy.MASK_RATIO,
-                 start_ratio: float = 0.1, ramp_epochs: int = 25, step_every: int = 5):
+                 start_ratio: float = 0.1, ramp_epochs: int = 25, step_every: int = 5, time_run: int = 1):
         self.target_ratio = target_ratio
         self.start_ratio = start_ratio
         self.ramp_epochs = max(1, ramp_epochs)
         self.step_every = max(1, step_every)
-        self._complementary = ComplementaryMaskingStrategy()
+        self._complementary = ComplementaryMaskingStrategy(time_run)
+        self._random = RandomMaskingStrategy(time_run)
         self._epoch = 1
 
     def set_epoch(self, epoch: int) -> None:
@@ -133,7 +162,7 @@ class RandomToComplementaryMaskingStrategy(BaseMaskingStrategy):
                        valid_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         if not self._in_ramp():
             return self._complementary.generate_mask(num_channels, num_patches, mask_ratio, valid_mask=valid_mask)
-        return RandomMaskingStrategy().generate_mask(num_channels, num_patches, mask_ratio, valid_mask=valid_mask)
+        return self._random.generate_mask(num_channels, num_patches, mask_ratio, valid_mask=valid_mask)
 
     def resolve(self, masks: List[torch.Tensor], index: int, n: int,
                 valid_masks: Optional[List[torch.Tensor]] = None) -> Tuple[int, torch.Tensor]:
@@ -146,7 +175,9 @@ def build_masking_strategy_from_config(strat_name, pp):
     """Constructs the configured masking strategy once, up front, from
     preprocess_params.mask (`pp`). Only 'random_to_complementary' varies per epoch
     afterward (via its own set_epoch()) — 'random'/'complementary' are constant for the
-    whole run, same as before curriculum existed."""
+    whole run, same as before curriculum existed. pp['time_run'] (default 1): mask whole
+    runs of that many consecutive patches, see RandomMaskingStrategy."""
+    time_run = pp.get('time_run', 1)
     if strat_name == 'random_to_complementary':
         curriculum = pp.get('random_to_complementary', {})
         return RandomToComplementaryMaskingStrategy(
@@ -154,7 +185,8 @@ def build_masking_strategy_from_config(strat_name, pp):
             start_ratio=curriculum.get('start_ratio', 0.1),
             ramp_epochs=curriculum.get('ramp_epochs', 25),
             step_every=curriculum.get('step_every', 5),
+            time_run=time_run,
         )
     if strat_name == 'complementary':
-        return ComplementaryMaskingStrategy()
-    return RandomMaskingStrategy()
+        return ComplementaryMaskingStrategy(time_run)
+    return RandomMaskingStrategy(time_run)

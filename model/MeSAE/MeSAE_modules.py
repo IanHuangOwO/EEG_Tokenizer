@@ -369,7 +369,10 @@ class TSABlock(nn.Module):
         m = t.detach().abs().amax()
         self.last_branch_max = m if self.last_branch_max is None else torch.maximum(self.last_branch_max, m)
 
-    def forward(self, x):
+    def forward(self, x, valid_channels=None):
+        """valid_channels [B, C] bool (optional): zero-padded channels are left out of
+        spatial attention as keys, so a montage's missing channels can't dilute the
+        softmax (their own rows still get computed, then ignored downstream)."""
         B, C, N, D = x.shape
         x_flat = x.view(B * C, N, D)
         self.last_branch_max = None
@@ -384,7 +387,9 @@ class TSABlock(nn.Module):
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
         if self.spatial_active:
             x_norm = self.norm_space(x_space)
-            attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm)
+            kpm = None if valid_channels is None else \
+                (~valid_channels.bool()).repeat_interleave(N, dim=0)            # [B*N, C], True = ignore
+            attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm, key_padding_mask=kpm)
             self._watch(attn_out)
             attn_out = self.norm_space_out(attn_out)
             x_space = x_space + self.drop_s(self.scale_s * attn_out)
@@ -460,7 +465,7 @@ class TSAEncoder(nn.Module):
         right  = xp[:, :, 2:N + 2:2, :]
         return (left + 2 * center + right) / 4.0
 
-    def forward(self, x):
+    def forward(self, x, valid_channels=None):
         skips = []  # unpadded pre-pool tensors, one per pool point, in block order
         # Per-block contribution norm — how much each block actually changes its input,
         # not just the skip-gate residual-add strength (which conflates "shallow skip
@@ -484,7 +489,7 @@ class TSAEncoder(nn.Module):
         for i, block in enumerate(self.blocks):
             x_in = x
             if self._runs(i):
-                x, blk_ffn_lb = block(x)
+                x, blk_ffn_lb = block(x, valid_channels)
                 ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
                 with torch.no_grad():
@@ -1696,7 +1701,8 @@ class StampExtractor(nn.Module):
                                   nn_idx[..., None].expand(-1, -1, -1, N)).mean(2)          # [B, C, N]
             rms = torch.where(miss[:, :, None], nn_rms, rms)
             vmask = torch.ones_like(vmask)
-        z, _ = self.backbone.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=masked)  # [B, C, N, D]
+        z, _ = self.backbone.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=masked,
+                                            valid_channels=vmask)                       # [B, C, N, D]
         zg = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
         rg = rms.permute(0, 2, 1).reshape(B * N, C, 1)
         amp = self.backbone.stamps.dense_amp(zg, rms=rg)

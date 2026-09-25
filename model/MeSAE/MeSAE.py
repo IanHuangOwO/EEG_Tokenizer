@@ -74,6 +74,7 @@ class MeSAEPretrain(nn.Module):
         pool_after_blocks=(),
         num_channels=1,
         legacy_mask_after_embed=False,
+        mask_padded_channels=False,
         n_routed_stamps=796,
         n_shared_stamps=4,
         stamp_top_k=32,
@@ -112,6 +113,10 @@ class MeSAEPretrain(nn.Module):
         # whole embedded token, position included -- for runs that must match backbones
         # pretrained before 2026-09-25 (the tiny dictionary experiment's seed 3).
         self.legacy_mask_after_embed = legacy_mask_after_embed
+        # Zero-padded (missing) channels are left out of spatial attention as keys
+        # (TSABlock). Off by default so backbones pretrained before 2026-09-25 keep the
+        # behaviour they were trained with; configs/pretrain*.template.json turn it on.
+        self.mask_padded_channels = mask_padded_channels
 
         self.stamps = StampBank(
             embed_dim, patch_len,
@@ -252,7 +257,7 @@ class MeSAEPretrain(nn.Module):
         _ema_update(self.ema_ffn_router_entropy, ffn_router_entropy)
         _ema_update(self.ema_ffn_gate_entropy, ffn_gate_entropy)
 
-    def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None):
+    def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """Returns (z [B, C, N, D], ffn_lb_loss scalar) — ffn_lb_loss is the summed
         load-balance loss of every TSABlock's MoEFFN (see MeSAE_modules.TSAEncoder),
         distinct from the router (SAE Filter) load-balance loss produced in forward()."""
@@ -264,7 +269,7 @@ class MeSAEPretrain(nn.Module):
             if bool_masked_pos is not None:
                 mask = bool_masked_pos.unsqueeze(-1).type_as(z)  # [B, C, N, 1]
                 z = z * (1.0 - mask) + self.mask_token * mask
-        return self.encoder(z)  # [B, C, N, D], ffn_lb_loss
+        return self.encoder(z, valid_channels if self.mask_padded_channels else None)  # [B, C, N, D], ffn_lb_loss
 
     # -- Finetune-only entry points, NOT used by the Tokenizer/Pretrain forward() path
     # below.
@@ -379,7 +384,8 @@ class MeSAEPretrain(nn.Module):
         """
         B, C, N, L = x.shape
 
-        z, ffn_lb_loss = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos)  # [B, C, N, D]
+        z, ffn_lb_loss = self.stage_features(x, coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos,
+                                              valid_channels=valid_channels)  # [B, C, N, D]
         # Channel-grouped layout for StampBank: [B, C, N, *] -> permute to [B, N, C, *]
         # then merge (B, N) — adjacent after the permute, so the merge is a safe reshape
         # (docs/agents/reshape-pitfalls.md; permute forces a copy, contiguity handled by
