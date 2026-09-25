@@ -23,7 +23,7 @@ from scipy import stats
 
 CELLS = ['BNCI2014001_loso', 'BNCI2014001_fewshot', 'BNCI2014004_loso', 'BNCI2014004_fewshot',
          'BNCI2014008_loso', 'BNCI2014008_fewshot']
-HEADS = ['learned', 'H4', 'learned_impute']   # learned = H1 (stamp_power); H4 = stamp_power + signed_ab
+HEADS = ['learned', 'H4', 'H4small', 'learned_impute']   # learned = H1 (stamp_power); H4 = + signed_ab; H4small = + a small signed_ab
 
 
 def subject_scores(backbone, head, cell):
