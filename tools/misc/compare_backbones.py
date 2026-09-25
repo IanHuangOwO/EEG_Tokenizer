@@ -21,7 +21,9 @@ import os
 import numpy as np
 from scipy import stats
 
-CELLS = ['BNCI2014001_loso', 'BNCI2014001_fewshot', 'BNCI2014004_loso', 'BNCI2014004_fewshot']
+CELLS = ['BNCI2014001_loso', 'BNCI2014001_fewshot', 'BNCI2014004_loso', 'BNCI2014004_fewshot',
+         'BNCI2014008_loso', 'BNCI2014008_fewshot']
+HEADS = ['learned', 'H4', 'learned_impute']   # learned = H1 (stamp_power); H4 = stamp_power + signed_ab
 
 
 def subject_scores(backbone, head, cell):
@@ -37,7 +39,7 @@ def subject_scores(backbone, head, cell):
 
 def downstream(groups, ref):
     print('\n## Downstream (tail balanced accuracy %, mean +- sd over pretrain seeds)')
-    for head in ('learned', 'learned_impute'):
+    for head in HEADS:
         for cell in CELLS:
             per = {g: [subject_scores(b, head, cell) for b in bbs] for g, bbs in groups.items()}
             if not any(x for v in per.values() for x in v):
