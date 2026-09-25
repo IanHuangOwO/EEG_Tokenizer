@@ -108,9 +108,13 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
         raise ValueError(f"subject {subject}: stamp amplitudes are not finite or exceed the fp16 range "
                          f"(max abs {amp.abs().max().item():.3g})")
     data_fp = _fingerprint(_data_path(config, dataset_name, subject))
-    np.savez(path, amp=amp.half().numpy(), labels=base.labels.numpy().astype(np.int64),
+    # write-then-rename: parallel finetune runs on the same backbone/dataset share this folder,
+    # and a reader must never see a half-written file
+    tmp = f'{path}.{os.getpid()}.tmp.npz'
+    np.savez(tmp, amp=amp.half().numpy(), labels=base.labels.numpy().astype(np.int64),
              valid_length=np.full(len(amp), vlen, dtype=np.int64), channel_idx=np.asarray(channel_idx, dtype=np.int64),
              keep=extractor.keep.cpu().numpy().astype(np.int64), meta=np.array(json.dumps({'data': data_fp})))
+    os.replace(tmp, path)
     return amp.shape
 
 
