@@ -8,7 +8,7 @@ from typing import List, Dict, Optional, Tuple, Callable, Any
 
 from .loader import load_coords_from_metadata
 from IO.preprocessing import build_normalizer_from_config, cache_suffix, slice_patches, num_patches, window_continuous_signal
-from IO.masking import BaseMaskingStrategy, RandomMaskingStrategy, build_masking_strategy_from_config
+from IO.masking import BaseMaskingStrategy, build_masking_strategy_from_config
 
 # Channels excluded by default when channels_to_use is "all".
 # Set include_non_eeg_channels: true in dataset_params to override.
@@ -378,7 +378,7 @@ class PretrainDataset(Dataset):
         # assembled window's zero tail (window_continuous_signal), patches that start past
         # the window's real content. Fixed after construction; every mask is drawn inside it.
         self._valid_masks = self._build_valid_masks()
-        self.set_masking(masking_strategy or RandomMaskingStrategy(), subsampler)
+        self.set_masking(masking_strategy or build_masking_strategy_from_config({}), subsampler)
 
         n = len(base_dataset)
         print(f"\n--- PretrainDataset ---")

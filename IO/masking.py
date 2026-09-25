@@ -15,13 +15,13 @@ assembled window's zero tail, and every ratio is a ratio of the VALID tokens -- 
 heavily padded dataset (8 of 64 channels) or a window's zero tail wastes most of the budget
 on content already known to be zero (docs/model-analysis-checklist.md).
 
-Strategies (preprocess_params.mask.masking_strategy):
-  random                   token masking at a fixed ratio
-  complementary            fixed 0.5 random mask, each window shown with its inverse too
-  random_to_complementary  random ratio ramp, then complementary (the pre-2026-09-25 default)
-  mixture                  one MaskMode per window (channel cluster / random channel / time
-                           block, ...), all on one shared ramp -- the modular one; new mask
-                           patterns are new MaskMode classes plus a config entry
+Strategies (preprocess_params.mask.masking_strategy) -- all MixtureMaskingStrategy: one MaskMode
+per window (random_token / random_channel / channel_cluster / time_block, ...) on one shared ramp.
+New mask patterns are new MaskMode classes plus a config entry. Named presets:
+  random                   random_token at a fixed ratio
+  complementary            random_token at 0.5, each window shown with its inverse too
+  random_to_complementary  random_token ratio ramp, then complementary (the baseline's)
+  mixture                  modes as configured
 
 ChannelSubsampler (preprocess_params.mask.subsample) is independent of the strategy: it
 REMOVES channels (they become padding, no loss) to imitate sparse caps.
@@ -80,78 +80,6 @@ def random_token_mask(num_channels: int, num_patches: int, ratio: float, valid: 
     chosen = torch.zeros(len(unit_valid), dtype=torch.bool)
     chosen[take] = True
     return chosen[unit] & valid
-
-
-class RandomMaskingStrategy(BaseMaskingStrategy):
-    def __init__(self, mask_ratio: float = 0.5, time_run: int = 1):
-        self.mask_ratio, self.time_run = mask_ratio, max(1, int(time_run))
-
-    def generate(self, num_channels, num_patches, valid=None, coords=None):
-        return random_token_mask(num_channels, num_patches, self.mask_ratio,
-                                 _valid(num_channels, num_patches, valid), self.time_run)[None]
-
-    def describe(self):
-        return f'random ratio={self.mask_ratio} time_run={self.time_run}'
-
-
-class ComplementaryMaskingStrategy(BaseMaskingStrategy):
-    """Fixed 0.5 random mask; every window is shown twice, with the mask and with its
-    inverse (XOR with valid, so padding stays unmasked in both), so every valid token is
-    reconstructed once per pair."""
-    MASK_RATIO = 0.5
-    multiplier = 2
-
-    def __init__(self, time_run: int = 1):
-        self.time_run = max(1, int(time_run))
-
-    def generate(self, num_channels, num_patches, valid=None, coords=None):
-        valid = _valid(num_channels, num_patches, valid)
-        mask = random_token_mask(num_channels, num_patches, self.MASK_RATIO, valid, self.time_run)
-        return torch.stack([mask, mask ^ valid])
-
-    def describe(self):
-        return f'complementary ratio=0.5 time_run={self.time_run}'
-
-
-class RandomToComplementaryMaskingStrategy(BaseMaskingStrategy):
-    """Random masking whose ratio ramps start_ratio -> 0.5 in coarse steps (one step every
-    step_every masked epochs, over ramp_epochs), then complementary 0.5 pairs for good.
-    Exists because masking is the one un-softened shock at the tokenizer -> masked boundary
-    (spatial/temporal mixing already ramp in through zero-init LayerScale)."""
-    def __init__(self, start_ratio: float = 0.1, ramp_epochs: int = 25, step_every: int = 5,
-                 time_run: int = 1):
-        self.start_ratio, self.target_ratio = start_ratio, ComplementaryMaskingStrategy.MASK_RATIO
-        self.ramp_epochs, self.step_every = max(1, ramp_epochs), max(1, step_every)
-        self._complementary = ComplementaryMaskingStrategy(time_run)
-        self.time_run = max(1, int(time_run))
-
-    def _in_ramp(self):
-        return self._epoch <= self.ramp_epochs
-
-    def ratio(self) -> float:
-        if not self._in_ramp():
-            return self.target_ratio
-        n_steps = max(1, self.ramp_epochs // self.step_every)
-        step = min((self._epoch - 1) // self.step_every, n_steps - 1)
-        return self.start_ratio if n_steps <= 1 else \
-            self.start_ratio + (self.target_ratio - self.start_ratio) * step / (n_steps - 1)
-
-    @property
-    def multiplier(self):
-        return 1 if self._in_ramp() else 2
-
-    def state(self):
-        return (self.ratio(), self.multiplier)
-
-    def generate(self, num_channels, num_patches, valid=None, coords=None):
-        if not self._in_ramp():
-            return self._complementary.generate(num_channels, num_patches, valid)
-        return random_token_mask(num_channels, num_patches, self.ratio(),
-                                 _valid(num_channels, num_patches, valid), self.time_run)[None]
-
-    def describe(self):
-        return (f'random_to_complementary ratio={self.ratio():.3f} x{self.multiplier} '
-                f'time_run={self.time_run}')
 
 
 # ---------------------------------------------------------------------------------------
@@ -229,27 +157,51 @@ class TimeBlockMask(MaskMode):
         return valid & hidden[None, :]
 
 
-MASK_MODES = {'random_channel': RandomChannelMask, 'channel_cluster': ChannelClusterMask,
-              'time_block': TimeBlockMask}
+class RandomTokenMask(MaskMode):
+    """Random (channel, patch) tokens, or whole runs of time_run patches per channel (see
+    random_token_mask); ratio = fraction of valid tokens. complementary: after the ramp the
+    window is also shown with the inverse, so every valid token is reconstructed once per pair."""
+    def __init__(self, time_run: int = 1, complementary: bool = False):
+        self.time_run, self.complementary = max(1, int(time_run)), complementary
+
+    def generate(self, valid, coords, ratio):
+        C, N = valid.shape
+        return random_token_mask(C, N, ratio, valid.flatten(), self.time_run).view(C, N)
+
+
+MASK_MODES = {'random_token': RandomTokenMask, 'random_channel': RandomChannelMask,
+              'channel_cluster': ChannelClusterMask, 'time_block': TimeBlockMask}
 
 
 class MixtureMaskingStrategy(BaseMaskingStrategy):
-    """Draws one MaskMode per window (shares `prob`). All modes share one ramp: over the
-    first ramp_epochs masked epochs each mode's ratio goes start_ratio -> its own max_ratio
-    together. After the ramp, a window whose mode is complementary is also shown with its
-    inverse (the dataset doubles; other windows get a second independent draw). Masks are
-    redrawn every epoch. Config: preprocess_params.mask.mixture = {start_ratio,
-    ramp_epochs, modes: [{type, prob, max_ratio, ...mode kwargs}]}."""
-    def __init__(self, modes: List[dict], start_ratio: float = 0.1, ramp_epochs: int = 10):
+    """Draws one MaskMode per window (shares `prob`). All modes share one ramp: over the first
+    ramp_epochs masked epochs each mode's ratio goes start_ratio -> its own max_ratio together,
+    in steps of step_every epochs (1 = every epoch; ramp_epochs 0 = at max_ratio from the start).
+    After the ramp, a window whose mode is complementary is also shown with its inverse (the
+    dataset doubles; other windows get a second independent draw). resample_each_epoch: fresh
+    masks every epoch; False keeps one draw per ratio step (the older strategies' behaviour).
+    Config: preprocess_params.mask.mixture = {start_ratio, ramp_epochs, step_every,
+    resample_each_epoch, modes: [{type, prob, max_ratio, ...mode kwargs}]}; the named strategies
+    random / complementary / random_to_complementary are presets of this class (see
+    build_masking_strategy_from_config)."""
+    def __init__(self, modes: List[dict], start_ratio: float = 0.1, ramp_epochs: int = 10,
+                 step_every: int = 1, resample_each_epoch: bool = True, label: str = 'mixture'):
         self.modes = [MASK_MODES[m['type']](**{k: v for k, v in m.items() if k not in ('type', 'prob', 'max_ratio')})
                       for m in modes]
         self.names = [m['type'] for m in modes]
         self.probs = torch.tensor([float(m['prob']) for m in modes])
         self.max_ratio = [float(m['max_ratio']) for m in modes]
-        self.start_ratio, self.ramp_epochs = start_ratio, max(1, ramp_epochs)
+        self.start_ratio, self.ramp_epochs = start_ratio, max(0, int(ramp_epochs))
+        self.step_every, self.resample, self.label = max(1, int(step_every)), resample_each_epoch, label
 
     def progress(self) -> float:
-        return 1.0 if self.ramp_epochs <= 1 else min(1.0, (self._epoch - 1) / (self.ramp_epochs - 1))
+        """Ramp position 0..1, constant within each step_every-epoch step."""
+        if self.ramp_epochs == 0:
+            return 1.0
+        n_steps = max(1, self.ramp_epochs // self.step_every)
+        if n_steps <= 1:
+            return 0.0 if self._epoch <= self.ramp_epochs else 1.0
+        return min((self._epoch - 1) // self.step_every, n_steps - 1) / (n_steps - 1)
 
     def ratios(self) -> List[float]:
         p = self.progress()
@@ -260,7 +212,7 @@ class MixtureMaskingStrategy(BaseMaskingStrategy):
         return 2 if self._epoch > self.ramp_epochs and any(m.complementary for m in self.modes) else 1
 
     def state(self):
-        return self._epoch   # fresh masks every epoch
+        return self._epoch if self.resample else (tuple(self.ratios()), self.multiplier)
 
     def generate(self, num_channels, num_patches, valid=None, coords=None):
         valid = _valid(num_channels, num_patches, valid).view(num_channels, num_patches)
@@ -272,7 +224,7 @@ class MixtureMaskingStrategy(BaseMaskingStrategy):
         return torch.stack([m.flatten() for m in masks])
 
     def describe(self):
-        return 'mixture x{} '.format(self.multiplier) + ' '.join(
+        return f'{self.label} x{self.multiplier} ' + ' '.join(
             f'{n}:{p:.2f}@{r:.2f}' for n, p, r in zip(self.names, self.probs.tolist(), self.ratios()))
 
 
@@ -315,18 +267,29 @@ class ChannelSubsampler:
 
 
 def build_masking_strategy_from_config(pp: dict) -> BaseMaskingStrategy:
-    """pp = preprocess_params.mask. time_run (default 1) applies to the token strategies."""
+    """pp = preprocess_params.mask. Every strategy is a MixtureMaskingStrategy; the named ones
+    are presets of a single random_token mode (time_run from pp, default 1):
+      random                   mask_ratio (default 0.5) from the first masked epoch, one draw
+      complementary            0.5 with inverse pairs from the first masked epoch, one draw
+      random_to_complementary  ratio start_ratio -> 0.5 in step_every-epoch steps over ramp_epochs,
+                               then 0.5 with inverse pairs; one draw per step
+      mixture                  pp['mixture'] as given"""
     name, time_run = pp.get('masking_strategy', 'random'), pp.get('time_run', 1)
     cfg = pp.get(name, {})
     if name == 'mixture':
         return MixtureMaskingStrategy(**cfg)
+    token = lambda ratio, comp: [{'type': 'random_token', 'prob': 1.0, 'max_ratio': ratio,
+                                  'time_run': time_run, 'complementary': comp}]
     if name == 'random_to_complementary':
-        return RandomToComplementaryMaskingStrategy(start_ratio=cfg.get('start_ratio', 0.1),
-                                                    ramp_epochs=cfg.get('ramp_epochs', 25),
-                                                    step_every=cfg.get('step_every', 5), time_run=time_run)
+        return MixtureMaskingStrategy(token(0.5, True), start_ratio=cfg.get('start_ratio', 0.1),
+                                      ramp_epochs=cfg.get('ramp_epochs', 25), step_every=cfg.get('step_every', 5),
+                                      resample_each_epoch=False, label=name)
     if name == 'complementary':
-        return ComplementaryMaskingStrategy(time_run)
-    return RandomMaskingStrategy(cfg.get('mask_ratio', 0.5), time_run)
+        return MixtureMaskingStrategy(token(0.5, True), start_ratio=0.5, ramp_epochs=0,
+                                      resample_each_epoch=False, label=name)
+    ratio = cfg.get('mask_ratio', 0.5)
+    return MixtureMaskingStrategy(token(ratio, False), start_ratio=ratio, ramp_epochs=0,
+                                  resample_each_epoch=False, label='random')
 
 
 def build_subsampler_from_config(pp: dict) -> Optional[ChannelSubsampler]:
