@@ -1,72 +1,24 @@
 """
-Compare groups of backbones (each group = the same recipe over pretrain seeds) on the finetune
-results and on tools/misc/backbone_eval.py's summaries.
+Compare groups of backbones (each group = the same recipe over pretrain seeds) on
+tools/misc/backbone_eval.py's held-out-window summaries: test-mask masked MSE (model, and
+model / best model-free baseline), ablation changes, and embedding structure, averaged over
+each group's seeds.
 
-Downstream: per group and cell (head/dataset_mode), mean +- sd over seeds of the subject-mean
-tail balanced accuracy; each group against --ref paired over (subject, seed index) pairs:
-mean difference, 95% CI, paired t-test p. Imputation: learned_impute minus learned on the
-same backbone. Backbone eval: test-mask masked MSE (model, and model / best model-free
-baseline), ablation changes and structure, averaged over the group's seeds.
+Downstream finetune comparison (tail balanced accuracy, paired test, imputation gain) now
+lives in tools/misc/summarize_runs.py -- it reads the same group_eval.json files without
+this script's fixed CELLS/HEADS lists, so it covers a grid or a head comparison too, not
+just the backbone x dataset_mode table this file used to print.
 
-Usage: python -m tools.misc.compare_backbones --ref base \\
-    --group base=mesae_tiny_static16_base_s1,mesae_tiny_static16_base_s2 \\
-    --group A=mesae_tiny_static16_groupA_s1,mesae_tiny_static16_groupA_s2 \\
+Usage: python -m tools.misc.compare_backbones \
+    --group base=mesae_tiny_static16_base_s1,mesae_tiny_static16_base_s2 \
+    --group A=mesae_tiny_static16_groupA_s1,mesae_tiny_static16_groupA_s2 \
     --group B=mesae_tiny_static16_groupB_s1,mesae_tiny_static16_groupB_s2
 """
 import argparse
-import glob
 import json
 import os
 
 import numpy as np
-from scipy import stats
-
-CELLS = ['BNCI2014001_loso', 'BNCI2014001_fewshot', 'BNCI2014004_loso', 'BNCI2014004_fewshot',
-         'BNCI2014008_loso', 'BNCI2014008_fewshot']
-HEADS = ['learned', 'H4', 'H4small', 'learned_impute']   # learned = H1 (stamp_power); H4 = + signed_ab; H4small = + a small signed_ab
-
-
-def subject_scores(backbone, head, cell):
-    p = f'output/{backbone}/finetune/{head}/{cell}/artifacts/group_eval.json'
-    if not os.path.exists(p):
-        return None
-    subj = {}
-    for fold in json.load(open(p)).values():
-        for s, x in fold['groups']['heldout']['subjects'].items():
-            subj.setdefault(s, []).append(x['tail'])
-    return {s: float(np.mean(v)) for s, v in subj.items()}
-
-
-def downstream(groups, ref):
-    print('\n## Downstream (tail balanced accuracy %, mean +- sd over pretrain seeds)')
-    for head in HEADS:
-        for cell in CELLS:
-            per = {g: [subject_scores(b, head, cell) for b in bbs] for g, bbs in groups.items()}
-            if not any(x for v in per.values() for x in v):
-                continue
-            line = f'  {head:15} {cell:20}'
-            for g, runs in per.items():
-                means = [100 * np.mean(list(r.values())) for r in runs if r]
-                line += f' | {g}: ' + (f'{np.mean(means):5.1f} +- {np.std(means):3.1f} (n={len(means)})' if means else '  -  ')
-            print(line)
-            for g, runs in per.items():
-                if g == ref:
-                    continue
-                d = [100 * (r[s] - rr[s]) for r, rr in zip(runs, per[ref]) if r and rr for s in r if s in rr]
-                if len(d) > 2:
-                    lo, hi = stats.t.interval(0.95, len(d) - 1, loc=np.mean(d), scale=stats.sem(d))
-                    print(f'      {g} - {ref}: {np.mean(d):+5.1f}  95% CI [{lo:+.1f}, {hi:+.1f}]  '
-                          f'p={stats.ttest_1samp(d, 0).pvalue:.3f}  ({len(d)} subject x seed pairs)')
-    print('\n## Imputation gain (learned_impute - learned, same backbone)')
-    for g, bbs in groups.items():
-        for b in bbs:
-            gains = []
-            for cell in CELLS:
-                a, i = subject_scores(b, 'learned', cell), subject_scores(b, 'learned_impute', cell)
-                if a and i:
-                    gains.append(f'{cell} {100 * (np.mean(list(i.values())) - np.mean(list(a.values()))):+.1f}')
-            if gains:
-                print(f'  {g} {b}: ' + ', '.join(gains))
 
 
 def backbone(groups):
@@ -104,10 +56,8 @@ def backbone(groups):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--group', action='append', required=True, help='name=backbone1,backbone2,...')
-    ap.add_argument('--ref', required=True)
     args = ap.parse_args()
     groups = {g.split('=')[0]: g.split('=')[1].split(',') for g in args.group}
-    downstream(groups, args.ref)
     backbone(groups)
 
 
