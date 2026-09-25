@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, StampBank,
+from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, StampBank, RelativeSpatialBias,
                                          overlap_add_patches,
                                          spatial_mix, FlatTimePool, LearnedTimePool,
                                          EvokedBranch, phase_advance, StampExtractor, FeatureHead,
@@ -75,6 +75,8 @@ class MeSAEPretrain(nn.Module):
         num_channels=1,
         legacy_mask_after_embed=False,
         mask_padded_channels=False,
+        coord_encoding='mlp',
+        spatial_bias=False,
         n_routed_stamps=796,
         n_shared_stamps=4,
         stamp_top_k=32,
@@ -100,7 +102,7 @@ class MeSAEPretrain(nn.Module):
         self.head_dim = embed_dim
         self.num_channels = num_channels
 
-        self.embed   = SpatialTemporalEmbeddings(patch_len, embed_dim)
+        self.embed   = SpatialTemporalEmbeddings(patch_len, embed_dim, coord_encoding=coord_encoding)
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
                                    dropout=dropout, pool_after_blocks=pool_after_blocks,
                                    n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
@@ -117,6 +119,9 @@ class MeSAEPretrain(nn.Module):
         # (TSABlock). Off by default so backbones pretrained before 2026-09-25 keep the
         # behaviour they were trained with; configs/pretrain*.template.json turn it on.
         self.mask_padded_channels = mask_padded_channels
+        # spatial_bias (2026-09-25): directional relative-position bias in every block's
+        # spatial attention (MeSAE_modules.RelativeSpatialBias). Off = the original encoder.
+        self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_bias else None
 
         self.stamps = StampBank(
             embed_dim, patch_len,
@@ -269,7 +274,8 @@ class MeSAEPretrain(nn.Module):
             if bool_masked_pos is not None:
                 mask = bool_masked_pos.unsqueeze(-1).type_as(z)  # [B, C, N, 1]
                 z = z * (1.0 - mask) + self.mask_token * mask
-        return self.encoder(z, valid_channels if self.mask_padded_channels else None)  # [B, C, N, D], ffn_lb_loss
+        bias = self.spatial_bias(coords) if self.spatial_bias is not None and coords is not None else None
+        return self.encoder(z, valid_channels if self.mask_padded_channels else None, bias)  # [B, C, N, D], ffn_lb_loss
 
     # -- Finetune-only entry points, NOT used by the Tokenizer/Pretrain forward() path
     # below.

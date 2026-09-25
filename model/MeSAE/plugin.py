@@ -40,6 +40,8 @@ def build_model(bp, num_channels):
         num_channels=num_channels,
         legacy_mask_after_embed=bp.get('legacy_mask_after_embed', False),
         mask_padded_channels=bp.get('mask_padded_channels', False),
+        coord_encoding=bp.get('coord_encoding', 'mlp'),
+        spatial_bias=bp.get('spatial_bias', False),
         n_routed_stamps=sb.get('n_routed_stamps', 60),
         n_shared_stamps=sb.get('n_shared_stamps', 4),
         stamp_top_k=sb.get('stamp_top_k', 32),

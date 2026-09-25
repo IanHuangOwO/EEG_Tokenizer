@@ -69,9 +69,48 @@ def get_sinusoidal_pos(seq_len, dim, device):
     return pos_emb.unsqueeze(0)  # [1, SeqLen, Dim]
 
 
-class SpatialTemporalEmbeddings(nn.Module):
-    def __init__(self, patch_len, dim, max_patches=5000):
+# Fixed log-spaced wavelengths for electrode positions in metres (a head is ~0.2 m across):
+# 40 cm ~ hemisphere scale down to 2.5 cm ~ a dense cap's electrode spacing.
+FOURIER_WAVELENGTHS_M = (0.40, 0.20, 0.10, 0.05, 0.025)
+
+
+def fourier_features(p):
+    """[..., 3] positions (m) -> [..., 3 + 3*2*len(FOURIER_WAVELENGTHS_M)]: raw xyz plus sin/cos
+    of every axis at every wavelength. Gives an MLP a multi-scale basis over the scalp, which
+    a raw-xyz MLP lacks (it drifts to near-constant, see coord_scale below)."""
+    w = 2 * math.pi / torch.tensor(FOURIER_WAVELENGTHS_M, device=p.device, dtype=p.dtype)   # [F]
+    ang = (p.unsqueeze(-1) * w).flatten(-2)                                                 # [..., 3F]
+    return torch.cat([p, ang.sin(), ang.cos()], dim=-1)
+
+
+FOURIER_DIM = 3 + 3 * 2 * len(FOURIER_WAVELENGTHS_M)
+
+
+class RelativeSpatialBias(nn.Module):
+    """Per-block, per-head bias added to spatial attention scores from the DIRECTIONAL
+    position difference of the two electrodes: b(i, j) = MLP(fourier(p_i - p_j)), so the model
+    can learn asymmetric relations (posterior vs anterior, left vs right), not only distance.
+    Depends only on the montage, so it's computed once per window and shared over time.
+    Last layer zero-initialised: training starts exactly as without it. -> [B, depth, H, C, C]."""
+    def __init__(self, depth, num_heads, hidden=32):
         super().__init__()
+        self.depth, self.heads = depth, num_heads
+        out = nn.Linear(hidden, depth * num_heads)
+        nn.init.zeros_(out.weight)
+        nn.init.zeros_(out.bias)
+        self.mlp = nn.Sequential(nn.Linear(FOURIER_DIM, hidden), nn.GELU(), out)
+
+    def forward(self, coords):
+        B, C, _ = coords.shape
+        rel = coords[:, :, None, :] - coords[:, None, :, :]                                   # [B, C, C, 3]  i - j
+        b = self.mlp(fourier_features(rel.float()))                                          # [B, C, C, depth*H]
+        return b.view(B, C, C, self.depth, self.heads).permute(0, 3, 4, 1, 2)                # [B, depth, H, C, C]
+
+
+class SpatialTemporalEmbeddings(nn.Module):
+    def __init__(self, patch_len, dim, max_patches=5000, coord_encoding='mlp'):
+        super().__init__()
+        self.coord_encoding = coord_encoding
         self.proj = nn.Linear(patch_len, dim)
         self.norm = nn.LayerNorm(dim)
         # Learnable, warm-started from the sinusoidal code (not random init) - an
@@ -94,8 +133,10 @@ class SpatialTemporalEmbeddings(nn.Module):
         # channel variation is the ONLY thing this path can produce, structurally.
         _coord_out = nn.Linear(dim // 4, dim, bias=False)
         nn.init.zeros_(_coord_out.weight)
+        # coord_encoding 'fourier' (2026-09-25): the MLP reads fourier_features(xyz) instead of
+        # coord_scale * xyz, so no coord_scale is needed; 'mlp' is the original path below.
         self.coord_proj = nn.Sequential(
-            nn.Linear(3, dim // 4, bias=False),
+            nn.Linear(FOURIER_DIM if coord_encoding == 'fourier' else 3, dim // 4, bias=False),
             nn.GELU(),
             _coord_out,
         )
@@ -113,7 +154,8 @@ class SpatialTemporalEmbeddings(nn.Module):
         # coordinate frame the run's channels actually live in). Init 10.0: typical
         # coord magnitude ~0.1 -> scaled input ~O(1), a normal-sized MLP input instead of
         # a tenth of one.
-        self.coord_scale = nn.Parameter(torch.tensor(10.0))
+        if coord_encoding != 'fourier':
+            self.coord_scale = nn.Parameter(torch.tensor(10.0))
 
     def enable_spatial(self):
         self.spatial_active = True
@@ -133,7 +175,8 @@ class SpatialTemporalEmbeddings(nn.Module):
             z = z + self.pos_emb[:, :N, :]
 
         if coords is not None and self.spatial_active:
-            s = self.coord_proj((coords * self.coord_scale).reshape(B * C, 3)).unsqueeze(1)  # [B*C, 1, D]
+            pos = fourier_features(coords) if self.coord_encoding == 'fourier' else coords * self.coord_scale
+            s = self.coord_proj(pos.reshape(B * C, -1)).unsqueeze(1)  # [B*C, 1, D]
             z = z + s
 
         return self.norm(z).reshape(B, C, N, -1)
@@ -369,7 +412,7 @@ class TSABlock(nn.Module):
         m = t.detach().abs().amax()
         self.last_branch_max = m if self.last_branch_max is None else torch.maximum(self.last_branch_max, m)
 
-    def forward(self, x, valid_channels=None):
+    def forward(self, x, valid_channels=None, spatial_bias=None):
         """valid_channels [B, C] bool (optional): zero-padded channels are left out of
         spatial attention as keys, so a montage's missing channels can't dilute the
         softmax (their own rows still get computed, then ignored downstream)."""
@@ -389,7 +432,17 @@ class TSABlock(nn.Module):
             x_norm = self.norm_space(x_space)
             kpm = None if valid_channels is None else \
                 (~valid_channels.bool()).repeat_interleave(N, dim=0)            # [B*N, C], True = ignore
-            attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm, key_padding_mask=kpm)
+            if spatial_bias is None:
+                attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm, key_padding_mask=kpm)
+            else:
+                # spatial_bias [B, H, C, C] (RelativeSpatialBias) -> [B*N*H, C, C] float mask, with
+                # padded keys folded in as -inf (one mask type, no bool/float mixing)
+                H = spatial_bias.shape[1]
+                bias = spatial_bias.to(x_norm.dtype)
+                if valid_channels is not None:
+                    bias = bias.masked_fill(~valid_channels.bool()[:, None, None, :], float('-inf'))
+                bias = bias[:, None].expand(B, N, H, C, C).reshape(B * N * H, C, C)
+                attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm, attn_mask=bias)
             self._watch(attn_out)
             attn_out = self.norm_space_out(attn_out)
             x_space = x_space + self.drop_s(self.scale_s * attn_out)
@@ -465,7 +518,8 @@ class TSAEncoder(nn.Module):
         right  = xp[:, :, 2:N + 2:2, :]
         return (left + 2 * center + right) / 4.0
 
-    def forward(self, x, valid_channels=None):
+    def forward(self, x, valid_channels=None, spatial_bias=None):
+        """spatial_bias: optional [B, depth, H, C, C] from RelativeSpatialBias, block i gets [:, i]."""
         skips = []  # unpadded pre-pool tensors, one per pool point, in block order
         # Per-block contribution norm — how much each block actually changes its input,
         # not just the skip-gate residual-add strength (which conflates "shallow skip
@@ -489,7 +543,7 @@ class TSAEncoder(nn.Module):
         for i, block in enumerate(self.blocks):
             x_in = x
             if self._runs(i):
-                x, blk_ffn_lb = block(x, valid_channels)
+                x, blk_ffn_lb = block(x, valid_channels, None if spatial_bias is None else spatial_bias[:, i])
                 ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
                 with torch.no_grad():
