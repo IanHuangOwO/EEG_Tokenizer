@@ -8,7 +8,7 @@ from typing import List, Dict, Optional, Tuple, Callable, Any
 
 from .loader import load_coords_from_metadata
 from IO.preprocessing import build_normalizer_from_config, cache_suffix, slice_patches, num_patches, window_continuous_signal
-from IO.masking import BaseMaskingStrategy, build_masking_strategy_from_config
+from IO.masking import MaskingStrategy, build_masking_strategy_from_config
 
 # Channels excluded by default when channels_to_use is "all".
 # Set include_non_eeg_channels: true in dataset_params to override.
@@ -364,8 +364,7 @@ class PretrainDataset(Dataset):
         base_dataset: EEGDataset,
         patch_len: Optional[int] = None,
         patch_stride: Optional[int] = None,
-        masking_strategy: Optional[BaseMaskingStrategy] = None,
-        subsampler=None,
+        masking_strategy: Optional[MaskingStrategy] = None,
     ):
         self.base_dataset = base_dataset
         if patch_len is None:
@@ -378,7 +377,7 @@ class PretrainDataset(Dataset):
         # assembled window's zero tail (window_continuous_signal), patches that start past
         # the window's real content. Fixed after construction; every mask is drawn inside it.
         self._valid_masks = self._build_valid_masks()
-        self.set_masking(masking_strategy or build_masking_strategy_from_config({}), subsampler)
+        self.set_masking(masking_strategy or build_masking_strategy_from_config({}))
 
         n = len(base_dataset)
         print(f"\n--- PretrainDataset ---")
@@ -407,17 +406,18 @@ class PretrainDataset(Dataset):
             masks.append((valid_channels.unsqueeze(1) & valid_patch.unsqueeze(0)).reshape(-1))
         return masks
 
-    def set_masking(self, masking_strategy: BaseMaskingStrategy, subsampler=None):
+    def set_masking(self, masking_strategy: MaskingStrategy):
         """(Re)draw every trial's masks from the strategy's current state (the training loop
-        calls this when strategy/subsampler state() changes, see train_pretrain.py). Each
+        calls this when the strategy's state() changes, see train_pretrain.py). Each
         trial stores [multiplier, C*N] masks, one per dataset copy; __len__ follows the
         multiplier, so any DataLoader built on this dataset must be rebuilt afterwards (with
         persistent_workers, workers hold their own copy of the dataset from spawn time).
 
-        subsampler (IO/masking.py ChannelSubsampler, optional): per trial, a sparse montage
+        masking_strategy.subsampler (ChannelSubsampler, optional): per trial, a sparse montage
         to keep; removed channels leave the valid set BEFORE the mask is drawn, and
         __getitem__ turns them into padding (zero signal, not valid, no loss)."""
         self.masking_strategy = masking_strategy
+        subsampler = masking_strategy.subsampler
         bd = self.base_dataset
         if subsampler is not None and not hasattr(self, '_montage_idx'):
             norm = bd._normalize_label
@@ -629,7 +629,7 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         return base_dataset
     elif mode == 'pretrain':
         # The tokenizer phase ignores masks; train_pretrain.py re-applies the strategy (with
-        # its epoch and subsampler) from the first masked epoch on.
+        # its epoch) from the first masked epoch on.
         strategy = build_masking_strategy_from_config(pp.get('mask', {}))
         ds = PretrainDataset(base_dataset, patch_len=patch_len, patch_stride=patch_stride,
                              masking_strategy=strategy)

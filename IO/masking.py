@@ -1,12 +1,14 @@
 """
 Pretrain masking (masked phase only; the tokenizer phase ignores masks).
 
-One interface for every strategy, so the training loop never needs to know which one runs:
+One object, MaskingStrategy, so the training loop and the dataset never need to know which
+scheme runs:
 
     strategy.set_epoch(e)     # e = masked-phase epoch, 1-based; the strategy owns its schedule
     strategy.state()          # hashable; the dataset redraws its masks when this changes
     strategy.multiplier       # dataset copies per epoch (2 = every window shown twice)
     strategy.generate(C, N, valid, coords) -> [multiplier, C*N] bool, one mask per copy
+    strategy.subsampler       # ChannelSubsampler or None
     strategy.describe()       # one line for the log
 
 Tokens are channel-major (c * N + n), matching IO/dataset.py's (C, N) layout. valid (bool,
@@ -15,7 +17,7 @@ assembled window's zero tail, and every ratio is a ratio of the VALID tokens -- 
 heavily padded dataset (8 of 64 channels) or a window's zero tail wastes most of the budget
 on content already known to be zero (docs/model-analysis-checklist.md).
 
-Strategies (preprocess_params.mask.masking_strategy) -- all MixtureMaskingStrategy: one MaskMode
+Strategies (preprocess_params.mask.masking_strategy) -- all MaskingStrategy: one MaskMode
 per window (random_token / random_channel / channel_cluster / time_block, ...) on one shared ramp.
 New mask patterns are new MaskMode classes plus a config entry. Named presets:
   random                   random_token at a fixed ratio
@@ -23,33 +25,12 @@ New mask patterns are new MaskMode classes plus a config entry. Named presets:
   random_to_complementary  random_token ratio ramp, then complementary (the baseline's)
   mixture                  modes as configured
 
-ChannelSubsampler (preprocess_params.mask.subsample) is independent of the strategy: it
+ChannelSubsampler (preprocess_params.mask.subsample, enabled: true) is owned by the strategy: it
 REMOVES channels (they become padding, no loss) to imitate sparse caps.
 """
 import torch
 from abc import ABC, abstractmethod
 from typing import List, Optional
-
-
-class BaseMaskingStrategy(ABC):
-    multiplier: int = 1
-    _epoch: int = 1
-
-    def set_epoch(self, epoch: int) -> None:
-        self._epoch = epoch
-
-    def state(self):
-        """Masks are redrawn whenever this changes. Default: never after the first draw."""
-        return self.multiplier
-
-    @abstractmethod
-    def generate(self, num_channels: int, num_patches: int, valid: Optional[torch.Tensor] = None,
-                 coords: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """-> [multiplier, C*N] bool. coords: [C, 3] channel positions, read only by modes
-        that need geometry (ChannelClusterMask)."""
-
-    def describe(self) -> str:
-        return type(self).__name__
 
 
 def _valid(num_channels, num_patches, valid):
@@ -173,7 +154,7 @@ MASK_MODES = {'random_token': RandomTokenMask, 'random_channel': RandomChannelMa
               'channel_cluster': ChannelClusterMask, 'time_block': TimeBlockMask}
 
 
-class MixtureMaskingStrategy(BaseMaskingStrategy):
+class MaskingStrategy:
     """Draws one MaskMode per window (shares `prob`). All modes share one ramp: over the first
     ramp_epochs masked epochs each mode's ratio goes start_ratio -> its own max_ratio together,
     in steps of step_every epochs (1 = every epoch; ramp_epochs 0 = at max_ratio from the start).
@@ -182,10 +163,14 @@ class MixtureMaskingStrategy(BaseMaskingStrategy):
     masks every epoch; False keeps one draw per ratio step (the older strategies' behaviour).
     Config: preprocess_params.mask.mixture = {start_ratio, ramp_epochs, step_every,
     resample_each_epoch, modes: [{type, prob, max_ratio, ...mode kwargs}]}; the named strategies
-    random / complementary / random_to_complementary are presets of this class (see
-    build_masking_strategy_from_config)."""
+    random / complementary / random_to_complementary are presets (PRESETS). subsample (a
+    ChannelSubsampler config) is owned here too, so the training loop and the dataset handle
+    one object: set_epoch / state / multiplier / generate / subsampler / describe."""
     def __init__(self, modes: List[dict], start_ratio: float = 0.1, ramp_epochs: int = 10,
-                 step_every: int = 1, resample_each_epoch: bool = True, label: str = 'mixture'):
+                 step_every: int = 1, resample_each_epoch: bool = True, label: str = 'mixture',
+                 subsample: Optional[dict] = None):
+        self._epoch = 1
+        self.subsampler = ChannelSubsampler(**subsample) if subsample else None
         self.modes = [MASK_MODES[m['type']](**{k: v for k, v in m.items() if k not in ('type', 'prob', 'max_ratio')})
                       for m in modes]
         self.names = [m['type'] for m in modes]
@@ -193,6 +178,12 @@ class MixtureMaskingStrategy(BaseMaskingStrategy):
         self.max_ratio = [float(m['max_ratio']) for m in modes]
         self.start_ratio, self.ramp_epochs = start_ratio, max(0, int(ramp_epochs))
         self.step_every, self.resample, self.label = max(1, int(step_every)), resample_each_epoch, label
+
+    def set_epoch(self, epoch: int) -> None:
+        """epoch = masked-phase epoch, 1-based; drives the ramp and the subsampler's schedule."""
+        self._epoch = epoch
+        if self.subsampler is not None:
+            self.subsampler.set_epoch(epoch)
 
     def progress(self) -> float:
         """Ramp position 0..1, constant within each step_every-epoch step."""
@@ -212,7 +203,9 @@ class MixtureMaskingStrategy(BaseMaskingStrategy):
         return 2 if self._epoch > self.ramp_epochs and any(m.complementary for m in self.modes) else 1
 
     def state(self):
-        return self._epoch if self.resample else (tuple(self.ratios()), self.multiplier)
+        """Masks (and subsampled montages) are redrawn whenever this changes."""
+        own = self._epoch if self.resample else (tuple(self.ratios()), self.multiplier)
+        return own, (self.subsampler.state() if self.subsampler is not None else None)
 
     def generate(self, num_channels, num_patches, valid=None, coords=None):
         valid = _valid(num_channels, num_patches, valid).view(num_channels, num_patches)
@@ -225,7 +218,8 @@ class MixtureMaskingStrategy(BaseMaskingStrategy):
 
     def describe(self):
         return f'{self.label} x{self.multiplier} ' + ' '.join(
-            f'{n}:{p:.2f}@{r:.2f}' for n, p, r in zip(self.names, self.probs.tolist(), self.ratios()))
+            f'{n}:{p:.2f}@{r:.2f}' for n, p, r in zip(self.names, self.probs.tolist(), self.ratios())) + \
+            (f' | {self.subsampler.describe()}' if self.subsampler is not None else '')
 
 
 class ChannelSubsampler:
@@ -266,33 +260,31 @@ class ChannelSubsampler:
         return f'subsample prob={self.prob():.3f} montages={self.montages}'
 
 
-def build_masking_strategy_from_config(pp: dict) -> BaseMaskingStrategy:
-    """pp = preprocess_params.mask. Every strategy is a MixtureMaskingStrategy; the named ones
-    are presets of a single random_token mode (time_run from pp, default 1):
-      random                   mask_ratio (default 0.5) from the first masked epoch, one draw
-      complementary            0.5 with inverse pairs from the first masked epoch, one draw
-      random_to_complementary  ratio start_ratio -> 0.5 in step_every-epoch steps over ramp_epochs,
-                               then 0.5 with inverse pairs; one draw per step
-      mixture                  pp['mixture'] as given"""
-    name, time_run = pp.get('masking_strategy', 'random'), pp.get('time_run', 1)
-    cfg = pp.get(name, {})
+def _token(ratio, complementary):
+    return [{'type': 'random_token', 'prob': 1.0, 'max_ratio': ratio, 'complementary': complementary}]
+
+
+# Named strategies = MaskingStrategy configs of a single random_token mode. cfg is
+# preprocess_params.mask.<name>; time_run (preprocess_params.mask.time_run) is added to the mode.
+PRESETS = {
+    'random': lambda cfg: dict(modes=_token(cfg.get('mask_ratio', 0.5), False),
+                               start_ratio=cfg.get('mask_ratio', 0.5), ramp_epochs=0, resample_each_epoch=False),
+    'complementary': lambda cfg: dict(modes=_token(0.5, True), start_ratio=0.5, ramp_epochs=0,
+                                      resample_each_epoch=False),
+    'random_to_complementary': lambda cfg: dict(modes=_token(0.5, True), start_ratio=cfg.get('start_ratio', 0.1),
+                                                ramp_epochs=cfg.get('ramp_epochs', 25),
+                                                step_every=cfg.get('step_every', 5), resample_each_epoch=False),
+}
+
+
+def build_masking_strategy_from_config(pp: dict) -> MaskingStrategy:
+    """pp = preprocess_params.mask: masking_strategy names a PRESETS entry or 'mixture'
+    (pp['mixture'] as given); subsample runs only with enabled: true."""
+    name = pp.get('masking_strategy', 'random')
     if name == 'mixture':
-        return MixtureMaskingStrategy(**cfg)
-    token = lambda ratio, comp: [{'type': 'random_token', 'prob': 1.0, 'max_ratio': ratio,
-                                  'time_run': time_run, 'complementary': comp}]
-    if name == 'random_to_complementary':
-        return MixtureMaskingStrategy(token(0.5, True), start_ratio=cfg.get('start_ratio', 0.1),
-                                      ramp_epochs=cfg.get('ramp_epochs', 25), step_every=cfg.get('step_every', 5),
-                                      resample_each_epoch=False, label=name)
-    if name == 'complementary':
-        return MixtureMaskingStrategy(token(0.5, True), start_ratio=0.5, ramp_epochs=0,
-                                      resample_each_epoch=False, label=name)
-    ratio = cfg.get('mask_ratio', 0.5)
-    return MixtureMaskingStrategy(token(ratio, False), start_ratio=ratio, ramp_epochs=0,
-                                  resample_each_epoch=False, label='random')
-
-
-def build_subsampler_from_config(pp: dict) -> Optional[ChannelSubsampler]:
-    """preprocess_params.mask.subsample -> ChannelSubsampler, or None unless enabled: true."""
-    cfg = dict(pp.get('subsample') or {})
-    return ChannelSubsampler(**cfg) if cfg.pop('enabled', False) else None
+        cfg = dict(pp['mixture'])
+    else:
+        cfg = dict(PRESETS[name](pp.get(name, {})), label=name)
+        cfg['modes'] = [dict(m, time_run=pp.get('time_run', 1)) for m in cfg['modes']]
+    sub = dict(pp.get('subsample') or {})
+    return MaskingStrategy(**cfg, subsample=sub if sub.pop('enabled', False) else None)
