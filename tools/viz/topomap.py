@@ -6,14 +6,20 @@ from matplotlib.patches import Circle
 
 
 def project_coords_2d(coords: np.ndarray) -> np.ndarray:
-    """Azimuthal equidistant projection of 3-D electrode coords to 2-D. coords: [C, 3]"""
+    """Azimuthal equidistant projection of 3-D electrode coords to 2-D. coords: [C, 3].
+    Zero-padded channels (coords exactly 0, a dataset lacking that canonical channel) come
+    out NaN -- projected, (0, 0, 0) lands on the nose (0, 1) and every missing channel would
+    be drawn there as one fake frontal electrode; draw_topomap drops NaN positions."""
+    missing = ~np.any(coords != 0, axis=1)
     x, y, z = coords[:, 0], coords[:, 1], coords[:, 2]
     r = np.sqrt(x**2 + y**2 + z**2) + 1e-8
     xn, yn, zn = x / r, y / r, z / r
     theta = np.arccos(np.clip(zn, -1, 1))
     phi = np.arctan2(xn, yn)
     rho = theta / (np.pi / 2)
-    return np.stack([rho * np.sin(phi), rho * np.cos(phi)], axis=1)
+    pos = np.stack([rho * np.sin(phi), rho * np.cos(phi)], axis=1)
+    pos[missing] = np.nan
+    return pos
 
 
 def build_triangulation(pos2d: np.ndarray):
@@ -22,6 +28,7 @@ def build_triangulation(pos2d: np.ndarray):
     this once instead of per-call avoids redoing an O(C log C) triangulation ~Q times
     (Q = number of Experts/Filters, e.g. 64) for a single figure. Returns None if
     triangulation fails, signaling draw_topomap to fall back to scipy griddata."""
+    pos2d = pos2d[np.isfinite(pos2d).all(1)]            # same filtering as draw_topomap
     try:
         return mtri.Triangulation(pos2d[:, 0], pos2d[:, 1])
     except Exception:
@@ -37,6 +44,8 @@ def draw_topomap(ax, pos2d: np.ndarray, values: np.ndarray,
     n_grid and triang are kept for call compatibility and only used by the fallback below,
     which is used when mne is not installed. Returns the image artist for colorbars.
     """
+    real = np.isfinite(pos2d).all(1)                       # NaN = padded channel (project_coords_2d)
+    pos2d, values = pos2d[real], np.asarray(values)[real]
     try:
         import mne
     except ImportError:
