@@ -39,7 +39,6 @@ class Loader(BaseSubjectLoader):
     def _load_data(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         import mne
 
-        epoch_pts = int(EPOCH_S * self.sample_freq)
         all_epochs, all_labels = [], []
 
         for psg_path, hyp_path in self.night_paths:
@@ -60,6 +59,8 @@ class Loader(BaseSubjectLoader):
             sleep_end = min(raw.times[-1], max(e for _, e in non_w) + CROP_MARGIN_MIN * 60)
 
             data = raw.get_data(picks=self.pick_names)  # (C, T)
+            data, sf = self._filter_run(data)            # whole night, before cutting
+            epoch_pts = int(EPOCH_S * sf)
 
             t = sleep_start
             while t + EPOCH_S <= sleep_end:
@@ -73,7 +74,7 @@ class Loader(BaseSubjectLoader):
                         break
                 label = STAGE_LABEL.get(desc)
                 if label is not None:
-                    start_pt = int(t * self.sample_freq)
+                    start_pt = int(t * sf)
                     end_pt = start_pt + epoch_pts
                     if end_pt <= data.shape[-1]:
                         all_epochs.append(data[:, start_pt:end_pt])

@@ -130,7 +130,10 @@ EEG signals (raw dataset files)
   │                                   # train time). Cuts Trials: event-anchored ones [event-1 s, event+4 s)
   │                                   # (configs/compile.json pre/post_event_seconds), others per dataset;
   │                                   # MOABB-covered datasets use IO/loader.py's MoabbLoader
-  └─ cache_dataset.py          # bandpass filter → resample, baked once into datas/<split>/<Name>/cache/*.npz
+  └─ cache_dataset.py          # bandpass filter → resample, baked once into datas/<split>/<Name>/cache/*.npz;
+  │                            # applied to each CONTINUOUS recording before epochs are cut (loaders call
+  │                            # BaseSubjectLoader._filter_run; filtering short epochs leaves edge transients).
+  │                            # Only sources that ship pre-epoched (BETA_3s/BETA_4s) are filtered per epoch
   └─ IO/dataset.py             # EEGDataset reads the compiled cache directly, channel-maps/pads,
   │                            # applies IO/preprocessing.py's Normalizer (zscore/robust/fixed)
   │    └─ EEGDataset → PretrainDataset / FinetuneDataset
@@ -243,7 +246,7 @@ Each dataset under `datas/<split>/<name>/metadata.json` uses a unified schema:
 
 `datas/DATASETS.md` (generated) lists every dataset with paradigm, benchmark membership, event position, compiled hours and status.
 
-Pretrain's subject-level train/val split is done by shuffling subject IDs (seed 42) at `train_val_split` ratio — **data never leaks between subjects**.
+Pretrain's subject-level train/val split (`IO/dataset.py`'s `split_pretrain_subjects`, used by `train_pretrain.py` and `tools/misc/backbone_eval.py`) is **person-disjoint**: datasets recorded from the same people share a cohort (`metadata.json` `data_metadata.cohort`: GraspAndLift_Train/_Test = GraspAndLift, Lee2019_MI/_SSVEP = OpenBMI; default the dataset name), a person is on one side for the whole cohort, and every cohort draws from its own RNG (seed 42 + cohort), so adding or reordering datasets leaves the other splits unchanged. Pretraining also treats a subject's near-flat channels (std < `FLAT_RATIO` 0.10 x the subject's median channel std, before normalisation: dead electrodes, the recording reference) as padding. A pretrain checkpoint carries its `build_config`, and every loader rebuilds the backbone from it (`model/factory.py`'s `build_from_checkpoint`), never from the editable run config.
 
 Finetune numbers have known caveats (P300 intra-subject folds share overlapping windows, shuffled intra folds are optimistic, PhysionetMI is in the v10–v13 pretrain corpus) — read `docs/finetune-caveats.md` before reporting or comparing them.
 

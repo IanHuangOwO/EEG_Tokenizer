@@ -19,13 +19,14 @@ class Loader(BaseSubjectLoader):
 
     def _load_data(self):
         import mne
-        win = int(self.standard_window * self.sample_freq)
         raw = mne.io.read_raw_edf(self.file, preload=False, verbose=False)
         self._resample_if_needed(raw)
         # 16 of the 79 files spell the reference '-REF' instead of '-Ref'.
         by_upper = {n.upper(): n for n in raw.ch_names}
         picks = [by_upper[n.upper()] for n in self.pick_names]
         sig = raw.get_data(picks=picks).astype(np.float32)   # (C, T)
+        sig, sf = self._filter_run(sig)                    # whole recording, before cutting
+        win = int(self.standard_window * sf)
         n_win = sig.shape[1] // win
         if n_win == 0:
             return None, None

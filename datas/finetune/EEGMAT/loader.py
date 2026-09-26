@@ -28,8 +28,9 @@ class Loader(BaseSubjectLoader):
         raw = mne.io.read_raw_edf(self.file_path, preload=True, verbose=False)
         self._resample_if_needed(raw)
         data = raw.get_data(picks=self.channel_indices)  # [C, T]
+        data, sf = self._filter_run(data)                 # whole recording, before cutting
 
-        trial_len = int(self.standard_window * self.sample_freq)
+        trial_len = int(self.standard_window * sf)
         n_windows = data.shape[-1] // trial_len
         if n_windows == 0:
             return None, None

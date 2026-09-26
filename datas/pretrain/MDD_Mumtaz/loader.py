@@ -22,7 +22,6 @@ class Loader(BaseSubjectLoader):
 
     def _load_data(self):
         import mne
-        win = int(self.standard_window * self.sample_freq)
         data = []
         for path in self._existing(self.files):
             try:
@@ -31,6 +30,8 @@ class Loader(BaseSubjectLoader):
             except Exception as e:
                 print(f"  [Warning] {path}: {e}")
                 continue
+            sig, sf = self._filter_run(sig)                    # whole recording, before cutting
+            win = int(self.standard_window * sf)
             n_win = sig.shape[1] // win
             if n_win:
                 data.append(sig[:, :n_win * win].reshape(sig.shape[0], n_win, win).transpose(1, 0, 2))

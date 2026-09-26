@@ -25,7 +25,6 @@ class Loader(BaseSubjectLoader):
         import scipy.io as sio
 
         existing = self._existing(list(self.file_paths.values()))
-        trial_len = int(self.standard_window * self.sample_freq)
         all_windows, all_labels = [], []
 
         # 0=EC, 1=EO -- see gen_metadata.py's TARGETS.
@@ -35,6 +34,8 @@ class Loader(BaseSubjectLoader):
                 continue
             data = sio.loadmat(path)["dataRest"][:N_EEG_CHANNELS, :]  # (64, T)
             data = data[self.channel_indices, :]  # subset to requested channel order
+            data, sf = self._filter_run(np.ascontiguousarray(data, dtype=np.float32))  # whole recording, before cutting
+            trial_len = int(self.standard_window * sf)
 
             n_windows = data.shape[-1] // trial_len
             for i in range(n_windows):

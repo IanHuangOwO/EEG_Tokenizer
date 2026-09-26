@@ -18,13 +18,14 @@ class Loader(BaseSubjectLoader):
         self.files = [(self._resolve(f['file']), int(f['label'])) for f in entry['files']]
 
     def _load_data(self):
-        win = int(self.standard_window * self.sample_freq)
         data, labels = [], []
         present = set(self._existing([p for p, _ in self.files]))
         for path, label in self.files:
             if path not in present:
                 continue
             sig = np.loadtxt(path, dtype=np.float32)[:, self.channel_indices].T   # (C, T)
+            sig, sf = self._filter_run(sig)                    # whole recording, before cutting
+            win = int(self.standard_window * sf)
             n_win = sig.shape[1] // win
             if n_win == 0:
                 continue

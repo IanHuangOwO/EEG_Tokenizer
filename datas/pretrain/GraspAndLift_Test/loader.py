@@ -26,17 +26,18 @@ class Loader(BaseSubjectLoader):
             return None, None
 
         import pandas as pd
-        trial_len = int(self.standard_window * self.sample_freq)
         all_trials = []
 
         for data_path in self._existing(self.data_paths):
             df = pd.read_csv(data_path)
             data = df.iloc[:, 1:].values.astype(np.float32)  # (Time, Channels), drop 'id' column
 
-            n_windows = data.shape[0] // trial_len
+            sig, sf = self._filter_run(np.ascontiguousarray(data[:, self.channel_indices].T))  # (C, T), whole series
+            trial_len = int(self.standard_window * sf)
+            n_windows = sig.shape[1] // trial_len
             for i in range(n_windows):
                 start = i * trial_len
-                all_trials.append(data[start:start + trial_len, self.channel_indices].T)
+                all_trials.append(sig[:, start:start + trial_len])
 
         if not all_trials:
             return None, None

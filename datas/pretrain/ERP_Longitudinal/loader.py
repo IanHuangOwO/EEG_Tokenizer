@@ -29,7 +29,6 @@ class Loader(BaseSubjectLoader):
         if not self._existing([self.file_path]):
             return None, None
         import h5py
-        win = int(self.standard_window * self.sample_freq)
         windows = []
         with h5py.File(self.file_path, 'r') as f:
             for session in SESSIONS:
@@ -39,6 +38,8 @@ class Loader(BaseSubjectLoader):
                 for ref in f[session][:].flatten():
                     block = f[ref][:]  # (T, 58) -- v7.3 cell-array dereference
                     eeg = block[:, :N_EEG_CHANNELS][:, self.channel_indices].T.astype(np.float32)  # (C, T)
+                    eeg, sf = self._filter_run(eeg)                     # whole block, before cutting
+                    win = int(self.standard_window * sf)
                     n = eeg.shape[1] // win
                     if n:
                         windows.append(eeg[:, :n * win].reshape(eeg.shape[0], n, win).transpose(1, 0, 2))

@@ -67,8 +67,8 @@ class Loader(BaseSubjectLoader):
             df = pd.read_csv(signal_path)
             data = df.iloc[:, 1:-1].values.T[self.channel_indices]  # (C, T)
             markers = df.iloc[:, -1].values   # (Time,)
-
-            trig_indices = np.where(markers == 1)[0]
+            data, sf = self._filter_run(data)                  # whole session, before cutting
+            trig_indices = np.round(np.where(markers == 1)[0] * (sf / self.sample_freq)).astype(int)
 
             sub_sess = os.path.basename(signal_path).replace('Data_', '').replace('.csv', '')
             sub_labels = labels_df[labels_df['IdFeedBack'].str.contains(sub_sess)]['Prediction'].values
@@ -76,9 +76,8 @@ class Loader(BaseSubjectLoader):
                 sub_labels = alt_df[alt_df['IdFeedBack'].str.contains(sub_sess)]['Prediction'].values
 
             if self.standard_window:
-                pre_pts = int(self.pre_event_seconds * self.sample_freq)
-                post_pts = int(self.post_event_seconds * self.sample_freq) \
-                    or int(self.standard_window * self.sample_freq)
+                pre_pts = int(self.pre_event_seconds * sf)
+                post_pts = int(self.post_event_seconds * sf) or int(self.standard_window * sf)
             elif len(trig_indices) > 1:
                 pre_pts = 0
                 post_pts = int(np.median(np.diff(trig_indices)))

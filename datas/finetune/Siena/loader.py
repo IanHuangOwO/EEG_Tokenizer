@@ -26,7 +26,6 @@ class Loader(BaseSubjectLoader):
 
     def _load_data(self):
         import mne
-        win = int(self.standard_window * self.sample_freq)
         trials = []
         for path in self._existing(self.run_paths):
             try:
@@ -40,6 +39,8 @@ class Loader(BaseSubjectLoader):
                 sig = raw.get_data(picks=[n for _, n in present]).astype(np.float32)   # (C_present, T)
                 full = np.zeros((len(self.wanted), sig.shape[1]), dtype=np.float32)
                 full[[k for k, _ in present]] = sig
+                full, sf = self._filter_run(full)               # whole run, before cutting (absent channels stay 0)
+                win = int(self.standard_window * sf)
                 n_win = full.shape[1] // win
                 if n_win:
                     trials.append(full[:, :n_win * win].reshape(len(self.wanted), n_win, win).transpose(1, 0, 2))

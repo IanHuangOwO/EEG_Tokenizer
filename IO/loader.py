@@ -36,6 +36,12 @@ class BaseSubjectLoader(ABC):
         # samples wherever a loader converts to pts (self.sample_freq, not the compile
         # target) -- cache_dataset.py rescales the resulting valid_ranges to the compiled
         # rate itself, see get_subject_data.
+        # cache_dataset.py sets continuous_transform (its bandpass + resample): a loader that can
+        # apply it to each whole recording BEFORE cutting epochs does so and sets prefiltered, and
+        # the cache then skips filtering the cut epochs (filtering short epochs leaves edge
+        # transients: ~27% error on 1 s epochs). valid_ranges are then compiled-rate indices.
+        self.continuous_transform = None
+        self.prefiltered = False
         self.pre_event_seconds = self.dataset_params.get('pre_event_seconds', 0.0)
         self.post_event_seconds = self.dataset_params.get('post_event_seconds', 0.0)
         # Set by a loader's _load_data() (via _segment_by_annotations or its own cutting) to
@@ -71,6 +77,17 @@ class BaseSubjectLoader(ABC):
             if not os.path.exists(p):
                 print(f"  [Warning] Missing file: {p}")
         return [p for p in paths if os.path.exists(p)]
+
+    def _filter_run(self, data: np.ndarray) -> Tuple[np.ndarray, float]:
+        """One continuous recording [C, T] at self.sample_freq -> (recording, its sample rate).
+        With cache_dataset.py's continuous_transform set, the WHOLE recording is bandpassed and
+        resampled here, before any cutting, and the loader is marked prefiltered (cut windows and
+        valid_ranges are then in compiled-rate samples)."""
+        tf = self.continuous_transform
+        if tf is None:
+            return data, self.sample_freq
+        self.prefiltered = True
+        return tf(data).numpy(), tf.sample_freq
 
     def _segment_by_annotations(
         self, raw, code_to_label: Dict[str, int], channel_indices: List[int],
@@ -145,6 +162,7 @@ class BaseSubjectLoader(ABC):
             # set self._last_valid_ranges -- i.e. all of them except the event-anchored
             # ones (see IO/preprocessing.py's cut_event_window / _segment_by_annotations).
             'valid_ranges': valid_ranges,
+            'prefiltered': self.prefiltered,
             'session': np.asarray(self._last_sessions if self._last_sessions is not None else [0] * n,
                                   dtype=np.int64),
         }
@@ -292,11 +310,17 @@ class MoabbLoader(BaseSubjectLoader):
         trials, labels, ranges, sessions = [], [], [], []
         runs = subject_runs(self.ds, self.moabb_subject)
         session_idx = {s: i for i, s in enumerate(dict.fromkeys(s for s, _, _ in runs))}
+        tf = self.continuous_transform
+        self.prefiltered = tf is not None
         for session, _, raw in runs:
             self._resample_if_needed(raw)
-            sf = raw.info['sfreq']
+            data = raw.get_data(picks=self.pick_names).astype(np.float32)
+            scale = 1.0
+            if tf is not None:     # bandpass + resample the whole run, then cut at the compiled rate
+                data = tf(data).numpy()
+                scale = tf.sample_freq / raw.info['sfreq']
+            sf = raw.info['sfreq'] * scale
             if self.continuous:
-                data = raw.get_data(picks=self.pick_names).astype(np.float32)
                 win = int(round(self.standard_window * sf))
                 n = data.shape[1] // win
                 if n:
@@ -318,11 +342,10 @@ class MoabbLoader(BaseSubjectLoader):
             else:
                 events, _ = mne.events_from_annotations(raw, event_id=self.ds.event_id, verbose=False)
             code_to_label = {self.ds.event_id[k]: v for k, v in self.event_to_label.items()}
-            data = raw.get_data(picks=self.pick_names).astype(np.float32)
             for sample, _, code in events:
                 if code not in code_to_label:
                     continue
-                anchor = sample - raw.first_samp + shift
+                anchor = int(round((sample - raw.first_samp) * scale)) + shift
                 window, vs, ve = cut_event_window(data, anchor, pre, post)
                 if ve <= vs:
                     continue

@@ -22,7 +22,6 @@ class Loader(BaseSubjectLoader):
 
     def _load_data(self):
         import mne
-        win = int(round(self.standard_window * self.sample_freq))
         data, labels = [], []
         present = set(self._existing([e for e, _ in self.runs]))
         for edf, events in self.runs:
@@ -31,10 +30,12 @@ class Loader(BaseSubjectLoader):
             try:
                 raw = mne.io.read_raw_edf(edf, preload=True, verbose=False)
                 sig = raw.get_data(picks=self.pick_names).astype(np.float32)   # (C, T)
+                sig, sf = self._filter_run(sig)                                  # whole run, before cutting
+                win, scale = int(round(self.standard_window * sf)), sf / self.sample_freq
                 with open(events, encoding='utf-8-sig') as f:
                     rows = list(csv.DictReader(f, delimiter='\t'))
                 for r in rows:
-                    s = int(r['sample'])
+                    s = int(round(int(r['sample']) * scale))
                     if s + win <= sig.shape[1]:
                         data.append(sig[:, s:s + win])
                         labels.append(int(r['value']) - 1)

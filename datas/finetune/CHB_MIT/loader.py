@@ -40,18 +40,21 @@ class Loader(BaseSubjectLoader):
         return out
 
     def _read(self, path, starts, win):
-        """-> (len(starts), C, win) float32 windows from one file."""
+        """-> (len(starts), C, win) float32 windows from one file (starts/win in native samples; the
+        whole file is filtered before cutting, windows come out at the compiled rate if it is set)."""
         import mne
         raw = mne.io.read_raw_edf(path, preload=False, verbose=False)
         if abs(raw.info['sfreq'] - self.sample_freq) > 1e-6:
             raise ValueError(f"sfreq {raw.info['sfreq']} != {self.sample_freq}")
         picks = self._picks(raw)
-        out = np.zeros((len(starts), len(self.wanted), win), dtype=np.float32)
-        if not picks:
-            return out
-        for j, s in enumerate(starts):
-            out[j, [k for k, _ in picks]] = raw.get_data(picks=[n for _, n in picks], start=s, stop=s + win)
-        return out
+        full = np.zeros((len(self.wanted), raw.n_times), dtype=np.float32)
+        if picks:
+            full[[k for k, _ in picks]] = raw.get_data(picks=[n for _, n in picks])
+        full, sf = self._filter_run(full)
+        scale = sf / self.sample_freq
+        w = int(round(win * scale))
+        st = [min(int(round(s * scale)), full.shape[1] - w) for s in starts]   # rounding can overrun the end by a sample
+        return np.stack([full[:, t:t + w] for t in st])
 
     def _load_data(self):
         import mne

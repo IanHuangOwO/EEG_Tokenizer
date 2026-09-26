@@ -50,19 +50,22 @@ def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_fi
     for sub_id in data_structure.keys():
         loader = loader_cls(config=loader_config, subject_id=sub_id,
                              desired_channel_indices=list(range(c_native)))
+        loader.continuous_transform = transform      # filtered before cutting, if the loader supports it
         subject_data = loader.get_subject_data()
         if subject_data is None:
             print(f"  [{ds_name} S{sub_id}] no data, skipped.")
             continue
 
-        data = transform(subject_data['data']).numpy()
+        prefiltered = subject_data['prefiltered']
+        data = subject_data['data'] if prefiltered else transform(subject_data['data']).numpy()
+        scale = 1.0 if prefiltered else resample_scale   # prefiltered valid_ranges are compiled-rate already
         # Rescale NATIVE-rate valid_ranges (see IO/loader.py's get_subject_data) to the
         # compiled rate with the SAME ratio BandpassResample used above, so
         # valid_start/valid_end index correctly into `data`, not the pre-resample array.
         new_T = data.shape[-1]
-        valid_start = np.array([min(int(vs * resample_scale), new_T) for vs, _ in subject_data['valid_ranges']],
+        valid_start = np.array([min(int(vs * scale), new_T) for vs, _ in subject_data['valid_ranges']],
                                 dtype=np.int64)
-        valid_end = np.array([min(int(round(ve * resample_scale)), new_T) for _, ve in subject_data['valid_ranges']],
+        valid_end = np.array([min(int(round(ve * scale)), new_T) for _, ve in subject_data['valid_ranges']],
                               dtype=np.int64)
         # Re-zero padding AFTER the bandpass filter, not just before it (cut_event_window
         # already zeroed it pre-filter) -- sosfiltfilt is zero-phase but NOT zero-leakage
@@ -210,13 +213,13 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
         }
         loader = loader_cls(config=loader_config, subject_id=subject_id,
                              desired_channel_indices=list(range(c_expected)))
+        transform = BandpassResample(original_freq=fs_orig, sample_freq=sample_freq, l_freq=l_freq, h_freq=h_freq)
+        loader.continuous_transform = transform
         subject_data = loader.get_subject_data()
         if subject_data is None:
             problems.append("deep check: raw loader returned no data for this subject")
         else:
-            transform = BandpassResample(original_freq=fs_orig, sample_freq=sample_freq,
-                                          l_freq=l_freq, h_freq=h_freq)
-            recomputed = transform(subject_data['data']).numpy()
+            recomputed = subject_data['data'] if subject_data['prefiltered'] else transform(subject_data['data']).numpy()
             if recomputed.shape != data.shape:
                 problems.append(f"deep check: recompute shape {recomputed.shape} != cache shape {data.shape} "
                                  f"— cache is stale, rerun cache_dataset.py")

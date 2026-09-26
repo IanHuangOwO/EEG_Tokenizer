@@ -20,7 +20,6 @@ class Loader(BaseSubjectLoader):
 
     def _load_data(self):
         import mne
-        win = int(self.standard_window * self.sample_freq)
         data, labels = [], []
         present = set(self._existing([p for p, _ in self.runs]))
         for path, label in self.runs:
@@ -33,6 +32,8 @@ class Loader(BaseSubjectLoader):
                 print(f"  [Warning] {path}: {e}")
                 continue
             sig = (sig - sig.mean(axis=0, keepdims=True))[self.channel_indices].astype(np.float32)
+            sig, sf = self._filter_run(sig)                    # whole recording, before cutting
+            win = int(self.standard_window * sf)
             n_win = sig.shape[1] // win
             if n_win == 0:
                 continue
