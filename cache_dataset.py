@@ -9,6 +9,16 @@ import scipy.signal
 from IO.loader import resolve_dataset_loader
 from IO.preprocessing import BandpassResample, cache_suffix
 
+DROPOUT_RATIO = 0.05   # a window whose peak |x| is below this x the subject's median window peak is a dropout
+
+
+def dropout_keep(data):
+    """[N, C, T] -> [N] bool, False on flat-line windows (signal dropouts: a disconnected amplifier,
+    a recording's dead tail): peak |x| below DROPOUT_RATIO x the subject's median window peak.
+    Relative, so it holds whatever the data's units. They carry no EEG."""
+    peak = np.abs(data).reshape(len(data), -1).max(1)
+    return peak >= DROPOUT_RATIO * np.median(peak)
+
 
 def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_filter: dict,
                      pre_event_seconds: float = 0.0, post_event_seconds: float = 0.0):
@@ -81,9 +91,15 @@ def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_fi
         for i in range(len(data)):
             data[i, :, :valid_start[i]] = 0.0
             data[i, :, valid_end[i]:] = 0.0
+        keep = dropout_keep(data)
+        labels, session = subject_data['labels'], subject_data['session']
+        if not keep.all():
+            print(f"  [{ds_name} S{sub_id}] dropped {int((~keep).sum())} flat-line window(s)")
+            data, labels, session = data[keep], labels[keep], session[keep]
+            valid_start, valid_end = valid_start[keep], valid_end[keep]
         out_path = os.path.join(cache_dir, f"{sub_id}_{suffix}.npz")
-        np.savez(out_path, data=data.astype(np.float32), labels=subject_data['labels'].astype(np.int64),
-                 valid_start=valid_start, valid_end=valid_end, session=subject_data['session'])
+        np.savez(out_path, data=data.astype(np.float32), labels=labels.astype(np.int64),
+                 valid_start=valid_start, valid_end=valid_end, session=session)
         print(f"  [{ds_name} S{sub_id}] {data.shape} -> {out_path}")
         n_written += 1
 
@@ -220,6 +236,8 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
             problems.append("deep check: raw loader returned no data for this subject")
         else:
             recomputed = subject_data['data'] if subject_data['prefiltered'] else transform(subject_data['data']).numpy()
+            kk = dropout_keep(recomputed)
+            recomputed = recomputed[kk]
             if recomputed.shape != data.shape:
                 problems.append(f"deep check: recompute shape {recomputed.shape} != cache shape {data.shape} "
                                  f"— cache is stale, rerun cache_dataset.py")
@@ -227,7 +245,7 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
                 max_diff = np.abs(recomputed - data).max()
                 problems.append(f"deep check: recompute differs from cache (max abs diff={max_diff:.4g}) "
                                  f"— cache is stale, rerun cache_dataset.py")
-            if not np.array_equal(subject_data['labels'].astype(np.int64), labels):
+            if not np.array_equal(subject_data['labels'][kk].astype(np.int64), labels):
                 problems.append("deep check: recomputed labels differ from cached labels")
 
     return problems
