@@ -85,6 +85,8 @@ class MeSAEPretrain(nn.Module):
         n_shared_ffn_experts=1,
         ffn_top_k=2,
         patch_stride=None,
+        skip_mode='gated',
+        decoder_blocks=0,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -98,7 +100,7 @@ class MeSAEPretrain(nn.Module):
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
                                    dropout=dropout, blocks_per_stage=blocks_per_stage,
                                    n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
-                                   ffn_top_k=ffn_top_k)
+                                   ffn_top_k=ffn_top_k, skip_mode=skip_mode, decoder_blocks=decoder_blocks)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
         # Masked tokens swap their CONTENT for mask_token before the time/coord embeddings
@@ -106,7 +108,8 @@ class MeSAEPretrain(nn.Module):
         # Zero-padded (missing) channels are left out of spatial attention as keys (TSABlock).
         # spatial_embedding: Fourier coordinate embedding + a directional relative-position bias in
         # every block's spatial attention (RelativeSpatialBias), on or off together (the ablation).
-        self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_embedding else None
+        n_dec = decoder_blocks * (enc_depth // blocks_per_stage - 1)   # decoder blocks get their own bias too
+        self.spatial_bias = RelativeSpatialBias(enc_depth + n_dec, spatial_heads) if spatial_embedding else None
 
         self.stamps = StampBank(
             embed_dim, patch_len,

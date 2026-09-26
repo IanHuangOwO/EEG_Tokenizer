@@ -70,7 +70,9 @@ Shared: `configs/compile.json` (compile params + dataset list), `configs/montage
 sub-montages), `configs/finetune_protocols.json`, `configs/sweeps/`. See `configs/README.md`.
 
 Key fields (templates show defaults):
-- `model_params.MeSAE.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2),
+- `model_params.MeSAE.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2), `skip_mode`
+  (`gated` UNet skips / `none`), `decoder_blocks` (TSABlocks after each upsample; with either, latent_*
+  heads read the bottleneck),
   `spatial_heads`, `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (true: Fourier electrode-coordinate
   embedding + per-block directional relative spatial bias; false: neither -- the spatial ablation).
 - `preprocess_params`: `canonical_channels` (a `montages.json` name or a list), `window_length`,

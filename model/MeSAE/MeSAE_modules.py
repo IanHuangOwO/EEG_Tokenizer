@@ -441,26 +441,45 @@ class TSAEncoder(nn.Module):
     but the last (depth 8, 2 per stage: 4 stages at N, N/2, N/4, N/8 -- 39 -> 20 -> 10 -> 5), and
     the way back up adds each stage's pre-pool output (a UNet skip, gated) onto the upsampled
     deeper result. Pooling is centred ([1,3,3,1]/8, coarse token i sits between fine patches 2i and
-    2i+1) and upsampling interpolates linearly at the same positions, so no level shifts time."""
+    2i+1) and upsampling interpolates linearly at the same positions, so no level shifts time.
+
+    skip_mode 'gated' (the default) adds the skips; 'none' drops them, so everything reaching the
+    output passes through the deepest stage (the bottleneck). decoder_blocks > 0 puts that many
+    TSABlocks after each upsample (MAE-style decoder: it rebuilds per-patch detail, so the
+    bottleneck can stay abstract). Decoder blocks follow the encoder blocks in spatial_bias'
+    depth axis. last_bottleneck holds the deepest stage's output of the latest forward."""
     def __init__(self, dim, depth=8, num_heads=8, mlp_ratio=4., dropout=0.0, blocks_per_stage=2,
-                 n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2):
+                 n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2,
+                 skip_mode='gated', decoder_blocks=0):
         super().__init__()
         assert depth % blocks_per_stage == 0, f"depth {depth} is not a multiple of blocks_per_stage {blocks_per_stage}"
-        self.blocks = nn.ModuleList([
-            TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout,
-                     n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
-                     ffn_top_k=ffn_top_k)
-            for _ in range(depth)
-        ])
+        assert skip_mode in ('gated', 'none'), f"skip_mode {skip_mode!r}: 'gated' or 'none'"
+        block = lambda: TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout,
+                                 n_routed_ffn_experts=n_routed_ffn_experts,
+                                 n_shared_ffn_experts=n_shared_ffn_experts, ffn_top_k=ffn_top_k)
+        self.blocks = nn.ModuleList([block() for _ in range(depth)])
         self.pool_after = [i for i in range(blocks_per_stage - 1, depth - 1, blocks_per_stage)]
-        self.skip_gates = nn.ParameterList([nn.Parameter(torch.tensor(3.0)) for _ in self.pool_after])
+        self.skip_mode = skip_mode
+        if skip_mode == 'gated':
+            self.skip_gates = nn.ParameterList([nn.Parameter(torch.tensor(3.0)) for _ in self.pool_after])
+        else:
+            self.skip_gates = None
+        # one list per upsample level, deepest level first (the order they run in)
+        self.dec_blocks = nn.ModuleList([nn.ModuleList([block() for _ in range(decoder_blocks)])
+                                         for _ in self.pool_after]) if decoder_blocks else None
+
+    @property
+    def all_blocks(self):
+        """Encoder blocks, then decoder blocks in run order (= spatial_bias' depth axis)."""
+        dec = [b for level in self.dec_blocks for b in level] if self.dec_blocks is not None else []
+        return list(self.blocks) + dec
 
     def enable_spatial(self):
-        for block in self.blocks:
+        for block in self.all_blocks:
             block.enable_spatial()
 
     def enable_temporal(self):
-        for block in self.blocks:
+        for block in self.all_blocks:
             block.enable_temporal()
 
     @staticmethod
@@ -486,6 +505,22 @@ class TSAEncoder(nn.Module):
         f = (u - i0.to(u.dtype)).view(1, 1, n, 1)
         return x[:, :, i0] * (1 - f) + x[:, :, i1] * f
 
+    @property
+    def probe_bottleneck(self):
+        """True when the representation is the bottleneck, not the (decoder) output."""
+        return self.skip_mode == 'none' or self.dec_blocks is not None
+
+    def upsample_bottleneck(self, n):
+        """last_bottleneck back to n patches through the same linear upsamples (no skips, no
+        decoder): a fixed full-rank linear map, so a linear probe on it sees the bottleneck."""
+        sizes = [n]
+        for _ in self.pool_after:
+            sizes.append((sizes[-1] + 1) // 2)
+        x = self.last_bottleneck
+        for m in reversed(sizes[:-1]):
+            x = self._upsample(x, m)
+        return x
+
     @staticmethod
     def _pool_valid(v):
         """[B, N] bool -> [B, ceil(N/2)]: a coarse token is real if either of its two patches is."""
@@ -504,7 +539,7 @@ class TSAEncoder(nn.Module):
         record_norms = not self.training
         if record_norms:
             self.last_block_norms = []
-            gate_for_block = dict(zip(self.pool_after, self.skip_gates))
+            gate_for_block = dict(zip(self.pool_after, self.skip_gates)) if self.skip_mode == 'gated' else {}
         ffn_lb_loss = x.new_zeros(())
         vp = valid_patches
         for i, block in enumerate(self.blocks):
@@ -522,15 +557,35 @@ class TSAEncoder(nn.Module):
                 x = self._pool(x)
                 vp = None if vp is None else self._pool_valid(vp)
 
-        for skip, gate in zip(reversed(skips), reversed(self.skip_gates)):
-            x = self._upsample(x, skip.shape[2]) + torch.sigmoid(gate) * skip
+        self.last_bottleneck = x                                                        # [B, C, N_deep, D]
+        if self.skip_mode == 'gated' and self.dec_blocks is None:
+            for skip, gate in zip(reversed(skips), reversed(self.skip_gates)):
+                x = self._upsample(x, skip.shape[2]) + torch.sigmoid(gate) * skip
+        else:
+            vps, n_bias = [valid_patches], len(self.blocks)
+            for _ in skips[1:]:
+                vps.append(None if vps[-1] is None else self._pool_valid(vps[-1]))
+            for level, skip in enumerate(reversed(skips)):
+                x = self._upsample(x, skip.shape[2])
+                if self.skip_mode == 'gated':
+                    x = x + torch.sigmoid(self.skip_gates[len(skips) - 1 - level]) * skip
+                for block in (self.dec_blocks[level] if self.dec_blocks is not None else []):
+                    x_in = x
+                    x, blk_ffn_lb = block(x, valid_channels,
+                                          None if spatial_bias is None else spatial_bias[:, n_bias], vps[-1 - level])
+                    ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
+                    n_bias += 1
+                    if record_norms:
+                        with torch.no_grad():
+                            self.last_block_norms.append((x - x_in).norm(dim=-1).mean().item())
 
         # Router health and the worst interior branch magnitude (TSABlock._watch), over every block.
         with torch.no_grad():
-            self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in self.blocks]).mean()
-            self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in self.blocks]).mean()
-            self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in self.blocks]).mean()
-            watched = [b.last_branch_max for b in self.blocks if b.last_branch_max is not None]
+            blocks = self.all_blocks
+            self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in blocks]).mean()
+            self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in blocks]).mean()
+            self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in blocks]).mean()
+            watched = [b.last_branch_max for b in blocks if b.last_branch_max is not None]
             self.last_branch_max = torch.stack(watched).max() if watched else None
 
         return x, ffn_lb_loss
@@ -1605,6 +1660,9 @@ class StampExtractor(nn.Module):
         amp = amp[:, :, self.keep].reshape(B, N, C, -1, 2).float() * vmask.float()[:, None, :, None, None]
         amp = amp[:, :, self.channel_idx]                                                 # [B, N, Cv, S, 2]
         if return_z:   # the encoder output itself, for the latent_* head entries: [B, N, Cv, D]
+            enc = self.backbone.encoder
+            if enc.probe_bottleneck:   # no skips / a decoder: the bottleneck, not the decoder output
+                z = enc.upsample_bottleneck(N)
             return amp, z.permute(0, 2, 1, 3)[:, :, self.channel_idx].float()
         return amp
 

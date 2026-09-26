@@ -951,7 +951,9 @@
           "mp_weight": 1.0
         },
         "spatial_embedding": true,
-        "blocks_per_stage": 2
+        "blocks_per_stage": 2,
+        "skip_mode": "gated",
+        "decoder_blocks": 0
       }
     }
   },
