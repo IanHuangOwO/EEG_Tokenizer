@@ -87,6 +87,7 @@ class MeSAEPretrain(nn.Module):
         patch_stride=None,
         skip_mode='gated',
         decoder_blocks=0,
+        skip_drop=0.0,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -100,7 +101,8 @@ class MeSAEPretrain(nn.Module):
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
                                    dropout=dropout, blocks_per_stage=blocks_per_stage,
                                    n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
-                                   ffn_top_k=ffn_top_k, skip_mode=skip_mode, decoder_blocks=decoder_blocks)
+                                   ffn_top_k=ffn_top_k, skip_mode=skip_mode, decoder_blocks=decoder_blocks,
+                                   skip_drop=skip_drop)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
         # Masked tokens swap their CONTENT for mask_token before the time/coord embeddings
