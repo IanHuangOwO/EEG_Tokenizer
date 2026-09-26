@@ -54,6 +54,8 @@ chained behind it; a finished queue went unreported for 40 min.
 - Every job records its exit code; a chained step checks the previous step's status.
 - Report a job's end right away (success, or failure + last error lines). On a status check, list anything
   that died or went quiet.
+- Once a queue has finished and its outcome is reported, delete its state (`output/queue/<plan>/`, `.plan`,
+  `.log`): results live in each run's own output dir. Keep it only while a job failed and needs a rerun.
 
 ## Configs
 
