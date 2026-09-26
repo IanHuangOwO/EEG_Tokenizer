@@ -1,19 +1,11 @@
 """
-One report for a backbone comparison (e.g. base / A / B / AB): downstream scores on the frozen
-finetune protocols (configs/sweeps/frozen_protocols.json), the backbone's own
-held-out reconstruction and embedding use (tools/misc/backbone_eval.py via compare_backbones),
-and a verdict per hypothesis. The hypotheses and thresholds below were fixed before the A/B/AB
-results (experiment plan 2026-09-25); changing them after seeing numbers defeats the point.
-
-Single pretrain seed per backbone: a difference inside +-3 balanced-accuracy points is a tie,
+The backbone comparison report (analysis_finetune.py's `report` panel): downstream scores on the frozen
+finetune protocols, the backbones' own held-out reconstruction and embedding use (backbone_eval.json,
+written by analysis_pretrain.py's `backbone_eval` panel), and a verdict per hypothesis. The hypotheses
+and thresholds below were fixed before the A/B/AB results; changing them after seeing numbers defeats
+the point. Single pretrain seed per backbone: a difference inside +-3 balanced-accuracy points is a tie,
 and p-values are over subjects (Holm-corrected across every group x cell test), not seeds.
-
-    python -m tools.misc.backbone_report --ref base=mesae_tiny_static16_base_s1 \\
-        --group A=mesae_tiny_static16_groupA_s1 --group B=mesae_tiny_static16_groupB_s1 \\
-        --group AB=mesae_tiny_static16_groupAB_s1
-Writes output/reports/backbone_report_<ref+groups>.md and prints it.
 """
-import argparse
 import contextlib
 import io
 import json
@@ -22,8 +14,7 @@ import os
 import numpy as np
 from scipy import stats
 
-from tools.misc.compare_backbones import backbone as backbone_tables
-from tools.misc.summarize_runs import load
+from tools.analysis.summarize_runs import load
 
 CELLS = ['BNCI2014001_loso', 'BNCI2014001_fewshot', 'BNCI2014004_loso', 'BNCI2014004_fewshot',
          'BNCI2014008_loso', 'BNCI2014008_fewshot']
@@ -35,7 +26,7 @@ MSE_REL = 0.05                 # an MSE is "better" only when >= 5% lower (vs th
 
 
 def scores(bb, head, cell):
-    return load(f'output/{bb}/finetune/frozen_{head}/{cell}', 'tail') or {}
+    return load(f'output/{bb}/finetune/{head}/{cell}', 'tail') or {}
 
 
 def paired(a, b):
@@ -61,14 +52,10 @@ def backbone_eval(bb):
     return json.load(open(p)) if os.path.exists(p) else None
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--ref', required=True, help='name=backbone')
-    ap.add_argument('--group', action='append', required=True, help='name=backbone')
-    args = ap.parse_args()
-    ref_name, ref = args.ref.split('=')
-    groups = dict(g.split('=') for g in args.group)
-    allg = {ref_name: ref, **groups}
+def report(allg, ref_name, head='frozen_learned'):
+    """allg: {group name: backbone}, ref_name one of them; head: the finetune label compared
+    (output/<backbone>/finetune/<head>/<cell>). -> the report as markdown text."""
+    groups = {g: bb for g, bb in allg.items() if g != ref_name}
     out = []
     w = out.append
 
@@ -78,15 +65,15 @@ def main():
       '(mi_loso / mi_fewshot / p300_loso / p300_fewshot, tuned on DEV sets only).\n')
 
     # ---------- 1. downstream ----------
-    s = {(g, h, c): scores(bb, h, c) for g, bb in allg.items() for h in ('learned',) for c in CELLS}
+    s = {(g, h, c): scores(bb, h, c) for g, bb in allg.items() for h in (head,) for c in CELLS}
     missing = [f'{g}/{h}/{c}' for (g, h, c), v in s.items() if not v]
-    w('## 1. Downstream (learned head)\n')
+    w(f'## 1. Downstream ({head})\n')
     w('| cell | ' + ' | '.join(allg) + ' |')
     w('|---|' + '---|' * len(allg))
     for c in CELLS:
-        w(f'| {c} | ' + ' | '.join(f'{100 * np.mean(list(v.values())):.1f}' if (v := s[(g, "learned", c)]) else '-'
+        w(f'| {c} | ' + ' | '.join(f'{100 * np.mean(list(v.values())):.1f}' if (v := s[(g, head, c)]) else '-'
                                    for g in allg) + ' |')
-    tests = [(g, c, paired(s[(g, 'learned', c)], s[(ref_name, 'learned', c)])) for g in groups for c in CELLS]
+    tests = [(g, c, paired(s[(g, head, c)], s[(ref_name, head, c)])) for g in groups for c in CELLS]
     tests = [t for t in tests if t[2]]
     adj = holm([t[2][2] for t in tests])
     delta = {(g, c): r[0] for (g, c, r) in tests}
@@ -172,13 +159,51 @@ def main():
     if missing:
         w(f'\nMissing runs ({len(missing)}): ' + ', '.join(missing))
 
-    text = '\n'.join(out) + '\n'
-    os.makedirs('output/reports', exist_ok=True)
-    path = f'output/reports/backbone_report_{"_".join(allg)}.md'
-    open(path, 'w').write(text)
-    print(text)
-    print(f'-> {path}')
+    return '\n'.join(out) + '\n'
 
 
-if __name__ == '__main__':
-    main()
+def backbone_tables(groups):
+    """Held-out reconstruction (test masks vs interpolation baselines), per-mask embedding ablations and
+    structure, per group of backbones (averaged over a group's seeds), from each backbone_eval.json."""
+    print('\n## Backbone eval (held-out windows, identical masks; lower MSE is better)')
+    evals = {g: [json.load(open(p)) for b in bbs
+                 if os.path.exists(p := f'output/{b}/pretrain/analysis/backbone_eval.json')] for g, bbs in groups.items()}
+    kinds = ['token_runs', 'random_channel', 'channel_cluster', 'time_block', 'motor3_to_bci22']
+    print(f'  {"test mask":17} {"windows":7}' + ''.join(f' | {g:>22}' for g in evals))
+    for k in kinds:
+        for grp in ('all', 'sparse', 'dense'):
+            row, any_ms = f'  {k if grp == "all" else "":17} {grp:7}', False
+            for g, ev in evals.items():
+                ms = [m for e in ev if (m := e['test_masks'].get(f'{k}|{grp}|model')) is not None]
+                base = [min(v for p in ('idw', 'linear') if (v := e['test_masks'].get(f'{k}|{grp}|{p}')) is not None)
+                        for e in ev if any(e['test_masks'].get(f'{k}|{grp}|{p}') is not None for p in ('idw', 'linear'))]
+                any_ms |= bool(ms)
+                row += (f' | {np.mean(ms):.3f} ({np.mean(ms) / np.mean(base):.2f}x baseline)' if ms and base else
+                        f' | {np.mean(ms):>22.3f}' if ms else f' | {"-":>22}')
+            if any_ms:
+                print(row)
+    for a in ('coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const'):
+        print(f'  ablation {a:15}' + ''.join(
+            f' | {np.mean([e["ablation_masked_mse"][a] / e["ablation_masked_mse"]["baseline"] - 1 for e in ev]):>+21.0%}'
+            if ev else f' | {"-":>22}' for ev in evals.values()))
+    if all(ev and 'ablation_by_mask' in ev[0] for ev in evals.values()):
+        print('\n## Embedding ablation, masked MSE change vs intact embeddings, per test mask')
+        for a in ('coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const'):
+            print(f'  {a}')
+            for k in kinds:
+                print(f'    {k:17}' + ''.join(
+                    f' | {np.mean([e["ablation_by_mask"][k][a] / e["ablation_by_mask"][k]["baseline"] - 1 for e in ev]):>+21.0%}'
+                    for ev in evals.values()))
+    print('  coord sim ~ closeness   ' + ''.join(
+        f' | {np.mean(v):>22.3f}' if (v := [e['structure']['coord_sim_vs_closeness_spearman'] for e in ev
+                                            if 'coord_sim_vs_closeness_spearman' in e['structure']]) else f' | {"-":>22}'
+        for ev in evals.values()))
+    for g, ev in evals.items():
+        sb = [e['structure'].get('spatial_bias_per_block') for e in ev if e['structure'].get('spatial_bias_per_block')]
+        if sb:
+            rho = np.mean([[d['closeness_spearman'] for d in s] for s in sb], 0)
+            mag = np.mean([[d['mean_abs'] for d in s] for s in sb], 0)
+            print(f'  {g} spatial bias per block (closeness rho / mean|b|): '
+                  + ' '.join(f'{r:+.2f}/{m:.2f}' for r, m in zip(rho, mag)))
+
+

@@ -21,10 +21,9 @@ schemes are compared on one task.
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
    neighbours) and its mean |value|.
 
-Writes output/<run>/pretrain/analysis/backbone_eval.json and prints a summary.
-Usage: python -m tools.misc.backbone_eval --run mesae_tiny_static16_base_s1 [...] [--max-windows 512]
+Panel: `python analysis_pretrain.py --run <backbone> --panel backbone_eval` writes
+output/<backbone>/pretrain/analysis/backbone_eval.json, which the finetune-side backbone report reads.
 """
-import argparse
 import copy
 import zlib
 import json
@@ -38,7 +37,6 @@ from IO.dataset import build_dataset_from_config, load_montage_channels, split_p
 from IO.loader import get_standard_coords
 from IO.masking import ChannelClusterMask, RandomChannelMask, TimeBlockMask, random_token_mask
 from model.MeSAE.MeSAE_modules import fourier_features, get_sinusoidal_pos, overlap_add_patches
-from tools.analysis import load_model
 
 
 def val_config(config):
@@ -142,9 +140,10 @@ ABLATIONS = ['baseline', 'coords_shuffle', 'coords_mean', 'time_shuffle', 'time_
 
 
 @torch.no_grad()
-def run(name, max_windows):
-    config = json.load(open(f'output/{name}/pretrain/artifacts/config.json'))
-    model = load_model(config, f'output/{name}/pretrain/checkpoint/last.pth', torch.device('cpu'), mode='pretrain').eval()
+def evaluate(model, config, out_path, max_windows=512, name=''):
+    """Runs every test mask, ablation and structure check on the backbone's held-out windows, writes
+    the summary JSON to out_path (compare-able across backbones: same windows, same masks), prints it."""
+    model = model.cpu().eval()
     stride = config['preprocess_params'].get('patch_stride', config['preprocess_params']['patch_length'])
     ds, idx = eval_windows(config, max_windows)
     bd = ds.base_dataset
@@ -218,8 +217,8 @@ def run(name, max_windows):
            'ablation_masked_mse': {a: v[0] / max(v[1], 1) for a, v in abl['token_runs'].items()},
            'ablation_by_mask': {k: {a: v[0] / max(v[1], 1) for a, v in d.items()} for k, d in abl.items()},
            'structure': struct}
-    os.makedirs(f'output/{name}/pretrain/analysis', exist_ok=True)
-    json.dump(res, open(f'output/{name}/pretrain/analysis/backbone_eval.json', 'w'), indent=2)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    json.dump(res, open(out_path, 'w'), indent=2)
 
     print(f'\n=== {name} ({len(idx)} held-out windows)')
     print(f'  {"test mask":17} {"group":6} {"model":>7} {"idw":>7} {"linear":>7} {"zero":>7}')
@@ -237,16 +236,3 @@ def run(name, max_windows):
         print('  spatial bias per block (closeness rho / mean|b|): ' +
               ' '.join(f'{d["closeness_spearman"]:+.2f}/{d["mean_abs"]:.2f}' for d in struct['spatial_bias_per_block']))
 
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--run', nargs='+', required=True)
-    ap.add_argument('--max-windows', type=int, default=512, dest='max_windows')
-    args = ap.parse_args()
-    torch.set_num_threads(8)
-    for name in args.run:
-        run(name, args.max_windows)
-
-
-if __name__ == '__main__':
-    main()

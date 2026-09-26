@@ -1,5 +1,5 @@
 {
- "_comment": "The frozen finetune protocols (configs/finetune_protocols.json: mi_loso / mi_fewshot / p300_loso / p300_fewshot) applied unchanged to the REPORTED datasets for every backbone of a comparison. Report: python -m tools.misc.backbone_report.",
+ "_comment": "The frozen finetune protocols (configs/finetune_protocols.json: mi_loso / mi_fewshot / p300_loso / p300_fewshot) applied unchanged to the REPORTED datasets for every backbone of a comparison. Report: python analysis_finetune.py --group base=<backbone> --group X=<backbone> --ref base (after analysis_pretrain.py --panel backbone_eval per backbone).",
  "script": "train_finetune.py",
  "config": "configs/runs/{backbone}/finetune/learned/BNCI2014001_loso.json",
  "backbones": [

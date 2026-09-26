@@ -572,3 +572,56 @@ def plot_stamp_ab_violin(out_path, stamp_ab, title='', n_routed=None, shared_col
     fig.tight_layout()
     fig.savefig(out_path, dpi=100)
     plt.close(fig)
+
+
+def plot_stamp_templates(out_path, D, H, ids, n_routed):
+    """Grid of stamp templates: D solid, its quadrature partner H dashed; shared stamps (id >= n_routed)
+    labelled as such."""
+    ncols = 8
+    nrows = (len(ids) + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(2.2 * ncols, 1.6 * nrows), squeeze=False)
+    t = np.arange(D.shape[1])
+    for ax, sid in zip(axes.flat, ids):
+        ax.plot(t, D[sid], color='steelblue', lw=1.2, label='D')
+        ax.plot(t, H[sid], color='crimson', lw=1.0, ls='--', label='H')
+        ax.axhline(0, color='gray', lw=0.4)
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title(f'#{sid} ({"shared" if sid >= n_routed else "routed"})', fontsize=7)
+    for ax in axes.flat[len(ids):]:
+        ax.axis('off')
+    axes[0][0].legend(fontsize=6, loc='upper right')
+    fig.suptitle(f'Stamp templates (D solid, H dashed): {len(ids)}/{D.shape[0]} alive', fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=110)
+    plt.close(fig)
+
+
+def plot_similarity_matrix(out_path, sim, labels, title):
+    """Square [0, 1] similarity heatmap with tick labels."""
+    n = len(labels)
+    fig, ax = plt.subplots(figsize=(max(6, 0.3 * n), max(5, 0.3 * n)))
+    im = ax.imshow(sim, vmin=0, vmax=1, cmap='magma')
+    ax.set_xticks(range(n), labels, rotation=90, fontsize=6)
+    ax.set_yticks(range(n), labels, fontsize=6)
+    ax.set_title(title, fontsize=10, fontweight='bold')
+    fig.colorbar(im, ax=ax, fraction=0.046)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=110)
+    plt.close(fig)
+
+
+def plot_time_weights(out_path, maps, title, event_patch=None):
+    """One stamp x patch heatmap per row; maps: {row title: [S, N] weights}."""
+    fig, axes = plt.subplots(len(maps), 1, figsize=(8, 2.2 * len(maps)), squeeze=False)
+    for ax, (name, w) in zip(axes[:, 0], maps.items()):
+        im = ax.imshow(w, aspect='auto', cmap='viridis', origin='lower')
+        if event_patch is not None:
+            ax.axvline(event_patch, color='w', ls='--', lw=1.2)
+        ax.set_title(name, fontsize=9)
+        ax.set_ylabel('stamp')
+        fig.colorbar(im, ax=ax, fraction=0.03)
+    axes[-1, 0].set_xlabel('patch (time)' + ('; dashed = event onset' if event_patch is not None else ''))
+    fig.suptitle(title, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=110)
+    plt.close(fig)

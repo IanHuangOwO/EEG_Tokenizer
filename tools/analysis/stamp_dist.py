@@ -1,8 +1,10 @@
-"""Per-stamp (a, b) sample accumulation for panel_stamp_distribution.py's violin plots.
+"""Stamp dictionary statistics: templates, phase-invariant similarity, learned time-pool weights of
+a finetune head, and per-stamp (a, b) sample accumulation for panel_stamp_distribution.py's violins.
 Reuses tools/viz/extract.py's _used_flat_stamps StampBank call convention
 (model.stage_features -> model.stamps) but keeps every raw per-(patch, channel, slot)
 firing's (a, b) pair instead of averaging them into one trial-mean row -- the point here
 is the spread, not a summary statistic."""
+import numpy as np
 import torch
 
 
@@ -60,3 +62,35 @@ def accumulate_stamp_ab(model, pretrain_dataset, trial_indices, device, max_stam
         sid: (torch.cat(a_by_stamp[sid]).numpy(), torch.cat(b_by_stamp[sid]).numpy())
         for sid in used
     }
+
+
+def stamp_templates(model):
+    """-> D, H ([n_stamps, patch_len] numpy), ids (shared stamps first, then alive routed ones by firing
+    rate; dead routed stamps left out), n_routed."""
+    stamps = model.stamps
+    D, H = (t.detach().cpu().numpy() for t in stamps._template_tables())
+    fire = stamps.fire_ema.detach().cpu().numpy()
+    alive = np.flatnonzero(fire >= stamps.dead_threshold)
+    ids = np.concatenate([np.arange(stamps.n_routed, D.shape[0]), alive[np.argsort(-fire[alive])]])
+    return D, H, ids, stamps.n_routed
+
+
+def stamp_similarity(model):
+    """Phase-invariant template similarity: a stamp presents a*D + b*H, so stamp j can show stamp i's
+    waveform at any phase; sim(i, j) = sqrt(<D_i,D_j>^2 + <D_i,H_j>^2) in [0, 1] (1 = the same atom at
+    some phase), symmetrised by max, diagonal NaN. -> (sim over the alive stamps, their labels,
+    '<id>' routed / '<id>s' shared)."""
+    D, H, ids, n_routed = stamp_templates(model)
+    sim = np.sqrt((D[ids] @ D[ids].T) ** 2 + (D[ids] @ H[ids].T) ** 2)
+    sim = np.maximum(sim, sim.T)
+    np.fill_diagonal(sim, np.nan)
+    return sim, [f"{i}{'s' if i >= n_routed else ''}" for i in ids]
+
+
+def time_pool_weights(head_pth):
+    """A finetune head's learned time-pool weights, w[s, n] = softmax_n(sum_r p[r, s] q[r, n]) per head
+    entry with time_pool 'learned' -> {entry name: [S, N] numpy}."""
+    sd = torch.load(head_pth, map_location='cpu', weights_only=False)['model_state_dict']
+    return {k[:-len('.time.p')].removeprefix('entries.'):
+            torch.softmax(torch.einsum('rs,rn->sn', sd[k], sd[k[:-1] + 'q']), -1).numpy()
+            for k in sd if k.endswith('.time.p')}

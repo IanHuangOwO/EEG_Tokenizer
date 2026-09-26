@@ -19,7 +19,7 @@ from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, checkpoint_build_config, optimizer_param_groups, MODEL_REGISTRY
 from tools.analysis import apply_overrides, pick_trial, resolve_output_path
 from tools.analysis.snapshot import build_pretrain_bundle
-from tools.panels import PanelContext, run_panels
+from tools.viz.snapshot import render_recon, render_stamp_gallery
 
 torch.set_float32_matmul_precision('high')
 
@@ -400,11 +400,10 @@ def main():
                     bundle, _metrics = build_pretrain_bundle(
                         model, topo_dataset, topo_trial_idx, config, device,
                         subject_id=topo_subject_id, epoch=epoch)
-                    panel_ctx = PanelContext(
-                        config=config, output_dir=vis_dir, device=device, args=None,
-                        model=model, dataset=topo_dataset, bundle=bundle,
-                        cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'))
-                    run_panels(['recon_signal', 'stamp_gallery'], 'pretrain', panel_ctx)
+                    recon_dir = os.path.join(vis_dir, 'recon')
+                    render_recon(bundle, config, recon_dir)
+                    render_stamp_gallery(bundle, config, recon_dir,
+                                         cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'))
                 except Exception as e:
                     logger.warning(f"  Topomap viz failed (epoch {epoch}, subject={topo_subject_id}, trial_idx={topo_trial_idx}): {e}")
 

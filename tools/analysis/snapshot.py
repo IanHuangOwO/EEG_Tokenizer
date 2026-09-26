@@ -1,15 +1,7 @@
-"""SnapshotBundle + bundle-builders for the recon_signal/stamp_by_patch/stamp_gallery
-panels (tools/panels/panel_recon_signal.py, panel_stamp_by_patch.py,
-panel_stamp_gallery.py). Moved and consolidated from the retired
-model/base_checker.py's BaseEpochChecker + model/MeSAE/plugin.py's MeSAEChecker -- MeSAE
-is the only registered model (MeFSQ removed, docs/adr/0013), so the override machinery
-those classes existed for collapses into these two concrete functions.
-
-build_pretrain_bundle/build_finetune_bundle each do the stage-specific part (how to
-patchify/forward the model for one trial); the panels that read the resulting bundle own
-the stage-agnostic rendering part. This mirrors the split model/base_checker.py's own
-docstring described (check_pretrain/check_finetune build a bundle, _render_snapshot
-renders it) -- only the renderer is now three separate panel files instead of one method."""
+"""SnapshotBundle: one trial's input, reconstruction and stamp view, built per stage
+(build_pretrain_bundle / build_finetune_bundle: how to patchify and forward that stage's model) and
+rendered by tools/viz/snapshot.py. predict_all: a finetune model's predictions over a dataset (the
+class_snapshots panel picks correct / wrong trials from it)."""
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -25,7 +17,7 @@ from tools.analysis import lookup_event_onset_sample
 
 @dataclass
 class SnapshotBundle:
-    """Stage-normalised input to the recon_signal/stamp_by_patch/stamp_gallery panels.
+    """Stage-normalised input to the tools/viz/snapshot.py renderers.
     Built by build_pretrain_bundle/build_finetune_bundle, each of which knows how to
     patchify/mask/forward its own stage; the panels know nothing about pretrain vs.
     finetune."""
@@ -212,3 +204,18 @@ def build_finetune_bundle(model, dataset, trial_idx, config, device,
         return bundle, metrics
     finally:
         model.train(was_training)
+
+
+@torch.no_grad()
+def predict_all(model, ds, patch_len, patch_stride, device):
+    """A finetune model's prediction for every trial of a FinetuneDataset, one trial at a time
+    -> (preds, labels) numpy arrays in dataset order."""
+    preds, labels = [], []
+    for i in range(len(ds)):
+        x, coords, label, valid, _ = ds[i]
+        xp, t = slice_patches(x, patch_len, patch_stride)
+        logits = model(xp[None].to(device), coords[None].to(device), time_idx=t[None].to(device),
+                       valid_channels=valid[None].to(device))[0]
+        preds.append(int(logits.argmax(-1)))
+        labels.append(int(label))
+    return np.array(preds), np.array(labels)

@@ -30,15 +30,15 @@ python train_finetune.py --config <cfg> --set training_params.finetune.learning_
 python -m tools.misc.sweep configs/sweeps/<sweep>.json > output/queue/<plan>.plan
 python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threads 8
 
-# Results: one table / a grid ranking; the backbone comparison report (frozen protocols + backbone eval)
-python -m tools.misc.summarize_runs 'output/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>] [--rank N]
-python -m tools.misc.backbone_eval --run <backbone> [...]
-python -m tools.misc.backbone_report --ref base=<backbone> --group X=<backbone> [...]
-
-# Post-training checkers (pretrain: topo/PSD/attn snapshots + codebook diagnostics; finetune: per-class snapshots)
-python analysis_pretrain.py --config configs/analysis_pretrain.template.json --checkpoint <path>
-python analysis_finetune.py --config configs/analysis_finetune.template.json --base-config <artifacts/config.json> --checkpoint <head.pth>
-python analysis_pretrain.py --panel profile [--train]     # parameter counts + timing, no data needed
+# Analysis: one panel mechanism (tools/panels/, presets in tools/panels/__init__.py PRESETS), failures don't stop
+# the other panels. Pretrain = one backbone -> output/<backbone>/pretrain/analysis/ (standard: backbone_eval,
+# stamp_templates, stamp_duplicates, stamp_distribution, snapshot, codebook; quick: the first three).
+python analysis_pretrain.py --run <backbone> [--preset quick] [--panel <name> ...]
+python analysis_pretrain.py --panel profile [--train]     # parameter counts + timing, no checkpoint
+# Finetune = several backbones under one head label -> output/reports/<groups>/ (standard: summary, report,
+# time_weights; also seed_equivalence, class_snapshots --checkpoint <head.pth>). Run backbone_eval first.
+python analysis_finetune.py --group base=<backbone> --group X=<backbone> --ref base [--head frozen_learned]
+python -m tools.analysis.summarize_runs 'output/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>] [--rank N]
 ```
 
 No test suite: modules carry runnable self-checks (e.g. `MeSAE_modules._selfcheck_head_modules()`), and
@@ -58,7 +58,7 @@ chained behind it; a finished queue went unreported for 40 min.
 ## Configs
 
 `configs/pretrain.template.json` (full corpus) / `pretrain_tiny.template.json` (same corpus,
-`window_fraction` 0.05) / `finetune.template.json` / `analysis_*.template.json` are starting points, never
+`window_fraction` 0.05) / `finetune.template.json` are starting points, never
 run directly: copy to `configs/runs/<backbone>/pretrain.json` and `configs/runs/<backbone>/finetune/<head>/<cell>.json`
 (a finetune overlay sets `base_config` to its backbone's pretrain file; `load_config` deep-merges them).
 `configs/runs/` is gitignored; every run's effective config is saved in its `artifacts/config.json`.
@@ -154,6 +154,6 @@ with `python -m tools.misc.dataset_inventory`. Read `docs/finetune-caveats.md` b
 - Issues: GitHub Issues (IanHuangOwO/EEG_Tokenizer) via `gh`; labels `needs-triage` / `needs-info` /
   `ready-for-agent` / `ready-for-human` / `wontfix` -- `docs/agents/issue-tracker.md`, `triage-labels.md`.
 - Adding a dataset / model / montage / tool: `docs/agents/adding-a-*.md`. `tools/` = `analysis/`
-  (calculation), `viz/` (rendering), `panels/` (CLI entrypoints); `tools/misc/` = scripts run directly.
+  (calculation), `viz/` (rendering), `panels/` (the analysis entrypoints' units); `tools/misc/` = pipeline utilities run directly.
 - `.reshape(`/`.view(` silently scrambles data when it merges non-adjacent axes (it has hit training data
   three times): check any new one against `docs/agents/reshape-pitfalls.md`.

@@ -268,3 +268,32 @@ def setup_mne_info(dataset, fs=200.0):
     except Exception as e:
         print(f"[setup_mne_info] montage warning: {e}")
     return info
+
+
+def cap_subjects(config: dict, ds_args: dict, max_trials: int, rng, min_subjects: int = 20):
+    """A shuffled subset of ds_args's subjects covering ~max_trials trials (and at least min_subjects
+    subjects, subject diversity dominates EEG variance), counted from each subject's cached labels
+    array without loading its data. subject_to_use ["all"] on a large dataset would otherwise load
+    every trial (this once ran out of memory at ~55 GB)."""
+    import numpy as np
+    from IO.preprocessing import cache_suffix
+    path = ds_args['dataset_path']
+    with open(os.path.join(path, 'metadata.json'), 'r', encoding='utf-8') as f:
+        subjects = sorted(json.load(f).get('data_structure', {}))
+    requested = ds_args.get('subject_to_use', ['all'])
+    if requested not in (['all'], 'all'):
+        subjects = [s for s in subjects if s in {str(r) for r in requested}]
+    rng.shuffle(subjects)
+    pp = config['preprocess_params']
+    suffix = cache_suffix(pp['sample_freq'], pp['bandpass_filter'],
+                          pp.get('pre_event_seconds', 0.0), pp.get('post_event_seconds', 0.0))
+    picked, total = [], 0
+    for sid in subjects:
+        cache = os.path.join(path, 'cache', f"{sid}_{suffix}.npz")
+        if not os.path.exists(cache):
+            continue
+        picked.append(sid)
+        total += len(np.load(cache)['labels'])
+        if total >= max_trials and len(picked) >= min_subjects:
+            break
+    return picked
