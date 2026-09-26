@@ -1547,19 +1547,24 @@ def _entry_cfg(cfg, name):
     shape keys every entry needs."""
     eff = {k: cfg[k] for k in _ENTRY_KEYS}
     eff.update({k: v for k, v in next(f for f in cfg['features'] if f['type'] == name).items() if k != 'type'})
-    for k in ('num_patches', 'num_stamps', 'sample_freq', 'patch_stride', 'patch_len', 'num_channels'):
+    for k in ('num_patches', 'num_stamps', 'sample_freq', 'patch_stride', 'patch_len', 'num_channels', 'latent_dim'):
         eff[k] = cfg.get(k)
     return eff
 
 
 def needs_stamp(cfg):
-    """Whether any entry in cfg['features'] needs the frozen-backbone stamp extractor."""
-    return any(ENTRY_TYPES[f['type']].source == 'stamp' for f in cfg.get('features', _HEAD_DEFAULTS['features']))
+    """Whether any entry in cfg['features'] needs the frozen backbone (stamp codes, or z)."""
+    return any(ENTRY_TYPES[f['type']].source in ('stamp', 'latent') for f in cfg.get('features', _HEAD_DEFAULTS['features']))
 
 
 def needs_raw(cfg):
     """Whether any entry in cfg['features'] needs the compiled raw signal."""
     return any(ENTRY_TYPES[f['type']].source == 'raw' for f in cfg.get('features', _HEAD_DEFAULTS['features']))
+
+
+def needs_latent(cfg):
+    """Whether any entry in cfg['features'] reads the encoder output z (cached with the stamps)."""
+    return any(ENTRY_TYPES[f['type']].source == 'latent' for f in cfg.get('features', _HEAD_DEFAULTS['features']))
 
 
 def spatial_width(cfg, name):
@@ -1590,7 +1595,7 @@ class StampExtractor(nn.Module):
         self.register_buffer('channel_idx', torch.as_tensor(channel_idx, dtype=torch.long))
 
     @torch.no_grad()
-    def forward(self, x, coords, time_idx=None, valid_channels=None, impute_missing=False):
+    def forward(self, x, coords, time_idx=None, valid_channels=None, impute_missing=False, return_z=False):
         """impute_missing (experiment, 2026-09-25): feed every missing channel as the pretrain
         mask_token at its own coordinate (coords must hold real positions for them), so spatial
         attention fills it in, and scale its stamp code by the mean patch RMS of its 3 nearest
@@ -1616,7 +1621,10 @@ class StampExtractor(nn.Module):
         rg = rms.permute(0, 2, 1).reshape(B * N, C, 1)
         amp = self.backbone.stamps.dense_amp(zg, rms=rg)
         amp = amp[:, :, self.keep].reshape(B, N, C, -1, 2).float() * vmask.float()[:, None, :, None, None]
-        return amp[:, :, self.channel_idx]                                                # [B, N, Cv, S, 2]
+        amp = amp[:, :, self.channel_idx]                                                 # [B, N, Cv, S, 2]
+        if return_z:   # the encoder output itself, for the latent_* head entries: [B, N, Cv, D]
+            return amp, z.permute(0, 2, 1, 3)[:, :, self.channel_idx].float()
+        return amp
 
     def band_tables(self, sample_freq):
         """Per-stamp template band energies (E_D, E_H), each [S, len(BANDS)], for feature='stamp_band'."""
@@ -1835,9 +1843,51 @@ class SignedABEntry(_Entry):
         return torch.cat([torch.einsum('rn,bnkm->bkmr', self.q, self.stamp(t)) for t in (a, b)], dim=1).flatten(1)
 
 
+class LatentPowerEntry(_Entry):
+    """The stamp_power pipeline on the encoder output z instead of the stamp codes: a learned
+    projection shared over channels and time (D -> num_stamps, so the width equals stamp_power's),
+    squared, time-pooled, log."""
+    source = 'latent'
+
+    def __init__(self, e):
+        super().__init__(e)
+        self.proj = nn.Linear(e['latent_dim'], e['num_stamps'], bias=False)
+        self.time = _time_pool(e, e['num_stamps'])
+
+    @staticmethod
+    def dim(e, K):
+        return _pooled_dim(e, K, e['num_stamps'])
+
+    def forward(self, z):
+        z = _window(self.e, z, z)[0]
+        return torch.log(self.time(self.proj(z).pow(2)) + 1e-12).flatten(1)
+
+
+class LatentSignedEntry(_Entry):
+    """The signed_ab pipeline on z: learned projection D -> 2 * stamp_rank (signed_ab has a and b
+    at stamp_rank each, so the width matches), learned time filters -> time_rank."""
+    source = 'latent'
+
+    def __init__(self, e):
+        super().__init__(e)
+        M, R, N = 2 * int(e['stamp_rank']), int(e['time_rank']), e['num_patches']
+        self.proj = nn.Linear(e['latent_dim'], M, bias=False)
+        self.q = nn.Parameter(torch.full((R, N), 1.0 / N) + torch.randn(R, N) * 0.02)
+
+    check = SignedABEntry.check
+    needs_patches = SignedABEntry.needs_patches
+
+    @staticmethod
+    def dim(e, K):
+        return SignedABEntry.dim(e, K)
+
+    def forward(self, z):
+        return torch.einsum('rn,bnkm->bkmr', self.q, self.proj(z)).flatten(1)
+
+
 ENTRY_TYPES = {'stamp_power': StampPowerEntry, 'stamp_band': StampBandEntry, 'raw_band': RawBandEntry,
                'raw_signal': RawSignalEntry, 'phase_advance': PhaseAdvanceEntry, 'evoked': EvokedEntry,
-               'signed_ab': SignedABEntry}
+               'signed_ab': SignedABEntry, 'latent_power': LatentPowerEntry, 'latent_signed': LatentSignedEntry}
 FEATURES_ALL = tuple(ENTRY_TYPES)
 
 
@@ -1866,11 +1916,14 @@ class FeatureHead(nn.Module):
         with torch.autocast(device_type=next(iter(inp.values())).device.type, enabled=False):
             raw = inp['raw'].float() if 'raw' in inp else None
             amp = inp['stamp'].float() if 'stamp' in inp else None
+            latent = inp['latent'].float() if 'latent' in inp else None                # [B, N', C, D]
             outs = []
             for name, mod in self.entries.items():
                 spatial = self.spatials[name] if name in self.spatials else None
                 if mod.source == 'raw':
                     outs.append(mod(spatial_mix(spatial, raw, 1)))                           # [B, K, N', L]
+                elif mod.source == 'latent':
+                    outs.append(mod(spatial_mix(spatial, latent, 2)))                        # [B, N', K, D]
                 else:
                     outs.append(mod(spatial_mix(spatial, amp[..., 0], 2),
                                     spatial_mix(spatial, amp[..., 1], 2)))                  # each [B, N', K, S]

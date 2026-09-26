@@ -38,7 +38,7 @@ def _mne_version():
         return 'none'   # coordinates fall back to the flat metadata polar values
 
 
-def cache_key(config, dataset_name, keep, checkpoint_path):
+def cache_key(config, dataset_name, keep, checkpoint_path, latent=False):
     """Folder key: everything that changes the amplitudes of a given subject file."""
     ds_args = config['dataset_params']['finetune'][dataset_name]
     parts = dict(
@@ -50,6 +50,8 @@ def cache_key(config, dataset_name, keep, checkpoint_path):
         montages=_fingerprint(os.path.join('configs', 'montages.json')),
         mne=_mne_version(),
     )
+    if latent:   # the encoder output z is stored too (latent_* head entries); a separate folder
+        parts['latent'] = True
     return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
@@ -73,7 +75,7 @@ def _is_current(path, data_fp):
 
 
 @torch.no_grad()
-def _build_subject(config, dataset_name, subject, backbone, device, batch_size, path):
+def _build_subject(config, dataset_name, subject, backbone, device, batch_size, path, latent=False):
     sub_cfg = json.loads(json.dumps(config))
     sub_cfg['dataset_params']['finetune'] = {
         dataset_name: {**config['dataset_params']['finetune'][dataset_name], 'subject_to_use': [subject]}}
@@ -94,14 +96,18 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
             coords[i] = torch.as_tensor(pos, dtype=coords.dtype)
     channel_idx = list(range(len(valid))) if impute else torch.nonzero(valid).flatten().tolist()
     extractor = StampExtractor(backbone, channel_idx).to(device).eval()
-    out = []
+    out, zs = [], []
     for i in range(0, len(base.data), batch_size):
         x = base.data[i:i + batch_size]                                   # [b, C, T]
         xp, _ = slice_patches(x, patch_len, patch_stride)                 # [b, C, N', L]
         b, P = xp.shape[0], xp.shape[2]
         amp = extractor(xp.to(device), coords.unsqueeze(0).expand(b, -1, -1).to(device),
                         torch.arange(P, device=device).unsqueeze(0).expand(b, P),
-                        valid.unsqueeze(0).expand(b, -1).to(device), impute_missing=impute)  # [b, N', Cv, S, 2] fp32
+                        valid.unsqueeze(0).expand(b, -1).to(device), impute_missing=impute,
+                        return_z=latent)                                  # [b, N', Cv, S, 2] fp32 (+ z)
+        if latent:
+            amp, z = amp
+            zs.append(z.half().cpu())
         out.append(amp.cpu())
     amp = torch.cat(out)
     if not torch.isfinite(amp).all() or amp.abs().max() >= 6e4:
@@ -111,14 +117,15 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
     # write-then-rename: parallel finetune runs on the same backbone/dataset share this folder,
     # and a reader must never see a half-written file
     tmp = f'{path}.{os.getpid()}.tmp.npz'
-    np.savez(tmp, amp=amp.half().numpy(), labels=base.labels.numpy().astype(np.int64),
+    extra = {'z': torch.cat(zs).numpy()} if latent else {}
+    np.savez(tmp, **extra, amp=amp.half().numpy(), labels=base.labels.numpy().astype(np.int64),
              valid_length=np.full(len(amp), vlen, dtype=np.int64), channel_idx=np.asarray(channel_idx, dtype=np.int64),
              keep=extractor.keep.cpu().numpy().astype(np.int64), meta=np.array(json.dumps({'data': data_fp})))
     os.replace(tmp, path)
     return amp.shape
 
 
-def get_stamp_cache(config, dataset_name, subjects, device=None, batch_size=64):
+def get_stamp_cache(config, dataset_name, subjects, device=None, batch_size=64, latent=False):
     """Build any missing or stale per-subject file and return the cache folder."""
     device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
     ckpt = config['training_params']['finetune']['pretrained_checkpoint']
@@ -127,14 +134,14 @@ def get_stamp_cache(config, dataset_name, subjects, device=None, batch_size=64):
         p.requires_grad_(False)
     keep = StampExtractor(backbone, [0]).keep.cpu().tolist()   # alive stamps do not depend on the channels
     run_dir = os.path.dirname(os.path.dirname(ckpt))
-    folder = os.path.join(run_dir, 'feature_cache', dataset_name, cache_key(config, dataset_name, keep, ckpt))
+    folder = os.path.join(run_dir, 'feature_cache', dataset_name, cache_key(config, dataset_name, keep, ckpt, latent))
     os.makedirs(folder, exist_ok=True)
     for sub in subjects:
         sub = str(sub)
         path = os.path.join(folder, f'{sub}.npz')
         if _is_current(path, _fingerprint(_data_path(config, dataset_name, sub))):
             continue
-        shape = _build_subject(config, dataset_name, sub, backbone, device, batch_size, path)
+        shape = _build_subject(config, dataset_name, sub, backbone, device, batch_size, path, latent)
         print(f"  [feature_cache] built {dataset_name} subject {sub}: amp {tuple(shape)} -> {path}")
     return folder
 
@@ -145,7 +152,7 @@ class CachedStampDataset(Dataset):
         parts = []
         for s in subjects:
             with np.load(os.path.join(folder, f'{s}.npz')) as z:
-                parts.append({k: z[k] for k in ('amp', 'labels', 'valid_length', 'channel_idx', 'keep')})
+                parts.append({k: z[k] for k in ('amp', 'labels', 'valid_length', 'channel_idx', 'keep', 'z') if k in z})
         for p in parts[1:]:
             assert np.array_equal(p['channel_idx'], parts[0]['channel_idx']), "subjects have different real-channel sets"
             assert np.array_equal(p['keep'], parts[0]['keep']), "subjects were cached with different alive stamps"
@@ -157,6 +164,7 @@ class CachedStampDataset(Dataset):
         self.channel_idx = parts[0]['channel_idx'].tolist()
         self.keep = parts[0]['keep'].tolist()
         self.num_patches, self.num_channels, self.num_stamps = self.amp.shape[1], self.amp.shape[2], self.amp.shape[3]
+        self.z = torch.from_numpy(np.concatenate([p['z'] for p in parts])) if 'z' in parts[0] else None   # [T, N', Cv, D]
 
     def __len__(self):
         return len(self.labels)

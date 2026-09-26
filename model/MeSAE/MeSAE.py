@@ -10,7 +10,7 @@ from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, St
                                          spatial_mix, FlatTimePool, LearnedTimePool,
                                          EvokedBranch, phase_advance, StampExtractor, FeatureHead,
                                          resolve_head_config, make_head_checkpoint,
-                                         needs_stamp, needs_raw, feature_names)
+                                         needs_stamp, needs_raw, needs_latent, feature_names)
 
 
 def _ema_update(buf, val, decay=0.99):
@@ -662,6 +662,8 @@ class FinetuneModel(nn.Module):
             p.requires_grad_(False)
         self.register_buffer('channel_idx', torch.as_tensor(channel_idx, dtype=torch.long))
         self.head_cfg = head_cfg
+        if needs_latent(head_cfg):
+            raise NotImplementedError("latent_* head entries run from the feature cache (train_finetune.py) only")
         stamp = needs_stamp(head_cfg)
         self.extractor = StampExtractor(backbone, channel_idx) if stamp else None
         if stamp:

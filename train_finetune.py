@@ -21,7 +21,7 @@ from IO.preprocessing import cache_suffix, num_patches, slice_patches
 from cache_feature import CachedStampDataset, get_stamp_cache
 from model.factory import MODEL_REGISTRY, load_backbone
 from model.MeSAE.MeSAE_modules import (FeatureHead, StampExtractor, make_head_checkpoint,
-                                       resolve_head_config, needs_stamp, needs_raw, feature_names)
+                                       resolve_head_config, needs_stamp, needs_raw, needs_latent, feature_names)
 from tools.analysis import apply_overrides, load_config
 
 torch.set_float32_matmul_precision('high')
@@ -257,17 +257,22 @@ class StampSource:
     indexing and host-to-device copies were most of a step's time."""
     kind = 'stamp'
 
-    def __init__(self, config, ds_name, pool, device):
+    def __init__(self, config, ds_name, pool, device, latent=False):
         subs = [str(s) for s in pool]
-        self.data = CachedStampDataset(get_stamp_cache(config, ds_name, subs, device=device), subs)
+        self.data = CachedStampDataset(get_stamp_cache(config, ds_name, subs, device=device, latent=latent), subs)
         self.labels, self.subject_data = self.data.labels, self.data.subject_data
         self.channel_idx, self.keep = self.data.channel_idx, self.data.keep
         self.num_patches, self.num_stamps = self.data.num_patches, self.data.num_stamps
         self.amp, self.labels_dev = self.data.amp.to(device), self.labels.to(device)
+        self.z = self.data.z.to(device) if latent else None                 # [T, N', Cv, D] fp16
+        self.latent_dim = self.z.shape[-1] if latent else None
 
     def get(self, idx):
         idx = idx.to(self.amp.device)
-        return {'stamp': self.amp[idx].float()}, self.labels_dev[idx]
+        out = {'stamp': self.amp[idx].float()}
+        if self.z is not None:
+            out['latent'] = self.z[idx].float()
+        return out, self.labels_dev[idx]
 
 
 class RawSource:
@@ -321,11 +326,11 @@ class CombinedSource:
 
 def make_source(config, ds_name, pool, device):
     ft_cfg = dict(config['model_params']['MeSAE']['finetune'])
-    want_stamp, want_raw = needs_stamp(ft_cfg), needs_raw(ft_cfg)
+    want_stamp, want_raw, latent = needs_stamp(ft_cfg), needs_raw(ft_cfg), needs_latent(ft_cfg)
     if want_stamp and want_raw:
-        return CombinedSource(StampSource(config, ds_name, pool, device), RawSource(config, ds_name, pool))
+        return CombinedSource(StampSource(config, ds_name, pool, device, latent), RawSource(config, ds_name, pool))
     if want_stamp:
-        return StampSource(config, ds_name, pool, device)
+        return StampSource(config, ds_name, pool, device, latent)
     return RawSource(config, ds_name, pool)
 
 
@@ -383,6 +388,7 @@ def build_head_factory(config, source, num_classes):
     cfg = resolve_head_config(
         config['model_params']['MeSAE']['finetune'], num_classes=num_classes, num_patches=source.num_patches,
         num_channels=len(source.channel_idx), num_stamps=source.num_stamps, patch_len=patch_len,
+        latent_dim=getattr(source, 'latent_dim', None),
         patch_stride=pp.get('patch_stride', patch_len), sample_freq=float(pp['sample_freq']))
     tables = None
     if 'stamp_band' in feature_names(cfg):   # the template spectra need the backbone, once
