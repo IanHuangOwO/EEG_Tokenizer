@@ -32,7 +32,7 @@
   "training_params": {
     "finetune": {
       "model_type": "MeSAE",
-      "model_name": "learned_BNCI2014001_intra",
+      "model_name": "learned_BNCI2014001_loso",
       "pretrained_checkpoint": "output/mesae_vXX_small/pretrain/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
@@ -42,11 +42,14 @@
       "weight_decay": 0.01,
       "device": "cuda",
       "split": {
-        "mode": "intra_subject",
-        "n_folds": 5
+        "type": "loso",
+        "sessions": [
+          0
+        ]
       },
-      "output_path": "mesae_vXX_small/finetune/learned/BNCI2014001_intra",
-      "class_weight": null
+      "output_path": "mesae_vXX_small/finetune/learned/BNCI2014001_loso",
+      "class_weight": null,
+      "protocol": "mi_loso"
     },
     "visualize_params": {
       "finetune": {

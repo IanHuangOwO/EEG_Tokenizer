@@ -1,5 +1,5 @@
 {
- "_comment": "Frozen finetune protocols (mi_loso / mi_fewshot / p300_loso / p300_fewshot: winners of the DEV-set grid configs/sweeps/tune_base_s1.json, BNCI2015001 / BNCI2014009, 2026-09-25) applied unchanged to the REPORTED datasets for every backbone of the base / A / B / AB comparison. Head: learned (stamp_power; P300 adds signed_ab + balanced class weights). Report: python -m tools.misc.backbone_report.",
+ "_comment": "The frozen finetune protocols (configs/finetune_protocols.json: mi_loso / mi_fewshot / p300_loso / p300_fewshot) applied unchanged to the REPORTED datasets for every backbone of a comparison. Report: python -m tools.misc.backbone_report.",
  "script": "train_finetune.py",
  "config": "configs/runs/{backbone}/finetune/learned/BNCI2014001_loso.json",
  "backbones": [
@@ -9,7 +9,6 @@
   "mesae_tiny_static16_groupAB_s1"
  ],
  "set": {
-  "training_params.finetune.epochs": 50,
   "training_params.finetune.seed": 1
  },
  "cases": {
@@ -25,28 +24,7 @@
      ]
     }
    },
-   "training_params.finetune.split": {
-    "mode": "inter_subject",
-    "n_folds": 9,
-    "sessions": [
-     0
-    ]
-   },
-   "training_params.finetune.class_weight": null,
-   "model_params.MeSAE.finetune": {
-    "features": [
-     {
-      "type": "stamp_power",
-      "time_pool": "learned",
-      "time_rank": 2
-     }
-    ]
-   },
-   "model_params.MeSAE.finetune.spatial_k": 2,
-   "model_params.MeSAE.finetune.dropout": 0.3,
-   "training_params.finetune.learning_rate": 0.01,
-   "training_params.finetune.min_learning_rate": 0.001,
-   "training_params.finetune.weight_decay": 0.01,
+   "training_params.finetune.protocol": "mi_loso",
    "training_params.finetune.model_name": "frozen_learned_BNCI2014001_loso"
   },
   "learned/BNCI2014001_fewshot": {
@@ -61,28 +39,7 @@
      ]
     }
    },
-   "training_params.finetune.split": {
-    "mode": "intra_subject",
-    "train_fraction": 0.3,
-    "sessions": [
-     0
-    ]
-   },
-   "training_params.finetune.class_weight": null,
-   "model_params.MeSAE.finetune": {
-    "features": [
-     {
-      "type": "stamp_power",
-      "time_pool": "learned",
-      "time_rank": 2
-     }
-    ]
-   },
-   "model_params.MeSAE.finetune.spatial_k": 8,
-   "model_params.MeSAE.finetune.dropout": 0.3,
-   "training_params.finetune.learning_rate": 0.01,
-   "training_params.finetune.min_learning_rate": 0.001,
-   "training_params.finetune.weight_decay": 0.5,
+   "training_params.finetune.protocol": "mi_fewshot",
    "training_params.finetune.model_name": "frozen_learned_BNCI2014001_fewshot"
   },
   "learned/BNCI2014004_loso": {
@@ -97,28 +54,7 @@
      ]
     }
    },
-   "training_params.finetune.split": {
-    "mode": "inter_subject",
-    "n_folds": 9,
-    "sessions": [
-     0
-    ]
-   },
-   "training_params.finetune.class_weight": null,
-   "model_params.MeSAE.finetune": {
-    "features": [
-     {
-      "type": "stamp_power",
-      "time_pool": "learned",
-      "time_rank": 2
-     }
-    ]
-   },
-   "model_params.MeSAE.finetune.spatial_k": 2,
-   "model_params.MeSAE.finetune.dropout": 0.3,
-   "training_params.finetune.learning_rate": 0.01,
-   "training_params.finetune.min_learning_rate": 0.001,
-   "training_params.finetune.weight_decay": 0.01,
+   "training_params.finetune.protocol": "mi_loso",
    "training_params.finetune.model_name": "frozen_learned_BNCI2014004_loso"
   },
   "learned/BNCI2014004_fewshot": {
@@ -133,28 +69,7 @@
      ]
     }
    },
-   "training_params.finetune.split": {
-    "mode": "intra_subject",
-    "train_fraction": 0.3,
-    "sessions": [
-     0
-    ]
-   },
-   "training_params.finetune.class_weight": null,
-   "model_params.MeSAE.finetune": {
-    "features": [
-     {
-      "type": "stamp_power",
-      "time_pool": "learned",
-      "time_rank": 2
-     }
-    ]
-   },
-   "model_params.MeSAE.finetune.spatial_k": 8,
-   "model_params.MeSAE.finetune.dropout": 0.3,
-   "training_params.finetune.learning_rate": 0.01,
-   "training_params.finetune.min_learning_rate": 0.001,
-   "training_params.finetune.weight_decay": 0.5,
+   "training_params.finetune.protocol": "mi_fewshot",
    "training_params.finetune.model_name": "frozen_learned_BNCI2014004_fewshot"
   },
   "learned/BNCI2014008_loso": {
@@ -169,33 +84,7 @@
      ]
     }
    },
-   "training_params.finetune.split": {
-    "mode": "inter_subject",
-    "n_folds": 8,
-    "sessions": [
-     0
-    ]
-   },
-   "training_params.finetune.class_weight": "balanced",
-   "model_params.MeSAE.finetune": {
-    "features": [
-     {
-      "type": "stamp_power",
-      "time_pool": "learned",
-      "time_rank": 2
-     },
-     {
-      "type": "signed_ab",
-      "stamp_rank": 4,
-      "time_rank": 2
-     }
-    ]
-   },
-   "model_params.MeSAE.finetune.spatial_k": 2,
-   "model_params.MeSAE.finetune.dropout": 0.3,
-   "training_params.finetune.learning_rate": 0.01,
-   "training_params.finetune.min_learning_rate": 0.001,
-   "training_params.finetune.weight_decay": 0.01,
+   "training_params.finetune.protocol": "p300_loso",
    "training_params.finetune.model_name": "frozen_learned_BNCI2014008_loso"
   },
   "learned/BNCI2014008_fewshot": {
@@ -210,34 +99,7 @@
      ]
     }
    },
-   "training_params.finetune.split": {
-    "mode": "intra_subject",
-    "train_fraction": 0.1,
-    "sessions": [
-     0
-    ],
-    "purge": 5
-   },
-   "training_params.finetune.class_weight": "balanced",
-   "model_params.MeSAE.finetune": {
-    "features": [
-     {
-      "type": "stamp_power",
-      "time_pool": "learned",
-      "time_rank": 2
-     },
-     {
-      "type": "signed_ab",
-      "stamp_rank": 4,
-      "time_rank": 2
-     }
-    ]
-   },
-   "model_params.MeSAE.finetune.spatial_k": 2,
-   "model_params.MeSAE.finetune.dropout": 0.5,
-   "training_params.finetune.learning_rate": 0.01,
-   "training_params.finetune.min_learning_rate": 0.001,
-   "training_params.finetune.weight_decay": 0.5,
+   "training_params.finetune.protocol": "p300_fewshot",
    "training_params.finetune.model_name": "frozen_learned_BNCI2014008_fewshot"
   }
  },

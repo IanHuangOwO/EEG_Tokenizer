@@ -2,8 +2,8 @@
 
 The backbone never trains: stamp features come from the amplitude cache (cache_feature.py), raw
 features from the compiled dataset; only the head is optimised (fp32, batches indexed from RAM).
-training_params.finetune.split has two modes, intra_subject and inter_subject (see the plan /
-CLAUDE.md). Every run writes artifacts/group_eval.json: per-subject tail (mean of the last 10
+training_params.finetune.split picks a split type (SPLITS: loso, subject_kfold, eval_subjects,
+kfold, blocked_kfold, fewshot). Every run writes artifacts/group_eval.json: per-subject tail (mean of the last 10
 epochs) and last-epoch balanced accuracy."""
 import argparse, copy, json, logging, os, random, subprocess, sys, warnings
 
@@ -119,20 +119,146 @@ def _load_sessions(config, ds_args, pool, subject_data):
     return session
 
 
-def make_runs(split, pool, subject_data, labels, session=None):
-    """split block -> runs [{name, train, train_subjects, eval}] (see the plan's contract).
+# ---------- split types: training_params.finetune.split = {"type": <name>, ...} ----------
+# Every type takes `sessions` (keep only those session indices, 0 = each subject's first recorded
+# session -- EEG-FM-Compass uses session 0 for MI/P300) and `seed`; the within-subject types also
+# take `purge` (drop eval trials within that many recording positions of a train trial, for
+# datasets whose neighbouring trials overlap in time). A new split pattern is a new function
+# plus a SPLITS entry. The old {"mode": intra_subject | inter_subject, ...} form still loads
+# (_legacy_split).
+#   loso           every subject held out once (subject_kfold with n_folds = number of subjects)
+#   subject_kfold  n_folds folds of whole subjects, subjects shuffled by seed; train_subjects
+#                  optionally limits the training pool
+#   eval_subjects  one run: eval_subjects (list, dict of named groups, {"random": n, "seed": s},
+#                  or "auto") vs the rest (or train_subjects)
+#   kfold          per subject, n_folds shuffled stratified folds (optimistic: neighbouring
+#                  trials land on both sides)
+#   blocked_kfold  per subject, n_folds contiguous chronological blocks
+#   fewshot        per subject, per class the first ceil(train_fraction * n) trials in recording
+#                  order train, the rest evaluate (Compass within-subject calibration)
 
-    Optional for both modes: sessions (list of session indices, 0 = each subject's first;
-    trials of other sessions are dropped before splitting -- EEG-FM-Compass uses one session
-    per subject for MI/P300). intra_subject takes exactly one of
-      n_folds         k folds per subject; blocked: true makes them contiguous chronological
-                      blocks (default: shuffled StratifiedKFold, optimistic -- neighbouring
-                      trials land on both sides)
-      train_fraction  few-shot calibration (Compass within-subject): per class, the first
-                      ceil(f * n_class) trials in recording order train, the rest evaluate.
-    purge (intra only, default 0): also drop eval trials within that many positions (recording
-    order) of any train trial -- for datasets whose neighbouring trials overlap in time."""
-    mode, seed = split.get('mode'), split.get('seed', 42)
+def _inter_runs(evals, pool, train_pool, trials, disjoint_check):
+    runs = []
+    for name, groups in evals:
+        ev_subs = {s for v in groups.values() for s in v}
+        train_subs = [s for s in (train_pool if train_pool is not None else pool) if s not in ev_subs]
+        if not train_subs or any(not v for v in groups.values()):
+            raise ValueError(f"run {name}: empty training set or evaluation group")
+        if disjoint_check and train_pool is not None and set(train_pool) & ev_subs:
+            raise ValueError(f"run {name}: train_subjects and evaluation subjects overlap: {sorted(set(train_pool) & ev_subs)}")
+        runs.append(dict(name=name, train=trials(train_subs), train_subjects=[str(s) for s in train_subs],
+                         eval={g: {str(s): trials([s]) for s in v} for g, v in groups.items()}))
+    return runs
+
+
+def _subject_kfold(split, pool, trials, labels, seed):
+    k = int(split['n_folds'])
+    if not 2 <= k <= len(pool):
+        raise ValueError(f"n_folds must be in [2, {len(pool)}], got {k}")
+    subs = list(pool)
+    random.Random(seed).shuffle(subs)
+    train_pool = resolve_subjects(split['train_subjects'], pool) if 'train_subjects' in split else None
+    return _inter_runs([(f'fold{i}', {'heldout': subs[i::k]}) for i in range(k)], pool, train_pool, trials, False)
+
+
+def _loso(split, pool, trials, labels, seed):
+    return _subject_kfold({**split, 'n_folds': len(pool)}, pool, trials, labels, seed)
+
+
+def _eval_subjects(split, pool, trials, labels, seed):
+    ev = split['eval_subjects']
+    ev = {'heldout': ev} if not isinstance(ev, dict) or 'random' in ev else ev
+    train_pool = resolve_subjects(split['train_subjects'], pool) if 'train_subjects' in split else None
+    return _inter_runs([('main', {g: resolve_subjects(v, pool) for g, v in ev.items()})], pool, train_pool, trials, True)
+
+
+def _per_subject(folds_of):
+    """Within-subject type: folds_of(split, idx, labels, seed) -> [(name, train, eval)] per subject."""
+    def make(split, pool, trials, labels, seed):
+        purge, runs = int(split.get('purge', 0)), []
+        for s in pool:
+            idx = trials([s])                      # recording order
+            for name, tr, va in folds_of(split, idx, labels, seed):
+                if purge:
+                    pos = np.searchsorted(idx, tr)
+                    near = np.zeros(len(idx), dtype=bool)
+                    for d in range(-purge, purge + 1):
+                        near[np.clip(pos + d, 0, len(idx) - 1)] = True
+                    va = va[~near[np.searchsorted(idx, va)]]
+                runs.append(dict(name=f'{s}_{name}', train=tr, train_subjects=[str(s)],
+                                 eval={'heldout': {str(s): va}}))
+        return runs
+    return make
+
+
+def _kfold_folds(split, idx, labels, seed):
+    skf = StratifiedKFold(n_splits=int(split['n_folds']), shuffle=True, random_state=seed)
+    return [(f'fold{i}', np.sort(idx[tr]), np.sort(idx[va])) for i, (tr, va) in enumerate(skf.split(idx, labels[idx]))]
+
+
+def _blocked_folds(split, idx, labels, seed):
+    return [(f'fold{i}', np.setdiff1d(idx, b), b) for i, b in enumerate(np.array_split(idx, int(split['n_folds'])))]
+
+
+def _fewshot_folds(split, idx, labels, seed):
+    f = float(split['train_fraction'])
+    tr = np.concatenate([ic[:max(1, int(np.ceil(f * len(ic))))]
+                         for ic in (idx[labels[idx] == c] for c in np.unique(labels[idx]))])
+    return [('fewshot', np.sort(tr), np.setdiff1d(idx, tr))]
+
+
+_COMMON = {'type', 'sessions', 'seed'}
+SPLITS = {   # name -> (make_runs function, required keys, optional keys)
+    'loso':          (_loso, set(), set()),
+    'subject_kfold': (_subject_kfold, {'n_folds'}, {'train_subjects'}),
+    'eval_subjects': (_eval_subjects, {'eval_subjects'}, {'train_subjects'}),
+    'kfold':         (_per_subject(_kfold_folds), {'n_folds'}, {'purge'}),
+    'blocked_kfold': (_per_subject(_blocked_folds), {'n_folds'}, {'purge'}),
+    'fewshot':       (_per_subject(_fewshot_folds), {'train_fraction'}, {'purge'}),
+}
+
+
+def _legacy_split(split):
+    """Old {"mode": intra_subject | inter_subject, n_folds / train_fraction / blocked /
+    eval_subjects ...} -> the {"type": ...} form (run configs and artifacts written before it)."""
+    if 'type' in split:
+        return split
+    s = {k: v for k, v in split.items() if k not in ('mode', 'blocked')}
+    mode = split.get('mode')
+    if mode == 'intra_subject':
+        if ('n_folds' in s) == ('train_fraction' in s):
+            raise ValueError("intra_subject needs exactly one of n_folds / train_fraction")
+        t = 'fewshot' if 'train_fraction' in s else ('blocked_kfold' if split.get('blocked') else 'kfold')
+    elif mode == 'inter_subject':
+        if ('n_folds' in s) == ('eval_subjects' in s):
+            raise ValueError("inter_subject needs exactly one of n_folds / eval_subjects")
+        t = 'subject_kfold' if 'n_folds' in s else 'eval_subjects'
+    else:
+        raise ValueError(f"split needs 'type' (one of {sorted(SPLITS)}), got {split!r}")
+    return {'type': t, **s}
+
+
+def apply_protocol(config, path='configs/finetune_protocols.json'):
+    """training_params.finetune.protocol = <name>: apply that entry of the protocol table (its
+    dotted keys, in order) on top of the merged config. No protocol key: unchanged."""
+    name = config['training_params']['finetune'].get('protocol')
+    if not name:
+        return config
+    table = {k: v for k, v in json.load(open(path)).items() if not k.startswith('_')}
+    if name not in table:
+        raise ValueError(f"unknown finetune protocol {name!r}, known: {sorted(table)} ({path})")
+    return apply_overrides(config, [f'{k}={json.dumps(v)}' for k, v in table[name].items()])
+
+
+def make_runs(split, pool, subject_data, labels, session=None):
+    """split block -> runs [{name, train, train_subjects, eval}], see SPLITS above."""
+    split = _legacy_split(split)
+    if split['type'] not in SPLITS:
+        raise ValueError(f"unknown split type {split['type']!r}, known: {sorted(SPLITS)}")
+    make, required, optional = SPLITS[split['type']]
+    if required - set(split) or set(split) - required - optional - _COMMON:
+        raise ValueError(f"split type {split['type']!r} takes {sorted(required)} (required) and "
+                         f"{sorted(optional | _COMMON - {'type'})} (optional), got {sorted(set(split) - {'type'})}")
     keep = np.ones(len(subject_data), dtype=bool)
     if split.get('sessions') is not None:
         if session is None:
@@ -145,62 +271,7 @@ def make_runs(split, pool, subject_data, labels, session=None):
     def trials(subjects):
         return np.flatnonzero(np.isin(subject_data, [int(x) for x in subjects]) & keep)
 
-    if mode == 'intra_subject':
-        if ('n_folds' in split) == ('train_fraction' in split):
-            raise ValueError("intra_subject needs exactly one of n_folds / train_fraction")
-        runs = []
-        for s in pool:
-            idx = trials([s])                      # recording order
-            if 'train_fraction' in split:
-                f = float(split['train_fraction'])
-                tr = np.concatenate([ic[:max(1, int(np.ceil(f * len(ic))))]
-                                     for ic in (idx[labels[idx] == c] for c in np.unique(labels[idx]))])
-                folds = [('fewshot', np.sort(tr), np.setdiff1d(idx, tr))]
-            elif split.get('blocked'):
-                blocks = np.array_split(idx, int(split['n_folds']))
-                folds = [(f'fold{i}', np.setdiff1d(idx, b), b) for i, b in enumerate(blocks)]
-            else:
-                skf = StratifiedKFold(n_splits=int(split['n_folds']), shuffle=True, random_state=seed)
-                folds = [(f'fold{i}', np.sort(idx[tr]), np.sort(idx[va]))
-                         for i, (tr, va) in enumerate(skf.split(idx, labels[idx]))]
-            purge = int(split.get('purge', 0))
-            for name, tr, va in folds:
-                if purge:   # drop eval trials within `purge` positions of a train trial (overlapping P300 windows)
-                    pos = np.searchsorted(idx, tr)
-                    near = np.zeros(len(idx), dtype=bool)
-                    for d in range(-purge, purge + 1):
-                        near[np.clip(pos + d, 0, len(idx) - 1)] = True
-                    va = va[~near[np.searchsorted(idx, va)]]
-                runs.append(dict(name=f'{s}_{name}', train=tr, train_subjects=[str(s)],
-                                 eval={'heldout': {str(s): va}}))
-        return runs
-    if mode != 'inter_subject':
-        raise ValueError(f"split.mode must be 'intra_subject' or 'inter_subject', got {mode!r}")
-    if ('n_folds' in split) == ('eval_subjects' in split):
-        raise ValueError("inter_subject needs exactly one of n_folds / eval_subjects")
-    train_pool = resolve_subjects(split['train_subjects'], pool) if 'train_subjects' in split else None
-    if 'n_folds' in split:
-        k = int(split['n_folds'])
-        if not 2 <= k <= len(pool):
-            raise ValueError(f"n_folds must be in [2, {len(pool)}], got {k}")
-        subs = list(pool)
-        random.Random(seed).shuffle(subs)
-        evals = [(f'fold{i}', {'heldout': subs[i::k]}) for i in range(k)]
-    else:
-        ev = split['eval_subjects']
-        ev = {'heldout': ev} if not isinstance(ev, dict) or 'random' in ev else ev
-        evals = [('main', {g: resolve_subjects(v, pool) for g, v in ev.items()})]
-    runs = []
-    for name, groups in evals:
-        ev_subs = {s for v in groups.values() for s in v}
-        train_subs = [s for s in (train_pool if train_pool is not None else pool) if s not in ev_subs]
-        if not train_subs or any(not v for v in groups.values()):
-            raise ValueError(f"run {name}: empty training set or evaluation group")
-        if 'eval_subjects' in split and train_pool is not None and set(train_pool) & ev_subs:   # n_folds: the fold is subtracted instead
-            raise ValueError(f"run {name}: train_subjects and evaluation subjects overlap: {sorted(set(train_pool) & ev_subs)}")
-        runs.append(dict(name=name, train=trials(train_subs), train_subjects=[str(s) for s in train_subs],
-                         eval={g: {str(s): trials([s]) for s in v} for g, v in groups.items()}))
-    return runs
+    return make(split, pool, trials, labels, split.get('seed', 42))
 
 
 class StampSource:
@@ -432,11 +503,12 @@ def main():
                          '(repeatable), e.g. --set training_params.finetune.learning_rate=0.003')
     args = ap.parse_args()
     config = apply_overrides(load_config(args.config), args.set)
+    config = apply_overrides(apply_protocol(config), args.set)      # a named protocol, then --set still wins
     tp = config['training_params']['finetune']
     if tp.get('num_threads'):          # CPU threads for this process (parallel runs share the cores)
         torch.set_num_threads(int(tp['num_threads']))
     if 'split' not in tp:
-        raise ValueError("training_params.finetune.split is required (mode: intra_subject | inter_subject)")
+        raise ValueError(f"training_params.finetune.split is required (type: one of {sorted(SPLITS)})")
     # output_path: where this run writes under output/ -- separate from model_name (a
     # clean identity string), same split as train_pretrain.py's. Falls back to
     # model_name for configs that don't set it.
