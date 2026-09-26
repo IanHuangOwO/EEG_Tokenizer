@@ -10,8 +10,7 @@ from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, St
                                          spatial_mix, FlatTimePool, LearnedTimePool,
                                          EvokedBranch, phase_advance, StampExtractor, FeatureHead,
                                          resolve_head_config, make_head_checkpoint,
-                                         needs_stamp, needs_raw, _normalize_features,
-                                         remap_old_head_state_dict)
+                                         needs_stamp, needs_raw, feature_names)
 
 
 def _ema_update(buf, val, decay=0.99):
@@ -27,12 +26,8 @@ def _ema_update(buf, val, decay=0.99):
 
 def _restore_phase(module, incompatible_keys):
     """load_state_dict post-hook: re-apply the checkpoint's phase flags (plain
-    attributes, not state). A checkpoint without masked_phase predates the fused run —
-    treat it as fully enabled, the old loaders' behavior. Does not freeze anything."""
-    legacy = [k for k in incompatible_keys.missing_keys if k.endswith('masked_phase')]
-    for k in legacy:
-        incompatible_keys.missing_keys.remove(k)
-    if legacy or bool(module.masked_phase):
+    attributes, not state). Does not freeze anything."""
+    if bool(module.masked_phase):
         module.enter_masked_phase(freeze_stamps=False)
     else:
         module.enter_tokenizer_phase()
@@ -73,8 +68,6 @@ class MeSAEPretrain(nn.Module):
         dropout=0.0,
         pool_after_blocks=(),
         num_channels=1,
-        legacy_mask_after_embed=False,
-        mask_padded_channels=False,
         coord_encoding='mlp',
         spatial_bias=False,
         n_routed_stamps=796,
@@ -111,14 +104,7 @@ class MeSAEPretrain(nn.Module):
         nn.init.normal_(self.mask_token, std=0.02)
         # Masked tokens swap their CONTENT for mask_token before the time/coord embeddings
         # are added (MAE convention), so a masked token still knows where and when it is.
-        # legacy_mask_after_embed=True restores the old behaviour -- mask_token replaced the
-        # whole embedded token, position included -- for runs that must match backbones
-        # pretrained before 2026-09-25 (the tiny dictionary experiment's seed 3).
-        self.legacy_mask_after_embed = legacy_mask_after_embed
-        # Zero-padded (missing) channels are left out of spatial attention as keys
-        # (TSABlock). Off by default so backbones pretrained before 2026-09-25 keep the
-        # behaviour they were trained with; configs/pretrain*.template.json turn it on.
-        self.mask_padded_channels = mask_padded_channels
+        # Zero-padded (missing) channels are left out of spatial attention as keys (TSABlock).
         # spatial_bias (2026-09-25): directional relative-position bias in every block's
         # spatial attention (MeSAE_modules.RelativeSpatialBias). Off = the original encoder.
         self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_bias else None
@@ -266,16 +252,10 @@ class MeSAEPretrain(nn.Module):
         """Returns (z [B, C, N, D], ffn_lb_loss scalar) — ffn_lb_loss is the summed
         load-balance loss of every TSABlock's MoEFFN (see MeSAE_modules.TSAEncoder),
         distinct from the router (SAE Filter) load-balance loss produced in forward()."""
-        if bool_masked_pos is not None and not self.legacy_mask_after_embed:
-            z = self.embed(x, coords=coords, time_idx=time_idx,
-                           bool_masked_pos=bool_masked_pos, mask_token=self.mask_token)  # [B, C, N, D]
-        else:
-            z = self.embed(x, coords=coords, time_idx=time_idx)  # [B, C, N, D]
-            if bool_masked_pos is not None:
-                mask = bool_masked_pos.unsqueeze(-1).type_as(z)  # [B, C, N, 1]
-                z = z * (1.0 - mask) + self.mask_token * mask
+        z = self.embed(x, coords=coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos,
+                       mask_token=self.mask_token)  # [B, C, N, D]
         bias = self.spatial_bias(coords) if self.spatial_bias is not None and coords is not None else None
-        return self.encoder(z, valid_channels if self.mask_padded_channels else None, bias)  # [B, C, N, D], ffn_lb_loss
+        return self.encoder(z, valid_channels, bias)  # [B, C, N, D], ffn_lb_loss
 
     # -- Finetune-only entry points, NOT used by the Tokenizer/Pretrain forward() path
     # below.
@@ -682,14 +662,13 @@ class FinetuneModel(nn.Module):
         for p in backbone.parameters():
             p.requires_grad_(False)
         self.register_buffer('channel_idx', torch.as_tensor(channel_idx, dtype=torch.long))
-        _normalize_features(head_cfg)   # old checkpoints' baked-in head_config: 'feature' -> 'features'
         self.head_cfg = head_cfg
         stamp = needs_stamp(head_cfg)
         self.extractor = StampExtractor(backbone, channel_idx) if stamp else None
         if stamp:
             assert head_cfg['num_stamps'] == len(self.extractor.keep), "num_stamps must equal the alive stamp count"
         self.head = FeatureHead(head_cfg)
-        if 'stamp_band' in head_cfg['features']:
+        if 'stamp_band' in feature_names(head_cfg):
             E_D, E_H = self.extractor.band_tables(head_cfg['sample_freq'])
             self.head.entries['stamp_band'].E_D.copy_(E_D)
             self.head.entries['stamp_band'].E_H.copy_(E_H)
@@ -719,14 +698,10 @@ class FinetuneModel(nn.Module):
     def from_checkpoint(cls, backbone, ckpt):
         cfg = dict(ckpt['head_config'])
         channel_idx, keep = cfg.pop('channel_idx'), cfg.pop('keep')
-        old_primary = cfg.get('feature')   # capture before cls(...) -> __init__ -> _normalize_features pops it
         model = cls(backbone, cfg, channel_idx)
         if keep is not None and model.extractor.keep.tolist() != keep:
             raise ValueError("backbone's alive stamps differ from the checkpoint's head_config['keep']")
-        sd = ckpt['model_state_dict']
-        if old_primary is not None:
-            sd = remap_old_head_state_dict(sd, old_primary)
-        model.head.load_state_dict(sd)
+        model.head.load_state_dict(ckpt['model_state_dict'])
         return model
 
 
@@ -734,10 +709,8 @@ def build_finetune(backbone, num_channels, num_classes, channel_idx=None, num_pa
                    sample_freq=200, **ft_params):
     """finetune_cls entry: builds the frozen backbone + FeatureHead from the numeric head config."""
     channel_idx = list(range(num_channels)) if channel_idx is None else list(channel_idx)
-    norm = dict(ft_params)
-    _normalize_features(norm)
     num_stamps = 0
-    if needs_stamp(norm):
+    if needs_stamp(ft_params):
         st = backbone.stamps
         num_stamps = int((st.fire_ema >= st.dead_threshold).sum()) + (st.n_stamps - st.n_routed)
     cfg = resolve_head_config(ft_params, num_classes=num_classes, num_patches=num_patches,

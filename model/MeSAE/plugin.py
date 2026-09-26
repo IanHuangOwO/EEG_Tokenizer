@@ -38,8 +38,6 @@ def build_model(bp, num_channels):
         dropout=bp.get('dropout', 0.0),
         pool_after_blocks=bp.get('pool_after_blocks', []),
         num_channels=num_channels,
-        legacy_mask_after_embed=bp.get('legacy_mask_after_embed', False),
-        mask_padded_channels=bp.get('mask_padded_channels', False),
         coord_encoding=bp.get('coord_encoding', 'mlp'),
         spatial_bias=bp.get('spatial_bias', False),
         n_routed_stamps=sb.get('n_routed_stamps', 60),

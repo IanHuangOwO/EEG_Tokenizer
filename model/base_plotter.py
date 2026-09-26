@@ -47,16 +47,9 @@ class BasePlotter:
     # -- helpers for building panel specs --------------------------------------
 
     def pool_pair_series(self, prefix, colors=('green', 'steelblue'), source='val'):
-        """routed/shared metric variants, falling back to a legacy unsuffixed key
-        (pre-MoE runs) — used e.g. for codebook_perplexity_routed/_shared."""
+        """routed/shared metric variants -- used e.g. for codebook_perplexity_routed/_shared."""
         hist = self.history[source]
-        routed_key, shared_key = f'{prefix}_routed', f'{prefix}_shared'
-        if routed_key in hist or shared_key in hist:
-            candidates = [(routed_key, 'routed', colors[0]), (shared_key, 'shared', colors[1])]
-        elif prefix in hist:
-            candidates = [(prefix, '', colors[0])]
-        else:
-            return []
+        candidates = [(f'{prefix}_routed', 'routed', colors[0]), (f'{prefix}_shared', 'shared', colors[1])]
 
         series = []
         for key, label, color in candidates:

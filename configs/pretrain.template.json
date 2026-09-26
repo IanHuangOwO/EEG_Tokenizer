@@ -963,7 +963,6 @@
           "aux_weight": 0.0,
           "mp_weight": 1.0
         },
-        "mask_padded_channels": true,
         "coord_encoding": "fourier",
         "spatial_bias": true
       }

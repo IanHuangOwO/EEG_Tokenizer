@@ -21,8 +21,7 @@ from IO.preprocessing import cache_suffix, num_patches, slice_patches
 from cache_feature import CachedStampDataset, get_stamp_cache
 from model.factory import MODEL_REGISTRY, load_backbone
 from model.MeSAE.MeSAE_modules import (FeatureHead, StampExtractor, make_head_checkpoint,
-                                       resolve_head_config, needs_stamp, needs_raw,
-                                       _normalize_features)
+                                       resolve_head_config, needs_stamp, needs_raw, feature_names)
 from tools.analysis import apply_overrides, load_config
 
 torch.set_float32_matmul_precision('high')
@@ -124,8 +123,7 @@ def _load_sessions(config, ds_args, pool, subject_data):
 # session -- EEG-FM-Compass uses session 0 for MI/P300) and `seed`; the within-subject types also
 # take `purge` (drop eval trials within that many recording positions of a train trial, for
 # datasets whose neighbouring trials overlap in time). A new split pattern is a new function
-# plus a SPLITS entry. The old {"mode": intra_subject | inter_subject, ...} form still loads
-# (_legacy_split).
+# plus a SPLITS entry.
 #   loso           every subject held out once (subject_kfold with n_folds = number of subjects)
 #   subject_kfold  n_folds folds of whole subjects, subjects shuffled by seed; train_subjects
 #                  optionally limits the training pool
@@ -218,26 +216,6 @@ SPLITS = {   # name -> (make_runs function, required keys, optional keys)
 }
 
 
-def _legacy_split(split):
-    """Old {"mode": intra_subject | inter_subject, n_folds / train_fraction / blocked /
-    eval_subjects ...} -> the {"type": ...} form (run configs and artifacts written before it)."""
-    if 'type' in split:
-        return split
-    s = {k: v for k, v in split.items() if k not in ('mode', 'blocked')}
-    mode = split.get('mode')
-    if mode == 'intra_subject':
-        if ('n_folds' in s) == ('train_fraction' in s):
-            raise ValueError("intra_subject needs exactly one of n_folds / train_fraction")
-        t = 'fewshot' if 'train_fraction' in s else ('blocked_kfold' if split.get('blocked') else 'kfold')
-    elif mode == 'inter_subject':
-        if ('n_folds' in s) == ('eval_subjects' in s):
-            raise ValueError("inter_subject needs exactly one of n_folds / eval_subjects")
-        t = 'subject_kfold' if 'n_folds' in s else 'eval_subjects'
-    else:
-        raise ValueError(f"split needs 'type' (one of {sorted(SPLITS)}), got {split!r}")
-    return {'type': t, **s}
-
-
 def apply_protocol(config, path='configs/finetune_protocols.json'):
     """training_params.finetune.protocol = <name>: apply that entry of the protocol table (its
     dotted keys, in order) on top of the merged config. No protocol key: unchanged."""
@@ -252,9 +230,8 @@ def apply_protocol(config, path='configs/finetune_protocols.json'):
 
 def make_runs(split, pool, subject_data, labels, session=None):
     """split block -> runs [{name, train, train_subjects, eval}], see SPLITS above."""
-    split = _legacy_split(split)
-    if split['type'] not in SPLITS:
-        raise ValueError(f"unknown split type {split['type']!r}, known: {sorted(SPLITS)}")
+    if split.get('type') not in SPLITS:
+        raise ValueError(f"split.type must be one of {sorted(SPLITS)}, got {split!r}")
     make, required, optional = SPLITS[split['type']]
     if required - set(split) or set(split) - required - optional - _COMMON:
         raise ValueError(f"split type {split['type']!r} takes {sorted(required)} (required) and "
@@ -344,7 +321,6 @@ class CombinedSource:
 
 def make_source(config, ds_name, pool, device):
     ft_cfg = dict(config['model_params']['MeSAE']['finetune'])
-    _normalize_features(ft_cfg)
     want_stamp, want_raw = needs_stamp(ft_cfg), needs_raw(ft_cfg)
     if want_stamp and want_raw:
         return CombinedSource(StampSource(config, ds_name, pool, device), RawSource(config, ds_name, pool))
@@ -409,7 +385,7 @@ def build_head_factory(config, source, num_classes):
         num_channels=len(source.channel_idx), num_stamps=source.num_stamps, patch_len=patch_len,
         patch_stride=pp.get('patch_stride', patch_len), sample_freq=float(pp['sample_freq']))
     tables = None
-    if 'stamp_band' in cfg['features']:   # the template spectra need the backbone, once
+    if 'stamp_band' in feature_names(cfg):   # the template spectra need the backbone, once
         tables = StampExtractor(load_backbone(config), [0]).band_tables(cfg['sample_freq'])
 
     def new_head():
