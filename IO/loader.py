@@ -44,8 +44,8 @@ class BaseSubjectLoader(ABC):
         self.prefiltered = False
         self.pre_event_seconds = self.dataset_params.get('pre_event_seconds', 0.0)
         self.post_event_seconds = self.dataset_params.get('post_event_seconds', 0.0)
-        # Set by a loader's _load_data() (via _segment_by_annotations or its own cutting) to
-        # a list of N (start, end) NATIVE-rate-sample pairs, one per trial this subject
+        # Set by a loader's _load_data() when it cuts event windows: a list of N (start, end)
+        # sample pairs (native rate, or compiled rate once prefiltered), one per trial this subject
         # produced, marking real (non-padded) content -- see IO/preprocessing.py's
         # cut_event_window. None (default, and every loader that never sets this) means
         # "every trial fully real", read by get_subject_data below.
@@ -89,43 +89,6 @@ class BaseSubjectLoader(ABC):
         self.prefiltered = True
         return tf(data).numpy(), tf.sample_freq
 
-    def _segment_by_annotations(
-        self, raw, code_to_label: Dict[str, int], channel_indices: List[int],
-        pre_event_pts: int, post_event_pts: int,
-    ) -> Tuple[List[np.ndarray], List[int]]:
-        """
-        Cuts [C, pre_event_pts+post_event_pts] windows around each MNE annotation whose
-        description is a key of code_to_label, via cut_event_window (always pads a
-        trial that runs off the recording's start/end, never drops one -- see that
-        function's docstring; this replaces the old drop-if-insufficient-headroom
-        behavior). Shared by the GDF/EDF event-marker loaders (PhysionetMI, BNCI2014001,
-        BNCI2014004) -- sets self._last_valid_ranges (NATIVE-rate samples) alongside the
-        returned trials/labels so get_subject_data can carry real-vs-padded content
-        through to the compiled cache. Measured real pre-event headroom per dataset
-        (min ~3.5s+ in the loaders that use this) is in
-        docs/model-analysis-checklist.md.
-        """
-        import mne
-        events, event_id = mne.events_from_annotations(raw, verbose=False)
-        label_for_code = {event_id[k]: v for k, v in code_to_label.items() if k in event_id}
-        if not label_for_code:
-            return [], []
-
-        data_np = raw.get_data(picks=channel_indices)
-        trials, labels, valid_ranges = [], [], []
-        for event_pts, _, code in events:
-            label = label_for_code.get(code, -1)
-            if label == -1:
-                continue
-            window, vs, ve = cut_event_window(data_np, event_pts, pre_event_pts, post_event_pts)
-            if ve <= vs:
-                continue  # entirely outside the recording -- degenerate, see cut_event_window
-            trials.append(window)
-            labels.append(label)
-            valid_ranges.append((vs, ve))
-        self._last_valid_ranges = valid_ranges
-        return trials, labels
-
     def _get_standard_coords(self, ch_name: str) -> Optional[np.ndarray]:
         return get_standard_coords(ch_name)
 
@@ -142,9 +105,7 @@ class BaseSubjectLoader(ABC):
         pass
 
     def get_subject_data(self) -> Optional[Dict[str, Any]]:
-        self._last_valid_ranges = self._last_sessions = None  # reset -- only a loader that calls
-                                         # _segment_by_annotations (or sets it itself)
-                                         # below overrides this before returning
+        self._last_valid_ranges = self._last_sessions = None  # reset; an event-cutting loader sets them
         data, labels = self._load_data()
         if data is None:
             return None
@@ -160,7 +121,7 @@ class BaseSubjectLoader(ABC):
             # to the compiled rate before saving (see BandpassResample changing sample
             # count). [(0, T)]*n (every trial fully real) for every loader that doesn't
             # set self._last_valid_ranges -- i.e. all of them except the event-anchored
-            # ones (see IO/preprocessing.py's cut_event_window / _segment_by_annotations).
+            # ones (see IO/preprocessing.py's cut_event_window).
             'valid_ranges': valid_ranges,
             'prefiltered': self.prefiltered,
             'session': np.asarray(self._last_sessions if self._last_sessions is not None else [0] * n,

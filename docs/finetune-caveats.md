@@ -1,48 +1,22 @@
 # Finetune evaluation caveats
 
-Known ways our finetune numbers can be optimistic. Audited 2026-09-24. The checks found no
-label leak: subjects are disjoint in `inter_subject` (`make_runs` raises on overlap),
-normalization is per trial, the head's BatchNorm stats update only in `head.train()`, stamp
-features come from the frozen backbone without labels, and the reported score is `tail` or
-`last` rather than a best-epoch pick on test. Pretrain-side changes (windowing, recon loss)
-don't touch the finetune path.
+Read before reporting or comparing finetune numbers. No label leak was found (audit 2026-09-24): subjects are
+disjoint across LOSO folds, normalisation is per trial, the head's BatchNorm statistics update only in
+training, stamp codes come from the frozen backbone without labels, and the score is `tail` (last 10 epochs),
+not a best-epoch pick on the test set.
 
-## 1. P300 intra-subject results leak (BNCI2014008, BNCI2014009)
-
-- **Cause:** P300 trials are 1 s windows ([-0.2, +0.8] s) around flashes that come every
-  ~0.25 s, so neighbouring windows share about 0.75 s of the same EEG (1710 of 1725
-  consecutive windows overlap, BNCI2014009 subject 1).
-- **Effect:** `intra_subject` uses `StratifiedKFold(shuffle=True)` over trials, so almost
-  every test window has overlapping windows in the training fold. The head has already seen
-  part of the exact test signal.
-- **What to do:** treat P300 intra numbers as inflated. Report them only with this caveat, or
-  leave them out. LOSO numbers are unaffected, because the whole subject is held out.
-
-## 2. Intra-subject results are optimistic in general
-
-- **Cause:** random trial-level folds put trials recorded seconds apart (same run, same
-  impedance, drift and artifacts) on both sides of the split.
-- **Effect:** the head can partly learn "this recording" rather than the task.
-- **Extent:** checked for motor-imagery windows, which don't overlap: every event gap
-  ≥ window length, see the event-spacing check of 2026-09-24. So this is optimism, not a
-  data leak.
-
-**Fix for 1 and 2 (implemented 2026-09-24, `train_finetune.py`'s `make_runs`):**
-`split.blocked: true` makes intra folds contiguous chronological blocks, `split.purge: n` drops
-eval trials within n positions of a train trial (set it for the P300 sets, whose neighbouring
-windows overlap), and `split.train_fraction` gives the EEG-FM-Compass few-shot split (first
-fraction of each class in recording order). `split.sessions: [0]` restricts either mode to one
-session, as Compass does for MI/P300. Runs made before this (v10-v13, archived) used the
-shuffled folds.
-
-## 3. PhysionetMI is in the v10–v13 pretrain corpus
-
-- **Cause:** the v10–v13 backbones were pretrained with PhysionetMI, without labels. Its
-  finetune test subjects' EEG was seen during pretraining.
-- **Effect:** not a label leak, but under EEG-FM-Bench / EEG-FM-Compass conventions those
-  results are "overlap-sensitive" and shouldn't be reported as clean benchmark numbers.
-- **Not affected:** BNCI2014001/004/008/009, BNCI2015001 and Nakanishi2015 aren't in
-  pretraining.
-- **Future backbones:** PhysionetMI was removed from `configs/pretrain.template.json`
-  (2026-09-24), so backbones after v13 are clean on it. Keep every finetune dataset out of
-  `dataset_params.pretrain`.
+1. **Data compiled before 2026-09-26 was filtered per epoch.** Bandpass and resample ran on each cut 1-5 s
+   epoch, so every epoch carried filter edge transients (BNCI2014008: the samples two overlapping epochs share
+   disagreed by 16% median, 33% max). All finetune and backbone numbers from before the recompile were
+   measured on that data. Compare only runs made on the same compile.
+2. **P300 windows overlap in time** (1 s windows, flashes ~0.25 s apart). A within-subject split without
+   `purge` puts overlapping windows on both sides: inflated. The `p300_fewshot` protocol uses `purge: 5`; LOSO
+   is unaffected.
+3. **Shuffled within-subject folds (`kfold`) are optimistic**: trials seconds apart land on both sides. Use
+   `fewshot` (chronological calibration, the Compass convention) or `blocked_kfold`.
+4. **Single pretrain seed**: differences within about +-3 balanced-accuracy points are ties; `backbone_report`
+   Holm-corrects its paired tests over subjects, which measure subject noise, not seed noise.
+5. **Keep finetune datasets out of pretraining.** PhysionetMI was in the v10-v13 corpus (those results are
+   overlap-sensitive); it is not in the current corpus. BNCI2014001/004/008/009, BNCI2015001 and
+   Nakanishi2015 never were.
+6. **DEV sets** (BNCI2015001, BNCI2014009) tuned the frozen protocols: never report them.

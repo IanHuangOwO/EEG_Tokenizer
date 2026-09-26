@@ -252,6 +252,12 @@ where:
 `get_subject_data()` (base class) then casts dtypes, attaches channel coords,
 and returns the dict consumed by `IO/dataset.py`.
 
+**Filter before cutting (required).** When the source is a continuous recording, pass each whole
+recording `[C, T]` through `sig, sf = self._filter_run(sig)` BEFORE cutting trials, then cut at rate `sf`
+(window lengths `int(window_s * sf)`, event positions scaled by `sf / self.sample_freq`). `cache_dataset.py`
+then skips its per-epoch filtering for this loader. Filtering already-cut epochs leaves bandpass/resampling
+edge transients (27% error on 1 s epochs). Only a source that ships pre-epoched (like BETA) has no choice.
+
 ## Step 6: writing the loader class
 
 Create `datas/MyDataset/loader.py`, with a class named exactly `Loader`
@@ -284,7 +290,9 @@ class Loader(BaseSubjectLoader):
     def _load_data(self):
         if not self._existing([self.file_path]):
             return None, None                       # loader must be able to signal "missing subject"
-        # ... read raw file, subset self.channel_indices, build labels ...
+        # ... read the continuous recording, subset self.channel_indices -> sig [C, T] ...
+        sig, sf = self._filter_run(sig)             # bandpass + resample the WHOLE recording first
+        # ... cut trials at rate sf, build labels ...
         return eeg_data, labels
 ```
 

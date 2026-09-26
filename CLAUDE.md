@@ -1,312 +1,159 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in this repository. Canonical terms: `CONTEXT.md`. Design history: `docs/adr/`.
+
+## Environment
+
+Run everything with the `eeg_fm` conda env: `/home/mamechin/anaconda3/envs/eeg_fm/bin/python` (torch, mne,
+moabb). A bare `python` is `base`, which has no `mne`/`moabb`: coordinates silently fall back to flat polar
+values from `metadata.json` and MOABB loaders fail. The machine is CPU-bound (20 cores, one 12 GB GPU):
+cap threads (`--threads`, `training_params.<mode>.num_threads`) and run at most a few jobs in parallel.
 
 ## Commands
 
-**Environment:** run everything in the `eeg_fm` conda env (`/home/mamechin/anaconda3/envs/eeg_fm/bin/python`: torch 2.14, mne 1.12.1, mne-icalabel 0.9.0), not `base`. `base` has no `mne`, so `IO/loader.py`'s `get_standard_coords` silently falls back to flat polar coordinates from `metadata.json` (z=0, radius up to ~1) instead of MNE 3-D positions in meters. The Phase 1 LOSO runs and the 100-epoch BNCI2014001 rerun ran in `base`, so they used the fallback coordinates; the torch version difference does not matter, the coordinates might. Check the env before comparing any finetune number against them. Phase 2 (2026-09-21 on) runs in `eeg_fm`.
-
 ```bash
-# Install dependencies (CUDA 11.8)
-pip install -r requirements.txt
-
-# Pretrain: one run, two phases -- unmasked tokenizer phase for
-# training_params.pretrain.tokenizer_epochs, then masked phase (docs/adr/0013)
-python train_pretrain.py --config configs/runs/<model_name>/pretrain.json
-
-# Profile model (parameter counts + per-component forward-pass timing, no checkpoint/dataset needed)
-python analysis_pretrain.py --panel profile [--train]
-
-# Run Finetune stage: trains only the head on the frozen backbone's stamp-amplitude cache (or the
-# patched raw signal for raw_* features); training_params.finetune.protocol names a frozen protocol
-# (configs/finetune_protocols.json), split.type picks loso / subject_kfold / eval_subjects / kfold / blocked_kfold / fewshot
-python train_finetune.py --config configs/runs/<backbone>/finetune/<head>/<dataset>_<mode>.json
-
-# Post-training checker, PRETRAIN stage (checkpoint -> topo/PSD/attn snapshot per subject,
-# plus cross-dataset codebook/vocab diagnostics; base config auto-derived from the
-# checkpoint's output/<model>/artifacts/config.json, configs/analysis_pretrain.template.json
-# is a small overlay; tools/viz/extract.py, stamp_plots.py, timeseries.py, topomap.py are
-# shared primitives it and tools/panels/ both call — not run directly)
-python analysis_pretrain.py --config configs/analysis_pretrain.template.json --checkpoint <path>
-
-# Post-training checker, FINETUNE stage (checkpoint -> per-class correct/wrong snapshot
-# pairs; configs/analysis_finetune.template.json is a small overlay, different shape from
-# the pretrain one -- no codebook block, dataset_params.finetune instead of .pretrain;
-# --base-config is still required, a finetune run's artifacts/config_<timestamp>.json
-# has no fixed name to auto-derive)
-python analysis_finetune.py --config configs/analysis_finetune.template.json --base-config <path/to/artifacts/config.json> --checkpoint <head.pth>
-
-# Compile raw datasets into per-subject bandpass+resample-baked .npz caches (run once, or
-# after changing sample_freq/bandpass_filter — see configs/compile.json, docs/agents/adding-a-dataset.md).
-# Verification (shape/labels/dead-channels/bandpass-rolloff) is baked in and runs automatically
-# after compiling; --no-verify skips it, --deep also re-parses raw and diffs byte-for-byte,
-# --verify-only skips compiling and just checks an existing cache (--dataset/--subjects narrow it)
+# Compile raw datasets into per-subject .npz caches (bandpass + resample baked in; verification runs after;
+# --dataset NAME narrows it, --verify-only / --deep for checks). See docs/agents/adding-a-dataset.md.
 python cache_dataset.py --config configs/compile.json
 
-# Any config value can be overridden on the command line (both training scripts; dotted path,
-# JSON value, repeatable; the run's artifacts/config.json records the effective config).
-# training_params.<mode>.num_threads caps a run's CPU threads (the machine is CPU-bound).
+# Pretrain: one run, tokenizer phase then masked phase (docs/adr/0013)
+python train_pretrain.py --config configs/runs/<backbone>/pretrain.json
+
+# Finetune a head on the frozen backbone (stamp-code cache built on first use by cache_feature.py)
+python train_finetune.py --config configs/runs/<backbone>/finetune/<head>/<cell>.json
+
+# Any config value can be overridden (dotted path, JSON value, repeatable; artifacts/config.json records it)
 python train_finetune.py --config <cfg> --set training_params.finetune.learning_rate=0.003
 
-# Experiments: a sweep file (configs/sweeps/*.json: one base config + cases x grid of --set
-# overrides) expands into queue jobs; run_queue runs a plan with a parallel limit and a thread
-# cap, resumable, state in output/queue/<plan>/ (plan lines: 'job <name> :: <cmd>' or 'wait')
+# Experiments: a sweep file (base config + cases x grid, optional "backbones") -> queue plan; run_queue runs it
+# resumably (state in output/queue/<plan>/: .done/.failed/.log per job; plan lines 'job <name> :: <cmd>' / 'wait')
 python -m tools.misc.sweep configs/sweeps/<sweep>.json > output/queue/<plan>.plan
 python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threads 8
-# One table for any set of finetune runs (backbones x heads, or --rank N for a grid)
-python -m tools.misc.summarize_runs 'output/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>]
 
-# Build the stamp-amplitude cache of the finetune datasets (frozen backbone run once per subject;
-# the runner will do this automatically)
-python cache_feature.py --config configs/runs/<backbone>/finetune/<head>/<dataset>_<mode>.json
+# Results: one table / a grid ranking; the backbone comparison report (frozen protocols + backbone eval)
+python -m tools.misc.summarize_runs 'output/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>] [--rank N]
+python -m tools.misc.backbone_eval --run <backbone> [...]
+python -m tools.misc.backbone_report --ref base=<backbone> --group X=<backbone> [...]
+
+# Post-training checkers (pretrain: topo/PSD/attn snapshots + codebook diagnostics; finetune: per-class snapshots)
+python analysis_pretrain.py --config configs/analysis_pretrain.template.json --checkpoint <path>
+python analysis_finetune.py --config configs/analysis_finetune.template.json --base-config <artifacts/config.json> --checkpoint <head.pth>
+python analysis_pretrain.py --panel profile [--train]     # parameter counts + timing, no data needed
 ```
 
-No test suite exists. Validation runs during training.
+No test suite: modules carry runnable self-checks (e.g. `MeSAE_modules._selfcheck_head_modules()`), and
+validation runs during training. Refactors here are verified by reproducing recorded results bit-identically.
 
 ### Long-running jobs: always monitor exit and errors
 
-Past failures on this machine: a watcher waiting on a log line that a changed log format never
-wrote sat silent for 7 h. The next step was chained on that watcher, so it was stuck too. A
-driver waited forever because its output went to /dev/null. A finished queue went unreported for
-40 min. The rules:
-- Launch drivers and queues so their exit is noticed. For an agent, use the tool's background
-  mode (you get an exit notification), not a detached `nohup ... &`. If a detached launch is
-  unavoidable, also start a background watcher that waits on the PID and prints its exit status.
-- Wait on something that cannot silently never happen: a process exiting (`while kill -0 $PID`),
-  or a file existing. Never wait on a specific log line.
-- Every job records its exit code (run_queue's `.done`/`.failed`, drivers' `exit=$?`). A chain step
-  must check the previous step's status, not just that it stopped.
-- When a job ends, report it right away: success, or the failure plus the last error lines. Don't
-  wait to be asked. On any status check, also list anything that died or has been quiet too long.
+Past failures: a watcher waiting on a log line that never came sat silent for 7 h and blocked the step
+chained behind it; a finished queue went unreported for 40 min.
+- Launch so the exit is noticed: an agent uses the tool's background mode (exit notification), not a detached
+  `nohup ... &`. If detaching is unavoidable, add a background watcher on the PID.
+- Wait on a process exiting (`while kill -0 $PID`) or a file existing, never on a specific log line.
+- Every job records its exit code; a chained step checks the previous step's status.
+- Report a job's end right away (success, or failure + last error lines). On a status check, list anything
+  that died or went quiet.
 
-### `configs/` layout
+## Configs
 
-`configs/pretrain.template.json` / `configs/finetune.template.json` /
-`configs/analysis_pretrain.template.json` / `configs/analysis_finetune.template.json` (plus
-`configs/pretrain_tiny.template.json`, the full corpus with `preprocess_params.window_fraction:
-0.05` -- corpus sizes are tiny 5% / small 20% / medium 50% / large 100% of every subject's
-pretrain windows, nested at one `window_fraction_seed`; the corpus itself is generated by
-`tools/misc/build_pretrain_corpus.py`)
-are never pointed at by a real run directly — they're starting points.
-`pretrain.template.json` holds only pretrain keys; `finetune.template.json` is an
-overlay (only the finetune keys plus `"base_config"`), the same shape as a
-`configs/runs/<model>/finetune/<head>/<dataset>_<mode>.json`. Analysis configs are split
-the same way (below):
-`analysis_pretrain.py` defaults `--config` to `analysis_pretrain.template.json`
-(`dataset_params.pretrain`, `check.codebook` — pretrain-only), `analysis_finetune.py`
-to `analysis_finetune.template.json` (`dataset_params.finetune`, no codebook block) —
-different panels, different summaries, so one shared file stopped making sense once
-finetune analysis grew its own shape. Pretrain and finetune RUN configs are split too: a
-finetune overlay sets `"base_config"` to its backbone's pretrain file and `load_config`
-(`tools/analysis/__init__.py`) deep-merges the two. To start a new run: copy
-`pretrain.template.json` to `configs/runs/<model_name>/pretrain.json` and
-`finetune.template.json` to its finetune overlays (pointing `base_config` at that
-`pretrain.json`) — every model version gets its own folder from the start,
-regardless of whether it has finetune runs yet (same as `output/`, where pretrain always
-lands in `output/<model_name>/pretrain/`, see "Outputs"). Pretrain config lives at
-`configs/runs/<model_name>/pretrain.json`; each finetune head/dataset gets its own overlay
-at `configs/runs/<model_name>/finetune/<head>/<dataset>_<mode>.json` (`<mode>` is `intra`/`inter`,
-matching `output/`'s own leaf-dir suffix exactly -- a dataset run under both protocols gets
-two files, not one overwritten by the other) — see `docs/adr/0017` for why
-finetune runs nest under their backbone, and `configs/README.md` for the full
-convention — and edit that copy — never the template. `configs/finetune_eval_splits/*.json`
-(seeded train/eval subject splits, see `training_params.finetune.split.eval_subjects:
-"auto"` below) and `configs/compile.json`/`configs/montages.json` (not per-run) are
-unchanged by this convention.
+`configs/pretrain.template.json` (full corpus) / `pretrain_tiny.template.json` (same corpus,
+`window_fraction` 0.05) / `finetune.template.json` / `analysis_*.template.json` are starting points, never
+run directly: copy to `configs/runs/<backbone>/pretrain.json` and `configs/runs/<backbone>/finetune/<head>/<cell>.json`
+(a finetune overlay sets `base_config` to its backbone's pretrain file; `load_config` deep-merges them).
+`configs/runs/` is gitignored; every run's effective config is saved in its `artifacts/config.json`.
+Corpus sizes are tiny 5% / small 20% / medium 50% / large 100% of every subject's windows, nested at one
+`window_fraction_seed`; the corpus list is generated by `tools/misc/build_pretrain_corpus.py`.
+Shared: `configs/compile.json` (compile params + dataset list), `configs/montages.json` (canonical and
+sub-montages), `configs/finetune_protocols.json`, `configs/sweeps/`. See `configs/README.md`.
+
+Key fields (templates show defaults):
+- `model_params.MeSAE.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2),
+  `spatial_heads`, `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (true: Fourier electrode-coordinate
+  embedding + per-block directional relative spatial bias; false: neither -- the spatial ablation).
+- `preprocess_params`: `canonical_channels` (a `montages.json` name or a list), `window_length`,
+  `window_min_real`, `window_fraction`, `patch_length` 50, `patch_stride` 25 (50% overlap), `sample_freq` 200,
+  `bandpass_filter`, `normalization_type`, and `mask` (`IO/masking.py`): `masking_strategy` `mixture` (one
+  MaskMode per window -- channel_cluster / random_channel / time_block / random_token -- on a shared ratio
+  ramp; the default) or `random` (the masking baseline); masks redrawn every masked epoch; `time_run` masks
+  runs of >= 3 patches (a lone patch leaks through the overlap); `subsample` removes channels down to a
+  `montages.json` sub-montage for part of the dense-cap windows.
+- `training_params.pretrain`: `model_name`, `output_path`, `epochs`, `tokenizer_epochs`, `freeze_stamps`,
+  `warmup_epochs`, `batch_size`, LR fields, `train_val_split`, `seed`.
+- `model_params.MeSAE.finetune` (the head, validated at build): `features` = a list of `{"type": <entry>,
+  <per-entry keys>}`; entries are classes in `MeSAE_modules.py`'s `ENTRY_TYPES` (`stamp_power`, `stamp_band`,
+  `signed_ab`, `evoked`, `phase_advance`, `raw_band`, `raw_signal`, `latent_power`, `latent_signed`) -- a new
+  head feature is one class + one registry line. Every entry has its own spatial filter. Per-entry keys
+  (`spatial_k`, `time_pool`, `time_rank`, `window`, `evoked_rank`, `stamp_rank`, `latent_proj`) may also be set
+  at the top level as defaults; plus `dropout`. Defaults: `_HEAD_DEFAULTS`.
+- `training_params.finetune`: `pretrained_checkpoint`, `protocol` (a `configs/finetune_protocols.json` entry:
+  mi_loso / mi_fewshot / p300_loso / p300_fewshot, tuned on DEV sets BNCI2015001 / BNCI2014009 only; applied
+  over the merged config, `--set` still wins), `split` = `{"type": ...}` from `train_finetune.py`'s `SPLITS`:
+  `loso`, `subject_kfold` (`n_folds`), `eval_subjects`, `kfold`, `blocked_kfold`, `fewshot` (`train_fraction`,
+  EEG-FM-Compass calibration); all take `sessions` and `seed`, per-subject types also `purge` (P300 overlap);
+  unknown keys are rejected. Plus LR fields, `epochs`, `class_weight` (`balanced`), `batch_size`, `seed`.
 
 ## Architecture
 
-**MeSAE** is an EEG tokenizer: a TSA encoder feeding a sparse stamp dictionary
-(StampBank, top-k routed + always-on shared stamps), reconstructing patches, pretrained
-by masked reconstruction. MeFSQ (the earlier FSQ/VQ model) was removed, see
-`docs/adr/0013`. See `CONTEXT.md` for canonical terms and `docs/adr/0009` for the stamp
-dictionary.
-
-### Data flow
+**MeSAE**: an EEG tokenizer. A TSA encoder feeds a stamp dictionary (StampBank: routed top-k + always-on
+shared stamps; each active stamp reconstructs a patch as `a*D + b*H`, D a template and H its quadrature
+partner), trained by masked reconstruction. Plugged in via `model/MeSAE/plugin.py` (`model/factory.py`
+`MODEL_REGISTRY`, docs/adr/0004).
 
 ```
-EEG signals (raw dataset files)
-  └─ datas/<split>/<Name>/loader.py   # <split> = pretrain | finetune; compile-time only (never runs at
-  │                                   # train time). Cuts Trials: event-anchored ones [event-1 s, event+4 s)
-  │                                   # (configs/compile.json pre/post_event_seconds), others per dataset;
-  │                                   # MOABB-covered datasets use IO/loader.py's MoabbLoader
-  └─ cache_dataset.py          # bandpass filter → resample, baked once into datas/<split>/<Name>/cache/*.npz;
-  │                            # applied to each CONTINUOUS recording before epochs are cut (loaders call
-  │                            # BaseSubjectLoader._filter_run; filtering short epochs leaves edge transients).
-  │                            # Only sources that ship pre-epoched (BETA_3s/BETA_4s) are filtered per epoch
-  └─ IO/dataset.py             # EEGDataset reads the compiled cache directly, channel-maps/pads,
-  │                            # applies IO/preprocessing.py's Normalizer (zscore/robust/fixed)
-  │    └─ EEGDataset → PretrainDataset / FinetuneDataset
-  │         ├─ assemble_trials=True (pretrain): cuts each Trial into its own
-  │         │  Windows, never splicing trials (IO/preprocessing.py's window_continuous_signal)
-  │         ├─ IO/preprocessing.py's slice_patches: Window → Patches, patch_stride for overlap
-  │         └─ IO/masking.py: mixture masking (or the random baseline), redrawn every masked
-  │            epoch — PretrainDataset only; masks are ignored during the tokenizer phase
-  └─ train_pretrain.py         # tokenizer phase (unmasked) -> masked phase, one run
-  │                            # batches hold one montage each (IO/dataset.py's MontageBatchSampler), so
-  │                            # each batch drops the canonical channels none of its windows has
+datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.py's MoabbLoader
+ └ cache_dataset.py    bandpass + resample each CONTINUOUS recording (BaseSubjectLoader._filter_run),
+ │                     then cut epochs (event-anchored [event-1 s, event+4 s), or fixed windows); drops
+ │                     flat-line dropout windows -> datas/<split>/<Name>/cache/*.npz. BETA_3s/4s ship
+ │                     pre-epoched and are filtered per epoch.
+ └ IO/dataset.py       EEGDataset maps channels onto the canonical montage (missing -> zero padding,
+ │                     valid_channels marks real ones), normalises per trial; PretrainDataset cuts
+ │                     windows -> patches and draws masks; MontageBatchSampler makes one-montage batches
+ └ train_pretrain.py   tokenizer phase (every block, temporal attention only, unmasked) -> masked phase
+                       (spatial attention + coordinate embedding on, mask curriculum starts)
 ```
 
-`build_dataset_from_config` runs `sanity_check_base`/`sanity_check_wrapper` (`IO/dataset.py`)
-automatically on every call — verifies the per-trial parallel arrays (labels/coords/subject_id/
-dataset_name) stayed index-aligned through loading/padding/windowing, and that the wrapper's
-`__getitem__` produces finite tensors, before training starts.
+- `MeSAE_modules.py`: `SpatialTemporalEmbeddings`, `RelativeSpatialBias`, `TSABlock` (temporal attention ->
+  spatial attention -> MoE FFN, LayerScale), `TSAEncoder` (stages of `blocks_per_stage` blocks; patch axis
+  pooled by 2 between stages with a centred [1,3,3,1]/8 kernel, linear-interpolation upsample, gated skips:
+  8 blocks = 4 stages, 39 -> 20 -> 10 -> 5 patches; padded channels and padded tail patches are masked out of
+  attention), `StampBank`, and the finetune side: `StampExtractor` (stamp codes and optionally z from the
+  frozen backbone) and `FeatureHead` (the `ENTRY_TYPES` registry).
+- `MeSAE.py`: `MeSAEPretrain` (phases, per-sample masked loss: a sample counts as masked only if every patch
+  covering it is masked), `FinetuneModel`.
+- `factory.py`: a pretrain checkpoint stores its `build_config`; `build_from_checkpoint` rebuilds a trained
+  backbone from it, never from the editable run config.
+- `train_pretrain.py`: subject split by `IO/dataset.py`'s `split_pretrain_subjects` -- person-disjoint per
+  cohort (`metadata.json` `data_metadata.cohort`) and independent of dataset order; a subject's near-flat
+  channels (std < 0.10 x median, dead electrodes / the recording reference) are treated as padding.
 
-Pretraining is one run with two phases (`docs/adr/0013`):
-- **Tokenizer phase** (epochs 1..`tokenizer_epochs`): `MeSAEPretrain.enter_tokenizer_phase()`
-  -- every encoder block runs, temporal mixing only (spatial attention and the coordinate
-  embedding off), no masking.
-  Encoder + StampBank train jointly on single-channel features (0003's leakage rule).
-- **Masked phase**: `enter_masked_phase(freeze_stamps)` -- all blocks, spatial attention +
-  coord embedding on, `preprocess_params.mask` curriculum starts (counted from here),
-  StampBank frozen only if `training_params.pretrain.freeze_stamps`.
-- The phase is a buffer (`masked_phase`); a `load_state_dict` post-hook restores blocks and
-  mixing flags, so no loader calls `enable_*` by hand.
+**Sparsity budget, a hard ceiling:** each active stamp gives two free scalars per channel, so keep
+`2 * (stamp_top_k + n_shared_stamps) < patch_len` with margin. Past it, the active slots fit any patch
+regardless of the templates and it stops being sparse coding (measured at DOF 56 > 50: recon MSE ~0 on every
+dataset, kurtosis 6.7 -> 1.2). docs/adr/0011.
 
-Each model plugs in via `model/<Name>/plugin.py` (`Trainer`/`Checker`/`Plotter` in a
-`BasePlugin`, registered in `model/factory.py`'s `MODEL_REGISTRY`) -- MeSAE is the only
-one. See `docs/adr/0004-model-plugin-base-classes.md`.
+## Outputs
 
-- **`model/MeSAE/MeSAE_modules.py`**: `SpatialTemporalEmbeddings`, `TSABlock` (temporal
-  attn -> spatial MHA -> MoE FFN, LayerScale 1e-4), `TSAEncoder` (UNet-style: stages of
-  `blocks_per_stage` blocks, the patch axis pooled by 2 between stages -- centred [1,3,3,1]/8 pool,
-  linear-interpolation upsample, gated skips -- 8 blocks = 4 stages, 39 -> 20 -> 10 -> 5 patches;
-  zero-padded tail patches masked out of temporal attention), `StampBank`,
-  and the finetune pieces (ADR 0016): `StampExtractor` (frozen-backbone stamp codes
-  `[B, N', Cv, S, 2]`) and `FeatureHead` (one composable head: feature front-end, spatial
-  filter, time pooling, optional branches, readout).
-- **`model/MeSAE/MeSAE.py`**: `MeSAEPretrain` (phases, `get_loss`, `freeze_stamps`,
-  `encode_post_stamp_expert`), `FinetuneModel` (frozen backbone + `StampExtractor` +
-  `FeatureHead`), `build_finetune`.
-- **`model/factory.py`**: `build_pretrain_from_config`, `build_finetune_from_config`,
-  `optimizer_param_groups`.
+A run writes to `output/<training_params.<mode>.output_path>` (default `<model_name>/pretrain` for pretrain).
+Per backbone: `output/<backbone>/pretrain/` (`checkpoint/last.pth` -- prefer it over `best.pth`, which locks
+onto an easy epoch of the mask curriculum; `artifacts/config.json`; `visualization/`; `analysis/`;
+`feature_cache/` -- regenerable, keyed by checkpoint, build_config, code hash and data fingerprint) and
+`output/<backbone>/finetune/<head>/<cell>/` (`artifacts/group_eval.json`: per-subject `tail` = mean of the last
+10 epochs' balanced accuracy, `last`, kappa). `output/reports/` holds comparison reports, `output/queue/`
+queue state, `output/archive/` superseded experiments.
 
-### MeSAE sparsity budget — a hard ceiling, not a knob
+## Data
 
-Each active stamp slot contributes two free scalars (`a`, `b`) per channel, so the
-reconstruction has `2 * (stamp_top_k + n_shared_stamps)` degrees of freedom against a
-`patch_len`-sample target. **Keep `2 * (top_k + n_shared) < patch_len`, with margin.**
+`datas/<split>/<name>/metadata.json`: `data_metadata` (`acquisition.sample_frequency`, 1-indexed `channels`
+with labels and coordinates, `event_onset_seconds`, `moabb` class/kwargs/window, optional `cohort`) and
+`data_structure` (per-subject files or `moabb_subject`). `datas/DATASETS.md` lists every dataset; regenerate
+with `python -m tools.misc.dataset_inventory`. Read `docs/finetune-caveats.md` before reporting finetune numbers.
 
-Past that line the active slots alone can fit any patch exactly regardless of what the
-atoms contain, and it stops being sparse coding: measured at `top_k=24` (DOF 56 >
-patch_len 50), `recon_mse` collapsed to ~0 on every dataset at once while activation
-kurtosis fell 6.68 -> 1.17 and cross-atom correlation quadrupled. Current default sits
-at 32. See `docs/adr/0011-matching-pursuit-residual-loss.md`.
+## Agent docs
 
-### Config (`configs/pretrain.template.json` + `configs/finetune.template.json`, copied per run into `configs/runs/` — see above)
-
-Key fields:
-- `model_params.MeSAE.pretrain`: the one architecture block — `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (default 2; `enc_depth` / `blocks_per_stage` stages), `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (default true: Fourier electrode-coordinate embedding + a per-block directional relative spatial bias in spatial attention; false = neither, the spatial-embedding ablation). `model_params.MeSAE.finetune`: head keys (validated at build; the checkpoint stores the resolved `head_config`) — `features`: a list of `{"type": <name>, <per-entry keys>}`, name one of `stamp_power`/`stamp_band`/`raw_band`/`raw_signal`/`phase_advance`/`evoked`/`signed_ab` (each an entry class in `MeSAE_modules.py`'s `ENTRY_TYPES` owning its validation, width and forward, so a new head feature is one class plus one registry line); every entry has its own spatial filter. Per-entry keys `spatial_k` (None/0 = no mixing), `time_pool` (`flat`/`learned`/`window`/`none`), `time_rank`, `window` (`[lo, hi]` s), `evoked_rank`, `stamp_rank` can also be set at the top level as the default for every entry; plus `dropout`. Defaults in `_HEAD_DEFAULTS`.
-- `preprocess_params`: `window_length`, `window_min_real` (pretrain windowing: each trial's real content is cut into its own `window_length` windows, never spliced with another trial; a leftover shorter than `window_min_real` × `window_length` is dropped, a longer one is zero-padded and the padding is skipped by masking and the recon loss; default 0.5, see `IO/preprocessing.py`'s `window_continuous_signal`), `patch_length`, `patch_stride` (patch step in samples within a Window; equal to `patch_length` for non-overlapping patches, smaller for overlapping — see `IO/preprocessing.py`'s `slice_patches`), `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `mask` (`IO/masking.py`, one `MaskingStrategy` class: `masking_strategy` = mixture (one MaskMode per window -- random_token, channel_cluster, random_channel, time_block -- on a shared ratio ramp) or `random` (one random_token mode at a fixed `mask_ratio`, the masking baseline); masks are redrawn every masked epoch; `time_run` masks whole runs of patches (3: the 50% patch overlap otherwise leaks a lone masked patch); `subsample` (`enabled`) removes channels down to a named `configs/montages.json` sub-montage for part of the dense-cap windows; every schedule counts masked-phase epochs and the strategy owns it, the training loop only calls `set_epoch`)
-- `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — used by `train_pretrain.py` (masking applied only in the masked phase)
-- `training_params.pretrain`: `model_name` (clean identity string, e.g. logged at startup — not a path), `output_path` (optional; where this run writes under `output/`, e.g. `mesae_v10_small/pretrain` — falls back to `model_name` when omitted, see "Outputs" below), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields
-- `dataset_params.finetune` (exactly one dataset per run) / `training_params.finetune`: `model_name`, `output_path` (same split as `training_params.pretrain`'s), `pretrained_checkpoint`, `learning_rate`, `min_learning_rate`, `weight_decay`, `epochs`, `warmup_epochs`, `batch_size`, `device`, `seed`, `protocol` (a name from `configs/finetune_protocols.json` -- mi_loso / mi_fewshot / p300_loso / p300_fewshot, the DEV-tuned split + head + hyperparameters -- applied over the merged config; `--set` still wins), and the `split` block `{"type": <name>, ...}` (`train_finetune.py`'s `SPLITS`): `loso`; `subject_kfold` (`n_folds`, optional `train_subjects`); `eval_subjects` (list, dict of named groups, `{"random": n, "seed": s}`, or `"auto"` -- the cached `configs/finetune_eval_splits/<dataset>.json` split for datasets registered in `tools.analysis.select_eval_subsets.DATASETS`, currently empty; errors for an unregistered dataset; optional `train_subjects`); `kfold` (per subject, shuffled StratifiedKFold, optimistic); `blocked_kfold` (per subject, contiguous chronological blocks); `fewshot` (`train_fraction` f: EEG-FM-Compass calibration, per class the first ceil(f·n) trials in recording order train, the rest evaluate). Every type takes optional `sessions: [i, ...]` (0 = each subject's first recorded session; others dropped before splitting -- Compass uses session 0 for MI/P300; read from the compiled cache's per-trial `session` array, older caches error) and `seed`; the per-subject types also take `purge: n` (drop eval trials within n recording positions of a train trial, for overlapping P300 windows). Unknown keys are rejected. Old keys (`split_mode`, `cv_folds`, `train_val_split`, `freeze_backbone`, `backbone_lr_mult`) are gone; see `docs/superpowers/plans/2026-09-21-finetune-restructure-c-train-finetune.md`
-- `training_params.visualize_params`: diagnostic/plotting-only params, no effect on training data — `cmap` (matplotlib colormap for topomap/PSD panels), `fft_resolution` (Hz/bin for analysis_pretrain.py's/analysis_finetune.py's diagnostic PSD panels — `tools/panels/panel_stamp_gallery.py`/`panel_stamp_by_patch.py`'s `n_fft = round(sample_freq / fft_resolution)`), `psd_freq_range` (`[l, h]` or `null` — overrides the PSD panel's plotted frequency range independent of `bandpass_filter`; `null` falls back to `bandpass_filter`'s `l_freq`/`h_freq`), `bands` (Delta/Theta/Alpha/Beta/Gamma `[lo, hi]` edges for the band-filtered reconstruction time-series panel, `tools/viz/timeseries.py`'s `_canonical_bands` — each band is still clipped to `bandpass_filter`'s range), plus per-mode `pretrain`/`finetune` sub-keys (`targets`, `every_n_epochs`)
-
-### Outputs
-
-A run's actual write location under `output/` is `training_params.<mode>.output_path`
-(`tools/analysis/__init__.py`'s `resolve_output_path`, read by `train_pretrain.py`/
-`train_finetune.py` and every `resolve_output_dir`/`resolve_finetune_analysis_dir` call).
-When unset it defaults to `"<model_name>/pretrain"` for a pretrain run and plain
-`model_name` for a finetune run. `model_name` itself stays a clean identity string (what
-gets logged at startup, e.g. `"mesae_v10_small"`) and never carries a path segment —
-`output_path` is the only field allowed to.
-
-`output/<backbone>/` holds one backbone -- e.g. `output/mesae_v10_small/`; there is no
-wrapping `output/pretrain/` layer. Its pretrain artifacts (`checkpoint/`, `artifacts/`,
-`visualization/`, `analysis/`, `feature_cache/`) always live under
-`output/<backbone>/pretrain/`, from the first pretrain run on, so later finetune runs
-(`output/<backbone>/finetune/`, below) never share a level with them. Backbones trained
-before this default (e.g. `mesae_v11_small`) may still be flat at the top level until
-moved.
-`output/archive/` holds the earlier finetune experiments (`experiment_b`, `experiment_c`, `loso_phase1`, `phase2`): superseded
-by the restart on the corrected pipeline, kept as the record of why the head was chosen (their stamp-head numbers ran without
-MNE coordinates or with the old pipeline, see ADR 0014). New finetune runs write to `output/<output_path>/` (`output_path` may contain a
-subfolder, e.g. `mesae_v10_small/finetune/learned/BNCI2014001_intra` — finetune runs nest under the backbone's own
-`output/<backbone>/` dir rather than top-level, one subfolder per head, since a second backbone finetuning the
-same baseline matrix would otherwise collide at the same paths; see ADR 0017).
-
-`output/<output_path>/` (pretrain runs; a finetune run instead writes `finetune/run_<name>/head.pth` (head checkpoint), `artifacts/group_eval.json` (per-subject tail/last balanced accuracy), `artifacts/config_<timestamp>.json` (config plus `env` stamp) and `visualization/run_<name>/training_dashboard.png`)
-- `checkpoint/best.pth` — best val-loss checkpoint (reset at the phase boundary; during
-  the mask curriculum it locks onto the easiest epoch, so prefer `last.pth`)
-- `checkpoint/last.pth` — every epoch
-- `artifacts/config.json` — run snapshot
-- `visualization/` — loss plots, topomap reconstructions
-- `feature_cache/<dataset>/<key>/<subject>.npz` — regenerable stamp-amplitude cache built by `cache_feature.py`, safe to delete
-
-### Dataset metadata
-
-Each dataset under `datas/<split>/<name>/metadata.json` uses a unified schema:
-- `data_metadata.acquisition.sample_frequency` — used for compiling (`cache_dataset.py`)
-- `data_metadata.channels` — 1-indexed dict with `label` + `coordinates` (polar angle/radius, converted to 3D for spatial embedding — see `IO/loader.py`'s `load_coords_from_metadata`)
-- `data_metadata.event_onset_seconds` (MOABB datasets) or `event_onset_sample` (older ones, at 200 Hz) — where the event sits inside each compiled trial; absent = no event (continuous windows). Read by `tools.analysis.lookup_event_onset_sample` / `event_onset_patch` to draw the event line on every time-axis plot
-- `data_metadata.moabb` (MOABB datasets) — class, kwargs, optional `window` / `continuous`
-- `data_structure` — per-subject file references, `raw/`-prefixed (relative to the dataset folder), or `moabb_subject` for MOABB datasets
-
-`datas/DATASETS.md` (generated) lists every dataset with paradigm, benchmark membership, event position, compiled hours and status.
-
-Pretrain's subject-level train/val split (`IO/dataset.py`'s `split_pretrain_subjects`, used by `train_pretrain.py` and `tools/misc/backbone_eval.py`) is **person-disjoint**: datasets recorded from the same people share a cohort (`metadata.json` `data_metadata.cohort`: GraspAndLift_Train/_Test = GraspAndLift, Lee2019_MI/_SSVEP = OpenBMI; default the dataset name), a person is on one side for the whole cohort, and every cohort draws from its own RNG (seed 42 + cohort), so adding or reordering datasets leaves the other splits unchanged. Pretraining also treats a subject's near-flat channels (std < `FLAT_RATIO` 0.10 x the subject's median channel std, before normalisation: dead electrodes, the recording reference) as padding. A pretrain checkpoint carries its `build_config`, and every loader rebuilds the backbone from it (`model/factory.py`'s `build_from_checkpoint`), never from the editable run config.
-
-Finetune numbers have known caveats (P300 intra-subject folds share overlapping windows, shuffled intra folds are optimistic, PhysionetMI is in the v10–v13 pretrain corpus) — read `docs/finetune-caveats.md` before reporting or comparing them.
-
-### Multi-dataset training
-
-`build_dataset_from_config` supports multiple entries in `dataset_params`. Channels are unified from the first dataset; other datasets are mapped onto that channel space (missing channels zero-padded).
-
-## Agent skills
-
-### Issue tracker
-
-Issues tracked in GitHub Issues (IanHuangOwO/EEG_Tokenizer) via `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context layout — `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
-
-### Adding a model
-
-Step-by-step protocol (files to write, contracts to match, verification commands) for
-wiring a new tokenizer model into the shared plugin architecture (see
-`docs/adr/0004-model-plugin-base-classes.md`). See `docs/agents/adding-a-model.md`.
-
-### Adding a dataset
-
-Step-by-step protocol for converting a raw EEG dataset into the standard `datas/<name>/`
-layout (`loader.py`, `gen_metadata.py`, `raw/`) and compiling it into the per-subject
-cache `cache_dataset.py` reads — no registry to edit, directory presence is the
-registration. See `docs/agents/adding-a-dataset.md`. Datasets MOABB covers use
-`IO/loader.py`'s `MoabbLoader` instead of hand-written parsing. `datas/DATASETS.md` lists every
-dataset (paradigm, subjects, compiled hours, status); regenerate it with
-`python -m tools.misc.dataset_inventory` whenever a dataset is added, compiled or migrated.
-
-### Adding a montage
-
-`preprocess_params.canonical_channels` (cross-dataset channel unification) takes either a
-named montage (`configs/montages.json`, e.g. `"10-10"`) or an inline custom channel list.
-Step-by-step protocol for adding a new standard (MNE-sourced) or custom montage. See
-`docs/agents/adding-a-montage.md`.
-
-### Adding a tool (panel / analysis / viz function)
-
-`tools/` is `analysis/` (calculation), `viz/` (pure rendering), `panels/` (thin
-`panel_<name>.py` CLI entrypoints, discovered by filename glob, no registry). Protocol
-for which subpackage new code belongs in, the panel contract
-(`STAGES`/`NEEDS_CHECKPOINT`/`NEEDS_DATASET`/`run(ctx)`), and CLI wiring. See
-`docs/agents/adding-a-tool.md`. `tools/misc/` holds one-off ad-hoc analysis scripts
-(run directly, `python tools/misc/<script>.py`, no panel contract/CLI wiring) -- graduate
-a script into `analysis/`+`panels/` if it becomes routine.
-
-### Reshape/view pitfalls
-
-`.reshape(`/`.view(` silently scrambles data (no error) if it merges or reorders
-axes that aren't already adjacent in the tensor's current dimension order — three
-real instances of this hit training data and the MeSAE reconstruction loss in the
-same session (see `IO/preprocessing.py` `window_continuous_signal`, `model/MeSAE/MeSAE.py`
-`_patch_pyramid_levels`). Check any new `.reshape(`/`.view(` against
-`docs/agents/reshape-pitfalls.md` before assuming it's correct just because
-shapes match.
+- Issues: GitHub Issues (IanHuangOwO/EEG_Tokenizer) via `gh`; labels `needs-triage` / `needs-info` /
+  `ready-for-agent` / `ready-for-human` / `wontfix` -- `docs/agents/issue-tracker.md`, `triage-labels.md`.
+- Adding a dataset / model / montage / tool: `docs/agents/adding-a-*.md`. `tools/` = `analysis/`
+  (calculation), `viz/` (rendering), `panels/` (CLI entrypoints); `tools/misc/` = scripts run directly.
+- `.reshape(`/`.view(` silently scrambles data when it merges non-adjacent axes (it has hit training data
+  three times): check any new one against `docs/agents/reshape-pitfalls.md`.

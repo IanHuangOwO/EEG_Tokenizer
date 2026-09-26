@@ -29,6 +29,6 @@ class Loader(BaseSubjectLoader):
         # and produce:
         #   eeg_data: np.ndarray (N, C, T) — N trials, C = len(self.channel_indices)
         #   labels:   np.ndarray (N,) int, 0-indexed, dense in [0, self.num_targets)
-        # For GDF/EDF event-marker datasets, self._segment_by_annotations(raw,
-        # trial_len_pts, code_to_label, self.channel_indices) does the windowing.
+        # Filter each whole recording BEFORE cutting: sig, sf = self._filter_run(sig), then cut at
+        # rate sf (see docs/agents/adding-a-dataset.md). Event cuts: IO/preprocessing.py's cut_event_window.
         raise NotImplementedError("Fill in Loader._load_data for your dataset.")

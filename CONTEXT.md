@@ -1,131 +1,112 @@
 # EEG Tokenizer
 
-An EEG signal tokenizer: converts multi-channel EEG time series into per-patch features via masked-reconstruction pretraining. **MeSAE** (sparse stamp dictionary, non-discrete) is the only live model — **MeFSQ** (discrete codes, Multi-head Finite Scalar Quantization) was removed, see `docs/adr/0013`; its terms below are kept as a glossary for reading old docs/ADRs, not a current architecture. `configs/pretrain.template.json`, copied per run into `configs/runs/`, builds MeSAE; see "Current MeSAE defaults" below.
+An EEG foundation model: **MeSAE** turns multi-channel EEG into per-patch sparse stamp codes, pretrained by
+masked reconstruction, then read by a small head on a frozen backbone. The retired MeFSQ model (discrete
+FSQ codes; terms Expert, Code, Codebook, Expert View, pre-/post-VQ feature) is documented in
+`docs/adr/0001`, `0002`, `0013` -- only relevant when reading those.
 
-## Language
+## Data
 
-**Trial**:
-A raw, labeled recording segment as it comes from the source dataset (variable length).
-_Avoid_: Segment, recording, epoch (for this meaning)
+**Trial**: a labelled segment as the source dataset defines it; event-anchored ones are cut
+[event - 1 s, event + 4 s). Finetuning uses whole Trials.
+_Avoid_: epoch, segment (for this meaning)
 
-**Window**:
-A fixed-length chunk of signal (`window_length` samples, 5 s) — the pretrain model's input unit. Pretraining (`assemble_trials=True`) cuts each Trial's real content into its own non-overlapping Windows; a Window never spans two Trials. A leftover shorter than `window_min_real` × `window_length` is dropped, a longer one is zero-padded at the end, and that padding is excluded from masking and the loss (`IO/preprocessing.py`'s `window_continuous_signal`). Distinct from a Trial — a Window carries no task label (dummy 0), and one long Trial yields several Windows. Finetuning does not use Windows: it keeps whole Trials.
-_Avoid_: Trial (for this meaning), chunk
+**Window**: the pretrain input unit, 5 s (1000 samples). Each Trial's real content is cut into its own
+non-overlapping Windows, never spanning two Trials; a short leftover is dropped or zero-padded, and padding
+is excluded from masking and the loss (`IO/preprocessing.py`'s `window_continuous_signal`).
 
-## Quantization (MeFSQ, retired)
+**Patch**: one channel's 50-sample (0.25 s) slice of a Window, stepped by 25 (50% overlap): 39 per Window.
+At 200 Hz a patch's FFT grid is 4 Hz (60 Hz lands on a bin, 50 Hz never does).
 
-MeFSQ itself is gone (`docs/adr/0013`) — terms below are a glossary only, for reading
-docs/ADRs written while it was live. No current code builds this model.
+**Canonical montage / valid channels**: every dataset is mapped onto one channel list (`10-10`, 64);
+channels a dataset lacks are zero padding and `valid_channels` marks the real ones. Padded channels are
+masked out of attention and the loss; a subject's near-flat channels (dead electrodes, the recording
+reference) are treated as padding in pretraining. A **sub-montage** (`configs/montages.json`: motor-3,
+p300-8, 10-20, bci-22, ...) is what channel subsampling cuts a dense cap down to.
 
-**Patch**:
-One channel's raw `patch_len`-sample time slice within a Window — the smallest unit of signal before embedding, stepped by `patch_stride` (equal to `patch_len` for non-overlapping patches, smaller to overlap consecutive patches — see `IO/preprocessing.py`'s `slice_patches`).
+**Cohort**: datasets recorded from the same people (`data_metadata.cohort`); the pretrain train/val
+split keeps a person on one side for the whole cohort.
 
-**Token** (_retired_):
-Former fused, cross-channel representation of one patch position: all C channels' patch embeddings concatenated into one C*D vector, shared identically by the Router and every Expert. Retired because concatenation bakes channel *position* into a fixed slot, which breaks under cross-dataset channel-count/order variance and zero-padded channels (see `docs/adr/0002-per-expert-channel-attention.md`). Superseded by **Expert View**.
+**Corpus size**: tiny / small / medium / large = 5 / 20 / 50 / 100% of every subject's Windows, nested.
 
-**Expert View**:
-The per-Expert, content-based-attention-pooled summary of one patch position's C channel embeddings: each Expert (Routed or Shared pool) has its own learnable query attending over the C per-channel D-dim vectors (keys), producing one D-wide weighted sum specific to that Expert. Replaces the shared, concatenation-based Token — different Experts may weight channels differently for the same patch. Padded/invalid channels (`valid_channels` mask) get their attention score set to −inf before softmax, so channel count/order can vary across datasets without corrupting the pooled result. The Router scores each Expert on that same Expert's own View (not a separate shared input), so the gating decision and the quantized input are always the same vector.
-_Avoid_: Token (for this meaning, retired)
+## Model
 
-**Expert**:
-An independent FSQ quantizer unit (down-proj -> quantize -> up-proj -> decode) living in a Routed or Shared pool. Canonical term for what earlier docs called a "VQ head".
-_Avoid_: Head, VQ head (retired; "head" now means attention head only, e.g. spatial_heads)
+**Stamp**: a learned unit-norm template `D` (50 samples) plus its derived quadrature partner `H` (Hilbert:
+rFFT bins rotated -90 degrees). A stamp contributes `a*D + b*H` to a channel: amplitude `sqrt(a^2+b^2)`,
+phase `atan2(b, a)`, the shape unchanged at any phase.
 
-**Routed pool**:
-A pool of Experts where a Router top-k gates which Experts fire per patch, weighted-summed over the selected ones. Each Expert is scored against its own Expert View. Buys representation specialization (every Expert still densely computed, unselected ones masked to zero — not a compute-saving sparse dispatch at this scale).
+**Stamp code**: the `(a, b)` pair per patch, channel and stamp: `[N', C, S, 2]`. `a^2+b^2` is
+phase-invariant power (induced activity, e.g. motor-imagery ERD); signed `(a, b)` keeps phase-locked
+content (evoked responses, P300).
 
-**Shared pool**:
-A pool of Experts that are always active for every patch, summed and down-weighted, providing a constant baseline contribution to reconstruction alongside the Routed pool's specialized contribution. Each Expert still has its own Expert View — "always active" means ungated, not that they share one pooled input.
+**Routed / shared stamps**: the StampBank's two pools. Routed stamps compete (the `stamp_top_k` highest per
+patch decode); shared stamps fire on every patch. **Group selection**: one stamp set per patch position,
+shared by all channels, each channel with its own gains -- so a stamp's per-channel gains form a
+**mixing column** (an ICA-style topography).
 
-**Code**:
-The discrete FSQ output an Expert assigns to its own Expert View (per-head sigmoid quantization + straight-through estimator, `num_discrete` groups per Expert).
+**Sparsity budget**: `2 * (stamp_top_k + n_shared_stamps)` free scalars per channel must stay well below
+`patch_len` (50), or the active slots fit any patch and it stops being sparse coding (docs/adr/0011).
 
-**Codebook**:
-The space of possible Codes an Expert can assign (size governed by `r` / `vq_head_vocab_size`).
+**Residual ordering** (`mp_loss`): matching-pursuit grading -- slots ranked by amplitude, each graded against
+the residual the higher ranks leave (detached), so duplicate atoms earn nothing. **Dead-atom rescue**
+(`aux_loss`): revives routed atoms that stopped firing. Both only while stamps train.
 
-**Pre-VQ feature**:
-The continuous, unquantized per-channel vector produced by the encoder before the pooling+quantize step. Broadcast to every Expert independently (unlike the Expert View, where each Expert forms its own channel-pooled vector). Exposed via `encode_pre_vq` for diagnostics only — no longer read by finetune (see Tokenizer bypass, retired).
+**Stage**: a group of `blocks_per_stage` (2) encoder blocks at one temporal resolution; the patch axis is
+pooled by 2 between stages (centred, no time shift) and upsampled back through gated skips.
 
-**Tokenizer bypass** (_retired_):
-Former finetune mode that read Pre-VQ features directly, skipping the discrete Code round-trip. Removed: every Expert broadcasts the identical Pre-VQ vector, so the finetune head had no per-Expert signal to differentiate and its attention pooling collapsed to uniform. Finetune now always reads `encode_post_vq` (see below).
+**z**: the encoder output before the StampBank, `[N', C, 100]`. The stamp codes on visible input are close
+to a fixed projection of each patch onto the templates, so a head on stamp codes sees little of the
+encoder's context; `latent_*` head entries read z instead.
 
-**Post-VQ feature**:
-Per-Expert, per-channel signal read AFTER quantization: each Expert's own decoded reconstruction, split back out per channel, before the cross-Expert sum. Genuinely Expert-differentiated (unlike Pre-VQ, where every Expert sees the same broadcast vector) since each Expert quantizes to its own Code and decodes with its own weights. Exposed via `encode_post_vq`; this is what finetune reads.
+**Spatial embedding**: the Fourier electrode-coordinate embedding plus the per-block directional relative
+spatial bias, on or off together (`spatial_embedding`).
 
-## Sparse tokenization (MeSAE)
+## Training
 
-A parallel, non-discrete tokenizer approach (`model/MeSAE/`) — goal is explainable per-patch sparse features (ICA-style linear sum of independent source contributions), not a discrete Code vocabulary. The unit is a **Stamp**, not an Expert/Code; see `model/MeSAE/MeSAE.py` and `StampBank` in `MeSAE_modules.py`.
+**Tokenizer phase**: epochs 1..`tokenizer_epochs`: every block runs with temporal attention only (no
+spatial attention, no coordinate embedding), unmasked, so the StampBank learns from single-channel content
+(docs/adr/0003, 0013).
 
-**Stamp**: A learned unit-norm temporal template `D` of length `patch_len`, plus its derived Hilbert quadrature partner `H` (rFFT, every positive-frequency bin rotated -90 degrees, DC/Nyquist zeroed, renormalized). A stamp contributes `a*D + b*H` to a channel, so amplitude is `sqrt(a^2+b^2)` and phase `atan2(b, a)` — the template presents at any arrival phase without its shape morphing, because the partner is derived rather than learned.
+**Masked phase**: the rest of the same run: spatial attention and the coordinate embedding on, masked
+reconstruction with the mask curriculum counted from here. Stamps stay trainable unless `freeze_stamps`.
+The phase is a checkpoint buffer, restored on load.
 
-**Mixing column**: A stamp's `[C]` vector of signed per-channel gains at one patch position — the ICA-style topography of that stamp's contribution at that instant.
+**Mask mode / mixture**: one mask pattern per Window -- `channel_cluster` (a scalp region), `random_channel`,
+`time_block` (runs of patches on every channel), `random_token` -- drawn from a mixture on a shared ratio
+ramp, redrawn every masked epoch. `random` (one random_token mode) is the masking baseline. A patch run is
+>= 3 patches: with 50% overlap a lone masked patch is visible through its neighbours, and the loss counts a
+sample as masked only if every patch covering it is masked.
 
-**Group selection**: `StampBank` takes channel-grouped input `[G, C, D]` (G = B*N patch positions) and picks ONE top-k stamp set per patch position, shared by all C channels; each channel then decodes that same set with its own gains. This is what makes a stamp's `[C]` column a mixing vector instead of C unrelated per-channel choices.
+**Channel subsampling**: removes (not masks) channels of a dense-cap Window down to a sub-montage, to train
+sparse-cap robustness.
 
-**Routed pool / Shared pool**: The two halves of the bank, sized independently (`n_routed_stamps`, `n_shared_stamps`; `n_stamps` is the derived sum). Routed stamps **compete** — scored per patch, only the `stamp_top_k` highest decode. Shared stamps are **unconditional**: they fire on every patch, every dataset. The distinction is load-bearing for what each pool can learn — conditional content (line noise present in only some recordings, say) cannot live in the unconditional pool, because an always-on atom specialising on it would be wrong wherever it is absent. See `docs/adr/0010-oscillator-atoms-withdrawn.md`.
+## Evaluation
 
-**Sparsity budget**: `2 * (stamp_top_k + n_shared_stamps)`, the free scalars the active slots contribute per channel (each slot gives an `(a, b)` pair). **Must stay below `patch_len`, with margin.** Past that the active slots alone fit any patch regardless of what the atoms contain, and it stops being sparse coding — measured, not theoretical. A ceiling, not a tuning knob. See `docs/adr/0011-matching-pursuit-residual-loss.md`.
+**Cell**: one dataset under one protocol, e.g. `BNCI2014001_loso`. **Protocol**: split + head +
+hyperparameters, frozen in `configs/finetune_protocols.json` (mi_loso, mi_fewshot, p300_loso, p300_fewshot).
+**DEV set**: BNCI2015001 (MI) and BNCI2014009 (P300), used only to tune the protocols, never reported.
+Reported: BNCI2014001, BNCI2014004 (3 channels), BNCI2014008 (P300).
 
-**Residual ordering** (`mp_loss`): Matching-Pursuit-style grading. Slots are ranked by amplitude per patch, with shared slots always pinned ahead of routed (the always-on baseline is present regardless, so grading a routed atom against a residual that still holds it rewards re-explaining covered content — not a knob); rank 0 is graded against the full patch, its contribution subtracted **detached**, rank 1 graded against what remains, and so on. An atom duplicating a higher-ranked one faces a near-zero residual and earns nothing for repeating it. This is what makes stamps specialize; top-k-by-amplitude selection alone has no mechanism against two correlated atoms co-scoring high on the same content. Its value cannot reach zero by construction — read it as a trend within a run, never against `mse_patch`.
+**LOSO / fewshot**: leave-one-subject-out; within-subject calibration (per class, the first `train_fraction`
+of trials in recording order train). **Purge**: dropping eval trials next to train trials (overlapping P300
+windows).
 
-**Dead-atom rescue** (`aux_loss`): Routed atoms whose firing EMA falls below `dead_threshold` are aimed at the current residual, reviving them on content nobody covers. Dropped once stamps freeze, since a frozen dictionary's atoms cannot be reshaped.
-
-**Tokenizer phase**:
-The first phase of the single pretrain run (epochs 1..`tokenizer_epochs`, `MeSAEPretrain.enter_tokenizer_phase()`; `docs/adr/0013`): only the `pool_after_blocks` encoder blocks run, temporal mixing only, no masking, and the encoder and StampBank train jointly on full reconstruction. Spatial mixing and the coordinate embedding are OFF, so StampBank learns from patch-local single-channel content rather than an already-mixed vector (`docs/adr/0003`).
-_Avoid_: Tokenizer stage (the old separate-run name)
-
-**Masked phase**:
-The second phase of the same run (`enter_masked_phase(freeze_stamps)`): all encoder blocks, spatial attention and coordinate embedding on, masked-patch reconstruction with the `preprocess_params.mask` curriculum counted from here. The StampBank is frozen only when `training_params.pretrain.freeze_stamps` is true (default false); `mp`/`aux` losses stop once it is. The phase is stored as a buffer (`masked_phase`) and restored on `load_state_dict`, so no loader calls `enable_*` by hand.
-_Avoid_: Masked stage, Pretrain stage (old two-run names — there is no separate checkpoint hand-off any more)
+**tail**: a run's score -- balanced accuracy averaged over the last 10 epochs, per subject, then over
+subjects. Differences within +-3 points are ties at one pretrain seed.
 
 ## Current MeSAE defaults
 
-What `configs/pretrain.template.json` builds today. Rationale for each choice lives in the ADRs;
-this is the snapshot, so a reader does not have to reconstruct it from the config.
-
-**Signal path**: bandpass 0.5–100Hz → 200Hz (baked into the cache) → per-trial Windows of 1000
-samples (5 s; event trials are cut 1 s before to 4 s after the event) → z-score per trial →
-`slice_patches(patch_len=50, patch_stride=25)` → 39 patches at 50% overlap →
-`[B, C=64, N=39, L=50]`. `patch_len=50` at `fs=200` fixes the per-patch FFT grid at
-**Δf = 4Hz**, which is why 60Hz lands exactly on a bin and 50Hz never does — a trap for
-anyone measuring narrowband content per patch (see adr/0010's measurement note).
-
-**Modules** (2.29M params, `analysis_pretrain.py --panel profile`):
+What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
 
 | module | params | what |
 |---|---|---|
-| `SpatialTemporalEmbeddings` | 0.51M | patch proj 50→100, **learnable** temporal position embedding (sinusoidal warm start), 3D coord MLP (masked phase only) |
-| `TSAEncoder` | 1.74M | depth 8 `TSABlock`: temporal ConvAdditiveAttn → spatial MHA → MoE ConvFFN (4 routed + 1 shared, top-2); UNet pooling at `pool_after_blocks` [1, 3, 5, 7] |
-| `StampBank` | 0.04M | the dictionary — ~2% of params and the entire point of the model |
+| `SpatialTemporalEmbeddings` | 0.51M | patch 50 -> 100, learnable time position embedding, Fourier coordinate MLP |
+| `TSAEncoder` | 1.74M | 8 blocks = 4 stages x 2 (39 -> 20 -> 10 -> 5 patches); block = temporal attention -> spatial attention (+ relative spatial bias) -> MoE FFN (4 routed + 1 shared, top-2), LayerScale |
+| `StampBank` | 0.01M | 16 shared stamps, no routed (sparsity budget 32 < 50) |
 
-Each `TSABlock` branch carries a LayerNorm *before* its LayerScale multiply: LayerScale
-throttles a branch's residual contribution but not its internal magnitude, which let
-`branch_max` reach thousands.
+Loss: patch MSE + trial MSE (patches overlap-added) + `mp` (weight 1) + `ffn_lb` (0.01); visible samples
+weighted 0.1 in the masked phase. 50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2,
+random_channel 0.3, time_block 0.4 max ratios) + channel subsampling.
 
-**StampBank**: 60 routed + 4 shared, `stamp_top_k=12`, bottleneck widths 6 routed / 8 shared.
-Sparsity budget 2·(12+4) = 32, under `patch_len=50`. (v11–v13 experiment with static-only
-dictionaries of 32 / 16 / 24 stamps; this template is still the v10 routed design.)
-
-**Loss**: `patch + trial + 1.0·mp + 0.01·aux + 0.01·ffn_lb`, with visible (unmasked) positions
-weighted `unmasked_weight=0.1` in the masked phase
-
-- `patch` — plain time-domain MSE per patch, valid channels and non-padded patches only
-- `trial` — same MSE on the real continuous trial, patches overlap-added back
-  (`overlap_add_patches`, linear crossfade, weight-normalized), so gradient reaches each
-  patch through its true position in the trial
-- `mp` — residual ordering (above); shared slots are pinned ahead of routed, unconditionally
-- `aux` — dead-atom rescue; `ffn_lb` — Switch-style load balance for the MoE FFN routers
-
-`mp` and `aux` are both dropped once stamps freeze. `ffn_lb` runs in both stages (it comes
-from the encoder, which keeps training).
-
-**One run, two phases** (50 epochs, `tokenizer_epochs=10`): the Tokenizer phase trains the
-shallow encoder + StampBank jointly, unmasked; the Masked phase turns on every block, spatial
-attention and the coordinate embedding and trains on masked reconstruction, with the stamps
-still trainable unless `freeze_stamps` is set (see the phase entries above, `docs/adr/0013`).
-
-## Model plugin architecture
-
-**Unit**: Umbrella term for whatever a model quantizes per patch position — an Expert (MeFSQ, retired) or a Stamp (MeSAE). Used in shared code (`model/base_codebook_checker.py`, `model/base_plotter.py`, `tools/analysis/`, `tools/panels/`) that doesn't know which model it's plotting.
-
-Each model (MeFSQ, MeSAE, or a future one) plugs into shared training/viz infrastructure via a `model/<Name>/plugin.py` bundling a `Trainer`/`Checker`/`Plotter` into one `BasePlugin`, registered in `model/factory.py`'s `MODEL_REGISTRY`. See `docs/adr/0004-model-plugin-base-classes.md` and `docs/agents/adding-a-model.md` for the full contract.
+**Unit**: umbrella term in shared tooling (`model/base_*`, `tools/`) for whatever a model codes per patch --
+a Stamp for MeSAE. Plugins: `model/<Name>/plugin.py`, docs/adr/0004.
