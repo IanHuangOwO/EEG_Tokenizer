@@ -108,8 +108,7 @@ class MeSAEPretrain(nn.Module):
         # Zero-padded (missing) channels are left out of spatial attention as keys (TSABlock).
         # spatial_embedding: Fourier coordinate embedding + a directional relative-position bias in
         # every block's spatial attention (RelativeSpatialBias), on or off together (the ablation).
-        n_dec = decoder_blocks * (enc_depth // blocks_per_stage - 1)   # decoder blocks get their own bias too
-        self.spatial_bias = RelativeSpatialBias(enc_depth + n_dec, spatial_heads) if spatial_embedding else None
+        self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_embedding else None
 
         self.stamps = StampBank(
             embed_dim, patch_len,

@@ -64,7 +64,7 @@ def build_model(bp, num_channels):
         # above) — the shared build_model(bp, num_channels) interface
         # (model/factory.py) doesn't pass preprocess_params through.
         patch_stride=bp.get('patch_stride'),
-        # 'gated' UNet skips (default) or 'none'; decoder_blocks TSABlocks after each upsample
+        # 'gated' UNet skips (default) or 'none'; decoder_blocks per-channel temporal conv blocks after each upsample
         skip_mode=bp.get('skip_mode', 'gated'),
         decoder_blocks=bp.get('decoder_blocks', 0),
     )

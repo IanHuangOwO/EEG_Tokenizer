@@ -436,6 +436,31 @@ class TSABlock(nn.Module):
         return x_flat.view(B, C, N, D), ffn_lb_loss
 
 
+class TemporalUpBlock(nn.Module):
+    """Decoder block after an upsample: per channel (weights shared, channels never mix), two
+    1-D convs along the patch axis, residual, pre/post LayerNorm and LayerScale as in TSABlock.
+    x [B, C, N, D]; valid_patches [B, N] bool keeps padded tail patches out of the convs."""
+    def __init__(self, dim, kernel=3, layerscale_init=1e-4):
+        super().__init__()
+        self.norm_in, self.norm_out = nn.LayerNorm(dim), nn.LayerNorm(dim)
+        self.conv1 = nn.Conv1d(dim, dim, kernel, padding=kernel // 2)
+        self.conv2 = nn.Conv1d(dim, dim, kernel, padding=kernel // 2)
+        self.scale = nn.Parameter(torch.full((dim,), layerscale_init))
+
+    def forward(self, x, valid_patches=None):
+        B, C, N, D = x.shape
+        y = self.norm_in(x)
+        keep = None if valid_patches is None else valid_patches[:, None, :, None].to(y.dtype)  # [B, 1, N, 1]
+        if keep is not None:
+            y = y * keep
+        y = y.reshape(B * C, N, D).transpose(1, 2)                      # [B*C, D, N]: merges adjacent B, C
+        y = self.conv2(F.gelu(self.conv1(y))).transpose(1, 2).reshape(B, C, N, D)
+        y = self.norm_out(y)
+        if keep is not None:
+            y = y * keep
+        return x + self.scale * y
+
+
 class TSAEncoder(nn.Module):
     """TSABlocks in stages of blocks_per_stage: the patch axis N is pooled by 2 after every stage
     but the last (depth 8, 2 per stage: 4 stages at N, N/2, N/4, N/8 -- 39 -> 20 -> 10 -> 5), and
@@ -445,9 +470,9 @@ class TSAEncoder(nn.Module):
 
     skip_mode 'gated' (the default) adds the skips; 'none' drops them, so everything reaching the
     output passes through the deepest stage (the bottleneck). decoder_blocks > 0 puts that many
-    TSABlocks after each upsample (MAE-style decoder: it rebuilds per-patch detail, so the
-    bottleneck can stay abstract). Decoder blocks follow the encoder blocks in spatial_bias'
-    depth axis. last_bottleneck holds the deepest stage's output of the latest forward."""
+    TemporalUpBlocks after each upsample: a per-channel temporal decoder, so with the stamps
+    it rebuilds per-patch detail but never mixes channels -- all spatial inference happens
+    before the bottleneck. last_bottleneck holds the deepest stage's output of the latest forward."""
     def __init__(self, dim, depth=8, num_heads=8, mlp_ratio=4., dropout=0.0, blocks_per_stage=2,
                  n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2,
                  skip_mode='gated', decoder_blocks=0):
@@ -465,21 +490,15 @@ class TSAEncoder(nn.Module):
         else:
             self.skip_gates = None
         # one list per upsample level, deepest level first (the order they run in)
-        self.dec_blocks = nn.ModuleList([nn.ModuleList([block() for _ in range(decoder_blocks)])
+        self.dec_blocks = nn.ModuleList([nn.ModuleList([TemporalUpBlock(dim) for _ in range(decoder_blocks)])
                                          for _ in self.pool_after]) if decoder_blocks else None
 
-    @property
-    def all_blocks(self):
-        """Encoder blocks, then decoder blocks in run order (= spatial_bias' depth axis)."""
-        dec = [b for level in self.dec_blocks for b in level] if self.dec_blocks is not None else []
-        return list(self.blocks) + dec
-
     def enable_spatial(self):
-        for block in self.all_blocks:
+        for block in self.blocks:
             block.enable_spatial()
 
     def enable_temporal(self):
-        for block in self.all_blocks:
+        for block in self.blocks:
             block.enable_temporal()
 
     @staticmethod
@@ -562,7 +581,7 @@ class TSAEncoder(nn.Module):
             for skip, gate in zip(reversed(skips), reversed(self.skip_gates)):
                 x = self._upsample(x, skip.shape[2]) + torch.sigmoid(gate) * skip
         else:
-            vps, n_bias = [valid_patches], len(self.blocks)
+            vps = [valid_patches]
             for _ in skips[1:]:
                 vps.append(None if vps[-1] is None else self._pool_valid(vps[-1]))
             for level, skip in enumerate(reversed(skips)):
@@ -571,17 +590,14 @@ class TSAEncoder(nn.Module):
                     x = x + torch.sigmoid(self.skip_gates[len(skips) - 1 - level]) * skip
                 for block in (self.dec_blocks[level] if self.dec_blocks is not None else []):
                     x_in = x
-                    x, blk_ffn_lb = block(x, valid_channels,
-                                          None if spatial_bias is None else spatial_bias[:, n_bias], vps[-1 - level])
-                    ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
-                    n_bias += 1
+                    x = block(x, vps[-1 - level])
                     if record_norms:
                         with torch.no_grad():
                             self.last_block_norms.append((x - x_in).norm(dim=-1).mean().item())
 
         # Router health and the worst interior branch magnitude (TSABlock._watch), over every block.
         with torch.no_grad():
-            blocks = self.all_blocks
+            blocks = self.blocks
             self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in blocks]).mean()
             self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in blocks]).mean()
             self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in blocks]).mean()
