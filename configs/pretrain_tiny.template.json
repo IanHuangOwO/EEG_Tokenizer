@@ -969,7 +969,7 @@
       "min_learning_rate": 0.0001,
       "epochs": 50,
       "warmup_epochs": 5,
-      "batch_size": 16,
+      "batch_size": 32,
       "weight_decay": 0.01,
       "device": "cuda",
       "train_val_split": 0.9
