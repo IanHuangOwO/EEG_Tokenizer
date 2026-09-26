@@ -1,5 +1,6 @@
 import os
 import json
+import random
 import zlib
 import numpy as np
 import torch
@@ -22,6 +23,41 @@ NON_EEG_CHANNELS = {
 }
 
 # --- Base Dataset ---
+
+def split_pretrain_subjects(dataset_params: Dict, train_fraction: float = 0.9, seed: int = 42) -> Dict[str, Tuple[List[str], List[str]]]:
+    """Pretrain subject train/val split -> {dataset: (train subjects, val subjects)}.
+    Person-disjoint: datasets recorded from the same people share a cohort
+    (metadata.json data_metadata.cohort, default the dataset name; same subject id = same
+    person within a cohort), and a person is on one side for every dataset of the cohort.
+    Order-independent: every cohort draws from its own RNG (seed, cohort), so adding, removing
+    or reordering datasets leaves the other splits unchanged."""
+    subjects, cohort_of = {}, {}
+    for ds, args in dataset_params.items():
+        meta = json.load(open(os.path.join(args['dataset_path'], 'metadata.json'), encoding='utf-8'))
+        avail = sorted(meta.get('data_structure', {}).keys())
+        req = args['subject_to_use']
+        subjects[ds] = avail if req in (['all'], 'all') else [s for s in avail if s in {str(r) for r in req}]
+        cohort_of[ds] = meta.get('data_metadata', {}).get('cohort', ds)
+    out = {}
+    for cohort in sorted(set(cohort_of.values())):
+        members = [ds for ds in dataset_params if cohort_of[ds] == cohort]
+        persons = sorted({s for ds in members for s in subjects[ds]})
+        random.Random(zlib.crc32(f'{seed}/{cohort}'.encode())).shuffle(persons)
+        n_train = int(len(persons) * train_fraction)
+        if n_train == len(persons) and len(persons) > 1:
+            n_train -= 1
+        n_train = max(n_train, 1) if persons else 0
+        train = set(persons[:n_train])
+        for ds in members:
+            out[ds] = ([s for s in subjects[ds] if s in train], [s for s in subjects[ds] if s not in train])
+    return out
+
+
+# pretrain: a channel with std below this x the subject's median channel std is treated as padding. 0.10 catches
+# dead electrodes and the recording reference (e.g. Cz in the Tsinghua SSVEP sets, mastoids): 309 subject-channels
+# over the corpus on 2026-09-26, versus 88 at 0.05 (only the near-zero ones).
+FLAT_RATIO = 0.10
+
 
 class EEGDataset(Dataset):
     """
@@ -143,6 +179,16 @@ class EEGDataset(Dataset):
 
         raw_data = torch.from_numpy(data_np.astype(np.float32))  # (N, C, T)
         N, _, T = raw_data.shape
+        # Pretrain only: a channel far flatter than the subject's others (std < FLAT_RATIO x the
+        # median channel std, measured BEFORE the per-trial z-score, which would blow its noise
+        # up to unit variance) is a dead electrode or the reference -- treated as padding below.
+        flat = torch.zeros(len(target_pos), dtype=torch.bool)
+        if self.assemble_trials:
+            ch_std = raw_data.transpose(0, 1).reshape(len(target_pos), -1).std(dim=1)
+            flat = ch_std < FLAT_RATIO * ch_std.median()
+            if flat.any():
+                print(f"  [{ds_name} S{subject_id}] flat channels -> padding: "
+                      f"{[desired_channels[target_pos[i]] for i in flat.nonzero().flatten().tolist()]}")
         # Per-trial real-content bounds, compiled-rate samples (see cache_dataset.py /
         # IO/loader.py's get_subject_data) -- 'valid_start'/'valid_end' absent (an older
         # cache from before this existed) means "every trial fully real", same default
@@ -200,6 +246,11 @@ class EEGDataset(Dataset):
 
         valid_channels = torch.zeros(self.Nc, dtype=torch.bool)
         valid_channels[target_pos] = True
+        if flat.any():
+            dead = [target_pos[i] for i in flat.nonzero().flatten().tolist()]
+            valid_channels[dead] = False
+            padded[:, dead] = 0
+            task_coords[dead] = 0
 
         return {
             'data': padded,

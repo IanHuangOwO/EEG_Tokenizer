@@ -226,7 +226,8 @@
             "32": {
                 "label": "PO10"
             }
-        }
+        },
+        "cohort": "GraspAndLift"
     },
     "data_structure": {
         "1": {

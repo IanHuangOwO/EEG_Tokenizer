@@ -283,7 +283,8 @@
                 "label": "PO4",
                 "original_label": "PO4"
             }
-        }
+        },
+        "cohort": "OpenBMI"
     },
     "data_structure": {
         "1": {

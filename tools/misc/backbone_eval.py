@@ -29,13 +29,12 @@ import copy
 import zlib
 import json
 import os
-import random
 
 import numpy as np
 import torch
 from scipy.stats import spearmanr
 
-from IO.dataset import build_dataset_from_config, load_montage_channels
+from IO.dataset import build_dataset_from_config, load_montage_channels, split_pretrain_subjects
 from IO.loader import get_standard_coords
 from IO.masking import ChannelClusterMask, RandomChannelMask, TimeBlockMask, random_token_mask
 from model.MeSAE.MeSAE_modules import fourier_features, get_sinusoidal_pos, overlap_add_patches
@@ -43,22 +42,12 @@ from tools.analysis import load_model
 
 
 def val_config(config):
-    """Replicates train_pretrain.py's per-dataset seed-42 subject split, returns the val half."""
-    random.seed(42)
+    """The val half of train_pretrain.py's subject split (IO/dataset.py's split_pretrain_subjects)."""
     cfg = copy.deepcopy(config)
-    for name, args in config['dataset_params']['pretrain'].items():
-        meta = json.load(open(os.path.join(args['dataset_path'], 'metadata.json')))
-        subs = sorted(meta['data_structure'].keys())
-        req = args['subject_to_use']
-        subs = subs if req in (['all'], 'all') else [s for s in subs if s in {str(r) for r in req}]
-        random.shuffle(subs)
-        n_train = int(len(subs) * config['training_params']['pretrain'].get('train_val_split', 0.9))
-        if n_train == len(subs) and len(subs) > 1:
-            n_train -= 1
-        n_train = max(n_train, 1) if subs else 0
-        cfg['dataset_params']['pretrain'][name]['subject_to_use'] = subs[n_train:]
-    cfg['dataset_params']['pretrain'] = {k: v for k, v in cfg['dataset_params']['pretrain'].items()
-                                         if v['subject_to_use']}
+    ratio = config['training_params']['pretrain'].get('train_val_split', 0.9)
+    split = split_pretrain_subjects(config['dataset_params']['pretrain'], ratio)
+    cfg['dataset_params']['pretrain'] = {k: dict(v, subject_to_use=split[k][1])
+                                         for k, v in config['dataset_params']['pretrain'].items() if split[k][1]}
     return cfg
 
 
