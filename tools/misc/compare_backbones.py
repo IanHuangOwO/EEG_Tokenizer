@@ -52,7 +52,8 @@ def backbone(groups):
                     f' | {np.mean([e["ablation_by_mask"][k][a] / e["ablation_by_mask"][k]["baseline"] - 1 for e in ev]):>+21.0%}'
                     for ev in evals.values()))
     print('  coord sim ~ closeness   ' + ''.join(
-        f' | {np.mean([e["structure"]["coord_sim_vs_closeness_spearman"] for e in ev]):>22.3f}' if ev else f' | {"-":>22}'
+        f' | {np.mean(v):>22.3f}' if (v := [e['structure']['coord_sim_vs_closeness_spearman'] for e in ev
+                                            if 'coord_sim_vs_closeness_spearman' in e['structure']]) else f' | {"-":>22}'
         for ev in evals.values()))
     for g, ev in evals.items():
         sb = [e['structure'].get('spatial_bias_per_block') for e in ev if e['structure'].get('spatial_bias_per_block')]

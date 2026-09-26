@@ -25,7 +25,7 @@ def accumulate_stamp_ab(model, pretrain_dataset, trial_indices, device, max_stam
     a_by_stamp, b_by_stamp = {}, {}
     try:
         for trial_idx in trial_indices:
-            x_patches, coords, _mask, time_indices, _y, _fft, valid_channels = pretrain_dataset[trial_idx]
+            x_patches, coords, _mask, time_indices, _y, valid_channels = pretrain_dataset[trial_idx]
             x = x_patches.unsqueeze(0).to(device)
             c = coords.unsqueeze(0).to(device)
             t = time_indices.unsqueeze(0).to(device)

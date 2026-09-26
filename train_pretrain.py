@@ -41,7 +41,7 @@ def setup_logger(output_dir):
 
 
 def _unpack_batch(batch, device):
-    x_patches, coords, mask, time_indices, _, _, valid_channels = batch
+    x_patches, coords, mask, time_indices, _, valid_channels = batch
     x              = x_patches.to(device)      # [B, C, N, L]
     coords         = coords.to(device)         # [B, C, 3]
     time_idx       = time_indices.to(device)   # [B, N]
@@ -337,7 +337,7 @@ def main():
     loss_params = config.get('model_params', {}).get(model_type, {}).get('pretrain', {}).get('loss', {})
     loss_hparams = dict(loss_params)
     # IO/masking.py: the strategy (with its optional channel subsampler) owns its schedule;
-    # this loop only tells it the masked-phase epoch and redraws when its state changes.
+    # this loop only tells it the masked-phase epoch and redraws every masked epoch.
     mask_strategy = build_masking_strategy_from_config(mask_pp)
     logger.info(f"model_type={model_type}  masking={mask_pp.get('masking_strategy', 'random')}  "
                 f"subsample={'on' if mask_strategy.subsampler else 'off'}  loss_hparams={loss_hparams}")
@@ -345,7 +345,6 @@ def main():
     best_val_loss = float('inf')  # reset at the phase boundary: masked loss isn't comparable
     logger.info(f"Starting {model_type} Pretraining ({total_epochs} epochs)")
 
-    current_mask_state = None  # the strategy state last applied
     for epoch in range(1, total_epochs + 1):
         masked = epoch > tokenizer_epochs
         if epoch == tokenizer_epochs + 1:
@@ -353,11 +352,10 @@ def main():
             best_val_loss = float('inf')
             logger.info(f"  [Masked phase] epoch {epoch}: all blocks, spatial attention + coord embedding on, "
                         f"StampBank {'frozen' if freeze_stamps else 'TRAINING (aux/mp losses stay on)'}")
-        # Curriculum counts from the first masked epoch. Tokenizer-phase epochs keep the
-        # dataset's initial state (ramp start: random, 1x length) and ignore its masks.
+        # Curriculum counts from the first masked epoch; masks are redrawn every masked epoch.
+        # Tokenizer-phase epochs ignore the dataset's masks.
         mask_strategy.set_epoch(max(1, epoch - tokenizer_epochs))
-        new_mask_state = mask_strategy.state()
-        if masked and new_mask_state != current_mask_state:
+        if masked:
             train_dataset.set_masking(mask_strategy)
             val_dataset.set_masking(mask_strategy)
             # rebuild, don't just re-iterate: persistent_workers=True means worker
@@ -366,7 +364,6 @@ def main():
             train_loader = _make_loader(train_dataset, shuffle=True)
             val_loader   = _make_loader(val_dataset,   shuffle=False)
             logger.info(f"  [mask curriculum] epoch {epoch}: {mask_strategy.describe()}")
-            current_mask_state = new_mask_state
 
         train_metrics = train_one_epoch(model, trainer, train_loader, optimizer, scaler, device, epoch, masked,
                                         **loss_hparams)
@@ -388,7 +385,7 @@ def main():
 
         # Unconditional, every epoch: a mask-ratio curriculum (or any other future metric
         # surprise) can make val_metrics['loss'] structurally incomparable across epochs —
-        # e.g. random_to_complementary's mask_ratio ramp makes the task itself harder over
+        # e.g. the mask-ratio ramp makes the task itself harder over
         # time, so best_val_loss below can freeze on an early, easy-ratio epoch and never
         # update again even while the model keeps genuinely improving within each step.
         # That leaves ONLY that early checkpoint on disk if training is later interrupted —

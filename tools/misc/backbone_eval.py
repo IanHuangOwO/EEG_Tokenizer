@@ -72,7 +72,7 @@ def eval_windows(config, max_windows):
 def batches(ds, idx, bs=32):
     for i in range(0, len(idx), bs):
         items = [ds[j] for j in idx[i:i + bs]]
-        x, coords, t, valid = (torch.stack([torch.as_tensor(it[k]) for it in items]) for k in (0, 1, 3, 6))
+        x, coords, t, valid = (torch.stack([torch.as_tensor(it[k]) for it in items]) for k in (0, 1, 3, 5))
         yield idx[i:i + bs], x.float(), coords.float(), t.long(), valid.bool()
 
 
@@ -206,16 +206,13 @@ def run(name, max_windows):
     emb = model.embed
     labels = [n for n in load_montage_channels('10-10') if get_standard_coords(n) is not None]
     pos = torch.tensor(np.stack([get_standard_coords(n) for n in labels]), dtype=torch.float32)
-    enc = getattr(emb, 'coord_encoding', 'mlp')
-    if enc == 'fourier':
-        ce = emb.coord_proj(fourier_features(pos))
-    else:
-        ce = emb.coord_proj(pos * emb.coord_scale)
-    ce = ce / ce.norm(dim=-1, keepdim=True).clamp_min(1e-8)
     iu = torch.triu_indices(len(labels), len(labels), 1)
     closeness = -torch.cdist(pos, pos)
-    struct = {'coord_encoding': enc,
-              'coord_sim_vs_closeness_spearman': float(spearmanr((ce @ ce.T)[iu[0], iu[1]], closeness[iu[0], iu[1]]).correlation)}
+    struct = {'spatial_embedding': emb.coord_proj is not None}
+    if emb.coord_proj is not None:
+        ce = emb.coord_proj(fourier_features(pos))
+        ce = ce / ce.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+        struct['coord_sim_vs_closeness_spearman'] = float(spearmanr((ce @ ce.T)[iu[0], iu[1]], closeness[iu[0], iu[1]]).correlation)
     Np = 39
     pe = emb.pos_emb[0, :Np]
     init = get_sinusoidal_pos(emb.pos_emb.shape[1], emb.pos_emb.shape[2], torch.device('cpu'))[0, :Np]
@@ -246,7 +243,7 @@ def run(name, max_windows):
     print(f'  ablation, masked MSE change: {"mask":17} ' + ' '.join(f'{a:>15}' for a in ABLATIONS[1:]))
     for k, d in res['ablation_by_mask'].items():
         print(f'  {"":28} {k:17} ' + ' '.join(f'{d[a] / d["baseline"] - 1:>+15.0%}' for a in ABLATIONS[1:]))
-    print(f'  coord sim vs closeness {struct["coord_sim_vs_closeness_spearman"]:.3f} | pos_emb drift {struct["pos_emb_drift"]:.1%}')
+    print(f'  coord sim vs closeness {struct.get("coord_sim_vs_closeness_spearman", float("nan")):.3f} | pos_emb drift {struct["pos_emb_drift"]:.1%}')
     if 'spatial_bias_per_block' in struct:
         print('  spatial bias per block (closeness rho / mean|b|): ' +
               ' '.join(f'{d["closeness_spearman"]:+.2f}/{d["mean_abs"]:.2f}' for d in struct['spatial_bias_per_block']))

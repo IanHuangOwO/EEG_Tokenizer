@@ -125,7 +125,7 @@ class BaseCodebookChecker:
 
     @staticmethod
     def _trial_tensors(dataset, trial_idx, device):
-        x_patches, coords, _mask, time_indices, label, _, valid_channels = dataset[trial_idx]
+        x_patches, coords, _mask, time_indices, label, valid_channels = dataset[trial_idx]
         x_in  = x_patches.unsqueeze(0).to(device)
         c_in  = coords.unsqueeze(0).to(device)
         t_in  = time_indices.unsqueeze(0).to(device)
@@ -134,11 +134,8 @@ class BaseCodebookChecker:
 
     @staticmethod
     def _subject_id(dataset, trial_idx):
-        """PretrainDataset.__getitem__ index (0..len(base_dataset)*mask_multiplier-1)
-        maps to a real trial via `index % len(base_dataset)` (see IO/masking.py resolve) --
-        same modulo here to read the true trial's subject id off base_dataset.subject_data."""
-        base_idx = trial_idx % len(dataset.base_dataset)
-        return int(dataset.base_dataset.subject_data[base_idx].item())
+        """PretrainDataset index -> that trial's subject id."""
+        return int(dataset.base_dataset.subject_data[trial_idx].item())
 
     @torch.no_grad()
     def check_codebook(self, config, output_dir, model, datasets_by_name,

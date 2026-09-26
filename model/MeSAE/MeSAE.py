@@ -68,8 +68,7 @@ class MeSAEPretrain(nn.Module):
         dropout=0.0,
         pool_after_blocks=(),
         num_channels=1,
-        coord_encoding='mlp',
-        spatial_bias=False,
+        spatial_embedding=True,
         n_routed_stamps=796,
         n_shared_stamps=4,
         stamp_top_k=32,
@@ -95,7 +94,7 @@ class MeSAEPretrain(nn.Module):
         self.head_dim = embed_dim
         self.num_channels = num_channels
 
-        self.embed   = SpatialTemporalEmbeddings(patch_len, embed_dim, coord_encoding=coord_encoding)
+        self.embed   = SpatialTemporalEmbeddings(patch_len, embed_dim, spatial=spatial_embedding)
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
                                    dropout=dropout, pool_after_blocks=pool_after_blocks,
                                    n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
@@ -105,9 +104,9 @@ class MeSAEPretrain(nn.Module):
         # Masked tokens swap their CONTENT for mask_token before the time/coord embeddings
         # are added (MAE convention), so a masked token still knows where and when it is.
         # Zero-padded (missing) channels are left out of spatial attention as keys (TSABlock).
-        # spatial_bias (2026-09-25): directional relative-position bias in every block's
-        # spatial attention (MeSAE_modules.RelativeSpatialBias). Off = the original encoder.
-        self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_bias else None
+        # spatial_embedding: Fourier coordinate embedding + a directional relative-position bias in
+        # every block's spatial attention (RelativeSpatialBias), on or off together (the ablation).
+        self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_embedding else None
 
         self.stamps = StampBank(
             embed_dim, patch_len,

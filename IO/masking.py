@@ -5,9 +5,7 @@ One object, MaskingStrategy, so the training loop and the dataset never need to 
 scheme runs:
 
     strategy.set_epoch(e)     # e = masked-phase epoch, 1-based; the strategy owns its schedule
-    strategy.state()          # hashable; the dataset redraws its masks when this changes
-    strategy.multiplier       # dataset copies per epoch (2 = every window shown twice)
-    strategy.generate(C, N, valid, coords) -> [multiplier, C*N] bool, one mask per copy
+    strategy.generate(C, N, valid, coords) -> [C*N] bool, one fresh mask (redrawn every epoch)
     strategy.subsampler       # ChannelSubsampler or None
     strategy.describe()       # one line for the log
 
@@ -19,11 +17,9 @@ on content already known to be zero (docs/model-analysis-checklist.md).
 
 Strategies (preprocess_params.mask.masking_strategy) -- all MaskingStrategy: one MaskMode
 per window (random_token / random_channel / channel_cluster / time_block, ...) on one shared ramp.
-New mask patterns are new MaskMode classes plus a config entry. Named presets:
-  random                   random_token at a fixed ratio
-  complementary            random_token at 0.5, each window shown with its inverse too
-  random_to_complementary  random_token ratio ramp, then complementary (the baseline's)
-  mixture                  modes as configured
+New mask patterns are new MaskMode classes plus a config entry.
+  mixture   modes as configured (the default recipe)
+  random    one random_token mode at a fixed ratio (the masking baseline)
 
 ChannelSubsampler (preprocess_params.mask.subsample, enabled: true) is owned by the strategy: it
 REMOVES channels (they become padding, no loss) to imitate sparse caps.
@@ -70,7 +66,6 @@ def random_token_mask(num_channels: int, num_patches: int, ratio: float, valid: 
 class MaskMode(ABC):
     """One masking pattern: generate(valid [C, N] bool, coords [C, 3], ratio) -> [C, N],
     never True outside valid. ratio is this mode's own fraction (of channels or of time)."""
-    complementary = False   # True: after the ramp the window is also shown with valid ^ mask
     channel_mode = False    # True: hides whole channels -- skipped on an already-subsampled
                              # window (ChannelSubsampler already did the channel cut there;
                              # stacking another channel-removal mode on top of e.g. motor-3's
@@ -89,9 +84,6 @@ class MaskMode(ABC):
 class RandomChannelMask(MaskMode):
     """Whole channels, chosen at random, hidden for the whole window."""
     channel_mode = True
-
-    def __init__(self, complementary: bool = True):
-        self.complementary = complementary
 
     def generate(self, valid, coords, ratio):
         ch = valid.any(1).nonzero().flatten()
@@ -148,10 +140,9 @@ class TimeBlockMask(MaskMode):
 
 class RandomTokenMask(MaskMode):
     """Random (channel, patch) tokens, or whole runs of time_run patches per channel (see
-    random_token_mask); ratio = fraction of valid tokens. complementary: after the ramp the
-    window is also shown with the inverse, so every valid token is reconstructed once per pair."""
-    def __init__(self, time_run: int = 1, complementary: bool = False):
-        self.time_run, self.complementary = max(1, int(time_run)), complementary
+    random_token_mask); ratio = fraction of valid tokens."""
+    def __init__(self, time_run: int = 1):
+        self.time_run = max(1, int(time_run))
 
     def generate(self, valid, coords, ratio):
         C, N = valid.shape
@@ -163,20 +154,14 @@ MASK_MODES = {'random_token': RandomTokenMask, 'random_channel': RandomChannelMa
 
 
 class MaskingStrategy:
-    """Draws one MaskMode per window (shares `prob`). All modes share one ramp: over the first
-    ramp_epochs masked epochs each mode's ratio goes start_ratio -> its own max_ratio together,
-    in steps of step_every epochs (1 = every epoch; ramp_epochs 0 = at max_ratio from the start).
-    After the ramp, a window whose mode is complementary is also shown with its inverse (the
-    dataset doubles; other windows get a second independent draw). resample_each_epoch: fresh
-    masks every epoch; False keeps one draw per ratio step (the older strategies' behaviour).
-    Config: preprocess_params.mask.mixture = {start_ratio, ramp_epochs, step_every,
-    resample_each_epoch, modes: [{type, prob, max_ratio, ...mode kwargs}]}; the named strategies
-    random / complementary / random_to_complementary are presets (PRESETS). subsample (a
-    ChannelSubsampler config) is owned here too, so the training loop and the dataset handle
-    one object: set_epoch / state / multiplier / generate / subsampler / describe."""
+    """Draws one MaskMode per window (shares `prob`), fresh every masked epoch. All modes share
+    one ramp: over the first ramp_epochs masked epochs each mode's ratio goes start_ratio -> its
+    own max_ratio together (ramp_epochs 0 = at max_ratio from the start). Config:
+    preprocess_params.mask.mixture = {start_ratio, ramp_epochs, modes: [{type, prob, max_ratio,
+    ...mode kwargs}]}; 'random' is a preset (PRESETS). subsample (a ChannelSubsampler config) is
+    owned here too, so the training loop and the dataset handle one object."""
     def __init__(self, modes: List[dict], start_ratio: float = 0.1, ramp_epochs: int = 10,
-                 step_every: int = 1, resample_each_epoch: bool = True, label: str = 'mixture',
-                 subsample: Optional[dict] = None):
+                 label: str = 'mixture', subsample: Optional[dict] = None):
         self._epoch = 1
         self.subsampler = ChannelSubsampler(**subsample) if subsample else None
         self.modes = [MASK_MODES[m['type']](**{k: v for k, v in m.items() if k not in ('type', 'prob', 'max_ratio')})
@@ -184,8 +169,7 @@ class MaskingStrategy:
         self.names = [m['type'] for m in modes]
         self.probs = torch.tensor([float(m['prob']) for m in modes])
         self.max_ratio = [float(m['max_ratio']) for m in modes]
-        self.start_ratio, self.ramp_epochs = start_ratio, max(0, int(ramp_epochs))
-        self.step_every, self.resample, self.label = max(1, int(step_every)), resample_each_epoch, label
+        self.start_ratio, self.ramp_epochs, self.label = start_ratio, max(0, int(ramp_epochs)), label
 
     def set_epoch(self, epoch: int) -> None:
         """epoch = masked-phase epoch, 1-based; drives the ramp and the subsampler's schedule."""
@@ -194,51 +178,36 @@ class MaskingStrategy:
             self.subsampler.set_epoch(epoch)
 
     def progress(self) -> float:
-        """Ramp position 0..1, constant within each step_every-epoch step."""
+        """Ramp position 0..1."""
         if self.ramp_epochs == 0:
             return 1.0
-        n_steps = max(1, self.ramp_epochs // self.step_every)
-        if n_steps <= 1:
-            return 0.0 if self._epoch <= self.ramp_epochs else 1.0
-        return min((self._epoch - 1) // self.step_every, n_steps - 1) / (n_steps - 1)
+        if self.ramp_epochs == 1:
+            return 0.0 if self._epoch <= 1 else 1.0
+        return min(self._epoch - 1, self.ramp_epochs - 1) / (self.ramp_epochs - 1)
 
     def ratios(self) -> List[float]:
         p = self.progress()
         return [self.start_ratio + p * (m - self.start_ratio) for m in self.max_ratio]
 
-    @property
-    def multiplier(self):
-        return 2 if self._epoch > self.ramp_epochs and any(m.complementary for m in self.modes) else 1
-
-    def state(self):
-        """Masks (and subsampled montages) are redrawn whenever this changes."""
-        own = self._epoch if self.resample else (tuple(self.ratios()), self.multiplier)
-        return own, (self.subsampler.state() if self.subsampler is not None else None)
-
     def generate(self, num_channels, num_patches, valid=None, coords=None, subsampled=False):
-        """subsampled: True when ChannelSubsampler already cut this window's channels -- a
-        channel_mode mode stacked on top of that can leave almost nothing visible (e.g.
-        motor-3's 3 real channels, halved again), so those modes are excluded here and the
-        draw falls back to the remaining (non-channel) modes, renormalized."""
+        """-> [C*N] bool. subsampled: True when ChannelSubsampler already cut this window's
+        channels -- a channel_mode mode stacked on top of that can leave almost nothing visible
+        (e.g. motor-3's 3 real channels, halved again), so those modes are excluded here and
+        the draw falls back to the remaining (non-channel) modes, renormalized."""
         valid = _valid(num_channels, num_patches, valid).view(num_channels, num_patches)
         probs, ratios, modes = self.probs, self.ratios(), self.modes
         if subsampled and any(m.channel_mode for m in modes):
             keep = torch.tensor([not m.channel_mode for m in modes])
-            if keep.any():
-                probs = probs[keep]
-                modes = [m for m, k in zip(modes, keep.tolist()) if k]
-                ratios = [r for r, k in zip(ratios, keep.tolist()) if k]
-            else:
-                return torch.zeros(self.multiplier, num_channels * num_patches, dtype=torch.bool)
+            if not keep.any():
+                return torch.zeros(num_channels * num_patches, dtype=torch.bool)
+            probs = probs[keep]
+            modes = [m for m, k in zip(modes, keep.tolist()) if k]
+            ratios = [r for r, k in zip(ratios, keep.tolist()) if k]
         i = int(torch.multinomial(probs, 1))
-        mode, ratio = modes[i], ratios[i]
-        masks = [mode.generate(valid, coords, ratio)]
-        if self.multiplier == 2:
-            masks.append((valid ^ masks[0]) if mode.complementary else mode.generate(valid, coords, ratio))
-        return torch.stack([m.flatten() for m in masks])
+        return modes[i].generate(valid, coords, ratios[i]).flatten()
 
     def describe(self):
-        return f'{self.label} x{self.multiplier} ' + ' '.join(
+        return f'{self.label} ' + ' '.join(
             f'{n}:{p:.2f}@{r:.2f}' for n, p, r in zip(self.names, self.probs.tolist(), self.ratios())) + \
             (f' | {self.subsampler.describe()}' if self.subsampler is not None else '')
 
@@ -263,9 +232,6 @@ class ChannelSubsampler:
         return 0.0 if self._epoch < self.start else \
             self.prob_max * min(1.0, (self._epoch - self.start + 1) / self.ramp)
 
-    def state(self):
-        return self._epoch if self.prob() > 0 else 0
-
     def sample(self, valid_channels: torch.Tensor, montage_idx: List[List[int]]) -> Optional[torch.Tensor]:
         """montage_idx: self.montages as canonical channel indices. -> keep [C] bool, or None."""
         if int(valid_channels.sum()) < self.dense_min or float(torch.rand(1)) >= self.prob():
@@ -281,20 +247,11 @@ class ChannelSubsampler:
         return f'subsample prob={self.prob():.3f} montages={self.montages}'
 
 
-def _token(ratio, complementary):
-    return [{'type': 'random_token', 'prob': 1.0, 'max_ratio': ratio, 'complementary': complementary}]
-
-
-# Named strategies = MaskingStrategy configs of a single random_token mode. cfg is
-# preprocess_params.mask.<name>; time_run (preprocess_params.mask.time_run) is added to the mode.
+# Named strategies = MaskingStrategy configs. cfg is preprocess_params.mask.<name>; time_run
+# (preprocess_params.mask.time_run) is added to every mode.
 PRESETS = {
-    'random': lambda cfg: dict(modes=_token(cfg.get('mask_ratio', 0.5), False),
-                               start_ratio=cfg.get('mask_ratio', 0.5), ramp_epochs=0, resample_each_epoch=False),
-    'complementary': lambda cfg: dict(modes=_token(0.5, True), start_ratio=0.5, ramp_epochs=0,
-                                      resample_each_epoch=False),
-    'random_to_complementary': lambda cfg: dict(modes=_token(0.5, True), start_ratio=cfg.get('start_ratio', 0.1),
-                                                ramp_epochs=cfg.get('ramp_epochs', 25),
-                                                step_every=cfg.get('step_every', 5), resample_each_epoch=False),
+    'random': lambda cfg: dict(modes=[{'type': 'random_token', 'prob': 1.0, 'max_ratio': cfg.get('mask_ratio', 0.5)}],
+                               start_ratio=cfg.get('mask_ratio', 0.5), ramp_epochs=0),
 }
 
 

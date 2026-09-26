@@ -77,7 +77,7 @@ FOURIER_WAVELENGTHS_M = (0.40, 0.20, 0.10, 0.05, 0.025)
 def fourier_features(p):
     """[..., 3] positions (m) -> [..., 3 + 3*2*len(FOURIER_WAVELENGTHS_M)]: raw xyz plus sin/cos
     of every axis at every wavelength. Gives an MLP a multi-scale basis over the scalp, which
-    a raw-xyz MLP lacks (it drifts to near-constant, see coord_scale below)."""
+    a raw-xyz MLP lacks (measured: it drifted to a near-constant, channel-independent output)."""
     w = 2 * math.pi / torch.tensor(FOURIER_WAVELENGTHS_M, device=p.device, dtype=p.dtype)   # [F]
     ang = (p.unsqueeze(-1) * w).flatten(-2)                                                 # [..., 3F]
     return torch.cat([p, ang.sin(), ang.cos()], dim=-1)
@@ -108,9 +108,8 @@ class RelativeSpatialBias(nn.Module):
 
 
 class SpatialTemporalEmbeddings(nn.Module):
-    def __init__(self, patch_len, dim, max_patches=5000, coord_encoding='mlp'):
+    def __init__(self, patch_len, dim, max_patches=5000, spatial=True):
         super().__init__()
-        self.coord_encoding = coord_encoding
         self.proj = nn.Linear(patch_len, dim)
         self.norm = nn.LayerNorm(dim)
         # Learnable, warm-started from the sinusoidal code (not random init) - an
@@ -123,39 +122,16 @@ class SpatialTemporalEmbeddings(nn.Module):
         # whatever structure the sinusoidal init already provides for free.
         self.pos_emb = nn.Parameter(get_sinusoidal_pos(max_patches, dim, torch.device('cpu')))
         self.spatial_active = False
-        # bias=False on BOTH linears: a bias on either one is a channel-INDEPENDENT
-        # constant the network can add regardless of coords — exactly the collapse
-        # coord_scale (below) only partly fixed (dropping just coord_out's bias alone
-        # isn't enough: the same constant just relocates into coord_proj[0]'s bias,
-        # GELU passes it through nearly unchanged, and coord_out still linearly maps
-        # that unchanged constant to the same output vector for every channel). With
-        # no bias anywhere in the path, coords=0 -> output=0 exactly, so real per-
-        # channel variation is the ONLY thing this path can produce, structurally.
-        _coord_out = nn.Linear(dim // 4, dim, bias=False)
-        nn.init.zeros_(_coord_out.weight)
-        # coord_encoding 'fourier' (2026-09-25): the MLP reads fourier_features(xyz) instead of
-        # coord_scale * xyz, so no coord_scale is needed; 'mlp' is the original path below.
-        self.coord_proj = nn.Sequential(
-            nn.Linear(FOURIER_DIM if coord_encoding == 'fourier' else 3, dim // 4, bias=False),
-            nn.GELU(),
-            _coord_out,
-        )
-        # Real channel coords sit in a tiny range (head-radius units, magnitude ~0.1 —
-        # e.g. standard_1020 channels sit ~0.08-0.12 from head center). Against coord_
-        # proj[0]'s default Linear init (weight scale ~1/sqrt(3)), that's a barely-there
-        # signal: measured on a trained checkpoint, coord_proj's per-channel output was
-        # 99.1% cosine-similar across channels — 92% of its norm was a channel-independent
-        # constant (effectively just a learned bias), only ~8% actually varied with
-        # position. Recon loss never pushed back because per-channel CONTENT already
-        # differs plenty (different electrode signal), so the coord path had no pressure
-        # to earn its keep. A learnable scale multiplying coords before the MLP gives
-        # position-dependent variation more leverage relative to that constant term, no
-        # magic number tied to one montage's specific radius (adapts to whatever
-        # coordinate frame the run's channels actually live in). Init 10.0: typical
-        # coord magnitude ~0.1 -> scaled input ~O(1), a normal-sized MLP input instead of
-        # a tenth of one.
-        if coord_encoding != 'fourier':
-            self.coord_scale = nn.Parameter(torch.tensor(10.0))
+        # spatial=False: no coordinate embedding at all (the spatial-embedding ablation; the model
+        # then pairs it with no RelativeSpatialBias either, see MeSAEPretrain).
+        # bias=False on BOTH linears: a bias on either one is a channel-INDEPENDENT constant the
+        # network can add regardless of coords (it collapsed to exactly that before); with no bias
+        # anywhere, per-channel variation is the only thing this path can produce.
+        self.coord_proj = None
+        if spatial:
+            _coord_out = nn.Linear(dim // 4, dim, bias=False)
+            nn.init.zeros_(_coord_out.weight)
+            self.coord_proj = nn.Sequential(nn.Linear(FOURIER_DIM, dim // 4, bias=False), nn.GELU(), _coord_out)
 
     def enable_spatial(self):
         self.spatial_active = True
@@ -174,9 +150,8 @@ class SpatialTemporalEmbeddings(nn.Module):
         else:
             z = z + self.pos_emb[:, :N, :]
 
-        if coords is not None and self.spatial_active:
-            pos = fourier_features(coords) if self.coord_encoding == 'fourier' else coords * self.coord_scale
-            s = self.coord_proj(pos.reshape(B * C, -1)).unsqueeze(1)  # [B*C, 1, D]
+        if coords is not None and self.spatial_active and self.coord_proj is not None:
+            s = self.coord_proj(fourier_features(coords).reshape(B * C, -1)).unsqueeze(1)  # [B*C, 1, D]
             z = z + s
 
         return self.norm(z).reshape(B, C, N, -1)

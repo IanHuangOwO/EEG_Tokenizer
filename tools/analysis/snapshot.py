@@ -97,7 +97,7 @@ def _patchify(x, patch_len, patch_stride=None):
 def _run_reconstruction(model, dataset, trial_idx, device):
     """Always runs unmasked (bool_masked_pos not passed) for a clean reconstruction
     snapshot, regardless of whether the model is currently in the Masked training stage."""
-    x_patches, coords, _, time_indices, _, _, valid_channels = dataset[trial_idx]
+    x_patches, coords, _, time_indices, _, valid_channels = dataset[trial_idx]
     C, N, L = x_patches.shape
     pp = dataset.base_dataset.config['preprocess_params']
     fs = pp['sample_freq']
@@ -131,7 +131,7 @@ def build_pretrain_bundle(model, dataset, trial_idx, config, device,
     was_training = model.training
     model.eval()
     try:
-        x_patches, coords, mask, time_indices, _, _, valid_channels = dataset[trial_idx]
+        x_patches, coords, mask, time_indices, _, valid_channels = dataset[trial_idx]
         x_in  = x_patches.unsqueeze(0).to(device)
         c_in  = coords.unsqueeze(0).to(device)
         t_in  = time_indices.unsqueeze(0).to(device)

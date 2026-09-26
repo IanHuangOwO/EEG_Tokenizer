@@ -863,16 +863,10 @@
     "post_event_seconds": 4.0,
     "normalization_type": "zscore",
     "mask": {
-      "_comment": "IO/masking.py. masking_strategy picks one of the blocks below (random | complementary | random_to_complementary | mixture); time_run applies to the token strategies. subsample is independent of the strategy and only runs with enabled: true. All schedules count masked-phase epochs (1 = first epoch after tokenizer_epochs).",
       "masking_strategy": "mixture",
       "time_run": 3,
       "random": {
         "mask_ratio": 0.3
-      },
-      "random_to_complementary": {
-        "start_ratio": 0.1,
-        "ramp_epochs": 10,
-        "step_every": 2
       },
       "mixture": {
         "start_ratio": 0.1,
@@ -890,8 +884,7 @@
           {
             "type": "random_channel",
             "prob": 0.35,
-            "max_ratio": 0.3,
-            "complementary": false
+            "max_ratio": 0.3
           },
           {
             "type": "time_block",
@@ -963,8 +956,7 @@
           "aux_weight": 0.0,
           "mp_weight": 1.0
         },
-        "coord_encoding": "fourier",
-        "spatial_bias": true
+        "spatial_embedding": true
       }
     }
   },

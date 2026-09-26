@@ -34,7 +34,6 @@ class EEGDataset(Dataset):
         config: Dict,
         loading_tasks: List[Dict[str, Any]],
         desired_channels: List[str],
-        fft_params: Optional[Dict] = None,
         assemble_trials: bool = False,
         assembly_params: Optional[Dict] = None
     ):
@@ -43,7 +42,6 @@ class EEGDataset(Dataset):
         self.Nc = len(desired_channels)
         self.assemble_trials = assemble_trials
         self.assembly_params = assembly_params or {}
-        self.fft_params = fft_params
 
         all_data_chunks: List[torch.Tensor] = []
         all_label_chunks: List[torch.Tensor] = []
@@ -350,13 +348,12 @@ def _resolve_default_patch_len(base_dataset: 'EEGDataset') -> int:
 class PretrainDataset(Dataset):
     """
     Wraps EEGDataset for masked pretraining.
-    Yields: (x_patches, coords, mask, time_indices, label, fft_patches, valid_channels)
+    Yields: (x_patches, coords, mask, time_indices, label, valid_channels)
       x_patches:      [C, P, L]
       coords:         [C, 3]
       mask:           [C * P] bool
       time_indices:   [P]
       label:          scalar
-      fft_patches:    [C, P, F] or empty tensor
       valid_channels: [C] bool, True = real (not zero-padded) channel
     """
     def __init__(
@@ -383,7 +380,6 @@ class PretrainDataset(Dataset):
         print(f"\n--- PretrainDataset ---")
         print(f"  {n} trials | {self.num_patches} patches/trial (patch_len={self.patch_len}, "
               f"patch_stride={self.patch_stride}) | {self.masking_strategy.describe()}")
-        print(f"  effective dataset size: {n * self.masking_strategy.multiplier}")
         print(f"----------------------------\n")
 
     def _build_valid_masks(self):
@@ -407,11 +403,10 @@ class PretrainDataset(Dataset):
         return masks
 
     def set_masking(self, masking_strategy: MaskingStrategy):
-        """(Re)draw every trial's masks from the strategy's current state (the training loop
-        calls this when the strategy's state() changes, see train_pretrain.py). Each
-        trial stores [multiplier, C*N] masks, one per dataset copy; __len__ follows the
-        multiplier, so any DataLoader built on this dataset must be rebuilt afterwards (with
-        persistent_workers, workers hold their own copy of the dataset from spawn time).
+        """(Re)draw every trial's mask ([C*N] bool) from the strategy's current epoch (the
+        training loop calls this every masked epoch, see train_pretrain.py). Any DataLoader
+        built on this dataset must be rebuilt afterwards (with persistent_workers, workers hold
+        their own copy of the dataset from spawn time).
 
         masking_strategy.subsampler (ChannelSubsampler, optional): per trial, a sparse montage
         to keep; removed channels leave the valid set BEFORE the mask is drawn, and
@@ -437,22 +432,13 @@ class PretrainDataset(Dataset):
                                                           subsampled=keep is not None))
 
     def __len__(self):
-        return len(self.base_dataset) * self.masking_strategy.multiplier
+        return len(self.base_dataset)
 
-    def __getitem__(self, index):
-        N = len(self.base_dataset)
-        trial_idx = index % N
-        mask = self._masks[trial_idx][index // N]
+    def __getitem__(self, trial_idx):
+        mask = self._masks[trial_idx]
 
         x, y = self.base_dataset[trial_idx]
         x_patches, time_indices = slice_patches(x, self.patch_len, self.patch_stride)
-
-        if self.base_dataset.fft_params is not None:
-            n_fft = self.base_dataset.fft_params.get('n_fft')
-            norm  = self.base_dataset.fft_params.get('norm', 'ortho')
-            fft_patches = torch.fft.rfft(x_patches, n=n_fft, dim=-1, norm=norm)
-        else:
-            fft_patches = torch.empty(0)
 
         coords_idx = self.base_dataset.trial_to_coords_idx[trial_idx]
         coords     = self.base_dataset.all_coords[coords_idx]
@@ -463,7 +449,7 @@ class PretrainDataset(Dataset):
             coords = coords * keep[:, None]
             valid_channels = valid_channels & keep
 
-        return x_patches, coords, mask, time_indices, y, fft_patches, valid_channels
+        return x_patches, coords, mask, time_indices, y, valid_channels
 
 
 class FinetuneDataset(Dataset):
@@ -607,8 +593,6 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
 
     target_channels = _resolve_target_channels(dataset_params, pp=pp)
 
-    fft_params = None
-
     if assemble_trials is None:
         assemble_trials = mode == 'pretrain'  # explicit override: e.g. real
         # per-trial labels for codebook diagnostics (pretrain/tokenizer normally assemble
@@ -620,7 +604,6 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
         config=config_dict,
         loading_tasks=loading_tasks,
         desired_channels=target_channels,
-        fft_params=fft_params,
         assemble_trials=assemble_trials,
         assembly_params=assembly_params
     )
