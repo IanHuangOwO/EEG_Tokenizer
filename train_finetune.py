@@ -204,7 +204,9 @@ def make_runs(split, pool, subject_data, labels, session=None):
 
 
 class StampSource:
-    """Cached stamp amplitudes of the pool (cache_feature.py), in RAM."""
+    """Cached stamp amplitudes of the pool (cache_feature.py), moved to the device once (a
+    BNCI2014008 64-channel impute cache is ~1 GB fp16): the head is tiny, so per-batch CPU
+    indexing and host-to-device copies were most of a step's time."""
     kind = 'stamp'
 
     def __init__(self, config, ds_name, pool, device):
@@ -213,9 +215,11 @@ class StampSource:
         self.labels, self.subject_data = self.data.labels, self.data.subject_data
         self.channel_idx, self.keep = self.data.channel_idx, self.data.keep
         self.num_patches, self.num_stamps = self.data.num_patches, self.data.num_stamps
+        self.amp, self.labels_dev = self.data.amp.to(device), self.labels.to(device)
 
     def get(self, idx):
-        return {'stamp': self.data.amp[idx].float()}, self.labels[idx]
+        idx = idx.to(self.amp.device)
+        return {'stamp': self.amp[idx].float()}, self.labels_dev[idx]
 
 
 class RawSource:
@@ -320,8 +324,8 @@ def _predict(head, source, idx, batch_size, device):
     head.eval()
     logits, ys = [], []
     for x, y in iter_batches(source, idx, batch_size, device, shuffle=False):
-        logits.append(head(x).float().cpu()); ys.append(y.cpu())
-    logits, ys = torch.cat(logits), torch.cat(ys)
+        logits.append(head(x).float()); ys.append(y)
+    logits, ys = torch.cat(logits).cpu(), torch.cat(ys).cpu()
     return logits.numpy(), F.cross_entropy(logits, ys).item()
 
 
@@ -381,10 +385,12 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
             loss.backward()
             torch.nn.utils.clip_grad_norm_(head.parameters(), max_norm=1.0)
             opt.step()
-            losses.append(loss.item()); preds.append(logits.argmax(1).cpu()); ys.append(y.cpu())
+            losses.append(loss.detach()); preds.append(logits.argmax(1)); ys.append(y)   # no per-step GPU sync
         sched.step()
-        train_metrics = _metrics(torch.cat(ys).numpy(), torch.cat(preds).numpy(), float(np.mean(losses)))
-        logits, val_loss = _predict(head, source, ev_idx, bs, device)
+        train_metrics = _metrics(torch.cat(ys).cpu().numpy(), torch.cat(preds).cpu().numpy(),
+                                 torch.stack(losses).mean().item())
+        # eval batch size doesn't change predictions (eval mode: BatchNorm uses running stats)
+        logits, val_loss = _predict(head, source, ev_idx, max(bs, 1024), device)
         val_pred = logits.argmax(1)
         val_metrics = _metrics(y_ev, val_pred, val_loss)
         if epoch > tail_start:                       # per-subject balanced accuracy + kappa, from the same pass
