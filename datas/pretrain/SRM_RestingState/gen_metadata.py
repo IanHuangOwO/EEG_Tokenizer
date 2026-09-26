@@ -10,8 +10,8 @@ participants.tsv) fetched straight from the public S3 bucket
 111 healthy-control subjects, BioSemi ActiveTwo, 64 channels, extended 10-20
 (10-10) layout, 1024 Hz, 4 minutes eyes-closed continuous resting-state per
 session. Some subjects have a second session ("ses-t2") at a later date; both
-are used, one "trial" per available session (shape C: multiple files per
-subject, see loader.py). No events/conditions of any kind -- this is
+are used (shape C: multiple files per subject), each bandpassed as one continuous
+recording and cut into non-overlapping window_size_seconds windows (see loader.py). No events/conditions of any kind -- this is
 unlabelled continuous data (targets.count=1, dummy label 0 throughout);
 self-supervised pretraining only, never supervised finetune/eval.
 
@@ -110,7 +110,7 @@ def main():
             "dataset_info": DATASET_INFO,
             "acquisition": {
                 "sample_frequency": 1024,
-                "window_size_seconds": 240.0,
+                "window_size_seconds": 5.0,
                 "num_subjects": len(structure),
             },
             "targets": TARGETS,

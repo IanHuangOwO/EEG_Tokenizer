@@ -12,7 +12,7 @@
         },
         "acquisition": {
             "sample_frequency": 1024,
-            "window_size_seconds": 240.0,
+            "window_size_seconds": 5.0,
             "num_subjects": 111
         },
         "targets": {
@@ -219,7 +219,7 @@
             }
         },
         "event_onset_sample": 0,
-        "event_onset_sample_note": "Resting-state EDF sessions, whole session treated as one trial, no events/conditions at all -- no real onset to mark."
+        "event_onset_sample_note": "Resting-state EDF sessions cut into fixed windows, no events/conditions at all -- no real onset to mark."
     },
     "data_structure": {
         "1": {

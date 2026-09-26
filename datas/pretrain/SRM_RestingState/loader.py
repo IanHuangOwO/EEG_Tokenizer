@@ -20,7 +20,7 @@ class Loader(BaseSubjectLoader):
         if not existing:
             return None, None
 
-        sessions = []
+        data = []
         for path in existing:
             try:
                 # A handful of this dataset's EDF headers have a malformed recording-start
@@ -31,20 +31,15 @@ class Loader(BaseSubjectLoader):
             except Exception as e:
                 print(f"  [Warning] {path}: failed to read ({e!r}), skipping this session")
                 continue
-            self._resample_if_needed(raw)
-            sessions.append(raw.get_data(picks=self.channel_indices))  # [C, T]
+            sig = raw.get_data(picks=self.channel_indices).astype(np.float32)   # [C, T], native rate
+            sig, sf = self._filter_run(sig)                    # whole session, before cutting
+            win = int(self.standard_window * sf)
+            n_win = sig.shape[1] // win
+            if n_win:
+                data.append(sig[:, :n_win * win].reshape(sig.shape[0], n_win, win).transpose(1, 0, 2))
 
-        if not sessions:
+        if not data:
             return None, None
-
-        # Session durations can differ by a handful of samples (EDF discretization) --
-        # truncate to the shortest so they stack into one (N, C, T) array, same
-        # pattern as datas/finetune/Nakanishi2015/loader.py's split-file length mismatch handling.
-        min_t = min(s.shape[-1] for s in sessions)
-        eeg_data = np.stack([s[:, :min_t] for s in sessions], axis=0)  # [N=n_sessions, C, T]
-
-        # No events/conditions at all (see gen_metadata.py's dataset_info.notes) --
-        # every "trial" (session) gets the single placeholder class 0.
-        labels = np.zeros(len(sessions), dtype=np.int64)
-
-        return eeg_data, labels
+        eeg_data = np.concatenate(data)                        # [n_windows, C, win]
+        # No events/conditions at all (see gen_metadata.py's dataset_info.notes): dummy class 0.
+        return eeg_data, np.zeros(len(eeg_data), dtype=np.int64)
