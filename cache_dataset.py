@@ -9,15 +9,23 @@ import scipy.signal
 from IO.loader import resolve_dataset_loader
 from IO.preprocessing import BandpassResample, cache_suffix
 
-DROPOUT_RATIO = 0.05   # a window whose peak |x| is below this x the subject's median window peak is a dropout
+DROPOUT_RATIO = 0.10   # a window whose peak |x| is below this x the subject's median window peak is a dropout
+# (0.05 kept Neonatal_Helsinki windows peaking < 1 uV on all 19 channels; < 0.10 is <= 0.15% of any dataset)
 
 
 def dropout_keep(data):
     """[N, C, T] -> [N] bool, False on flat-line windows (signal dropouts: a disconnected amplifier,
     a recording's dead tail): peak |x| below DROPOUT_RATIO x the subject's median window peak.
-    Relative, so it holds whatever the data's units. They carry no EEG."""
+    Relative, so it holds whatever the data's units. They carry no EEG. Repeated until nothing changes:
+    dropping flat windows raises the median, and one pass would leave windows that fail the same rule
+    on the kept set (the verification applies it again)."""
     peak = np.abs(data).reshape(len(data), -1).max(1)
-    return peak >= DROPOUT_RATIO * np.median(peak)
+    keep = np.ones(len(peak), dtype=bool)
+    while True:
+        new = keep & (peak >= DROPOUT_RATIO * np.median(peak[keep]))
+        if (new == keep).all():
+            return keep
+        keep = new
 
 
 def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_filter: dict,
@@ -199,6 +207,10 @@ def check_subject(dataset_path, subject_id, data_metadata, data_structure,
                 if bad_real:
                     problems.append(f"valid_start:valid_end region is all-zero (degenerate real content), "
                                      f"trial(s): {bad_real[:5]}{'...' if len(bad_real) > 5 else ''}")
+                flat = np.flatnonzero(~dropout_keep(data)) if N > 1 else []
+                if len(flat):
+                    problems.append(f"flat-line window(s), peak < {DROPOUT_RATIO} x the subject's median "
+                                     f"(compile drops these), trial(s): {flat[:5].tolist()}{'...' if len(flat) > 5 else ''}")
                 if any_pad:
                     frac = float(((vs > 0) | (ve < T)).mean())
                     print(f"  [info] {frac*100:.0f}% of trials have some padding (real content < {T} samples)")

@@ -10,7 +10,7 @@ Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.1
 Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the
 trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).
 
-## finetune (19 datasets, 2527.6 h compiled)
+## finetune (19 datasets, 61.7 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -28,7 +28,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | SEED_VIG | Vigilance (PERCLOS regression) | C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | SEED_VII | Emotion (7-class) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | Siena | Seizure detection (adult) | B | 14 | 29 | 512 | none | — |  | not compiled |
-| Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | — | 2465.9 | compiled |
+| Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | — |  | not compiled |
 | Things_EEG2 | Visual decoding (images) | B, C |  |  |  |  |  |  | skipped for now (2026-09-22) |
 | TUAB | Abnormal EEG (clinical) | B, C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | TUEV | Event classification (clinical) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
@@ -37,13 +37,13 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 | ADFTD | Clinical: Alzheimer's / FTD | B |  |  |  |  |  |  | open (OpenNeuro ds004504), not fetched |
 
-## pretrain (24 datasets, 439.7 h compiled)
+## pretrain (24 datasets, 438.0 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
 | BCIC2020-3 | Imagined speech |  | 15 | 64 | 256 | 5 | — | 5.2 | compiled |
 | BCMI_MusicEmotion | Emotion (music) |  | 31 | 19 | 1000 | none | 0 s | 26.1 | compiled |
-| BETA_3s | SSVEP (40-class) |  | 15 | 64 | 250 | 40 | 0.5 s | 2.0 | compiled |
+| BETA_3s | SSVEP (40-class) |  | 15 | 64 | 250 | 40 | 0.5 s | 1.9 | compiled |
 | BETA_4s | SSVEP (40-class) |  | 55 | 64 | 250 | 40 | 0.5 s | 9.8 | compiled |
 | Cho2017 | Motor imagery (L/R hand) |  | 52 | 64 | 512 | 2 | 1 s | 14.6 | compiled (MOABB) |
 | Dreyer2023 | Motor imagery (L/R hand) |  | 87 | 27 | 512 | 2 | 1 s | 28.9 | compiled (MOABB) |
@@ -52,12 +52,12 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | GraspAndLift_Train | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 9.9 | compiled |
 | Inria_Test | Error-related potential |  | 10 | 57 | 200 | 2 | 1 s | 4.7 | compiled |
 | Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 1 s | 7.6 | compiled |
-| Lee2019_ERP | P300 speller (continuous) |  | 54 | 62 | 1000 | none | — | 58.0 | compiled (MOABB) |
+| Lee2019_ERP | P300 speller (continuous) |  | 54 | 62 | 1000 | none | — | 57.9 | compiled (MOABB) |
 | Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s | 30.0 | compiled (MOABB) |
 | Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s | 30.0 | compiled (MOABB) |
 | Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s | 8.8 | compiled (MOABB) |
 | MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
-| Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 111.9 | compiled |
+| Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 110.5 | compiled |
 | Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s | 18.7 | compiled (MOABB) |
 | SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0 s | 0.8 | compiled |
 | SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.1 | partial (110/111) |
