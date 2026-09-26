@@ -13,8 +13,9 @@ schemes are compared on one task.
    (dense caps only: every channel except C3/Cz/C4 hidden, scored on the other 19 BCI-22
    channels -- the sparse-cap imputation BNCI2014004 needs). Also split sparse (<= 22 real
    channels) vs dense windows.
-2. Embedding ablations under the token_runs mask: coords shuffled across channels, all
-   channels at the mean position, time_idx shuffled, time_idx constant.
+2. Embedding ablations under every test mask: coords shuffled across channels, all
+   channels at the mean position, time_idx shuffled, time_idx constant (masked MSE per mask
+   type; ablation_masked_mse keeps the token_runs row for older readers).
 3. Structure: coordinate-embedding similarity vs electrode closeness (Spearman, 10-10
    channels); pos_emb drift from its sinusoidal init; with a RelativeSpatialBias, per block
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
@@ -167,7 +168,7 @@ def run(name, max_windows):
         a = acc.setdefault(key, [0.0, 0])
         a[0] += float(err[sel].sum()); a[1] += int(sel.sum())
 
-    abl = {a: [0.0, 0] for a in ABLATIONS}
+    abl = {k: {a: [0.0, 0] for a in ABLATIONS} for k in KINDS}
     for wids, x, coords, t, valid in batches(ds, idx):
         B, C, N, L = x.shape
         valid_tok = torch.stack([ds._valid_masks[w].view(C, N) for w in wids])
@@ -194,13 +195,12 @@ def run(name, max_windows):
                     preds['linear'] = (linear_time_predict(x[b], mp[b], stride) - x[b]).pow(2).mean(-1)
                 for p, e in preds.items():
                     add((kind, 'all', p), e, sc[b]); add((kind, group, p), e, sc[b])
-            if kind == 'token_runs':
-                for a in ABLATIONS:
-                    cc, tt = ablate(a, coords, t, valid)
-                    torch.manual_seed(0)
-                    o = model(x, cc, tt, bool_masked_pos=mp, valid_channels=valid)
-                    e = (o.recon.float() - x).pow(2).mean(-1)
-                    abl[a][0] += float(e[sc].sum()); abl[a][1] += int(sc.sum())
+            for a in ABLATIONS:
+                cc, tt = ablate(a, coords, t, valid)
+                torch.manual_seed(0)
+                o = model(x, cc, tt, bool_masked_pos=mp, valid_channels=valid)
+                e = (o.recon.float() - x).pow(2).mean(-1)
+                abl[kind][a][0] += float(e[sc].sum()); abl[kind][a][1] += int(sc.sum())
 
     # structure
     emb = model.embed
@@ -229,7 +229,8 @@ def run(name, max_windows):
 
     res = {'windows': len(idx),
            'test_masks': {f'{k}|{g}|{p}': v[0] / max(v[1], 1) for (k, g, p), v in acc.items()},
-           'ablation_masked_mse': {a: v[0] / max(v[1], 1) for a, v in abl.items()},
+           'ablation_masked_mse': {a: v[0] / max(v[1], 1) for a, v in abl['token_runs'].items()},
+           'ablation_by_mask': {k: {a: v[0] / max(v[1], 1) for a, v in d.items()} for k, d in abl.items()},
            'structure': struct}
     os.makedirs(f'output/{name}/pretrain/analysis', exist_ok=True)
     json.dump(res, open(f'output/{name}/pretrain/analysis/backbone_eval.json', 'w'), indent=2)
@@ -242,8 +243,9 @@ def run(name, max_windows):
             if row['model'] is None:
                 continue
             print(f'  {k:17} {g:6} ' + ' '.join(f'{v:7.4f}' if v is not None else f'{"-":>7}' for v in row.values()))
-    b0 = res['ablation_masked_mse']['baseline']
-    print('  ablation (token_runs masked MSE): ' + ', '.join(f'{a} {v / b0 - 1:+.0%}' for a, v in res['ablation_masked_mse'].items() if a != 'baseline'))
+    print(f'  ablation, masked MSE change: {"mask":17} ' + ' '.join(f'{a:>15}' for a in ABLATIONS[1:]))
+    for k, d in res['ablation_by_mask'].items():
+        print(f'  {"":28} {k:17} ' + ' '.join(f'{d[a] / d["baseline"] - 1:>+15.0%}' for a in ABLATIONS[1:]))
     print(f'  coord sim vs closeness {struct["coord_sim_vs_closeness_spearman"]:.3f} | pos_emb drift {struct["pos_emb_drift"]:.1%}')
     if 'spatial_bias_per_block' in struct:
         print('  spatial bias per block (closeness rho / mean|b|): ' +

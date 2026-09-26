@@ -17,7 +17,9 @@ Sweep file (JSON):
       "derived": {"training_params.finetune.min_learning_rate": "training_params.finetune.learning_rate / 10"}
     }
 Every combination of case x grid becomes one job `<case>/<job>`; "derived" values are Python
-expressions over the job's own keys (the dotted names are available as-is).
+expressions over the job's own keys (the dotted names are available as-is). Optional
+"backbones": [...] repeats the whole sweep per backbone, replacing '{backbone}' anywhere in it
+(config path, output_path, set values); job names get a '<backbone>/' prefix.
 
     python -m tools.misc.sweep configs/sweeps/tune_base_s1.json >> output/queue/tune.plan
 """
@@ -28,6 +30,12 @@ import sys
 
 
 def expand(sweep):
+    if 'backbones' in sweep:                  # one copy of the sweep per backbone, '{backbone}' filled in
+        rest = json.dumps({k: v for k, v in sweep.items() if k != 'backbones'})
+        for b in sweep['backbones']:
+            for name, cmd in expand(json.loads(rest.replace('{backbone}', b))):
+                yield f'{b}/{name}', cmd
+        return
     grid = sweep.get('grid', {})
     keys = list(grid)
     short = sweep.get('name', {})
