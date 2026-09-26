@@ -5,11 +5,13 @@ lives under output/queue/ (not /tmp), so a reboot or a kill loses nothing but th
 
 Plan file, one entry per line:
     job <name> :: <shell command>      # run from the repo root; <name> may contain '/'
-    wait                               # barrier: every earlier job must finish first
+    wait                               # barrier: every earlier job must finish first; stops the queue
+                                       # if any job failed
     # comment
 The file is re-read after each job starts, so jobs can be appended or reordered while it runs
 (already-started jobs are never restarted). Job state: <state>/<name>.done|.failed|.log.
 Rerunning the same plan skips .done jobs (delete a .done file to redo it; .failed jobs rerun).
+Exits 1 if any job failed.
 
     python -m tools.misc.run_queue output/queue/tune.plan --max-parallel 2 --threads 8
 """
@@ -55,13 +57,15 @@ def main():
     if args.threads:
         env.update(OMP_NUM_THREADS=str(args.threads), MKL_NUM_THREADS=str(args.threads))
 
-    running, started, i = {}, set(), 0          # name -> Popen
+    running, started, failed, i = {}, set(), [], 0          # name -> Popen
     def reap():
         for name, p in list(running.items()):
             if p.poll() is not None:
                 tag = 'done' if p.returncode == 0 else 'failed'
                 open(os.path.join(state, f'{name}.{tag}'), 'w').write(f'{p.returncode}\n')
                 log(f'{tag:6} {name} (exit {p.returncode})')
+                if p.returncode != 0:
+                    failed.append(name)
                 del running[name]
 
     log(f'queue {args.plan}: max_parallel={args.max_parallel} threads={args.threads} state={state}')
@@ -73,6 +77,8 @@ def main():
         if name == 'wait':
             while running:
                 reap(); time.sleep(5)
+            if failed:
+                break
             i += 1
             continue
         if name in started or os.path.exists(os.path.join(state, f'{name}.done')):
@@ -94,6 +100,9 @@ def main():
         i += 1
     while running:
         reap(); time.sleep(5)
+    if failed:
+        log(f'queue ended: {len(failed)} failed ({", ".join(failed)})')
+        sys.exit(1)
     log('queue finished')
 
 

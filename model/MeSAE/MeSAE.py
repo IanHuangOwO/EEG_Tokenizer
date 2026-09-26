@@ -280,7 +280,7 @@ class MeSAEPretrain(nn.Module):
         plus chan_attn [B, N, n_stamps, C] (the pooling weights, i.e. each stamp's
         per-patch topomap) if return_chan_attn=True.
         """
-        z, _ = self.stage_features(x, coords, time_idx=time_idx)  # [B, C, N, D]
+        z, _ = self.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [B, C, N, D]
         B, C, N, D = z.shape
         G = B * N
         z_g = z.permute(0, 2, 1, 3).reshape(G, C, D)   # [G, C, D]

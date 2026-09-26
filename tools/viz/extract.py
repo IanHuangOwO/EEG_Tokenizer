@@ -240,7 +240,7 @@ def _used_stamps(model, x, coords, time_idx=None, valid_channels=None, max_stamp
     averaged over patches (dense_probe decodes straight to [C, patch_len] now — no outer
     product needed here, W_out dropped the rank-1 factorization, see StampBank.__init__'s
     W_out comment). Shared helper for extract_filter_psd/extract_filter_spectra below."""
-    z, _ = model.stage_features(x, coords, time_idx=time_idx)
+    z, _ = model.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)
     z_bnc, valid_mask = model._pool_channels(z, valid_channels)
     out = model.stamps(z_bnc, valid_mask=valid_mask)  # eval-mode call, aux/dead-atom path never runs
     used_ids = model.used_stamp_ids(out, max_stamps=max_stamps)  # [Qu]
@@ -305,7 +305,7 @@ def extract_filter_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
     choice) since a full (top_k+n_shared)*N_patches grid is impractically large to render
     (e.g. 20 slots * 40 patches = 800 topo+PSD columns).
     """
-    z, _ = model.stage_features(x, coords, time_idx=time_idx)
+    z, _ = model.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)
     z_bnc, valid_mask = model._pool_channels(z, valid_channels)  # [M, C, D], M = N (B=1)
     out = model.stamps(z_bnc, valid_mask=valid_mask)  # eval-mode call, aux/dead-atom path never runs
 
@@ -379,7 +379,7 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
     WITHIN a selected patch every channel has a real dense amp value: the per-channel
     zero-holes of the old per-token selection (a channel that lost the top-k race
     showing 0 despite genuinely containing the source) are gone by construction."""
-    z, _ = model.stage_features(x, coords, time_idx=time_idx)  # [1, C, N, D]
+    z, _ = model.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [1, C, N, D]
     B, C, N, D = z.shape
     z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
     x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)
@@ -599,7 +599,7 @@ def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor
     see StampBank.forward) — real reconstruction energy for both routed and shared
     slots, not a selection-frequency proxy.
     """
-    z, _ = model.stage_features(x, coords, time_idx=time_idx)  # [1, C, N, D]
+    z, _ = model.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [1, C, N, D]
     B, C, N, D = z.shape
     z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
     x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)

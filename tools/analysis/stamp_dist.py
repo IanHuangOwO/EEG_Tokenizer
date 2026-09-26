@@ -33,7 +33,7 @@ def accumulate_stamp_ab(model, pretrain_dataset, trial_indices, device, max_stam
             t = time_indices.unsqueeze(0).to(device)
             vc = valid_channels.unsqueeze(0).to(device)
 
-            z, _ = model.stage_features(x, c, time_idx=t)  # [1, C, N, D]
+            z, _ = model.stage_features(x, c, time_idx=t, valid_channels=vc)  # [1, C, N, D]
             B, C, N, D = z.shape
             z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)
             x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)

@@ -285,6 +285,7 @@ class CombinedSource:
         self.labels, self.subject_data = stamp_source.labels, stamp_source.subject_data
         self.channel_idx, self.keep = stamp_source.channel_idx, stamp_source.keep
         self.num_patches, self.num_stamps = stamp_source.num_patches, stamp_source.num_stamps
+        self.z, self.latent_dim = stamp_source.z, stamp_source.latent_dim
 
     def get(self, idx):
         stamp_d, y = self.stamp.get(idx)

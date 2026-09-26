@@ -248,7 +248,7 @@ class ChannelSubsampler:
 
 
 # Named strategies = MaskingStrategy configs. cfg is preprocess_params.mask.<name>; time_run
-# (preprocess_params.mask.time_run) is added to every mode.
+# (preprocess_params.mask.time_run) is the default of every random_token mode, preset or mixture.
 PRESETS = {
     'random': lambda cfg: dict(modes=[{'type': 'random_token', 'prob': 1.0, 'max_ratio': cfg.get('mask_ratio', 0.5)}],
                                start_ratio=cfg.get('mask_ratio', 0.5), ramp_epochs=0),
@@ -263,6 +263,7 @@ def build_masking_strategy_from_config(pp: dict) -> MaskingStrategy:
         cfg = dict(pp['mixture'])
     else:
         cfg = dict(PRESETS[name](pp.get(name, {})), label=name)
-        cfg['modes'] = [dict(m, time_run=pp.get('time_run', 1)) for m in cfg['modes']]
+    cfg['modes'] = [dict({'time_run': pp.get('time_run', 1)}, **m) if m['type'] == 'random_token' else m
+                    for m in cfg['modes']]
     sub = dict(pp.get('subsample') or {})
     return MaskingStrategy(**cfg, subsample=sub if sub.pop('enabled', False) else None)

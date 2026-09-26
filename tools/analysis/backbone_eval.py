@@ -230,7 +230,8 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
             print(f'  {k:17} {g:6} ' + ' '.join(f'{v:7.4f}' if v is not None else f'{"-":>7}' for v in row.values()))
     print(f'  ablation, masked MSE change: {"mask":17} ' + ' '.join(f'{a:>15}' for a in ABLATIONS[1:]))
     for k, d in res['ablation_by_mask'].items():
-        print(f'  {"":28} {k:17} ' + ' '.join(f'{d[a] / d["baseline"] - 1:>+15.0%}' for a in ABLATIONS[1:]))
+        if d['baseline'] > 0:                           # 0 when no held-out window scored this mask kind
+            print(f'  {"":28} {k:17} ' + ' '.join(f'{d[a] / d["baseline"] - 1:>+15.0%}' for a in ABLATIONS[1:]))
     print(f'  coord sim vs closeness {struct.get("coord_sim_vs_closeness_spearman", float("nan")):.3f} | pos_emb drift {struct["pos_emb_drift"]:.1%}')
     if 'spatial_bias_per_block' in struct:
         print('  spatial bias per block (closeness rho / mean|b|): ' +

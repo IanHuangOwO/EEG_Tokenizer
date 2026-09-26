@@ -226,7 +226,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         for t in sample:
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
             B, C, N, L = x_in.shape
-            z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
+            z, _ = model.stage_features(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
             z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
             x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
             rms = x_g.pow(2).mean(-1, keepdim=True).sqrt()
@@ -272,7 +272,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         small subsample of trials (see needs_raw_tensors), not every trial check_codebook
         samples up front."""
         B, C, N, L = x_in.shape
-        z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
+        z, _ = model.stage_features(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
         z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)   # [G, C, D], G = N (B=1)
         x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
         # rms must match the training path (see MeSAEPretrain.forward) — without it
@@ -337,7 +337,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             ds_name = t.get('dataset', '_')
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
             B, C, N, L = x_in.shape
-            z, _ = model.stage_features(x_in, c_in, time_idx=t_in)
+            z, _ = model.stage_features(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
             z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
             x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
             rms = x_g.pow(2).mean(-1, keepdim=True).sqrt()
