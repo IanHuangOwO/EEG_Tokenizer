@@ -5,7 +5,6 @@ import argparse
 import shutil
 
 import copy
-import random
 import logging
 import matplotlib
 matplotlib.use('Agg')
@@ -14,10 +13,10 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from IO.dataset import MontageBatchSampler, build_dataset_from_config
+from IO.dataset import MontageBatchSampler, build_dataset_from_config, split_pretrain_subjects
 from IO.masking import build_masking_strategy_from_config
 from model.base_trainer import nonfinite_step_report
-from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
+from model.factory import build_pretrain_from_config, checkpoint_build_config, optimizer_param_groups, MODEL_REGISTRY
 from tools.analysis import apply_overrides, pick_trial, resolve_output_path
 from tools.analysis.snapshot import build_pretrain_bundle
 from tools.panels import PanelContext, run_panels
@@ -204,9 +203,8 @@ def main():
 
     dataset_params = config['dataset_params']['pretrain']
     split_ratio = train_params.get('train_val_split', 0.9)
-    random.seed(42)
     # training_params.pretrain.seed (optional): weight init, masking and batch order all draw
-    # from torch's RNG. The subject train/val split keeps Python's seed 42 above, so runs that
+    # from torch's RNG. The subject train/val split has its own fixed seed, so runs that
     # differ only in this seed share the same split. Unset = unseeded, as before.
     if 'seed' in train_params:
         torch.manual_seed(int(train_params['seed']))
@@ -214,34 +212,11 @@ def main():
     train_config = copy.deepcopy(config)
     val_config   = copy.deepcopy(config)
 
-    for ds_name, ds_args in dataset_params.items():
-        data_root = ds_args['dataset_path']
-        with open(os.path.join(data_root, 'metadata.json'), 'r') as f:
-            meta = json.load(f)
-
-        # metadata.json subject keys are always strings (JSON object keys); keep them as
-        # strings throughout instead of int-converting — a requested subject_to_use given
-        # as either "1" or 1 in config then normalizes to the same "1" for comparison,
-        # so either representation works instead of silently matching nothing.
-        all_available_subjects = sorted(meta.get('data_structure', {}).keys())
-
-        requested_subjects = ds_args['subject_to_use']
-        if requested_subjects in (["all"], "all"):
-            subjects_to_split = all_available_subjects
-        else:
-            requested_strs = {str(s) for s in requested_subjects}
-            subjects_to_split = [s for s in all_available_subjects if s in requested_strs]
-
-        random.shuffle(subjects_to_split)
-        n_train = int(len(subjects_to_split) * split_ratio)
-        if n_train == len(subjects_to_split) and len(subjects_to_split) > 1:
-            n_train -= 1
-        if n_train == 0 and len(subjects_to_split) > 0:
-            n_train = 1
-
-        train_config['dataset_params']['pretrain'][ds_name]['subject_to_use'] = subjects_to_split[:n_train]
-        val_config['dataset_params']['pretrain'][ds_name]['subject_to_use']   = subjects_to_split[n_train:]
-        logger.info(f"Dataset {ds_name}: {n_train} Train, {len(subjects_to_split) - n_train} Val subjects")
+    # person-disjoint, order-independent subject split (IO/dataset.py's split_pretrain_subjects)
+    for ds_name, (train_subs, val_subs) in split_pretrain_subjects(dataset_params, split_ratio).items():
+        train_config['dataset_params']['pretrain'][ds_name]['subject_to_use'] = train_subs
+        val_config['dataset_params']['pretrain'][ds_name]['subject_to_use'] = val_subs
+        logger.info(f"Dataset {ds_name}: {len(train_subs)} Train, {len(val_subs)} Val subjects")
 
     logger.info("Building Training Dataset...")
     train_dataset = build_dataset_from_config(train_config, transform=None, mode='pretrain')
@@ -310,6 +285,7 @@ def main():
     Nc = train_dataset.base_dataset.Nc
     logger.info(f"Initializing model for {Nc} channels (Run: {model_name})...")
     model = build_pretrain_from_config(config, mode='pretrain')
+    build_config = checkpoint_build_config(config, mode='pretrain')   # saved in every checkpoint
 
     tokenizer_epochs = train_params['tokenizer_epochs']
     freeze_stamps    = train_params.get('freeze_stamps', True)
@@ -397,12 +373,12 @@ def main():
         # real instance: mesae_pretrain_v4 froze "best" at epoch 4/50, losing every epoch's
         # progress after that when the run was stopped at epoch 32. last.pth is the
         # insurance: whatever epoch you actually stopped at is always recoverable.
-        torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'last.pth'))
+        torch.save({'model_state_dict': model.state_dict(), 'build_config': build_config}, os.path.join(checkpoint_dir, 'last.pth'))
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
             # Tokenizer-phase best is overwritten by the first masked epoch (reset above).
-            torch.save({'model_state_dict': model.state_dict()}, os.path.join(checkpoint_dir, 'best.pth'))
+            torch.save({'model_state_dict': model.state_dict(), 'build_config': build_config}, os.path.join(checkpoint_dir, 'best.pth'))
             logger.info(f"  > Saved Best Checkpoint ({'masked' if masked else 'tokenizer'} phase)")
 
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)

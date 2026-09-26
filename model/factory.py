@@ -10,28 +10,35 @@ MODEL_REGISTRY = {
 }
 
 
-def build_pretrain_from_config(config, mode='pretrain'):
-    train_params = config['training_params'][mode]
-    model_type   = train_params.get('model_type', 'MeSAE')
+def checkpoint_build_config(config, mode='pretrain'):
+    """Everything that decides the backbone's architecture, saved inside every pretrain checkpoint:
+    a trained backbone is always rebuilt from its own checkpoint, never from a config file that
+    may have been edited since it was trained."""
+    model_type = config['training_params'][mode].get('model_type', 'MeSAE')
     if model_type not in MODEL_REGISTRY:
         raise ValueError(f"Unknown model type: {model_type}")
-    plugin = MODEL_REGISTRY[model_type]
-
     canonical_channels = config.get('preprocess_params', {}).get('canonical_channels')
     if not canonical_channels:
-        raise ValueError(
-            "preprocess_params.canonical_channels must be set — each Expert's/filter's "
-            "decoder reconstructs all channels jointly (C*patch_len output) and needs a "
-            "fixed channel count at model-construction time."
-        )
-    canonical_channels = resolve_canonical_channels(canonical_channels)
-    num_channels = len(canonical_channels)
+        raise ValueError("preprocess_params.canonical_channels must be set (it fixes the channel count)")
+    return {'model_type': model_type, 'num_channels': len(resolve_canonical_channels(canonical_channels)),
+            'model_params': config['model_params'][model_type]['pretrain']}
 
-    # mode only picks training_params[mode]; the architecture is always the 'pretrain'
-    # block (model_params.<type>.finetune is head params, not an architecture).
-    bp = config['model_params'][model_type]['pretrain']
-    model = plugin.build(bp, num_channels)
 
+def build_pretrain_from_config(config, mode='pretrain'):
+    """A fresh, untrained backbone -- training starts here; a trained one comes from build_from_checkpoint."""
+    bc = checkpoint_build_config(config, mode)
+    return MODEL_REGISTRY[bc['model_type']].build(bc['model_params'], bc['num_channels'])
+
+
+def build_from_checkpoint(ckpt):
+    """The backbone exactly as trained: built from ckpt['build_config'], weights loaded (the load
+    restores its phase flags, MeSAE _restore_phase)."""
+    if 'build_config' not in ckpt:
+        raise ValueError("checkpoint has no build_config: trained before the 2026-09-26 encoder redesign, "
+                         "the current code cannot rebuild it")
+    bc = ckpt['build_config']
+    model = MODEL_REGISTRY[bc['model_type']].build(bc['model_params'], bc['num_channels'])
+    model.load_state_dict(ckpt['model_state_dict'])
     return model
 
 
@@ -56,11 +63,8 @@ def optimizer_param_groups(model, weight_decay):
 
 def load_backbone(config, checkpoint_path=None, mode='finetune'):
     """Frozen-backbone loader shared by the finetune builders and the feature cache."""
-    backbone = build_pretrain_from_config(config, mode=mode)
     path = checkpoint_path or config['training_params'][mode]['pretrained_checkpoint']
-    # load_state_dict restores the checkpoint's phase flags (MeSAE _restore_phase)
-    backbone.load_state_dict(torch.load(path, map_location='cpu')['model_state_dict'])
-    return backbone
+    return build_from_checkpoint(torch.load(path, map_location='cpu', weights_only=False))
 
 
 def build_finetune_from_config(config, num_classes, mode='finetune', num_patches=None, channel_idx=None):

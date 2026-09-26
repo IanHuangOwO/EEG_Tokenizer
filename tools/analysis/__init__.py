@@ -183,7 +183,7 @@ def filter_config_to_subject(config: dict, dataset_name: str, subject, mode: str
 
 
 def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 'pretrain'):
-    """Build model from config, load checkpoint with strict=False, return eval.
+    """Pretrain: the backbone rebuilt from the checkpoint's own build_config (random weights from config if the file is missing), eval.
     mode='finetune' rebuilds the full FinetuneModel (frozen backbone + head) from the head
     checkpoint's own head_config and backbone_checkpoint path (no shape inference; a missing
     file raises)."""
@@ -191,21 +191,13 @@ def load_model(config: dict, checkpoint: str, device: torch.device, mode: str = 
         from model.factory import load_finetune_checkpoint
         return load_finetune_checkpoint(config, checkpoint, device)
 
-    from model.factory import build_pretrain_from_config
-
-    model = build_pretrain_from_config(config, mode=mode).to(device)
+    from model.factory import build_from_checkpoint, build_pretrain_from_config
 
     if checkpoint and os.path.exists(checkpoint):
-        ckpt = torch.load(checkpoint, map_location=device, weights_only=False)
-        sd = ckpt.get('model_state_dict', ckpt)
-        missing, unexpected = model.load_state_dict(sd, strict=False)
-        if missing:
-            print(f"  [ckpt] {len(missing)} missing keys (fresh init), e.g. {missing[0]}")
-        if unexpected:
-            print(f"  [ckpt] {len(unexpected)} unexpected keys, e.g. {unexpected[0]}")
-        # phase flags (spatial/temporal/active blocks) restored by MeSAE's load post-hook
+        model = build_from_checkpoint(torch.load(checkpoint, map_location='cpu', weights_only=False)).to(device)
     else:
         print(f"  WARNING: checkpoint not found at {checkpoint!r}, using random weights.")
+        model = build_pretrain_from_config(config, mode=mode).to(device)
 
     model.eval()
     return model

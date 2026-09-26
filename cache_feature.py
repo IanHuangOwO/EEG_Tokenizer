@@ -18,7 +18,7 @@ from torch.utils.data import Dataset
 from IO.dataset import build_dataset_from_config
 from IO.loader import get_standard_coords
 from IO.preprocessing import cache_suffix, slice_patches
-from model.factory import load_backbone
+from model.factory import build_from_checkpoint
 from model.MeSAE.MeSAE_modules import StampExtractor
 
 
@@ -38,7 +38,20 @@ def _mne_version():
         return 'none'   # coordinates fall back to the flat metadata polar values
 
 
-def cache_key(config, dataset_name, keep, checkpoint_path, latent=False):
+_CODE_FILES = ('model/MeSAE/MeSAE.py', 'model/MeSAE/MeSAE_modules.py', 'cache_feature.py')
+
+
+def _code_hash():
+    """Any edit to the code that computes the codes gives a new cache folder (a stale cache is
+    silently wrong; a rebuild costs minutes)."""
+    root = os.path.dirname(os.path.abspath(__file__))
+    h = hashlib.sha1()
+    for f in _CODE_FILES:
+        h.update(open(os.path.join(root, f), 'rb').read())
+    return h.hexdigest()[:12]
+
+
+def cache_key(config, dataset_name, keep, checkpoint_path, latent=False, build_config=None):
     """Folder key: everything that changes the amplitudes of a given subject file."""
     ds_args = config['dataset_params']['finetune'][dataset_name]
     parts = dict(
@@ -49,6 +62,8 @@ def cache_key(config, dataset_name, keep, checkpoint_path, latent=False):
         metadata=_fingerprint(os.path.join(ds_args['dataset_path'], 'metadata.json')),
         montages=_fingerprint(os.path.join('configs', 'montages.json')),
         mne=_mne_version(),
+        build=build_config,
+        code=_code_hash(),
     )
     if latent:   # the encoder output z is stored too (latent_* head entries); a separate folder
         parts['latent'] = True
@@ -129,12 +144,13 @@ def get_stamp_cache(config, dataset_name, subjects, device=None, batch_size=64, 
     """Build any missing or stale per-subject file and return the cache folder."""
     device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
     ckpt = config['training_params']['finetune']['pretrained_checkpoint']
-    backbone = load_backbone(config).to(device).eval()
+    ckpt_dict = torch.load(ckpt, map_location='cpu', weights_only=False)
+    backbone = build_from_checkpoint(ckpt_dict).to(device).eval()
     for p in backbone.parameters():
         p.requires_grad_(False)
     keep = StampExtractor(backbone, [0]).keep.cpu().tolist()   # alive stamps do not depend on the channels
     run_dir = os.path.dirname(os.path.dirname(ckpt))
-    folder = os.path.join(run_dir, 'feature_cache', dataset_name, cache_key(config, dataset_name, keep, ckpt, latent))
+    folder = os.path.join(run_dir, 'feature_cache', dataset_name, cache_key(config, dataset_name, keep, ckpt, latent, ckpt_dict['build_config']))
     os.makedirs(folder, exist_ok=True)
     for sub in subjects:
         sub = str(sub)
