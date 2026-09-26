@@ -30,31 +30,25 @@ def overlap_add_patches(patches, stride):
     the weight-normalized sum of every patch covering it — a true weighted average, not
     dependent on the window being exactly constant-overlap-add — so this degrades to
     the old exact reshape behavior when stride == L (overlap == 0: every weight is 1).
-    Built via pad-then-stack-then-sum (not in-place slice accumulation) so it stays
-    autograd-safe when patches requires grad."""
+    One F.fold call (a sum over every patch covering each sample) for both the weighted signal
+    and the weights."""
     *lead, N, L = patches.shape
     assert stride <= L, f"overlap_add_patches: stride ({stride}) > patch_len ({L}) leaves gaps unfilled"
     overlap = L - stride
+    w = torch.ones(N, L, device=patches.device, dtype=patches.dtype)
+    if overlap > 0:
+        ramp = torch.linspace(0, 1, overlap + 2, device=patches.device, dtype=patches.dtype)[1:-1]
+        w[1:, :overlap] = ramp
+        w[:-1, -overlap:] = ramp.flip(0)
+    return (fold_sum(patches * w, stride) / fold_sum(w, stride).clamp(min=1e-8)).reshape(*lead, -1)
+
+
+def fold_sum(patches, stride):
+    """[..., N, L] patches -> [..., T]: every sample the SUM of the patch samples covering it."""
+    *lead, N, L = patches.shape
     T = (N - 1) * stride + L
-    flat = patches.reshape(-1, N, L)
-    ramp = torch.linspace(0, 1, overlap + 2, device=patches.device, dtype=patches.dtype)[1:-1] \
-        if overlap > 0 else None
-    # Accumulate directly instead of stacking N full-length [.., T] tensors first — plain
-    # addition is already a valid non-in-place autograd op, so this keeps the same
-    # autograd-safety guarantee without the extra O(N*T) list/stack.
-    out = flat.new_zeros(flat.shape[0], T)
-    wsum = flat.new_zeros(T)
-    for n in range(N):
-        w = torch.ones(L, device=patches.device, dtype=patches.dtype)
-        if overlap > 0:
-            if n > 0:
-                w[:overlap] = ramp
-            if n < N - 1:
-                w[-overlap:] = ramp.flip(0)
-        pad = (n * stride, T - (n * stride + L))
-        out = out + F.pad(flat[:, n, :] * w, pad)
-        wsum = wsum + F.pad(w, pad)
-    return (out / wsum.clamp(min=1e-8)).reshape(*lead, T)
+    flat = patches.reshape(-1, N, L).transpose(1, 2)                        # [M, L, N]
+    return F.fold(flat, (1, T), (1, L), stride=(1, stride)).reshape(*lead, T)
 
 
 # ==========================================
@@ -217,11 +211,7 @@ class MoEFFN(nn.Module):
     parity with a single dense FFN of that hidden_dim — standard DeepSeekMoE
     fine-grained-expert sizing. mlp_ratio is the single knob controlling expert width.
 
-    # ponytail: dense routed-expert compute (every routed Expert runs on every token, then
-    # masked by the gate — same "compute all, mask by gate" convention FilterRouter/
-    # ExpertChannelPool already use in this file), not real sparse dispatch. Fine at this
-    # expert count; switch to grouped/sparse dispatch if expert count or throughput ever
-    # makes this the bottleneck.
+    Routed Experts run only on the tokens routed to them (index_add back, gate-weighted).
     """
     def __init__(self, dim, hidden_dim, n_routed, n_shared, top_k, dropout=0.0):
         super().__init__()
@@ -244,8 +234,11 @@ class MoEFFN(nn.Module):
 
         gate_mask, lb_loss = self.router(x_flat)  # [T, R]
         self._record_health(gate_mask)
-        routed_out = torch.stack([e(x_flat) for e in self.routed_experts], dim=1)  # [T, R, D]
-        routed_sum = (routed_out * gate_mask.unsqueeze(-1)).sum(dim=1)  # [T, D]
+        routed_sum = x_flat.new_zeros(x_flat.shape)                               # [T, D]
+        for r, e in enumerate(self.routed_experts):                               # only the tokens routed to e
+            idx = gate_mask[:, r].nonzero(as_tuple=True)[0]
+            if len(idx):
+                routed_sum = routed_sum.index_add(0, idx, (e(x_flat[idx]) * gate_mask[idx, r, None]).to(routed_sum.dtype))
 
         shared_sum = x_flat.new_zeros(x_flat.shape)
         for e in self.shared_experts:
@@ -387,37 +380,49 @@ class TSABlock(nn.Module):
         m = t.detach().abs().amax()
         self.last_branch_max = m if self.last_branch_max is None else torch.maximum(self.last_branch_max, m)
 
-    def forward(self, x, valid_channels=None, spatial_bias=None):
+    def _spatial_attention(self, x, valid_channels, spatial_bias):
+        """x [B, N, C, D] -> [B, N, C, D]. spatial_attn's own weights, run through
+        scaled_dot_product_attention so the per-block bias [B, H, C, C] and the padded-channel
+        key mask broadcast over the N patches instead of being copied B*N times."""
+        B, N, C, D = x.shape
+        mha = self.spatial_attn
+        H = mha.num_heads
+        q, k, v = F.linear(x, mha.in_proj_weight, mha.in_proj_bias).chunk(3, dim=-1)
+        q, k, v = (t.reshape(B, N, C, H, D // H).transpose(2, 3) for t in (q, k, v))   # [B, N, H, C, d]
+        mask = None
+        if spatial_bias is not None:
+            mask = spatial_bias.to(q.dtype)[:, None]                                    # [B, 1, H, C, C]
+        if valid_channels is not None:
+            pad = torch.zeros(B, 1, 1, 1, C, dtype=q.dtype, device=q.device).masked_fill(
+                ~valid_channels.bool()[:, None, None, None, :], float('-inf'))
+            mask = pad if mask is None else mask + pad
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask,
+                                             dropout_p=mha.dropout if self.training else 0.0)
+        return mha.out_proj(out.transpose(2, 3).reshape(B, N, C, D))
+
+    def forward(self, x, valid_channels=None, spatial_bias=None, valid_patches=None):
         """valid_channels [B, C] bool (optional): zero-padded channels are left out of
         spatial attention as keys, so a montage's missing channels can't dilute the
-        softmax (their own rows still get computed, then ignored downstream)."""
+        softmax (their own rows still get computed, then ignored downstream).
+        valid_patches [B, N] bool (optional): the same for temporal attention over a
+        window's zero-padded tail patches."""
         B, C, N, D = x.shape
         x_flat = x.view(B * C, N, D)
         self.last_branch_max = None
 
         if self.temporal_active:
             x_norm_t = self.norm_time(x_flat)
-            attn_out_t, _ = self.temporal_attn(x_norm_t, x_norm_t, x_norm_t)
+            kpm_t = None if valid_patches is None else \
+                (~valid_patches.bool()).repeat_interleave(C, dim=0)             # [B*C, N], True = ignore
+            attn_out_t, _ = self.temporal_attn(x_norm_t, x_norm_t, x_norm_t, key_padding_mask=kpm_t)
             self._watch(attn_out_t)
             attn_out_t = self.norm_time_out(attn_out_t)
             x_flat = x_flat + self.drop_t(self.scale_t * attn_out_t)
 
         x_space = x_flat.view(B, C, N, D).permute(0, 2, 1, 3).reshape(B * N, C, D)
         if self.spatial_active:
-            x_norm = self.norm_space(x_space)
-            kpm = None if valid_channels is None else \
-                (~valid_channels.bool()).repeat_interleave(N, dim=0)            # [B*N, C], True = ignore
-            if spatial_bias is None:
-                attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm, key_padding_mask=kpm)
-            else:
-                # spatial_bias [B, H, C, C] (RelativeSpatialBias) -> [B*N*H, C, C] float mask, with
-                # padded keys folded in as -inf (one mask type, no bool/float mixing)
-                H = spatial_bias.shape[1]
-                bias = spatial_bias.to(x_norm.dtype)
-                if valid_channels is not None:
-                    bias = bias.masked_fill(~valid_channels.bool()[:, None, None, :], float('-inf'))
-                bias = bias[:, None].expand(B, N, H, C, C).reshape(B * N * H, C, C)
-                attn_out, _ = self.spatial_attn(x_norm, x_norm, x_norm, attn_mask=bias)
+            x_norm = self.norm_space(x_space).view(B, N, C, D)
+            attn_out = self._spatial_attention(x_norm, valid_channels, spatial_bias).reshape(B * N, C, D)
             self._watch(attn_out)
             attn_out = self.norm_space_out(attn_out)
             x_space = x_space + self.drop_s(self.scale_s * attn_out)
@@ -432,36 +437,23 @@ class TSABlock(nn.Module):
 
 
 class TSAEncoder(nn.Module):
-    def __init__(self, dim, depth=12, num_heads=8, mlp_ratio=4., dropout=0.0,
-                 pool_after_blocks=(),
+    """TSABlocks in stages of blocks_per_stage: the patch axis N is pooled by 2 after every stage
+    but the last (depth 8, 2 per stage: 4 stages at N, N/2, N/4, N/8 -- 39 -> 20 -> 10 -> 5), and
+    the way back up adds each stage's pre-pool output (a UNet skip, gated) onto the upsampled
+    deeper result. Pooling is centred ([1,3,3,1]/8, coarse token i sits between fine patches 2i and
+    2i+1) and upsampling interpolates linearly at the same positions, so no level shifts time."""
+    def __init__(self, dim, depth=8, num_heads=8, mlp_ratio=4., dropout=0.0, blocks_per_stage=2,
                  n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2):
         super().__init__()
+        assert depth % blocks_per_stage == 0, f"depth {depth} is not a multiple of blocks_per_stage {blocks_per_stage}"
         self.blocks = nn.ModuleList([
             TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout,
                      n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
                      ffn_top_k=ffn_top_k)
             for _ in range(depth)
         ])
-        # UNet-style temporal down/up: triangular-kernel-filtered pool N in half after each
-        # listed block, then (once, after the last block) nearest-repeat upsample + gated
-        # skip-add back through the same points in reverse, restoring the original N.
-        # Parameter-free pooling (fixed [1,2,1]/4 kernel + repeat), so downstream
-        # (SAE/decoder/loss) never sees a shape change. The gated residual add on the
-        # way back up always runs.
-        self.pool_after_blocks = set(pool_after_blocks)
-        # per-skip learned gate on the residual add, sigmoid init ~0.95 (near plain add);
-        # ordered ascending by block index to match `skips` build order in forward()
-        self.skip_gates = nn.ParameterList([
-            nn.Parameter(torch.tensor(3.0)) for _ in sorted(self.pool_after_blocks)
-        ])
-        # Block indices that run; the rest pass x through untouched. None = all. The
-        # tokenizer phase runs only the pool_after_blocks blocks, which with
-        # pool_after_blocks [2,4,6,8,10] is exactly the old 5-block pool-after-every-block
-        # tokenizer encoder (see MeSAEPretrain.enter_tokenizer_phase, docs/adr/0013).
-        self.active_blocks = None
-
-    def _runs(self, i):
-        return self.active_blocks is None or i in self.active_blocks
+        self.pool_after = [i for i in range(blocks_per_stage - 1, depth - 1, blocks_per_stage)]
+        self.skip_gates = nn.ParameterList([nn.Parameter(torch.tensor(3.0)) for _ in self.pool_after])
 
     def enable_spatial(self):
         for block in self.blocks:
@@ -473,82 +465,72 @@ class TSAEncoder(nn.Module):
 
     @staticmethod
     def _pool(x):
-        """Downsample N by 2 through a fixed triangular ([1,2,1]/4) lowpass before
-        decimating, not a bare pair-mean (box filter): a 2-tap box filter's frequency
-        response has stopband sidelobes near its cutoff, so patch-to-patch content above
-        the new Nyquist rate isn't fully attenuated before every-other-sample is dropped —
-        it folds back in as aliasing, indistinguishable from genuine low-frequency content
-        to every block deeper than this pool point. The 3-tap triangular kernel attenuates
-        harder near cutoff, same as the standard Burt-Adelson pyramid REDUCE filter. Output
-        sample i is centered on original sample 2i (taps 2i-1, 2i, 2i+1); the left edge
-        (i=0, needing sample -1) is handled by replicating x[0], no pad needed on the right
-        since the last output only ever reads up to index N-1."""
-        B, C, N, D = x.shape
-        if N % 2 == 1:
-            x = torch.cat([x, x[:, :, -1:, :]], dim=2)  # repeat last token to make N even
-        N = x.shape[2]
-        xp = torch.cat([x[:, :, :1, :], x], dim=2)  # replicate-pad one sample on the left
-        left   = xp[:, :, 0:N:2, :]
-        center = xp[:, :, 1:N + 1:2, :]
-        right  = xp[:, :, 2:N + 2:2, :]
-        return (left + 2 * center + right) / 4.0
+        """[B, C, N, D] -> [B, C, ceil(N/2), D]: coarse token i = (x[2i-1] + 3 x[2i] + 3 x[2i+1]
+        + x[2i+2]) / 8, centred on 2i + 0.5 (a lowpass before decimating, so content above the
+        new Nyquist rate doesn't alias). Edges replicate; an odd N repeats its last token."""
+        if x.shape[2] % 2:
+            x = torch.cat([x, x[:, :, -1:]], dim=2)
+        M = x.shape[2] // 2
+        xp = torch.cat([x[:, :, :1], x, x[:, :, -1:]], dim=2)                 # xp[j] = x[j - 1]
+        return (xp[:, :, 0:2 * M:2] + 3 * xp[:, :, 1:2 * M + 1:2]
+                + 3 * xp[:, :, 2:2 * M + 2:2] + xp[:, :, 3:2 * M + 3:2]) / 8.0
 
-    def forward(self, x, valid_channels=None, spatial_bias=None):
-        """spatial_bias: optional [B, depth, H, C, C] from RelativeSpatialBias, block i gets [:, i]."""
-        skips = []  # unpadded pre-pool tensors, one per pool point, in block order
-        # Per-block contribution norm — how much each block actually changes its input,
-        # not just the skip-gate residual-add strength (which conflates "shallow skip
-        # re-injected on top" with "deep processing did nothing"; this measures the
-        # deep processing directly). Eval-only (no_grad, .item() sync) — same convention
-        # as the other diagnostics in this codebase (fingerprint stats, codebook health).
-        #
-        # A block immediately before a pool point (i in pool_after_blocks) has its raw
-        # delta counted twice downstream: once propagated through the pooled/bottleneck
-        # path, and again as a direct gated re-add at the very end (see the skip loop
-        # below) — the raw delta alone doesn't reflect that second, gate-weighted path.
-        # Folded in here by scaling those blocks' recorded delta by sigmoid(gate), so
-        # block_norm_i reads as this block's actual surviving contribution, not just
-        # what it computed before the gate ever touches it.
+    @staticmethod
+    def _upsample(x, n):
+        """[B, C, M, D] -> [B, C, n, D]: fine patch j reads the coarse sequence at (j - 0.5) / 2
+        (coarse token i sits at fine position 2i + 0.5), linear interpolation, clamped at the ends."""
+        M = x.shape[2]
+        u = ((torch.arange(n, device=x.device, dtype=x.dtype) - 0.5) / 2).clamp(0, M - 1)
+        i0 = u.floor().long().clamp(max=M - 1)
+        i1 = (i0 + 1).clamp(max=M - 1)
+        f = (u - i0.to(u.dtype)).view(1, 1, n, 1)
+        return x[:, :, i0] * (1 - f) + x[:, :, i1] * f
+
+    @staticmethod
+    def _pool_valid(v):
+        """[B, N] bool -> [B, ceil(N/2)]: a coarse token is real if either of its two patches is."""
+        if v.shape[1] % 2:
+            v = torch.cat([v, v[:, -1:]], dim=1)
+        return v[:, 0::2] | v[:, 1::2]
+
+    def forward(self, x, valid_channels=None, spatial_bias=None, valid_patches=None):
+        """spatial_bias: optional [B, depth, H, C, C] from RelativeSpatialBias, block i gets [:, i].
+        valid_patches: optional [B, N] bool, False on a window's zero-padded tail patches (left out
+        of temporal attention as keys)."""
+        skips = []  # (pre-pool tensor) per pool point, in block order
+        # Per-block contribution norm (eval only): how much each block changes its input. A block
+        # right before a pool point has its delta scaled by sigmoid(its skip gate), since that is
+        # how strongly its output is re-added at the end.
         record_norms = not self.training
         if record_norms:
             self.last_block_norms = []
-            sorted_pool = sorted(self.pool_after_blocks)
-            gate_for_block = dict(zip(sorted_pool, self.skip_gates))
+            gate_for_block = dict(zip(self.pool_after, self.skip_gates))
         ffn_lb_loss = x.new_zeros(())
+        vp = valid_patches
         for i, block in enumerate(self.blocks):
             x_in = x
-            if self._runs(i):
-                x, blk_ffn_lb = block(x, valid_channels, None if spatial_bias is None else spatial_bias[:, i])
-                ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
+            x, blk_ffn_lb = block(x, valid_channels, None if spatial_bias is None else spatial_bias[:, i], vp)
+            ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
                 with torch.no_grad():
                     delta = (x - x_in).norm(dim=-1).mean()
                     if i in gate_for_block:
                         delta = delta * torch.sigmoid(gate_for_block[i])
                     self.last_block_norms.append(delta.item())
-            if i in self.pool_after_blocks:
+            if i in self.pool_after:
                 skips.append(x)
                 x = self._pool(x)
+                vp = None if vp is None else self._pool_valid(vp)
 
         for skip, gate in zip(reversed(skips), reversed(self.skip_gates)):
-            N_pre = skip.shape[2]
-            x = x.repeat_interleave(2, dim=2)  # upsample
-            x = x[:, :, :N_pre, :]              # trim off any pool-time padding
-            x = x + torch.sigmoid(gate) * skip
+            x = self._upsample(x, skip.shape[2]) + torch.sigmoid(gate) * skip
 
-        # Average each TSABlock's MoEFFN router-health readout (see MoEFFN._record_health)
-        # across all blocks into one number per encoder pass — every block runs every
-        # forward, so a simple mean is a fair per-batch summary of "how is the FFN router
-        # doing across the whole encoder", not just one layer's snapshot.
+        # Router health and the worst interior branch magnitude (TSABlock._watch), over every block.
         with torch.no_grad():
-            ran = [b for i, b in enumerate(self.blocks) if self._runs(i)]
-            self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in ran]).mean()
-            self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in ran]).mean()
-            self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in ran]).mean()
-            # Worst interior branch magnitude anywhere in the stack (see TSABlock._watch).
-            # Max, not mean: one block crossing the float ceiling takes out the whole run,
-            # so an average across 12 blocks would bury exactly the signal this exists for.
-            watched = [b.last_branch_max for b in ran if b.last_branch_max is not None]
+            self.last_ffn_router_entropy = torch.stack([b.ffn.last_router_entropy for b in self.blocks]).mean()
+            self.last_ffn_router_load_std = torch.stack([b.ffn.last_router_load_std for b in self.blocks]).mean()
+            self.last_ffn_gate_entropy = torch.stack([b.ffn.last_gate_entropy for b in self.blocks]).mean()
+            watched = [b.last_branch_max for b in self.blocks if b.last_branch_max is not None]
             self.last_branch_max = torch.stack(watched).max() if watched else None
 
         return x, ffn_lb_loss

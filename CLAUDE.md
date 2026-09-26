@@ -140,6 +140,8 @@ EEG signals (raw dataset files)
   │         └─ IO/masking.py: mixture masking (or the random baseline), redrawn every masked
   │            epoch — PretrainDataset only; masks are ignored during the tokenizer phase
   └─ train_pretrain.py         # tokenizer phase (unmasked) -> masked phase, one run
+  │                            # batches hold one montage each (IO/dataset.py's MontageBatchSampler), so
+  │                            # each batch drops the canonical channels none of its windows has
 ```
 
 `build_dataset_from_config` runs `sanity_check_base`/`sanity_check_wrapper` (`IO/dataset.py`)
@@ -149,7 +151,8 @@ dataset_name) stayed index-aligned through loading/padding/windowing, and that t
 
 Pretraining is one run with two phases (`docs/adr/0013`):
 - **Tokenizer phase** (epochs 1..`tokenizer_epochs`): `MeSAEPretrain.enter_tokenizer_phase()`
-  -- only the `pool_after_blocks` encoder blocks run, temporal mixing only, no masking.
+  -- every encoder block runs, temporal mixing only (spatial attention and the coordinate
+  embedding off), no masking.
   Encoder + StampBank train jointly on single-channel features (0003's leakage rule).
 - **Masked phase**: `enter_masked_phase(freeze_stamps)` -- all blocks, spatial attention +
   coord embedding on, `preprocess_params.mask` curriculum starts (counted from here),
@@ -162,8 +165,10 @@ Each model plugs in via `model/<Name>/plugin.py` (`Trainer`/`Checker`/`Plotter` 
 one. See `docs/adr/0004-model-plugin-base-classes.md`.
 
 - **`model/MeSAE/MeSAE_modules.py`**: `SpatialTemporalEmbeddings`, `TSABlock` (temporal
-  attn -> spatial MHA -> MoE FFN, LayerScale 1e-4), `TSAEncoder` (UNet-style temporal
-  pool/upsample at `pool_after_blocks`, `active_blocks` bypass), `StampBank`,
+  attn -> spatial MHA -> MoE FFN, LayerScale 1e-4), `TSAEncoder` (UNet-style: stages of
+  `blocks_per_stage` blocks, the patch axis pooled by 2 between stages -- centred [1,3,3,1]/8 pool,
+  linear-interpolation upsample, gated skips -- 8 blocks = 4 stages, 39 -> 20 -> 10 -> 5 patches;
+  zero-padded tail patches masked out of temporal attention), `StampBank`,
   and the finetune pieces (ADR 0016): `StampExtractor` (frozen-backbone stamp codes
   `[B, N', Cv, S, 2]`) and `FeatureHead` (one composable head: feature front-end, spatial
   filter, time pooling, optional branches, readout).
@@ -188,7 +193,7 @@ at 32. See `docs/adr/0011-matching-pursuit-residual-loss.md`.
 ### Config (`configs/pretrain.template.json` + `configs/finetune.template.json`, copied per run into `configs/runs/` — see above)
 
 Key fields:
-- `model_params.MeSAE.pretrain`: the one architecture block — `patch_len`, `embed_dim`, `enc_depth`, `pool_after_blocks` (also the tokenizer-phase block set), `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (default true: Fourier electrode-coordinate embedding + a per-block directional relative spatial bias in spatial attention; false = neither, the spatial-embedding ablation). `model_params.MeSAE.finetune`: head keys (validated at build; the checkpoint stores the resolved `head_config`) — `features`: a list of `{"type": <name>, <per-entry keys>}`, name one of `stamp_power`/`stamp_band`/`raw_band`/`raw_signal`/`phase_advance`/`evoked`/`signed_ab` (each an entry class in `MeSAE_modules.py`'s `ENTRY_TYPES` owning its validation, width and forward, so a new head feature is one class plus one registry line); every entry has its own spatial filter. Per-entry keys `spatial_k` (None/0 = no mixing), `time_pool` (`flat`/`learned`/`window`/`none`), `time_rank`, `window` (`[lo, hi]` s), `evoked_rank`, `stamp_rank` can also be set at the top level as the default for every entry; plus `dropout`. Defaults in `_HEAD_DEFAULTS`.
+- `model_params.MeSAE.pretrain`: the one architecture block — `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (default 2; `enc_depth` / `blocks_per_stage` stages), `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (default true: Fourier electrode-coordinate embedding + a per-block directional relative spatial bias in spatial attention; false = neither, the spatial-embedding ablation). `model_params.MeSAE.finetune`: head keys (validated at build; the checkpoint stores the resolved `head_config`) — `features`: a list of `{"type": <name>, <per-entry keys>}`, name one of `stamp_power`/`stamp_band`/`raw_band`/`raw_signal`/`phase_advance`/`evoked`/`signed_ab` (each an entry class in `MeSAE_modules.py`'s `ENTRY_TYPES` owning its validation, width and forward, so a new head feature is one class plus one registry line); every entry has its own spatial filter. Per-entry keys `spatial_k` (None/0 = no mixing), `time_pool` (`flat`/`learned`/`window`/`none`), `time_rank`, `window` (`[lo, hi]` s), `evoked_rank`, `stamp_rank` can also be set at the top level as the default for every entry; plus `dropout`. Defaults in `_HEAD_DEFAULTS`.
 - `preprocess_params`: `window_length`, `window_min_real` (pretrain windowing: each trial's real content is cut into its own `window_length` windows, never spliced with another trial; a leftover shorter than `window_min_real` × `window_length` is dropped, a longer one is zero-padded and the padding is skipped by masking and the recon loss; default 0.5, see `IO/preprocessing.py`'s `window_continuous_signal`), `patch_length`, `patch_stride` (patch step in samples within a Window; equal to `patch_length` for non-overlapping patches, smaller for overlapping — see `IO/preprocessing.py`'s `slice_patches`), `sample_freq`, `bandpass_filter` (`l_freq`/`h_freq`), `normalization_type`, `mask` (`IO/masking.py`, one `MaskingStrategy` class: `masking_strategy` = mixture (one MaskMode per window -- random_token, channel_cluster, random_channel, time_block -- on a shared ratio ramp) or `random` (one random_token mode at a fixed `mask_ratio`, the masking baseline); masks are redrawn every masked epoch; `time_run` masks whole runs of patches (3: the 50% patch overlap otherwise leaks a lone masked patch); `subsample` (`enabled`) removes channels down to a named `configs/montages.json` sub-montage for part of the dense-cap windows; every schedule counts masked-phase epochs and the strategy owns it, the training loop only calls `set_epoch`)
 - `dataset_params.pretrain`: dataset name → `dataset_path`, `subject_to_use` (`["all"]` or list), `channels_to_use` — used by `train_pretrain.py` (masking applied only in the masked phase)
 - `training_params.pretrain`: `model_name` (clean identity string, e.g. logged at startup — not a path), `output_path` (optional; where this run writes under `output/`, e.g. `mesae_v10_small/pretrain` — falls back to `model_name` when omitted, see "Outputs" below), `epochs` (total), `tokenizer_epochs` (unmasked phase length), `freeze_stamps`, `warmup_epochs`, `batch_size`, `device`, LR fields

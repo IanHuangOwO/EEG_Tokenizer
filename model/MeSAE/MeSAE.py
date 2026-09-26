@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from model.MeSAE.MeSAE_modules import (SpatialTemporalEmbeddings, TSAEncoder, StampBank, RelativeSpatialBias,
-                                         overlap_add_patches,
+                                         overlap_add_patches, fold_sum,
                                          spatial_mix, FlatTimePool, LearnedTimePool,
                                          EvokedBranch, phase_advance, StampExtractor, FeatureHead,
                                          resolve_head_config, make_head_checkpoint,
@@ -50,10 +50,10 @@ class MeSAEPretrain(nn.Module):
 
     Trains in two phases of one run (train_pretrain.py; docs/adr/0013, CONTEXT.md:
     Tokenizer stage / Masked stage):
-    - enter_tokenizer_phase(): only the pool_after_blocks blocks run, temporal mixing
-      only, no masking (bool_masked_pos=None) — encoder + StampBank train jointly on
-      single-channel features, so the stamp dictionary isn't built from
-      cross-channel-mixed input.
+    - enter_tokenizer_phase(): every block runs with temporal mixing only (spatial
+      attention and the coordinate embedding off), no masking (bool_masked_pos=None) —
+      encoder + StampBank train jointly on single-channel features, so the stamp dictionary
+      isn't built from cross-channel-mixed input.
     - enter_masked_phase(freeze_stamps): every block runs, spatial attention + coord
       embedding on, bool_masked_pos set. StampBank optionally frozen.
     The phase is a buffer, so any load_state_dict restores it (_restore_phase).
@@ -66,7 +66,7 @@ class MeSAEPretrain(nn.Module):
         patch_len=20,
         spatial_heads=10,
         dropout=0.0,
-        pool_after_blocks=(),
+        blocks_per_stage=2,
         num_channels=1,
         spatial_embedding=True,
         n_routed_stamps=796,
@@ -96,7 +96,7 @@ class MeSAEPretrain(nn.Module):
 
         self.embed   = SpatialTemporalEmbeddings(patch_len, embed_dim, spatial=spatial_embedding)
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
-                                   dropout=dropout, pool_after_blocks=pool_after_blocks,
+                                   dropout=dropout, blocks_per_stage=blocks_per_stage,
                                    n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
                                    ffn_top_k=ffn_top_k)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
@@ -168,7 +168,6 @@ class MeSAEPretrain(nn.Module):
 
     def enter_tokenizer_phase(self):
         self.masked_phase.fill_(False)
-        self.encoder.active_blocks = set(self.encoder.pool_after_blocks) or None
         self.enable_temporal()
 
     def enter_masked_phase(self, freeze_stamps=True):
@@ -178,7 +177,6 @@ class MeSAEPretrain(nn.Module):
         self.masked_phase.fill_(True)
         if freeze_stamps:
             self.freeze_stamps()
-        self.encoder.active_blocks = None
         self.enable_temporal()
         self.enable_spatial()
 
@@ -254,7 +252,9 @@ class MeSAEPretrain(nn.Module):
         z = self.embed(x, coords=coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos,
                        mask_token=self.mask_token)  # [B, C, N, D]
         bias = self.spatial_bias(coords) if self.spatial_bias is not None and coords is not None else None
-        return self.encoder(z, valid_channels, bias)  # [B, C, N, D], ffn_lb_loss
+        # a window's zero-padded tail patches (zero on every channel) are left out of temporal attention
+        valid_patches = x.abs().amax(dim=(1, 3)) > 0                                    # [B, N]
+        return self.encoder(z, valid_channels, bias, valid_patches)  # [B, C, N, D], ffn_lb_loss
 
     # -- Finetune-only entry points, NOT used by the Tokenizer/Pretrain forward() path
     # below.
@@ -444,24 +444,27 @@ class MeSAEPretrain(nn.Module):
             quant_off_frac=out.quant_off_frac,
         )
 
-    @staticmethod
-    def _position_weights(x, bool_masked_pos, valid_channels, unmasked_weight):
-        """-> (valid, w), each [B, C, N, 1]. valid: 1 on real channels AND real patches.
-        A patch that is exactly zero on every channel is time padding (a window's zero
-        tail, see IO/preprocessing.py's window_continuous_signal) -- z-scored real EEG is
-        never all-zero across a whole patch -- so it's excluded here without plumbing a
-        separate per-patch mask through the batch. w: the training weight -- valid, times
-        (1 on masked, unmasked_weight on visible) in the masked phase. Shared by the recon
-        MSE and mp_loss so both weight positions the same."""
-        B, C, N = x.shape[:3]
+    def _position_weights(self, x, bool_masked_pos, valid_channels, unmasked_weight):
+        """-> (valid [B, C, N, 1], w [B, C, N, L], hidden [B, C, N, L] or None). valid: 1 on real
+        channels AND real patches. A patch that is exactly zero on every channel is time padding
+        (a window's zero tail, see IO/preprocessing.py's window_continuous_signal) -- z-scored
+        real EEG is never all-zero across a whole patch. hidden: a SAMPLE counts as masked only
+        if every patch covering it is masked -- with 50% patch overlap, the outer half of a run's
+        first/last masked patch is also inside a visible neighbour, so it is visible content,
+        not a reconstruction target. w: valid, times (1 on hidden samples, unmasked_weight on
+        visible ones) in the masked phase. Shared by the recon MSE and mp_loss."""
+        B, C, N, L = x.shape
         valid = x.new_ones(B, C, 1, 1) if valid_channels is None \
             else valid_channels.view(B, C, 1, 1).to(x.dtype)
         real_patch = (x.abs().amax(dim=(1, 3)) > 0).to(x.dtype).view(B, 1, N, 1)
         valid = valid * real_patch
         if bool_masked_pos is None:
-            return valid, valid
-        m = bool_masked_pos.unsqueeze(-1).to(x.dtype)
-        return valid, valid * (m + unmasked_weight * (1.0 - m))
+            return valid, valid.expand(B, C, N, L), None
+        stride = self.patch_stride
+        m = bool_masked_pos.to(x.dtype).unsqueeze(-1).expand(B, C, N, L)
+        n_cover = fold_sum(torch.ones(N, L, device=x.device, dtype=x.dtype), stride)       # [T]
+        hidden = (fold_sum(m, stride) > n_cover - 0.5).to(x.dtype).unfold(-1, L, stride)  # [B, C, N, L]
+        return valid, valid * (hidden + unmasked_weight * (1.0 - hidden)), hidden
 
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None,
                     mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0):
@@ -485,7 +488,7 @@ class MeSAEPretrain(nn.Module):
         B, C, N, L = x.shape
         stride = self.patch_stride
         recon, x = recon.float(), x.float()
-        valid, w = self._position_weights(x, bool_masked_pos, valid_channels, unmasked_weight)
+        valid, w, hidden = self._position_weights(x, bool_masked_pos, valid_channels, unmasked_weight)
 
         def wmean(err, wt):
             wt = wt.expand_as(err)
@@ -504,9 +507,8 @@ class MeSAEPretrain(nn.Module):
             plain_trial = wmean(trial_err, to_trial(valid))
             l_masked, l_unmasked = 1.0, plain_patch
             if bool_masked_pos is not None:
-                m = bool_masked_pos.unsqueeze(-1).float()
-                l_masked = wmean(patch_err, valid * m)
-                l_unmasked = wmean(patch_err, valid * (1.0 - m))
+                l_masked = wmean(patch_err, valid * hidden)
+                l_unmasked = wmean(patch_err, valid * (1.0 - hidden))
         # Named so the log/dashboard keys read mse_patch/mse_trial (train_pretrain.py
         # reads _last_pyramid_levels; plugin.py matches the 'mse_' prefix).
         self._last_pyramid_levels = {'patch': plain_patch.item(), 'trial': plain_trial.item()}
@@ -569,8 +571,8 @@ class MeSAEPretrain(nn.Module):
             if mp_map is not None:
                 # Same position weights as the recon MSE: without this, mp_loss counts
                 # visible patches at full weight and undoes unmasked_weight.
-                _, w = self._position_weights(x, bool_masked_pos, valid_channels, unmasked_weight)
-                w = w[..., 0].to(mp_map.dtype)
+                _, w, _ = self._position_weights(x, bool_masked_pos, valid_channels, unmasked_weight)
+                w = w.mean(-1).to(mp_map.dtype)                                          # per patch
                 s = w.sum()
                 mp_train = (w * mp_map).sum() / s if s > 0 else mp_map.new_zeros(())
             else:

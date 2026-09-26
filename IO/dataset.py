@@ -3,7 +3,7 @@ import json
 import zlib
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 from typing import List, Dict, Optional, Tuple, Callable, Any
 
 from .loader import load_coords_from_metadata
@@ -450,6 +450,34 @@ class PretrainDataset(Dataset):
             valid_channels = valid_channels & keep
 
         return x_patches, coords, mask, time_indices, y, valid_channels
+
+
+class MontageBatchSampler(Sampler):
+    """Batches of one montage (real-channel set) each, so a batch can drop the canonical
+    channels none of its windows has (train_pretrain.py's _unpack_batch): most datasets fill
+    only part of the 64-channel montage (Dreyer2023 27), and padded channels cost as much
+    compute as real ones. Windows are shuffled within each montage, cut into batches, and
+    the batch order is shuffled (shuffle=False: montages in order, windows in order)."""
+    def __init__(self, dataset: PretrainDataset, batch_size: int, shuffle: bool):
+        bd = dataset.base_dataset
+        groups: Dict[tuple, List[int]] = {}
+        for i in range(len(bd)):
+            key = tuple(bd.all_valid_channels[bd.trial_to_coords_idx[i]].nonzero().flatten().tolist())
+            groups.setdefault(key, []).append(i)
+        self.groups, self.batch_size, self.shuffle = list(groups.values()), batch_size, shuffle
+
+    def _batches(self):
+        out = []
+        for g in self.groups:
+            g = [g[j] for j in torch.randperm(len(g)).tolist()] if self.shuffle else g
+            out += [g[k:k + self.batch_size] for k in range(0, len(g), self.batch_size)]
+        return [out[j] for j in torch.randperm(len(out)).tolist()] if self.shuffle else out
+
+    def __iter__(self):
+        return iter(self._batches())
+
+    def __len__(self):
+        return sum(-(-len(g) // self.batch_size) for g in self.groups)
 
 
 class FinetuneDataset(Dataset):

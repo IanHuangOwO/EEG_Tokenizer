@@ -36,7 +36,7 @@ def build_model(bp, num_channels):
         patch_len=bp.get('patch_len', 20),
         spatial_heads=bp.get('spatial_heads', 8),
         dropout=bp.get('dropout', 0.0),
-        pool_after_blocks=bp.get('pool_after_blocks', []),
+        blocks_per_stage=bp.get('blocks_per_stage', 2),
         num_channels=num_channels,
         spatial_embedding=bp.get('spatial_embedding', True),
         n_routed_stamps=sb.get('n_routed_stamps', 60),

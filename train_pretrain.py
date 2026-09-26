@@ -14,7 +14,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from IO.dataset import build_dataset_from_config
+from IO.dataset import MontageBatchSampler, build_dataset_from_config
 from IO.masking import build_masking_strategy_from_config
 from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, optimizer_param_groups, MODEL_REGISTRY
@@ -51,6 +51,11 @@ def _unpack_batch(batch, device):
     # (C, N, L) layout in IO/dataset.py; any consumer reshaping (N, C) instead silently
     # misaligns masked/unmasked patches with no shape error.
     bool_masked_pos = mask.view(B, C, N).to(device)  # [B, C*N] -> [B, C, N]
+    # Batches hold one montage (MontageBatchSampler): drop the canonical channels no window
+    # in the batch has -- the model is channel-count agnostic, and they are pure padding.
+    keep = valid_channels.any(0)
+    if not keep.all():
+        x, coords, bool_masked_pos, valid_channels = x[:, keep], coords[:, keep], bool_masked_pos[:, keep], valid_channels[:, keep]
     return x, coords, time_idx, bool_masked_pos, valid_channels
 
 
@@ -292,8 +297,8 @@ def main():
     logger.info(f"Recon viz targets (dataset, trial_idx, subject): {viz_targets} every_n_epochs={viz_every_n}")
 
     def _make_loader(dataset, shuffle):
-        return DataLoader(dataset, batch_size=train_params['batch_size'], shuffle=shuffle,
-                           num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True)
+        return DataLoader(dataset, batch_sampler=MontageBatchSampler(dataset, train_params['batch_size'], shuffle),
+                          num_workers=8, pin_memory=True, prefetch_factor=8, persistent_workers=True)
 
     train_loader = _make_loader(train_dataset, shuffle=True)
     val_loader   = _make_loader(val_dataset,   shuffle=False)
@@ -311,8 +316,8 @@ def main():
     total_epochs     = train_params['epochs']
     model.enter_tokenizer_phase()
     model.to(device)
-    logger.info(f"  [Tokenizer phase] epochs 1-{tokenizer_epochs}: blocks {sorted(model.encoder.pool_after_blocks)} "
-                f"only, temporal only, unmasked. Masked phase from epoch {tokenizer_epochs + 1}, "
+    logger.info(f"  [Tokenizer phase] epochs 1-{tokenizer_epochs}: every block, temporal only, unmasked; "
+                f"pool after blocks {model.encoder.pool_after}. Masked phase from epoch {tokenizer_epochs + 1}, "
                 f"freeze_stamps={freeze_stamps}")
 
     logger.info("Warming up with dummy pass...")
