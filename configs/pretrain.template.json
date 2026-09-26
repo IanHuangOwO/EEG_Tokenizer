@@ -864,7 +864,7 @@
     "normalization_type": "zscore",
     "mask": {
       "_comment": "IO/masking.py. masking_strategy picks one of the blocks below (random | complementary | random_to_complementary | mixture); time_run applies to the token strategies. subsample is independent of the strategy and only runs with enabled: true. All schedules count masked-phase epochs (1 = first epoch after tokenizer_epochs).",
-      "masking_strategy": "random_to_complementary",
+      "masking_strategy": "mixture",
       "time_run": 3,
       "random": {
         "mask_ratio": 0.3
@@ -881,7 +881,7 @@
           {
             "type": "channel_cluster",
             "prob": 0.35,
-            "max_ratio": 0.4,
+            "max_ratio": 0.2,
             "radius_cm": [
               3.0,
               7.0
@@ -890,8 +890,8 @@
           {
             "type": "random_channel",
             "prob": 0.35,
-            "max_ratio": 0.5,
-            "complementary": true
+            "max_ratio": 0.3,
+            "complementary": false
           },
           {
             "type": "time_block",
@@ -905,7 +905,7 @@
         ]
       },
       "subsample": {
-        "enabled": false,
+        "enabled": true,
         "montages": [
           "motor-3",
           "p300-8",
@@ -945,9 +945,9 @@
           "top_k": 2
         },
         "stamp_bank": {
-          "n_routed_stamps": 60,
-          "n_shared_stamps": 4,
-          "stamp_top_k": 12,
+          "n_routed_stamps": 0,
+          "n_shared_stamps": 16,
+          "stamp_top_k": 0,
           "stamp_hidden_width": 6,
           "stamp_shared_hidden_width": 8,
           "dead_threshold_frac": 0.1,
@@ -960,10 +960,12 @@
           "mse_trial_weight": 1.0,
           "unmasked_weight": 0.1,
           "ffn_lb_weight": 0.01,
-          "aux_weight": 0.01,
+          "aux_weight": 0.0,
           "mp_weight": 1.0
         },
-        "mask_padded_channels": true
+        "mask_padded_channels": true,
+        "coord_encoding": "fourier",
+        "spatial_bias": true
       }
     }
   },
