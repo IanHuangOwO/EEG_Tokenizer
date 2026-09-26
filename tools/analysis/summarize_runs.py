@@ -89,6 +89,37 @@ def render(table, metric='tail', ref=None, rank=0):
     return '\n'.join(out)
 
 
+def subject_rows(groups, head):
+    """Every subject score of every group's runs under output/<backbone>/finetune/<head>/<cell>, all four
+    metrics (each a subject's mean over folds) -> a list of dicts, one per group x cell x subject."""
+    rows = []
+    for g, bb in groups.items():
+        for d in sorted(glob.glob(f'output/{bb}/finetune/{head}/*')):
+            per = {m: load(d, m) for m in ('tail', 'last', 'kappa_tail', 'kappa_last')}
+            if not per['tail']:
+                continue
+            for s in sorted(per['tail'], key=lambda x: (len(x), x)):
+                rows.append({'group': g, 'backbone': bb, 'head': head, 'cell': os.path.basename(d), 'subject': s,
+                             **{m: (v or {}).get(s) for m, v in per.items()}})
+    return rows
+
+
+def mean_rows(subject_rows_):
+    """subject_rows -> one row per group x cell: mean and sd over subjects of each metric, n subjects."""
+    out = {}
+    for r in subject_rows_:
+        out.setdefault((r['group'], r['backbone'], r['head'], r['cell']), []).append(r)
+    rows = []
+    for (g, bb, head, cell), rs in out.items():
+        row = {'group': g, 'backbone': bb, 'head': head, 'cell': cell, 'n_subjects': len(rs)}
+        for m in ('tail', 'last', 'kappa_tail', 'kappa_last'):
+            v = [r[m] for r in rs if r[m] is not None]
+            row[f'{m}_mean'] = float(np.mean(v)) if v else None
+            row[f'{m}_sd'] = float(np.std(v, ddof=1)) if len(v) > 1 else None
+        rows.append(row)
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('patterns', nargs='+', help='glob(s) of run dirs')

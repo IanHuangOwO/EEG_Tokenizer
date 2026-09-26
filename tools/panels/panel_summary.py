@@ -1,9 +1,11 @@
 """summary: one table of every finetune run of every group's backbone under --head (all cells, tail
-balanced accuracy), paired tests of each group against --ref -> summary.md. With --metric kappa_tail
+balanced accuracy), paired tests of each group against --ref -> summary.md, plus summary.csv (per group x cell:
+mean / sd of tail, last, kappa_tail, kappa_last) and summary_subjects.csv (every subject score). With --metric kappa_tail
 etc. for another score, --rank N for the top N rows per column instead."""
 import os
 
-from tools.analysis.summarize_runs import collect, render
+from tools.analysis import write_csv
+from tools.analysis.summarize_runs import collect, mean_rows, render, subject_rows
 
 STAGES = frozenset({'finetune'})
 
@@ -19,3 +21,6 @@ def run(ctx):
     with open(out, 'w') as f:
         f.write(text + '\n')
     print(f"  -> {out}")
+    subj = subject_rows(ctx.groups, ctx.head)
+    for name, rows in (('summary.csv', mean_rows(subj)), ('summary_subjects.csv', subj)):
+        print(f"  -> {write_csv(os.path.join(ctx.out_dir, name), rows)}")

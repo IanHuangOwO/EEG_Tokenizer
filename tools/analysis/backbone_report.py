@@ -52,9 +52,10 @@ def backbone_eval(bb):
     return json.load(open(p)) if os.path.exists(p) else None
 
 
-def report(allg, ref_name, head='frozen_learned'):
+def report(allg, ref_name, head='frozen_learned', tables=None):
     """allg: {group name: backbone}, ref_name one of them; head: the finetune label compared
-    (output/<backbone>/finetune/<head>/<cell>). -> the report as markdown text."""
+    (output/<backbone>/finetune/<head>/<cell>). -> the report as markdown text. A `tables` dict gets the
+    numbers as CSV-ready row lists: report_tests (paired differences) and report_verdicts."""
     groups = {g: bb for g, bb in allg.items() if g != ref_name}
     out = []
     w = out.append
@@ -77,6 +78,10 @@ def report(allg, ref_name, head='frozen_learned'):
     tests = [t for t in tests if t[2]]
     adj = holm([t[2][2] for t in tests])
     delta = {(g, c): r[0] for (g, c, r) in tests}
+    if tables is not None:
+        tables['report_tests'] = [{'group': g, 'ref': ref_name, 'head': head, 'cell': c, 'diff': m, 'ci_lo': m - ci,
+                                   'ci_hi': m + ci, 'p': p, 'p_holm': pa, 'n': n}
+                                  for (g, c, (m, ci, p, n)), pa in zip(tests, adj)]
     w(f'\nDifference vs {ref_name} (points, paired over subjects; p Holm-corrected over {len(tests)} tests):\n')
     w('| group | cell | diff | 95% CI | p | p (Holm) | n |')
     w('|---|---|---|---|---|---|---|')
@@ -159,6 +164,11 @@ def report(allg, ref_name, head='frozen_learned'):
     if missing:
         w(f'\nMissing runs ({len(missing)}): ' + ', '.join(missing))
 
+    if tables is not None:
+        sec = out[out.index('\n## 3. Hypotheses (fixed before the results)\n') + 3:]
+        tables['report_verdicts'] = [dict(zip(('group', 'hypothesis', 'evidence', 'verdict'),
+                                              (x.strip() for x in line.strip('|').split(' | '))))
+                                     for line in sec if line.startswith('| ') and not line.startswith('| group |')]
     return '\n'.join(out) + '\n'
 
 
@@ -207,3 +217,28 @@ def backbone_tables(groups):
                   + ' '.join(f'{r:+.2f}/{m:.2f}' for r, m in zip(rho, mag)))
 
 
+
+
+def backbone_eval_rows(allg):
+    """Each group's backbone_eval.json as CSV-ready rows: (test-mask MSEs: group, test_mask, windows,
+    predictor, mse; ablations: group, test_mask, ablation, mse, change vs intact; structure: group, key,
+    value, with the spatial bias one row per block)."""
+    masks, abl, struct = [], [], []
+    for g, bb in allg.items():
+        e = backbone_eval(bb)
+        if not e:
+            continue
+        for k, v in e['test_masks'].items():
+            kind, win, pred = k.split('|')
+            masks.append({'group': g, 'backbone': bb, 'test_mask': kind, 'windows': win, 'predictor': pred, 'mse': v})
+        for kind, d in e.get('ablation_by_mask', {'all': e['ablation_masked_mse']}).items():
+            for a, v in d.items():
+                abl.append({'group': g, 'backbone': bb, 'test_mask': kind, 'ablation': a, 'mse': v,
+                            'change': v / d['baseline'] - 1})
+        for k, v in e['structure'].items():
+            if isinstance(v, list):
+                struct += [{'group': g, 'backbone': bb, 'key': f'{k}[{i}].{kk}', 'value': vv}
+                           for i, d in enumerate(v) for kk, vv in d.items()]
+            else:
+                struct.append({'group': g, 'backbone': bb, 'key': k, 'value': v})
+    return masks, abl, struct

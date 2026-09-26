@@ -297,3 +297,14 @@ def cap_subjects(config: dict, ds_args: dict, max_trials: int, rng, min_subjects
         if total >= max_trials and len(picked) >= min_subjects:
             break
     return picked
+
+
+def write_csv(path: str, rows: list) -> str:
+    """rows: a list of dicts (columns = keys in first-seen order) -> path, written as CSV."""
+    import csv
+    cols = list(dict.fromkeys(k for r in rows for k in r))
+    with open(path, 'w', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        w.writerows(rows)
+    return path
