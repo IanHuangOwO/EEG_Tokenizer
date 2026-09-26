@@ -1467,9 +1467,9 @@ def _selfcheck_head_modules():
 
 BANDS = ((8.0, 13.0), (13.0, 30.0))   # mu, beta
 # Per-entry keys: set at the top level as the default for every entry, or inside one entry.
-_ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'stamp_rank')
+_ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'stamp_rank', 'latent_proj')
 _HEAD_DEFAULTS = dict(features=[{'type': 'stamp_power'}], spatial_k=8, time_pool='learned', time_rank=2,
-                      window=None, evoked_rank=0, stamp_rank=4, dropout=0.5)
+                      window=None, evoked_rank=0, stamp_rank=4, latent_proj='learned', dropout=0.5)
 
 
 def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint):
@@ -1825,6 +1825,17 @@ class SignedABEntry(_Entry):
         return torch.cat([torch.einsum('rn,bnkm->bkmr', self.q, self.stamp(t)) for t in (a, b)], dim=1).flatten(1)
 
 
+def _latent_proj(e, m):
+    """z's D -> m projection. latent_proj 'learned': trained with the head. 'pca': frozen here, set
+    by train_finetune.py's run_one to the top-m principal axes of the run's TRAINING-trial z
+    (no trained parameters, like the stamp head's fixed templates)."""
+    if e['latent_proj'] not in ('learned', 'pca'):
+        raise ValueError(f"latent_proj must be learned|pca, got {e['latent_proj']!r}")
+    proj = nn.Linear(e['latent_dim'], m, bias=False)
+    proj.weight.requires_grad_(e['latent_proj'] == 'learned')
+    return proj
+
+
 class LatentPowerEntry(_Entry):
     """The stamp_power pipeline on the encoder output z instead of the stamp codes: a learned
     projection shared over channels and time (D -> num_stamps, so the width equals stamp_power's),
@@ -1833,7 +1844,7 @@ class LatentPowerEntry(_Entry):
 
     def __init__(self, e):
         super().__init__(e)
-        self.proj = nn.Linear(e['latent_dim'], e['num_stamps'], bias=False)
+        self.proj = _latent_proj(e, e['num_stamps'])
         self.time = _time_pool(e, e['num_stamps'])
 
     @staticmethod
@@ -1853,7 +1864,7 @@ class LatentSignedEntry(_Entry):
     def __init__(self, e):
         super().__init__(e)
         M, R, N = 2 * int(e['stamp_rank']), int(e['time_rank']), e['num_patches']
-        self.proj = nn.Linear(e['latent_dim'], M, bias=False)
+        self.proj = _latent_proj(e, M)
         self.q = nn.Parameter(torch.full((R, N), 1.0 / N) + torch.randn(R, N) * 0.02)
 
     check = SignedABEntry.check

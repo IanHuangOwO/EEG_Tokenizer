@@ -403,12 +403,29 @@ def build_head_factory(config, source, num_classes):
     return cfg, new_head
 
 
+@torch.no_grad()
+def _pca_axes(z, train_idx, m, chunk=256):
+    """Top-m principal axes [m, D] of z [T, N', C, D] over the given trials (every patch and channel a row)."""
+    idx = torch.as_tensor(train_idx, device=z.device)
+    D = z.shape[-1]
+    s, ss, n = z.new_zeros(D, dtype=torch.float64), z.new_zeros(D, D, dtype=torch.float64), 0
+    for i in range(0, len(idx), chunk):
+        x = z[idx[i:i + chunk]].reshape(-1, D).double()
+        s += x.sum(0); ss += x.T @ x; n += len(x)
+    mean = s / n
+    cov = ss / n - torch.outer(mean, mean)
+    return torch.linalg.eigh(cov)[1][:, -m:].flip(1).T.float()
+
+
 def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, device):
     """Train one head on run['train'], evaluate on the union of run['eval'] every epoch."""
     tp = config['training_params']['finetune']
     E, bs, seed, warm = tp['epochs'], tp['batch_size'], tp.get('seed', 42), tp['warmup_epochs']
     torch.manual_seed(seed)
     head = new_head().to(device)
+    for mod in head.entries.values():            # latent_proj 'pca': fixed projection fit on this run's training trials
+        if getattr(mod, 'e', {}).get('latent_proj') == 'pca':
+            mod.proj.weight.data.copy_(_pca_axes(source.z, run['train'], mod.proj.out_features))
     opt = optim.AdamW(head.parameters(), lr=tp['learning_rate'], weight_decay=tp['weight_decay'])
     sched = optim.lr_scheduler.SequentialLR(
         opt, schedulers=[optim.lr_scheduler.LinearLR(opt, start_factor=0.01, total_iters=warm),
