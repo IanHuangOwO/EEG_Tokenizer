@@ -71,6 +71,10 @@ class MaskMode(ABC):
     """One masking pattern: generate(valid [C, N] bool, coords [C, 3], ratio) -> [C, N],
     never True outside valid. ratio is this mode's own fraction (of channels or of time)."""
     complementary = False   # True: after the ramp the window is also shown with valid ^ mask
+    channel_mode = False    # True: hides whole channels -- skipped on an already-subsampled
+                             # window (ChannelSubsampler already did the channel cut there;
+                             # stacking another channel-removal mode on top of e.g. motor-3's
+                             # 3 real channels can leave 1-2 visible)
 
     @abstractmethod
     def generate(self, valid: torch.Tensor, coords: Optional[torch.Tensor], ratio: float) -> torch.Tensor:
@@ -84,6 +88,8 @@ class MaskMode(ABC):
 
 class RandomChannelMask(MaskMode):
     """Whole channels, chosen at random, hidden for the whole window."""
+    channel_mode = True
+
     def __init__(self, complementary: bool = True):
         self.complementary = complementary
 
@@ -99,6 +105,8 @@ class ChannelClusterMask(MaskMode):
     valid channel within a random radius (radius_cm; coords are in metres), repeated until
     the target channel count is reached. A radius rather than k-nearest keeps the physical
     size of the hole the same on a 19- and a 128-channel cap."""
+    channel_mode = True
+
     def __init__(self, radius_cm=(3.0, 7.0)):
         self.radius = (radius_cm[0] / 100.0, radius_cm[1] / 100.0)
 
@@ -207,10 +215,23 @@ class MaskingStrategy:
         own = self._epoch if self.resample else (tuple(self.ratios()), self.multiplier)
         return own, (self.subsampler.state() if self.subsampler is not None else None)
 
-    def generate(self, num_channels, num_patches, valid=None, coords=None):
+    def generate(self, num_channels, num_patches, valid=None, coords=None, subsampled=False):
+        """subsampled: True when ChannelSubsampler already cut this window's channels -- a
+        channel_mode mode stacked on top of that can leave almost nothing visible (e.g.
+        motor-3's 3 real channels, halved again), so those modes are excluded here and the
+        draw falls back to the remaining (non-channel) modes, renormalized."""
         valid = _valid(num_channels, num_patches, valid).view(num_channels, num_patches)
-        i = int(torch.multinomial(self.probs, 1))
-        mode, ratio = self.modes[i], self.ratios()[i]
+        probs, ratios, modes = self.probs, self.ratios(), self.modes
+        if subsampled and any(m.channel_mode for m in modes):
+            keep = torch.tensor([not m.channel_mode for m in modes])
+            if keep.any():
+                probs = probs[keep]
+                modes = [m for m, k in zip(modes, keep.tolist()) if k]
+                ratios = [r for r, k in zip(ratios, keep.tolist()) if k]
+            else:
+                return torch.zeros(self.multiplier, num_channels * num_patches, dtype=torch.bool)
+        i = int(torch.multinomial(probs, 1))
+        mode, ratio = modes[i], ratios[i]
         masks = [mode.generate(valid, coords, ratio)]
         if self.multiplier == 2:
             masks.append((valid ^ masks[0]) if mode.complementary else mode.generate(valid, coords, ratio))

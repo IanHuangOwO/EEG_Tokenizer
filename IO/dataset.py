@@ -433,7 +433,8 @@ class PretrainDataset(Dataset):
                     valid = valid & keep.repeat_interleave(self.num_patches)
             self._keep.append(keep)
             coords = bd.all_coords[bd.trial_to_coords_idx[i]]
-            self._masks.append(masking_strategy.generate(bd.Nc, self.num_patches, valid, coords))
+            self._masks.append(masking_strategy.generate(bd.Nc, self.num_patches, valid, coords,
+                                                          subsampled=keep is not None))
 
     def __len__(self):
         return len(self.base_dataset) * self.masking_strategy.multiplier
