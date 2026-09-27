@@ -16,9 +16,9 @@ PANELS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 PRESETS = {
     'pretrain': {
-        'standard': ['backbone_eval', 'stamp_templates', 'stamp_duplicates', 'stamp_distribution',
-                     'snapshot', 'codebook'],
-        'quick': ['backbone_eval', 'stamp_templates', 'stamp_duplicates'],
+        'standard': ['backbone_eval', 'attention_range', 'stamp_templates', 'stamp_duplicates',
+                     'stamp_distribution', 'snapshot', 'codebook'],
+        'quick': ['backbone_eval', 'attention_range', 'stamp_templates', 'stamp_duplicates'],
     },
     'finetune': {
         'standard': ['summary', 'report', 'time_weights'],
