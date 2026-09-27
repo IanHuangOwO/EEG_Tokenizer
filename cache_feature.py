@@ -65,8 +65,8 @@ def cache_key(config, dataset_name, keep, checkpoint_path, latent=False, build_c
         build=build_config,
         code=_code_hash(),
     )
-    if latent:   # the encoder output z is stored too (latent_* head entries); a separate folder
-        parts['latent'] = True
+    if latent:   # z is stored too (latent_* head entries); a separate folder per z source
+        parts['latent'] = True if latent in (True, 'output') else latent
     return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 

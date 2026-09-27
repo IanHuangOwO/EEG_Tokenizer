@@ -576,6 +576,18 @@ class TSAEncoder(nn.Module):
         f = (u - i0.to(u.dtype)).view(1, 1, n, 1)
         return x[:, :, i0] * (1 - f) + x[:, :, i1] * f
 
+    def upsample_bottleneck(self, n):
+        """last_bottleneck (the deepest stage's output) back to n patches through the same linear
+        upsamples, no skips, no decoder: a fixed full-rank linear map, so a linear probe on it
+        sees exactly the bottleneck."""
+        sizes = [n]
+        for _ in self.pool_after:
+            sizes.append((sizes[-1] + 1) // 2)
+        x = self.last_bottleneck
+        for m in reversed(sizes[:-1]):
+            x = self._upsample(x, m)
+        return x
+
     @staticmethod
     def _pool_valid(v):
         """[B, N] bool -> [B, ceil(N/2)]: a coarse token is real if either of its two patches is."""
@@ -619,6 +631,7 @@ class TSAEncoder(nn.Module):
                     pos = (pos[0::2] + pos[1::2]) / 2
                     tb = self.temporal_bias(pos[:, None] - pos[None, :])
 
+        self.last_bottleneck = x                                                        # [B, C, N_deep, D]
         vps = [valid_patches]                  # valid patches per level, finest first
         for _ in skips[1:]:
             vps.append(None if vps[-1] is None else self._pool_valid(vps[-1]))
@@ -1582,7 +1595,8 @@ BANDS = ((8.0, 13.0), (13.0, 30.0))   # mu, beta
 # Per-entry keys: set at the top level as the default for every entry, or inside one entry.
 _ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'stamp_rank', 'latent_proj')
 _HEAD_DEFAULTS = dict(features=[{'type': 'stamp_power'}], spatial_k=8, time_pool='learned', time_rank=2,
-                      window=None, evoked_rank=0, stamp_rank=4, latent_proj='learned', dropout=0.5)
+                      window=None, evoked_rank=0, stamp_rank=4, latent_proj='learned', dropout=0.5,
+                      latent_source='output')
 
 
 def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint):
@@ -1691,6 +1705,8 @@ class StampExtractor(nn.Module):
 
     @torch.no_grad()
     def forward(self, x, coords, time_idx=None, valid_channels=None, impute_missing=False, return_z=False):
+        """return_z: False, True / 'output' (the encoder output the stamps read) or 'bottleneck' (the
+        deepest stage, linearly upsampled back to the patch grid)."""
         """impute_missing (experiment, 2026-09-25): feed every missing channel as the pretrain
         mask_token at its own coordinate (coords must hold real positions for them), so spatial
         attention fills it in, and scale its stamp code by the mean patch RMS of its 3 nearest
@@ -1717,7 +1733,9 @@ class StampExtractor(nn.Module):
         amp = self.backbone.stamps.dense_amp(zg, rms=rg)
         amp = amp[:, :, self.keep].reshape(B, N, C, -1, 2).float() * vmask.float()[:, None, :, None, None]
         amp = amp[:, :, self.channel_idx]                                                 # [B, N, Cv, S, 2]
-        if return_z:   # the encoder output itself, for the latent_* head entries: [B, N, Cv, D]
+        if return_z:   # z for the latent_* head entries: [B, N, Cv, D]
+            if return_z == 'bottleneck':
+                z = self.backbone.encoder.upsample_bottleneck(N)
             return amp, z.permute(0, 2, 1, 3)[:, :, self.channel_idx].float()
         return amp
 

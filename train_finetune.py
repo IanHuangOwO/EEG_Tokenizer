@@ -296,6 +296,10 @@ class CombinedSource:
 def make_source(config, ds_name, pool, device):
     ft_cfg = dict(config['model_params']['MeSAE']['finetune'])
     want_stamp, want_raw, latent = needs_stamp(ft_cfg), needs_raw(ft_cfg), needs_latent(ft_cfg)
+    if latent:   # latent_source: which z the latent_* entries read ('output' = what the stamps read)
+        latent = ft_cfg.get('latent_source', 'output')
+        if latent not in ('output', 'bottleneck'):
+            raise ValueError(f"latent_source must be output|bottleneck, got {latent!r}")
     if want_stamp and want_raw:
         return CombinedSource(StampSource(config, ds_name, pool, device, latent), RawSource(config, ds_name, pool))
     if want_stamp:
