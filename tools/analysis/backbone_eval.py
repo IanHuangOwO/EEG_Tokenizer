@@ -20,6 +20,10 @@ schemes are compared on one task.
    channels); pos_emb drift from its sinusoidal init; with a RelativeSpatialBias, per block
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
    neighbours) and its mean |value|.
+4. Masked spectrum, per test mask: log-spectral distance on the masked samples (the STFT loss's
+   measure, MeSAE._stft_loss) and, per band, predicted / true power on them (1 = right power;
+   << 1 = the prediction shrinks toward 0, what a time-domain MSE target does to an
+   unpredictable-phase rhythm).
 
 Panel: `python analysis_pretrain.py --run <backbone> --panel backbone_eval` writes
 output/<backbone>/pretrain/analysis/backbone_eval.json, which the finetune-side backbone report reads.
@@ -47,6 +51,29 @@ def val_config(config):
     cfg['dataset_params']['pretrain'] = {k: dict(v, subject_to_use=split[k][1])
                                          for k, v in config['dataset_params']['pretrain'].items() if split[k][1]}
     return cfg
+
+
+SPEC_BANDS = {'delta': (0.5, 4), 'theta': (4, 8), 'alpha': (8, 13), 'beta': (13, 30), 'gamma': (30, 45)}
+
+
+def masked_spectrum(model, recon, x, score, stride, fs, n_fft=128):
+    """recon / x [B, C, N, L], score [B, C, N] bool (scored = masked real tokens) -> (lsd * weight,
+    weight, {band: predicted power}, {band: true power}) summed over the batch, on the overlap-added
+    trial with frames weighted by their share of scored samples."""
+    rec_t, x_t = overlap_add_patches(recon.float(), stride), overlap_add_patches(x, stride)
+    w_t = overlap_add_patches(score[..., None].expand_as(x).float(), stride)          # [B, C, T]
+    weight = float(w_t.sum())
+    lsd = float(model._stft_loss(rec_t, x_t, w_t, (32, 64, 128))) * weight
+    B, C, T = x_t.shape
+    win, hop = torch.hann_window(n_fft), n_fft // 4
+    spec = lambda s: torch.stft(s.reshape(B * C, T), n_fft=n_fft, hop_length=hop, window=win,
+                                center=False, return_complex=True).abs().pow(2)     # [BC, F, M]
+    fw = w_t.reshape(B * C, T).unfold(-1, n_fft, hop).mean(-1)[:, None, :]           # [BC, 1, M]
+    Pr, Px = (spec(s) * fw for s in (rec_t, x_t))
+    f = torch.fft.rfftfreq(n_fft, 1 / fs)
+    band = lambda P, lo, hi: float(P[:, (f >= lo) & (f < hi)].sum())
+    return (lsd, weight, {k: band(Pr, *r) for k, r in SPEC_BANDS.items()},
+            {k: band(Px, *r) for k, r in SPEC_BANDS.items()})
 
 
 def eval_windows(config, max_windows):
@@ -157,6 +184,8 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
         a[0] += float(err[sel].sum()); a[1] += int(sel.sum())
 
     abl = {k: {a: [0.0, 0] for a in ABLATIONS} for k in KINDS}
+    spec = {k: [0.0, 0.0, dict.fromkeys(SPEC_BANDS, 0.0), dict.fromkeys(SPEC_BANDS, 0.0)] for k in KINDS}
+    fs = float(config['preprocess_params']['sample_freq'])
     for wids, x, coords, t, valid in batches(ds, idx):
         B, C, N, L = x.shape
         valid_tok = torch.stack([ds._valid_masks[w].view(C, N) for w in wids])
@@ -171,6 +200,10 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
                 continue
             out = model(x, coords, t, bool_masked_pos=mp, valid_channels=valid)
             err_model = (out.recon.float() - x).pow(2).mean(-1)          # [B, C, N]
+            lsd, wsum, pr, px = masked_spectrum(model, out.recon, x, sc, stride, fs)
+            sp = spec[kind]; sp[0] += lsd; sp[1] += wsum
+            for bnd in SPEC_BANDS:
+                sp[2][bnd] += pr[bnd]; sp[3][bnd] += px[bnd]
             for b in range(B):
                 if not sc[b].any():
                     continue
@@ -216,6 +249,9 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
            'test_masks': {f'{k}|{g}|{p}': v[0] / max(v[1], 1) for (k, g, p), v in acc.items()},
            'ablation_masked_mse': {a: v[0] / max(v[1], 1) for a, v in abl['token_runs'].items()},
            'ablation_by_mask': {k: {a: v[0] / max(v[1], 1) for a, v in d.items()} for k, d in abl.items()},
+           'masked_spectrum': {k: {'lsd': sp[0] / sp[1], 'power_ratio': {b: sp[2][b] / max(sp[3][b], 1e-12)
+                                                                     for b in SPEC_BANDS}}
+                               for k, sp in spec.items() if sp[1] > 0},
            'structure': struct}
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     json.dump(res, open(out_path, 'w'), indent=2)
@@ -232,6 +268,9 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
     for k, d in res['ablation_by_mask'].items():
         if d['baseline'] > 0:                           # 0 when no held-out window scored this mask kind
             print(f'  {"":28} {k:17} ' + ' '.join(f'{d[a] / d["baseline"] - 1:>+15.0%}' for a in ABLATIONS[1:]))
+    print(f'  masked spectrum: {"mask":17} {"lsd":>6}  predicted/true power ' + ' '.join(f'{b:>6}' for b in SPEC_BANDS))
+    for k, d in res['masked_spectrum'].items():
+        print(f'  {"":17} {k:17} {d["lsd"]:6.3f}  {"":20} ' + ' '.join(f'{d["power_ratio"][b]:6.2f}' for b in SPEC_BANDS))
     print(f'  coord sim vs closeness {struct.get("coord_sim_vs_closeness_spearman", float("nan")):.3f} | pos_emb drift {struct["pos_emb_drift"]:.1%}')
     if 'spatial_bias_per_block' in struct:
         print('  spatial bias per block (closeness rho / mean|b|): ' +
