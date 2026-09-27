@@ -955,7 +955,11 @@
         "spatial_embedding": true,
         "blocks_per_stage": 2,
         "skip_mode": "gated",
-        "skip_drop": 0.0,
+        "skip_drop": [
+          0.75,
+          0.5,
+          0.25
+        ],
         "decoder_blocks": 0,
         "temporal_bias": true
       }
