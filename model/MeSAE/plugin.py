@@ -67,7 +67,7 @@ def build_model(bp, num_channels):
         # 'gated' UNet skips (default) or 'none'; decoder_blocks per-channel temporal conv blocks after each upsample
         skip_mode=bp.get('skip_mode', 'gated'),
         decoder_blocks=bp.get('decoder_blocks', 0),
-        skip_drop=bp.get('skip_drop', 0.0),   # per-sample skip drop-path probability (training)
+        skip_drop=bp.get('skip_drop', 0.0),   # per-sample skip drop-path p (training); a list = one per skip, finest first
     )
 
 

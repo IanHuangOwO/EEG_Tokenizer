@@ -471,7 +471,8 @@ class TSAEncoder(nn.Module):
     skip_mode 'gated' (the default) adds the skips; 'none' drops them, so everything reaching the
     output passes through the deepest stage. skip_drop p (training only, gated): each skip is
     dropped per sample with probability p and kept ones scaled by 1/(1-p) (drop-path), so the
-    deep path must carry the patch detail part of the time. decoder_blocks > 0 puts that many
+    deep path must carry the patch detail part of the time; a list gives one p per skip, finest
+    first (the skip_gate_0/1/2 order). decoder_blocks > 0 puts that many
     TemporalUpBlocks (per-channel temporal convs, no channel mixing) after each upsample."""
     def __init__(self, dim, depth=8, num_heads=8, mlp_ratio=4., dropout=0.0, blocks_per_stage=2,
                  n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2,
@@ -485,9 +486,11 @@ class TSAEncoder(nn.Module):
         self.blocks = nn.ModuleList([block() for _ in range(depth)])
         self.pool_after = [i for i in range(blocks_per_stage - 1, depth - 1, blocks_per_stage)]
         self.skip_mode = skip_mode
-        assert 0.0 <= skip_drop < 1.0 and (skip_drop == 0.0 or skip_mode == 'gated'), \
+        drops = list(skip_drop) if isinstance(skip_drop, (list, tuple)) else [skip_drop] * len(self.pool_after)
+        assert len(drops) == len(self.pool_after), f"skip_drop {skip_drop}: one p per skip ({len(self.pool_after)})"
+        assert all(0.0 <= p < 1.0 for p in drops) and (not any(drops) or skip_mode == 'gated'), \
             f"skip_drop {skip_drop} needs skip_mode 'gated' and 0 <= p < 1"
-        self.skip_drop = skip_drop
+        self.skip_drop = [float(p) for p in drops]       # finest skip first
         if skip_mode == 'gated':
             self.skip_gates = nn.ParameterList([nn.Parameter(torch.tensor(3.0)) for _ in self.pool_after])
         else:
@@ -569,10 +572,11 @@ class TSAEncoder(nn.Module):
         for level, skip in enumerate(reversed(skips)):
             x = self._upsample(x, skip.shape[2])
             if self.skip_mode == 'gated':
-                if self.training and self.skip_drop > 0:
-                    keep = (torch.rand(skip.shape[0], 1, 1, 1, device=skip.device) >= self.skip_drop)
-                    skip = skip * keep.to(skip.dtype) / (1 - self.skip_drop)
-                x = x + torch.sigmoid(self.skip_gates[len(skips) - 1 - level]) * skip
+                i = len(skips) - 1 - level                                   # this skip's index, finest = 0
+                if self.training and self.skip_drop[i] > 0:
+                    keep = (torch.rand(skip.shape[0], 1, 1, 1, device=skip.device) >= self.skip_drop[i])
+                    skip = skip * keep.to(skip.dtype) / (1 - self.skip_drop[i])
+                x = x + torch.sigmoid(self.skip_gates[i]) * skip
             for block in (self.dec_blocks[level] if self.dec_blocks is not None else []):
                 x_in = x
                 x = block(x, vps[-1 - level])
