@@ -53,7 +53,9 @@ batch 16, no temporal bias, seed 1, tiny corpus) with only the loss change above
 Adopt if all three hold, set before the run:
 
 1. Masked val MSE (mean of epochs 41-50) at most 3% above graded (0.528 -> <= 0.544).
-2. `stamp_duplicates`: no stamp pair at similarity >= 0.9 (graded: none).
+2. `stamp_duplicates`: fewer stamp pairs at similarity >= 0.9 than graded. Graded has 3, all among its
+   slowest stamps (#0, #1, #3 at 0.98-0.99), despite mp_loss (index order at the time). Corrected
+   2026-09-27: an earlier draft said "graded: none", which was the archived baseline's count.
 3. Probe and stamp head not significantly worse than graded (Wilcoxon over subjects). Graded:
    probe 60.3 / 47.1 / 69.3, stamp head 62.9 / 44.5 / 69.9 on 004 / 001 / 008.
 
