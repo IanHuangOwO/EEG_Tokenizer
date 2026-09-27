@@ -1327,7 +1327,6 @@ class StampBank(nn.Module):
             L = D_sel.shape[-1]
             contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
                            + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))   # [G, C, K, L]
-            order_routed = h[:, :self.top_k].argsort(dim=-1, descending=True)  # [G, top_k]
             # Shared slots pinned ahead of routed, always. They are always-on, so every
             # patch's reconstruction contains them whether or not anything asked for them;
             # grading a routed atom against a residual that still holds that baseline
@@ -1338,6 +1337,16 @@ class StampBank(nn.Module):
             # block -- not by stamp index, which would impose one fixed global hierarchy
             # on always-on stamps (stamp 0 first in every patch) instead of deduplicating.
             order_shared = h[:, self.top_k:].argsort(dim=-1, descending=True) + self.top_k
+            # Routed slots ranked by how much of the residual left after the shared block each
+            # explains on its own (2<c, r> - |c|^2, summed over real channels): matching pursuit's
+            # "best match to what is still unexplained", not raw gate strength.
+            with torch.no_grad():
+                vm = 1.0 if valid_channels is None else valid_channels.unsqueeze(-1).to(contrib_all.dtype)
+                resid = (x_target - contrib_all[:, :, self.top_k:].sum(2)) * vm         # [G, C, L]
+                c_r = contrib_all[:, :, :self.top_k] * vm.unsqueeze(2) if valid_channels is not None \
+                    else contrib_all[:, :, :self.top_k]
+                gain = (2 * (c_r * resid.unsqueeze(2)).sum(-1) - c_r.pow(2).sum(-1)).sum(1)  # [G, top_k]
+            order_routed = gain.argsort(dim=-1, descending=True)                          # [G, top_k]
             order = torch.cat([order_shared, order_routed], dim=1)
             n_rank = order.shape[1]
             order_c = order.unsqueeze(1).unsqueeze(-1).expand(G, C, n_rank, L)

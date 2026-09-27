@@ -22,7 +22,9 @@ schemes are compared on one task.
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
    neighbours) and its mean |value|.
 4. Masked spectrum, per test mask: log-spectral distance on the masked samples (multi-resolution
-   log-magnitude STFT, the measure of the rejected STFT loss, docs/adr/0019) and, per band, predicted / true power on them (1 = right power;
+   log-magnitude STFT, the measure of the rejected STFT loss, docs/adr/0019); per band the relative
+   error |X^ - X|^2 / |X|^2 (phase-sensitive: 0 = exact, 1 = as bad as predicting 0), also for the
+   unmasked reconstruction; and per band predicted / true power (1 = right power;
    << 1 = the prediction shrinks toward 0, what a time-domain MSE target does to an
    unpredictable-phase rhythm).
 5. Seam disagreement (unmasked): the squared difference between two neighbouring patches'
@@ -80,23 +82,23 @@ def log_spectral_distance(rec_t, x_t, w_t, sizes=(32, 64, 128)):
 
 
 def masked_spectrum(recon, x, score, stride, fs, n_fft=128):
-    """recon / x [B, C, N, L], score [B, C, N] bool (scored = masked real tokens) -> (lsd * weight,
-    weight, {band: predicted power}, {band: true power}) summed over the batch, on the overlap-added
-    trial with frames weighted by their share of scored samples."""
+    """recon / x [B, C, N, L], score [B, C, N] bool (scored tokens) -> (lsd * weight, weight,
+    {band: predicted power}, {band: true power}, {band: error power}) summed over the batch, on the
+    overlap-added trial with frames weighted by their share of scored samples."""
     rec_t, x_t = overlap_add_patches(recon.float(), stride), overlap_add_patches(x, stride)
     w_t = overlap_add_patches(score[..., None].expand_as(x).float(), stride)          # [B, C, T]
     weight = float(w_t.sum())
     lsd = log_spectral_distance(rec_t, x_t, w_t) * weight
     B, C, T = x_t.shape
     win, hop = torch.hann_window(n_fft), n_fft // 4
-    spec = lambda s: torch.stft(s.reshape(B * C, T), n_fft=n_fft, hop_length=hop, window=win,
-                                center=False, return_complex=True).abs().pow(2)     # [BC, F, M]
+    stft = lambda s: torch.stft(s.reshape(B * C, T), n_fft=n_fft, hop_length=hop, window=win,
+                                center=False, return_complex=True)                  # [BC, F, M]
     fw = w_t.reshape(B * C, T).unfold(-1, n_fft, hop).mean(-1)[:, None, :]           # [BC, 1, M]
-    Pr, Px = (spec(s) * fw for s in (rec_t, x_t))
+    Xr, Xx = stft(rec_t), stft(x_t)
+    Pr, Px, Pe = (P.abs().pow(2) * fw for P in (Xr, Xx, Xr - Xx))
     f = torch.fft.rfftfreq(n_fft, 1 / fs)
     band = lambda P, lo, hi: float(P[:, (f >= lo) & (f < hi)].sum())
-    return (lsd, weight, {k: band(Pr, *r) for k, r in SPEC_BANDS.items()},
-            {k: band(Px, *r) for k, r in SPEC_BANDS.items()})
+    return (lsd, weight, *({k: band(P, *r) for k, r in SPEC_BANDS.items()} for P in (Pr, Px, Pe)))
 
 
 def eval_windows(config, max_windows):
@@ -217,12 +219,19 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
         a[0] += float(err[sel].sum()); a[1] += int(sel.sum())
 
     abl = {k: {a: [0.0, 0] for a in ABLATIONS} for k in KINDS}
-    spec = {k: [0.0, 0.0, dict.fromkeys(SPEC_BANDS, 0.0), dict.fromkeys(SPEC_BANDS, 0.0)] for k in KINDS}
+
+    def add_spectrum(sp, stats):
+        lsd, wsum, pr, px, pe = stats
+        sp[0] += lsd; sp[1] += wsum
+        for bnd in SPEC_BANDS:
+            sp[2][bnd] += pr[bnd]; sp[3][bnd] += px[bnd]; sp[4][bnd] += pe[bnd]
+    spec = {k: [0.0, 0.0] + [dict.fromkeys(SPEC_BANDS, 0.0) for _ in range(3)] for k in KINDS + ['unmasked']}
     fs = float(config['preprocess_params']['sample_freq'])
     seam = [0.0, 0.0]                                     # disagreement sum, signal power sum
     for wids, x, coords, t, valid in batches(ds, idx):
         B, C, N, L = x.shape
         r = model(x, coords, t, valid_channels=valid).recon.float()         # unmasked
+        add_spectrum(spec['unmasked'], masked_spectrum(r, x, (x.abs().amax(-1) > 0) & valid[:, :, None], stride, fs))
         ov = L - stride
         real = (x[:, :, :-1].abs().amax(-1) > 0) & (x[:, :, 1:].abs().amax(-1) > 0) & valid[:, :, None]
         seam[0] += float(((r[:, :, :-1, stride:] - r[:, :, 1:, :ov]).pow(2).mean(-1) * real).sum())
@@ -239,10 +248,7 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
                 continue
             out = model(x, coords, t, bool_masked_pos=mp, valid_channels=valid)
             err_model = (out.recon.float() - x).pow(2).mean(-1)          # [B, C, N]
-            lsd, wsum, pr, px = masked_spectrum(out.recon, x, sc, stride, fs)
-            sp = spec[kind]; sp[0] += lsd; sp[1] += wsum
-            for bnd in SPEC_BANDS:
-                sp[2][bnd] += pr[bnd]; sp[3][bnd] += px[bnd]
+            add_spectrum(spec[kind], masked_spectrum(out.recon, x, sc, stride, fs))
             for b in range(B):
                 if not sc[b].any():
                     continue
@@ -292,8 +298,9 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
            'test_masks': {f'{k}|{g}|{p}': v[0] / max(v[1], 1) for (k, g, p), v in acc.items()},
            'ablation_masked_mse': {a: v[0] / max(v[1], 1) for a, v in abl['token_runs'].items()},
            'ablation_by_mask': {k: {a: v[0] / max(v[1], 1) for a, v in d.items()} for k, d in abl.items()},
-           'masked_spectrum': {k: {'lsd': sp[0] / sp[1], 'power_ratio': {b: sp[2][b] / max(sp[3][b], 1e-12)
-                                                                     for b in SPEC_BANDS}}
+           'masked_spectrum': {k: {'lsd': sp[0] / sp[1],
+                                   'power_ratio': {b: sp[2][b] / max(sp[3][b], 1e-12) for b in SPEC_BANDS},
+                                   'error_ratio': {b: sp[4][b] / max(sp[3][b], 1e-12) for b in SPEC_BANDS}}
                                for k, sp in spec.items() if sp[1] > 0},
            'seam_disagreement': seam[0] / max(seam[1], 1e-12),
            'structure': struct}
@@ -315,6 +322,9 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
     print(f'  masked spectrum: {"mask":17} {"lsd":>6}  predicted/true power ' + ' '.join(f'{b:>6}' for b in SPEC_BANDS))
     for k, d in res['masked_spectrum'].items():
         print(f'  {"":17} {k:17} {d["lsd"]:6.3f}  {"":20} ' + ' '.join(f'{d["power_ratio"][b]:6.2f}' for b in SPEC_BANDS))
+    print(f'  band error |X^-X|^2/|X|^2: {"mask":17} ' + ' '.join(f'{b:>6}' for b in SPEC_BANDS))
+    for k, d in res['masked_spectrum'].items():
+        print(f'  {"":26} {k:17} ' + ' '.join(f'{d["error_ratio"][b]:6.2f}' for b in SPEC_BANDS))
     print(f'  seam disagreement (unmasked, / signal power): {res["seam_disagreement"]:.4f}')
     print(f'  coord sim vs closeness {struct.get("coord_sim_vs_closeness_spearman", float("nan")):.3f} | pos_emb drift {struct["pos_emb_drift"]:.1%}')
     if 'spatial_bias_per_block' in struct:
