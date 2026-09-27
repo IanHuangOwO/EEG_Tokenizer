@@ -476,7 +476,7 @@ class MeSAEPretrain(nn.Module):
 
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None,
                     mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0,
-                    contrib_ranked=None, prefix_sizes=None, prefix_weights=None):
+                    contrib_ranked=None, nested_sizes=None, nested_weights=None):
         """Two-term recon loss, both plain time-domain MSE:
         - patch: every raw patch against its own reconstruction.
         - trial: MSE on the REAL continuous trial, patches overlap-added back together
@@ -490,11 +490,11 @@ class MeSAEPretrain(nn.Module):
         the same weights overlap-added to samples. With bool_masked_pos=None (tokenizer
         phase) every valid position is a target and unmasked_weight is unused.
 
-        prefix_sizes / prefix_weights (MSE + matching pursuit in one term, ADR 0015's merge): the
-        patch term becomes sum_k w_k * |x - (first s_k stamps in rank order)|^2, no detach; the
-        last size must be every active stamp, so that term is the plain patch MSE. Stamps rank
-        per patch by strength (StampBank.forward), so a later stamp gains nothing by repeating
-        an earlier one's content while every prefix, the full one included, is trained jointly.
+        nested_sizes / nested_weights -- the nested reconstruction loss (docs/adr/0018): the patch
+        term becomes sum_k w_k * |x - (strongest s_k stamps)|^2, no detach, stamps ranked per patch
+        by strength (StampBank.forward). The last size must be every active stamp, so that term is
+        the plain patch MSE; the smaller nested sets penalise a stamp for repeating a stronger
+        one's content (matching pursuit's job) while every set is trained jointly.
 
         Logged mse_patch/mse_trial stay the plain all-valid-position MSE, comparable
         across phases whatever the weights. masked/unmasked are a diagnostic split.
@@ -516,15 +516,15 @@ class MeSAEPretrain(nn.Module):
         patch_err = (recon - x).pow(2)
         trial_err = (overlap_add_patches(recon, stride) - overlap_add_patches(x, stride)).pow(2)  # [B, C, T]
         train_patch_err = patch_err
-        if prefix_sizes:
+        if nested_sizes:
             K = contrib_ranked.shape[3]
-            assert list(prefix_sizes) == sorted(set(prefix_sizes)) and prefix_sizes[-1] == K, \
-                f"prefix_sizes {prefix_sizes}: increasing, last = every active stamp ({K})"
-            assert len(prefix_weights) == len(prefix_sizes) and abs(sum(prefix_weights) - 1) < 1e-6, \
-                f"prefix_weights {prefix_weights}: one per size, summing to 1"
-            sel = torch.as_tensor([k - 1 for k in prefix_sizes], device=x.device)
+            assert list(nested_sizes) == sorted(set(nested_sizes)) and nested_sizes[-1] == K, \
+                f"nested_sizes {nested_sizes}: increasing, last = every active stamp ({K})"
+            assert len(nested_weights) == len(nested_sizes) and abs(sum(nested_weights) - 1) < 1e-6, \
+                f"nested_weights {nested_weights}: one per size, summing to 1"
+            sel = torch.as_tensor([k - 1 for k in nested_sizes], device=x.device)
             prefix = contrib_ranked.float().cumsum(dim=3).index_select(3, sel)            # [B, C, N, P, L]
-            wk = torch.as_tensor(prefix_weights, dtype=x.dtype, device=x.device).view(1, 1, 1, -1, 1)
+            wk = torch.as_tensor(nested_weights, dtype=x.dtype, device=x.device).view(1, 1, 1, -1, 1)
             train_patch_err = ((prefix - x.unsqueeze(3)).pow(2) * wk).sum(dim=3)
         total = mse_patch_weight * wmean(train_patch_err, w) + mse_trial_weight * wmean(trial_err, to_trial(w))
 
@@ -544,7 +544,7 @@ class MeSAEPretrain(nn.Module):
                  mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
                  mp_loss=None, mp_weight=0.0, mp_map=None,
-                 contrib_ranked=None, prefix_sizes=None, prefix_weights=None):
+                 contrib_ranked=None, nested_sizes=None, nested_weights=None):
         """
         Returns (total, l_masked, l_unmasked).
 
@@ -581,7 +581,7 @@ class MeSAEPretrain(nn.Module):
             recon, x, bool_masked_pos, valid_channels=valid_channels,
             mse_patch_weight=mse_patch_weight, mse_trial_weight=mse_trial_weight,
             unmasked_weight=unmasked_weight, contrib_ranked=contrib_ranked,
-            prefix_sizes=prefix_sizes, prefix_weights=prefix_weights)
+            nested_sizes=nested_sizes, nested_weights=nested_weights)
 
         if bool_masked_pos is None or not self.stamps_frozen:
             total = total + aux_weight * aux_loss

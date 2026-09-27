@@ -1323,7 +1323,7 @@ class StampBank(nn.Module):
         # content NO ONE ELSE at a higher rank already covered.
         mp_loss = amp.new_zeros(())
         mp_map = None  # [G, C] per-position mp error (mean over ranks and samples)
-        contrib_ranked = None  # [G, C, n_rank, L] per-slot content in rank order (MeSAE's prefix loss)
+        contrib_ranked = None  # [G, C, n_rank, L] per-slot content in rank order (nested reconstruction loss)
         if x_target is not None:
             L = D_sel.shape[-1]
             contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
