@@ -32,7 +32,8 @@ python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threa
 
 # Analysis: one panel mechanism (tools/panels/, presets in tools/panels/__init__.py PRESETS), failures don't stop
 # the other panels. Pretrain = one backbone -> output/<backbone>/pretrain/analysis/ (standard: backbone_eval,
-# attention_range, stamp_templates, stamp_duplicates, stamp_distribution, snapshot, codebook; quick: the first four).
+# attention_range, stamp_usage, ridge_probe, stamp_templates, stamp_duplicates, stamp_distribution, snapshot,
+# codebook; quick: the first six). Judge each change by its own mechanism metric, not finetuning (ADR 0020).
 python analysis_pretrain.py --run <backbone> [--preset quick] [--panel <name> ...]
 python analysis_pretrain.py --panel profile [--train]     # parameter counts + timing, no checkpoint
 # Finetune = several backbones under one head label -> output/reports/<groups>/ (standard: summary, report,

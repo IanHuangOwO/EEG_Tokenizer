@@ -428,6 +428,7 @@ class MeSAEPretrain(nn.Module):
         return SimpleNamespace(
             recon=recon,
             h=out.h,
+            idx=out.idx, amp=out.amp,   # [G, K] slot -> stamp id, [G, C, K, 2] (G = B*N), for StampBank.decode_selected
             dense_routed=out.dense_routed,
             aux_loss=out.aux_loss,
             mp_loss=out.mp_loss,

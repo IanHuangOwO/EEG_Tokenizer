@@ -13,9 +13,10 @@ schemes are compared on one task.
    (dense caps only: every channel except C3/Cz/C4 hidden, scored on the other 19 BCI-22
    channels -- the sparse-cap imputation BNCI2014004 needs). Also split sparse (<= 22 real
    channels) vs dense windows.
-2. Embedding ablations under every test mask: coords shuffled across channels, all
-   channels at the mean position, time_idx shuffled, time_idx constant (masked MSE per mask
-   type; ablation_masked_mse keeps the token_runs row for older readers).
+2. Ablations under every test mask: coords shuffled across channels, all channels at the mean
+   position, time_idx shuffled, time_idx constant, and skips_off (the encoder's UNet skips removed
+   at eval: what the deep path alone reconstructs -- a small rise = the deep path carries the
+   content). Masked MSE per mask type; ablation_masked_mse keeps the token_runs row for older readers.
 3. Structure: coordinate-embedding similarity vs electrode closeness (Spearman, 10-10
    channels); pos_emb drift from its sinusoidal init; with a RelativeSpatialBias, per block
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
@@ -24,6 +25,9 @@ schemes are compared on one task.
    measure, MeSAE._stft_loss) and, per band, predicted / true power on them (1 = right power;
    << 1 = the prediction shrinks toward 0, what a time-domain MSE target does to an
    unpredictable-phase rhythm).
+5. Seam disagreement (unmasked): the squared difference between two neighbouring patches'
+   reconstructions on the samples they share (50% overlap), / signal power there. 0 = the patches
+   agree wherever they overlap; what the trial-level MSE term enforces.
 
 Panel: `python analysis_pretrain.py --run <backbone> --panel backbone_eval` writes
 output/<backbone>/pretrain/analysis/backbone_eval.json, which the finetune-side backbone report reads.
@@ -148,6 +152,16 @@ KINDS = ['token_runs', 'random_channel', 'channel_cluster', 'time_block', 'motor
 
 # ---------- ablations ----------
 
+class skips_removed:
+    """Context manager: the encoder runs without its UNet skips (skip_mode 'none') while inside."""
+    def __init__(self, model):
+        self.enc = model.encoder
+    def __enter__(self):
+        self.mode, self.enc.skip_mode = self.enc.skip_mode, 'none'
+    def __exit__(self, *exc):
+        self.enc.skip_mode = self.mode
+
+
 def ablate(name, coords, t, valid):
     coords, t = coords.clone(), t.clone()
     for b in range(coords.shape[0]):
@@ -163,7 +177,7 @@ def ablate(name, coords, t, valid):
     return coords, t
 
 
-ABLATIONS = ['baseline', 'coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const']
+ABLATIONS = ['baseline', 'coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const', 'skips_off']
 
 
 @torch.no_grad()
@@ -186,8 +200,14 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
     abl = {k: {a: [0.0, 0] for a in ABLATIONS} for k in KINDS}
     spec = {k: [0.0, 0.0, dict.fromkeys(SPEC_BANDS, 0.0), dict.fromkeys(SPEC_BANDS, 0.0)] for k in KINDS}
     fs = float(config['preprocess_params']['sample_freq'])
+    seam = [0.0, 0.0]                                     # disagreement sum, signal power sum
     for wids, x, coords, t, valid in batches(ds, idx):
         B, C, N, L = x.shape
+        r = model(x, coords, t, valid_channels=valid).recon.float()         # unmasked
+        ov = L - stride
+        real = (x[:, :, :-1].abs().amax(-1) > 0) & (x[:, :, 1:].abs().amax(-1) > 0) & valid[:, :, None]
+        seam[0] += float(((r[:, :, :-1, stride:] - r[:, :, 1:, :ov]).pow(2).mean(-1) * real).sum())
+        seam[1] += float((x[:, :, 1:, :ov].pow(2).mean(-1) * real).sum())
         valid_tok = torch.stack([ds._valid_masks[w].view(C, N) for w in wids])
         for kind in KINDS:
             masks, scores = [], []
@@ -219,7 +239,11 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
             for a in ABLATIONS:
                 cc, tt = ablate(a, coords, t, valid)
                 torch.manual_seed(0)
-                o = model(x, cc, tt, bool_masked_pos=mp, valid_channels=valid)
+                if a == 'skips_off':
+                    with skips_removed(model):
+                        o = model(x, cc, tt, bool_masked_pos=mp, valid_channels=valid)
+                else:
+                    o = model(x, cc, tt, bool_masked_pos=mp, valid_channels=valid)
                 e = (o.recon.float() - x).pow(2).mean(-1)
                 abl[kind][a][0] += float(e[sc].sum()); abl[kind][a][1] += int(sc.sum())
 
@@ -252,6 +276,7 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
            'masked_spectrum': {k: {'lsd': sp[0] / sp[1], 'power_ratio': {b: sp[2][b] / max(sp[3][b], 1e-12)
                                                                      for b in SPEC_BANDS}}
                                for k, sp in spec.items() if sp[1] > 0},
+           'seam_disagreement': seam[0] / max(seam[1], 1e-12),
            'structure': struct}
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     json.dump(res, open(out_path, 'w'), indent=2)
@@ -271,6 +296,7 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
     print(f'  masked spectrum: {"mask":17} {"lsd":>6}  predicted/true power ' + ' '.join(f'{b:>6}' for b in SPEC_BANDS))
     for k, d in res['masked_spectrum'].items():
         print(f'  {"":17} {k:17} {d["lsd"]:6.3f}  {"":20} ' + ' '.join(f'{d["power_ratio"][b]:6.2f}' for b in SPEC_BANDS))
+    print(f'  seam disagreement (unmasked, / signal power): {res["seam_disagreement"]:.4f}')
     print(f'  coord sim vs closeness {struct.get("coord_sim_vs_closeness_spearman", float("nan")):.3f} | pos_emb drift {struct["pos_emb_drift"]:.1%}')
     if 'spatial_bias_per_block' in struct:
         print('  spatial bias per block (closeness rho / mean|b|): ' +
