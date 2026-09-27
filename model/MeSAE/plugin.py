@@ -87,7 +87,10 @@ class MeSAETrainer(BaseTrainer):
                                unmasked_weight=hparams.get('unmasked_weight', 1.0),
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
-                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map)
+                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map,
+                               # masked-block log-magnitude STFT loss (MeSAE._stft_loss); 0 = off
+                               stft_weight=hparams.get('stft_weight', 0.0),
+                               stft_sizes=tuple(hparams.get('stft_sizes', (32, 64, 128))))
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)
@@ -583,6 +586,10 @@ class MeSAEPlotter(BasePlotter):
         ]
         if self.has_signal('mse_mp'):   # the per-stamp anti-duplicate term, when trained
             loss_panels[1]['series'].append(dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss'))
+        if self.has_signal('mse_stft'):   # masked-block log-magnitude STFT distance (not an MSE; own scale)
+            loss_panels.append(dict(title='Masked-Block Log-Spectral Distance\n(STFT loss: band power of the '
+                                          'masked blocks, phase-blind)', ylabel='mean |log mag diff|',
+                                    series=[dict(key='mse_stft', color='teal', label='stft')]))
 
         stamp_health_panels = [
             dict(title='Stamp Aux-K Loss (dead-atom revival)\n[train only, 0 in eval by design]',
