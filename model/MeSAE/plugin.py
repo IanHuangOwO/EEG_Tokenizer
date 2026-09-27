@@ -574,19 +574,27 @@ class MeSAEPlotter(BasePlotter):
         # directly comparable) -> architecture diagnostics. Order is the only grouping lever
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
         # group may still straddle a row edge.
+        recon = ('masked', 'crimson'), ('unmasked', 'steelblue'), ('mse_patch', 'darkorchid'), ('mse_trial', 'darkorange')
+        nested = sorted((k for k in self.history['val'] if k.startswith('mse_nested_')), key=lambda k: int(k.rsplit('_', 1)[1]))
         loss_panels = [
-            dict(title='Total Loss\n(recon + sparsity + aux + ffn_lb, weighted)', ylabel='Loss',
-                 series=[dict(key='loss', color='b')]),
-            # One panel: masked/unmasked split only exists at patch level; mse_patch is their
-            # mix, mse_trial the overlap-added real-trial MSE (MeSAE._recon_loss). masked is a
-            # 1.0 placeholder during the tokenizer phase.
-            dict(title='Recon MSE: masked / unmasked / patch / trial\n(masked=1.0 placeholder in tokenizer phase)',
-                 ylabel='MSE',
-                 series=[dict(key='masked', color='crimson'),
-                         dict(key='unmasked', color='steelblue'),
-                         dict(key='mse_patch', color='darkorchid', label='mse_patch'),
-                         dict(key='mse_trial', color='darkorange', label='mse_trial')]),
+            dict(title="Total Loss (the training objective)\n(weighted sum of this run's loss terms: not comparable "
+                       "across loss configs)", ylabel='Loss', series=[dict(key='loss', color='b')]),
+            # Val is the comparable number: every skip on, no drop-path. masked is a 1.0 placeholder in
+            # the tokenizer phase; mse_patch mixes masked and visible, mse_trial is the overlap-added window.
+            dict(title='Val Recon MSE: compare runs here\n(all skips on; masked = 1.0 placeholder in tokenizer phase)',
+                 ylabel='MSE', series=[dict(key=k, color=c, val_only=True, style_val='-') for k, c in recon]),
+            dict(title='Train Recon MSE\n(skip drop-path active, so above val by design)',
+                 ylabel='MSE', series=[dict(key=k, color=c, train_only=True) for k, c in recon]),
         ]
+        if nested or self.has_signal('mse_mp'):
+            # Nested reconstruction loss (docs/adr/0018): error using only the strongest k stamps per
+            # patch; the largest k is the full patch MSE. mse_mp: the older anti-duplicate term.
+            loss_panels.append(dict(
+                title='Nested Reconstruction (val)\n(error from the strongest k stamps per patch)', ylabel='MSE',
+                series=[dict(key=k, label=f"k={k.rsplit('_', 1)[1]}", color=f'C{i}',
+                             val_only=True, style_val='-') for i, k in enumerate(nested)]
+                + ([dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss')]
+                   if self.has_signal('mse_mp') else [])))
 
         stamp_health_panels = [
             dict(title='Stamp Aux-K Loss (dead-atom revival)\n[train only, 0 in eval by design]',
@@ -630,6 +638,12 @@ class MeSAEPlotter(BasePlotter):
                  ylabel='Mean |delta| per block', series=self.indexed_series('block_norm_', cmap_name='viridis')),
         ]
 
+        # Stamp-side panels only when they carry data: aux is 0 with aux_weight 0, and dead rate /
+        # k_eff / stamp router are empty with no routed stamps (the all-shared recipe).
+        keep = [self.has_signal('aux'), self.has_signal('dead_feature_rate', 'k_eff')]
+        stamp_health_panels = [p for p, k in zip(stamp_health_panels, keep) if k]
+        if not self.has_signal('stamp_router_entropy', 'stamp_router_load_std', 'stamp_gate_entropy'):
+            routing_panels = routing_panels[1:]
         panels = loss_panels + stamp_health_panels + routing_panels + architecture_panels
         self.render(panels, filename, suptitle='Tokenizer (Stamp) Training Dashboard', ncols=4)
 

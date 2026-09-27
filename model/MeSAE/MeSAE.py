@@ -516,6 +516,7 @@ class MeSAEPretrain(nn.Module):
         patch_err = (recon - x).pow(2)
         trial_err = (overlap_add_patches(recon, stride) - overlap_add_patches(x, stride)).pow(2)  # [B, C, T]
         train_patch_err = patch_err
+        nested_plain = {}
         if nested_sizes:
             K = contrib_ranked.shape[3]
             assert list(nested_sizes) == sorted(set(nested_sizes)) and nested_sizes[-1] == K, \
@@ -525,7 +526,11 @@ class MeSAEPretrain(nn.Module):
             sel = torch.as_tensor([k - 1 for k in nested_sizes], device=x.device)
             prefix = contrib_ranked.float().cumsum(dim=3).index_select(3, sel)            # [B, C, N, P, L]
             wk = torch.as_tensor(nested_weights, dtype=x.dtype, device=x.device).view(1, 1, 1, -1, 1)
-            train_patch_err = ((prefix - x.unsqueeze(3)).pow(2) * wk).sum(dim=3)
+            nested_err = (prefix - x.unsqueeze(3)).pow(2)                                  # [B, C, N, P, L]
+            train_patch_err = (nested_err * wk).sum(dim=3)
+            with torch.no_grad():   # logged per size, plain all-valid-position mean like mse_patch
+                nested_plain = {f'nested_{k}': wmean(nested_err[:, :, :, i], valid).item()
+                                for i, k in enumerate(nested_sizes)}
         total = mse_patch_weight * wmean(train_patch_err, w) + mse_trial_weight * wmean(trial_err, to_trial(w))
 
         with torch.no_grad():
@@ -537,7 +542,7 @@ class MeSAEPretrain(nn.Module):
                 l_unmasked = wmean(patch_err, valid * (1.0 - hidden))
         # Named so the log/dashboard keys read mse_patch/mse_trial (train_pretrain.py
         # reads _last_pyramid_levels; plugin.py matches the 'mse_' prefix).
-        self._last_pyramid_levels = {'patch': plain_patch.item(), 'trial': plain_trial.item()}
+        self._last_pyramid_levels = {'patch': plain_patch.item(), 'trial': plain_trial.item(), **nested_plain}
         return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03,

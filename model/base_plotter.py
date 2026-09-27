@@ -26,6 +26,7 @@ class BasePlotter:
       color, style_train='-', style_val='--',
       band: bool — shade key+'_std' as a +/-1 std fill around the line,
       train_only: bool — skip the val line even if present,
+      val_only: bool — skip the train line even if present,
       override_train / override_val: explicit value list, bypasses history lookup
                                       (e.g. a flat zero line when freeze_backbone=True),
     }
@@ -98,6 +99,10 @@ class BasePlotter:
             series.append(dict(key=k, color=color, label=k, train_only=train_only))
         return series
 
+    def has_signal(self, *keys):
+        """True if any of keys has a finite nonzero value in train or val history."""
+        return any(v == v and v != 0 for src in self.history.values() for k in keys for v in src.get(k, []))
+
     # -- rendering ---------------------------------------------------------------
 
     def render(self, panels, filename, suptitle=None, ncols=3):
@@ -148,8 +153,9 @@ class BasePlotter:
 
     def _plot_one_series(self, ax, s):
         key = s.get('key')
-        tr = s.get('override_train') if s.get('override_train') is not None \
-            else (self.history['train'].get(key) if key else None)
+        tr = None if s.get('val_only') else (
+            s.get('override_train') if s.get('override_train') is not None
+            else (self.history['train'].get(key) if key else None))
         va = None if s.get('train_only') else (
             s.get('override_val') if s.get('override_val') is not None
             else (self.history['val'].get(key) if key else None))
