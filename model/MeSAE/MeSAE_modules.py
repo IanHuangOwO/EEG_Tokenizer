@@ -1323,6 +1323,7 @@ class StampBank(nn.Module):
         # content NO ONE ELSE at a higher rank already covered.
         mp_loss = amp.new_zeros(())
         mp_map = None  # [G, C] per-position mp error (mean over ranks and samples)
+        contrib_ranked = None  # [G, C, n_rank, L] per-slot content in rank order (MeSAE's prefix loss)
         if x_target is not None:
             L = D_sel.shape[-1]
             contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
@@ -1334,9 +1335,11 @@ class StampBank(nn.Module):
             # rewards it for re-explaining content already covered. Not a knob — the
             # alternative is simply wrong. Measured: real 50Hz shared-pool share 0.336 ->
             # 0.163, single routed owner 0.414 -> 0.661, mse_patch 0.0295 -> 0.0232.
-            shared_cols = torch.arange(self.top_k, idx.shape[1],
-                                       device=h.device).unsqueeze(0).expand(G, -1)
-            order = torch.cat([shared_cols, order_routed], dim=1)
+            # Within the shared block, ranked per patch by h (strength) like the routed
+            # block -- not by stamp index, which would impose one fixed global hierarchy
+            # on always-on stamps (stamp 0 first in every patch) instead of deduplicating.
+            order_shared = h[:, self.top_k:].argsort(dim=-1, descending=True) + self.top_k
+            order = torch.cat([order_shared, order_routed], dim=1)
             n_rank = order.shape[1]
             order_c = order.unsqueeze(1).unsqueeze(-1).expand(G, C, n_rank, L)
             contrib_ranked = contrib_all.gather(2, order_c)             # rank 0 = first claim
@@ -1469,7 +1472,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss, mp_map=mp_map,
+            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss, mp_map=mp_map, contrib_ranked=contrib_ranked,
             # None unless quantization is configured. levels [G, C, K, 2] int64
             # (amp_idx, phase_idx) is the discrete code — with idx [G, K] it forms the
             # full (stamp_id, amp_level, phase_level) symbol per (channel, patch, slot).

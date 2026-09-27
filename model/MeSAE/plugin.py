@@ -87,7 +87,11 @@ class MeSAETrainer(BaseTrainer):
                                unmasked_weight=hparams.get('unmasked_weight', 1.0),
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
-                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map)
+                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map,
+                               # MSE + matching pursuit merged (MeSAE._recon_loss); None = plain patch MSE
+                               contrib_ranked=out.contrib_ranked,
+                               prefix_sizes=hparams.get('mp_prefix_sizes'),
+                               prefix_weights=hparams.get('mp_prefix_weights'))
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)

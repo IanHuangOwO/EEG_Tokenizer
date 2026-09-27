@@ -433,6 +433,9 @@ class MeSAEPretrain(nn.Module):
             mp_loss=out.mp_loss,
             # [B, C, N], same layout as bool_masked_pos (G = B*N rows were b*N + n)
             mp_map=None if out.mp_map is None else out.mp_map.reshape(B, N, C).permute(0, 2, 1),
+            # [B, C, N, n_rank, L] (G = B*N rows split into adjacent B, N), for the prefix loss
+            contrib_ranked=None if out.contrib_ranked is None else
+            out.contrib_ranked.reshape(B, N, C, *out.contrib_ranked.shape[2:]).permute(0, 2, 1, 3, 4),
             ffn_lb_loss=ffn_lb_loss,
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
@@ -472,7 +475,8 @@ class MeSAEPretrain(nn.Module):
         return valid, valid * (hidden + unmasked_weight * (1.0 - hidden)), hidden
 
     def _recon_loss(self, recon, x, bool_masked_pos, valid_channels=None,
-                    mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0):
+                    mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0,
+                    contrib_ranked=None, prefix_sizes=None, prefix_weights=None):
         """Two-term recon loss, both plain time-domain MSE:
         - patch: every raw patch against its own reconstruction.
         - trial: MSE on the REAL continuous trial, patches overlap-added back together
@@ -485,6 +489,12 @@ class MeSAEPretrain(nn.Module):
         masked patches only; 1 = every position counts equally). The trial term gets
         the same weights overlap-added to samples. With bool_masked_pos=None (tokenizer
         phase) every valid position is a target and unmasked_weight is unused.
+
+        prefix_sizes / prefix_weights (MSE + matching pursuit in one term, ADR 0015's merge): the
+        patch term becomes sum_k w_k * |x - (first s_k stamps in rank order)|^2, no detach; the
+        last size must be every active stamp, so that term is the plain patch MSE. Stamps rank
+        per patch by strength (StampBank.forward), so a later stamp gains nothing by repeating
+        an earlier one's content while every prefix, the full one included, is trained jointly.
 
         Logged mse_patch/mse_trial stay the plain all-valid-position MSE, comparable
         across phases whatever the weights. masked/unmasked are a diagnostic split.
@@ -505,7 +515,18 @@ class MeSAEPretrain(nn.Module):
 
         patch_err = (recon - x).pow(2)
         trial_err = (overlap_add_patches(recon, stride) - overlap_add_patches(x, stride)).pow(2)  # [B, C, T]
-        total = mse_patch_weight * wmean(patch_err, w) + mse_trial_weight * wmean(trial_err, to_trial(w))
+        train_patch_err = patch_err
+        if prefix_sizes:
+            K = contrib_ranked.shape[3]
+            assert list(prefix_sizes) == sorted(set(prefix_sizes)) and prefix_sizes[-1] == K, \
+                f"prefix_sizes {prefix_sizes}: increasing, last = every active stamp ({K})"
+            assert len(prefix_weights) == len(prefix_sizes) and abs(sum(prefix_weights) - 1) < 1e-6, \
+                f"prefix_weights {prefix_weights}: one per size, summing to 1"
+            sel = torch.as_tensor([k - 1 for k in prefix_sizes], device=x.device)
+            prefix = contrib_ranked.float().cumsum(dim=3).index_select(3, sel)            # [B, C, N, P, L]
+            wk = torch.as_tensor(prefix_weights, dtype=x.dtype, device=x.device).view(1, 1, 1, -1, 1)
+            train_patch_err = ((prefix - x.unsqueeze(3)).pow(2) * wk).sum(dim=3)
+        total = mse_patch_weight * wmean(train_patch_err, w) + mse_trial_weight * wmean(trial_err, to_trial(w))
 
         with torch.no_grad():
             plain_patch = wmean(patch_err, valid)
@@ -522,7 +543,8 @@ class MeSAEPretrain(nn.Module):
     def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03,
                  mse_patch_weight=1.0, mse_trial_weight=1.0, unmasked_weight=1.0,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
-                 mp_loss=None, mp_weight=0.0, mp_map=None):
+                 mp_loss=None, mp_weight=0.0, mp_map=None,
+                 contrib_ranked=None, prefix_sizes=None, prefix_weights=None):
         """
         Returns (total, l_masked, l_unmasked).
 
@@ -558,7 +580,8 @@ class MeSAEPretrain(nn.Module):
         total, l_masked, l_unmasked = self._recon_loss(
             recon, x, bool_masked_pos, valid_channels=valid_channels,
             mse_patch_weight=mse_patch_weight, mse_trial_weight=mse_trial_weight,
-            unmasked_weight=unmasked_weight)
+            unmasked_weight=unmasked_weight, contrib_ranked=contrib_ranked,
+            prefix_sizes=prefix_sizes, prefix_weights=prefix_weights)
 
         if bool_masked_pos is None or not self.stamps_frozen:
             total = total + aux_weight * aux_loss
