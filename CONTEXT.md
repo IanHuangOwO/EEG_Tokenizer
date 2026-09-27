@@ -104,8 +104,8 @@ What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
 | `TSAEncoder` | 1.74M | 8 blocks = 4 stages x 2 (39 -> 20 -> 10 -> 5 patches); block = temporal attention -> spatial attention (+ relative spatial bias) -> MoE FFN (4 routed + 1 shared, top-2), LayerScale |
 | `StampBank` | 0.01M | 16 shared stamps, no routed (sparsity budget 32 < 50) |
 
-Loss: patch MSE + trial MSE (patches overlap-added) + `mp` (weight 1) + `ffn_lb` (0.01); visible samples
-weighted 0.1 in the masked phase. 50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2,
+Loss: patch MSE + per-stamp `mp` (weight 1; stamps ranked per patch by strength) + `ffn_lb` (0.01);
+visible samples weighted 0.1 in the masked phase. Removed: trial MSE (ADR 0021), STFT (0019), nested (0018). 50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2,
 random_channel 0.3, time_block 0.4 max ratios) + channel subsampling.
 
 **Unit**: umbrella term in shared tooling (`model/base_*`, `tools/`) for whatever a model codes per patch --

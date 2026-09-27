@@ -21,8 +21,8 @@ schemes are compared on one task.
    channels); pos_emb drift from its sinusoidal init; with a RelativeSpatialBias, per block
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
    neighbours) and its mean |value|.
-4. Masked spectrum, per test mask: log-spectral distance on the masked samples (the STFT loss's
-   measure, MeSAE._stft_loss) and, per band, predicted / true power on them (1 = right power;
+4. Masked spectrum, per test mask: log-spectral distance on the masked samples (multi-resolution
+   log-magnitude STFT, the measure of the rejected STFT loss, docs/adr/0019) and, per band, predicted / true power on them (1 = right power;
    << 1 = the prediction shrinks toward 0, what a time-domain MSE target does to an
    unpredictable-phase rhythm).
 5. Seam disagreement (unmasked): the squared difference between two neighbouring patches'
@@ -60,14 +60,33 @@ def val_config(config):
 SPEC_BANDS = {'delta': (0.5, 4), 'theta': (4, 8), 'alpha': (8, 13), 'beta': (13, 30), 'gamma': (30, 45)}
 
 
-def masked_spectrum(model, recon, x, score, stride, fs, n_fft=128):
+LOG_FLOOR = 0.1   # added to |X| before the log, so near-silent bins don't dominate
+
+
+def log_spectral_distance(rec_t, x_t, w_t, sizes=(32, 64, 128)):
+    """rec_t / x_t / w_t [B, C, T] -> mean over sizes N of the frame-weighted mean
+    |log(|X^|+f) - log(|X|+f)| (Hann window N, hop N/4, no centering; frame weight = mean sample
+    weight). 0 if no frame counts."""
+    B, C, T = x_t.shape
+    rec, tgt, wt = (t.reshape(B * C, T).float() for t in (rec_t, x_t, w_t))
+    out = []
+    for n in sizes:
+        hop, win = max(n // 4, 1), torch.hann_window(n)
+        mag = lambda s: torch.stft(s, n_fft=n, hop_length=hop, window=win, center=False, return_complex=True).abs()
+        d = ((mag(rec) + LOG_FLOOR).log() - (mag(tgt) + LOG_FLOOR).log()).abs().mean(1)   # [BC, M]
+        fw = wt.unfold(-1, n, hop).mean(-1)
+        out.append(float((d * fw).sum() / fw.sum()) if fw.sum() > 0 else 0.0)
+    return sum(out) / len(out)
+
+
+def masked_spectrum(recon, x, score, stride, fs, n_fft=128):
     """recon / x [B, C, N, L], score [B, C, N] bool (scored = masked real tokens) -> (lsd * weight,
     weight, {band: predicted power}, {band: true power}) summed over the batch, on the overlap-added
     trial with frames weighted by their share of scored samples."""
     rec_t, x_t = overlap_add_patches(recon.float(), stride), overlap_add_patches(x, stride)
     w_t = overlap_add_patches(score[..., None].expand_as(x).float(), stride)          # [B, C, T]
     weight = float(w_t.sum())
-    lsd = float(model._stft_loss(rec_t, x_t, w_t, (32, 64, 128))) * weight
+    lsd = log_spectral_distance(rec_t, x_t, w_t) * weight
     B, C, T = x_t.shape
     win, hop = torch.hann_window(n_fft), n_fft // 4
     spec = lambda s: torch.stft(s.reshape(B * C, T), n_fft=n_fft, hop_length=hop, window=win,
@@ -220,7 +239,7 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
                 continue
             out = model(x, coords, t, bool_masked_pos=mp, valid_channels=valid)
             err_model = (out.recon.float() - x).pow(2).mean(-1)          # [B, C, N]
-            lsd, wsum, pr, px = masked_spectrum(model, out.recon, x, sc, stride, fs)
+            lsd, wsum, pr, px = masked_spectrum(out.recon, x, sc, stride, fs)
             sp = spec[kind]; sp[0] += lsd; sp[1] += wsum
             for bnd in SPEC_BANDS:
                 sp[2][bnd] += pr[bnd]; sp[3][bnd] += px[bnd]

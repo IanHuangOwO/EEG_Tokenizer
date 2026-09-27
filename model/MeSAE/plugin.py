@@ -74,30 +74,29 @@ def build_model(bp, num_channels):
 
 class MeSAETrainer(BaseTrainer):
     def compute_loss(self, model, x, out, mp, **hparams):
-        if 'hierarchical_mse_weight' in hparams:
-            raise ValueError("loss.hierarchical_mse_weight was split into mse_patch_weight / "
-                             "mse_trial_weight (+ unmasked_weight), see MeSAE._recon_loss")
+        removed = {'hierarchical_mse_weight': '0011', 'mse_trial_weight': '0021', 'stft_weight': '0019',
+                   'stft_sizes': '0019', 'nested_sizes': '0018', 'nested_weights': '0018'}
+        stale = sorted(k for k in hparams if k in removed and hparams[k])
+        if stale:   # a removed loss term: fail loudly rather than train a silently different loss
+            raise ValueError(f"loss keys {stale} were removed (docs/adr/{', '.join(sorted({removed[k] for k in stale}))}); "
+                             "drop them from the config")
         aux_weight = hparams.get('aux_weight', 0.03)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         mp_weight = hparams.get('mp_weight', 0.0)
         return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
                                aux_weight=aux_weight,
                                mse_patch_weight=hparams.get('mse_patch_weight', 1.0),
-                               mse_trial_weight=hparams.get('mse_trial_weight', 1.0),
                                unmasked_weight=hparams.get('unmasked_weight', 1.0),
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
-                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map,
-                               # masked-block log-magnitude STFT loss (MeSAE._stft_loss); 0 = off
-                               stft_weight=hparams.get('stft_weight', 0.0),
-                               stft_sizes=tuple(hparams.get('stft_sizes', (32, 64, 128))))
+                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map)
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)
         model.update_ffn_router_metrics(out.ffn_router_entropy, out.ffn_router_load_std, out.ffn_gate_entropy)
 
     def epoch_metrics(self, model, out):
-        # mse_patch/mse_trial are accumulated per-batch and epoch-averaged in
+        # mse_patch (and mse_mp) are accumulated per-batch and epoch-averaged in
         # train_pretrain.py (train_one_epoch/validate_one_epoch), not added here — this
         # function only ever sees the last batch's out, which would make them a
         # last-batch snapshot instead of an epoch average like every other loss stat.
@@ -573,12 +572,12 @@ class MeSAEPlotter(BasePlotter):
         # directly comparable) -> architecture diagnostics. Order is the only grouping lever
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
         # group may still straddle a row edge.
-        recon = ('masked', 'crimson'), ('unmasked', 'steelblue'), ('mse_patch', 'darkorchid'), ('mse_trial', 'darkorange')
+        recon = ('masked', 'crimson'), ('unmasked', 'steelblue'), ('mse_patch', 'darkorchid')
         loss_panels = [
             dict(title="Total Loss (the training objective)\n(weighted sum of this run's loss terms: not comparable "
                        "across loss configs)", ylabel='Loss', series=[dict(key='loss', color='b')]),
             # Val is the comparable number: every skip on, no drop-path. masked is a 1.0 placeholder in
-            # the tokenizer phase; mse_patch mixes masked and visible, mse_trial is the overlap-added window.
+            # the tokenizer phase; mse_patch mixes masked and visible.
             dict(title='Val Recon MSE: compare runs here\n(all skips on; masked = 1.0 placeholder in tokenizer phase)',
                  ylabel='MSE', series=[dict(key=k, color=c, val_only=True, style_val='-') for k, c in recon]),
             dict(title='Train Recon MSE\n(skip drop-path active, so above val by design)',
@@ -586,10 +585,6 @@ class MeSAEPlotter(BasePlotter):
         ]
         if self.has_signal('mse_mp'):   # the per-stamp anti-duplicate term, when trained
             loss_panels[1]['series'].append(dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss'))
-        if self.has_signal('mse_stft'):   # masked-block log-magnitude STFT distance (not an MSE; own scale)
-            loss_panels.append(dict(title='Masked-Block Log-Spectral Distance\n(STFT loss: band power of the '
-                                          'masked blocks, phase-blind)', ylabel='mean |log mag diff|',
-                                    series=[dict(key='mse_stft', color='teal', label='stft')]))
 
         stamp_health_panels = [
             dict(title='Stamp Aux-K Loss (dead-atom revival)\n[train only, 0 in eval by design]',

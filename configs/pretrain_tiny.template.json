@@ -946,7 +946,6 @@
         },
         "loss": {
           "mse_patch_weight": 1.0,
-          "mse_trial_weight": 1.0,
           "unmasked_weight": 0.1,
           "ffn_lb_weight": 0.01,
           "aux_weight": 0.0,

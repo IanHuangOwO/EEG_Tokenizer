@@ -41,11 +41,15 @@ raw dataset files
   temporal attention only and no masking. In the *masked phase* spatial attention and the
   coordinate embedding switch on and the masking curriculum starts (channel clusters, random
   channels, time blocks, plus channel subsampling to sparse montages).
-- **Loss.** Patch MSE + overlap-added trial MSE + a per-stamp matching-pursuit term (`mp`: stamps
-  ranked per patch by strength, each trained on what the stronger ones left, so duplicates earn
-  nothing) + MoE load balance. Visible patches count at 0.1 of masked ones. Optional: a
-  multi-resolution log-magnitude STFT loss on the masked blocks (phase-blind band power).
-  A merged "nested reconstruction" variant was tested and rejected (`docs/adr/0018`).
+- **Loss.** Patch MSE (visible patches count at 0.1 of masked ones) + a per-stamp matching-pursuit
+  term (`mp`: stamps ranked per patch by strength, each trained on what the stronger ones left, so a
+  duplicate earns nothing) + MoE load balance. Tested and removed: an overlap-added trial MSE
+  (`docs/adr/0021`: without it neighbouring patches agree better), a masked STFT loss (`0019`: it
+  restores masked band power but did not reach the tasks), and a merged nested loss (`0018`).
+- **Evaluation.** Each backbone change is judged by its own mechanism metric on held-out windows
+  (`docs/adr/0020`: coordinate / time / skip ablations, seam disagreement, stamp usage, masked band
+  power, a closed-form ridge probe), not by single-seed finetuning, which runs only when a recipe is
+  frozen.
 
 The default model has about 2.26M parameters; the StampBank is under 1 % of them. `CONTEXT.md`
 has the canonical terms and `docs/adr/` the reasoning behind each choice.

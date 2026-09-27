@@ -1,7 +1,7 @@
 # 0019 — Masked-block STFT loss
 
-Status: Rejected (2026-09-27, run `mesae_tiny_stft_s1`). The loss stays in the code, off by default
-(`loss.stft_weight` 0); the recipe does not use it.
+Status: Rejected (2026-09-27, run `mesae_tiny_stft_s1`). The loss code was removed (a config setting
+`loss.stft_weight` is rejected); its measure stays in `backbone_eval` as the masked log-spectral distance.
 Date: 2026-09-27
 
 ## Context

@@ -1,7 +1,7 @@
 # 0015 — Loss-term trimming (deferred)
 
-Status: Deferred. Revisit only after the finetune-head work (the exposed features, the
-pooling, and the raw-baseline comparison) is settled.
+Status: Closed (2026-09-27). Experiment 1 (trial term): removed, ADR 0021. Experiment 2 (Matryoshka /
+nested merge): rejected, ADR 0018. aux_weight is 0 in the recipe. (Originally deferred until the finetune-head work was settled.)
 Date: 2026-09-17
 
 ## Context
