@@ -186,14 +186,23 @@ SPLITS = {   # name -> (make_runs function, required keys, optional keys)
 
 def apply_protocol(config, path='configs/finetune_protocols.json'):
     """training_params.finetune.protocol = <name>: apply that entry of the protocol table (its
-    dotted keys, in order) on top of the merged config. No protocol key: unchanged."""
+    dotted keys, in order) on top of the merged config, then the table's _dataset_split settings
+    for the finetune dataset(s). No protocol key: unchanged."""
     name = config['training_params']['finetune'].get('protocol')
     if not name:
         return config
-    table = {k: v for k, v in json.load(open(path)).items() if not k.startswith('_')}
+    raw = json.load(open(path))
+    table = {k: v for k, v in raw.items() if not k.startswith('_')}
     if name not in table:
         raise ValueError(f"unknown finetune protocol {name!r}, known: {sorted(table)} ({path})")
-    return apply_overrides(config, [f'{k}={json.dumps(v)}' for k, v in table[name].items()])
+    config = apply_overrides(config, [f'{k}={json.dumps(v)}' for k, v in table[name].items()])
+    # per-dataset split settings (Compass: which session, few-shot fraction); train_fraction only for fewshot
+    split = config['training_params']['finetune']['split']
+    for ds in config['dataset_params']['finetune']:
+        for k, v in raw.get('_dataset_split', {}).get(ds, {}).items():
+            if k != 'train_fraction' or split.get('type') == 'fewshot':
+                split[k] = v
+    return config
 
 
 def make_runs(split, pool, subject_data, labels, session=None):

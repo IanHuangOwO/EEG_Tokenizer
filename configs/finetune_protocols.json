@@ -1,112 +1,123 @@
 {
- "_comment": "Named finetune protocols: training_params.finetune.protocol = <name> applies one entry (dotted keys, in order, like --set) after base_config merging; --set on the command line still wins over it. Frozen 2026-09-25 from the DEV-set grid configs/sweeps/tune_base_s1.json (BNCI2015001 MI, BNCI2014009 P300, never reported): the top config per cell, top-10 within 1.6 points. Don't retune these per backbone -- that would confound a backbone comparison.",
- "mi_loso": {
-  "training_params.finetune.split": {
-   "type": "loso",
-   "sessions": [
-    0
-   ]
-  },
-  "training_params.finetune.class_weight": null,
-  "model_params.MeSAE.finetune": {
-   "features": [
-    {
-     "type": "stamp_power",
-     "time_pool": "learned",
-     "time_rank": 2
-    }
-   ]
-  },
-  "model_params.MeSAE.finetune.spatial_k": 2,
-  "model_params.MeSAE.finetune.dropout": 0.3,
-  "training_params.finetune.learning_rate": 0.01,
-  "training_params.finetune.min_learning_rate": 0.001,
-  "training_params.finetune.weight_decay": 0.01,
-  "training_params.finetune.epochs": 50
- },
- "mi_fewshot": {
-  "training_params.finetune.split": {
-   "type": "fewshot",
-   "train_fraction": 0.3,
-   "sessions": [
-    0
-   ]
-  },
-  "training_params.finetune.class_weight": null,
-  "model_params.MeSAE.finetune": {
-   "features": [
-    {
-     "type": "stamp_power",
-     "time_pool": "learned",
-     "time_rank": 2
-    }
-   ]
-  },
-  "model_params.MeSAE.finetune.spatial_k": 8,
-  "model_params.MeSAE.finetune.dropout": 0.3,
-  "training_params.finetune.learning_rate": 0.01,
-  "training_params.finetune.min_learning_rate": 0.001,
-  "training_params.finetune.weight_decay": 0.5,
-  "training_params.finetune.epochs": 50
- },
- "p300_loso": {
-  "training_params.finetune.split": {
-   "type": "loso",
-   "sessions": [
-    0
-   ]
-  },
-  "training_params.finetune.class_weight": "balanced",
-  "model_params.MeSAE.finetune": {
-   "features": [
-    {
-     "type": "stamp_power",
-     "time_pool": "learned",
-     "time_rank": 2
+  "_comment": "Named finetune protocols: training_params.finetune.protocol = <name> applies one entry (dotted keys, in order, like --set) after base_config merging; --set on the command line still wins over it. Frozen 2026-09-25 from the DEV-set grid configs/sweeps/tune_base_s1.json (BNCI2015001 MI, BNCI2014009 P300, never reported): the top config per cell, top-10 within 1.6 points. Don't retune these per backbone -- that would confound a backbone comparison.",
+  "mi_loso": {
+    "training_params.finetune.split": {
+      "type": "loso",
+      "sessions": [
+        0
+      ]
     },
-    {
-     "type": "signed_ab",
-     "stamp_rank": 4,
-     "time_rank": 2
-    }
-   ]
-  },
-  "model_params.MeSAE.finetune.spatial_k": 2,
-  "model_params.MeSAE.finetune.dropout": 0.3,
-  "training_params.finetune.learning_rate": 0.01,
-  "training_params.finetune.min_learning_rate": 0.001,
-  "training_params.finetune.weight_decay": 0.01,
-  "training_params.finetune.epochs": 50
- },
- "p300_fewshot": {
-  "training_params.finetune.split": {
-   "type": "fewshot",
-   "train_fraction": 0.1,
-   "purge": 5,
-   "sessions": [
-    0
-   ]
-  },
-  "training_params.finetune.class_weight": "balanced",
-  "model_params.MeSAE.finetune": {
-   "features": [
-    {
-     "type": "stamp_power",
-     "time_pool": "learned",
-     "time_rank": 2
+    "training_params.finetune.class_weight": null,
+    "model_params.MeSAE.finetune": {
+      "features": [
+        {
+          "type": "stamp_power",
+          "time_pool": "learned",
+          "time_rank": 2
+        }
+      ]
     },
-    {
-     "type": "signed_ab",
-     "stamp_rank": 4,
-     "time_rank": 2
-    }
-   ]
+    "model_params.MeSAE.finetune.spatial_k": 2,
+    "model_params.MeSAE.finetune.dropout": 0.3,
+    "training_params.finetune.learning_rate": 0.01,
+    "training_params.finetune.min_learning_rate": 0.001,
+    "training_params.finetune.weight_decay": 0.01,
+    "training_params.finetune.epochs": 50
   },
-  "model_params.MeSAE.finetune.spatial_k": 2,
-  "model_params.MeSAE.finetune.dropout": 0.5,
-  "training_params.finetune.learning_rate": 0.01,
-  "training_params.finetune.min_learning_rate": 0.001,
-  "training_params.finetune.weight_decay": 0.5,
-  "training_params.finetune.epochs": 50
- }
+  "mi_fewshot": {
+    "training_params.finetune.split": {
+      "type": "fewshot",
+      "train_fraction": 0.3,
+      "sessions": [
+        0
+      ]
+    },
+    "training_params.finetune.class_weight": null,
+    "model_params.MeSAE.finetune": {
+      "features": [
+        {
+          "type": "stamp_power",
+          "time_pool": "learned",
+          "time_rank": 2
+        }
+      ]
+    },
+    "model_params.MeSAE.finetune.spatial_k": 8,
+    "model_params.MeSAE.finetune.dropout": 0.3,
+    "training_params.finetune.learning_rate": 0.01,
+    "training_params.finetune.min_learning_rate": 0.001,
+    "training_params.finetune.weight_decay": 0.5,
+    "training_params.finetune.epochs": 50
+  },
+  "p300_loso": {
+    "training_params.finetune.split": {
+      "type": "loso",
+      "sessions": [
+        0
+      ]
+    },
+    "training_params.finetune.class_weight": "balanced",
+    "model_params.MeSAE.finetune": {
+      "features": [
+        {
+          "type": "stamp_power",
+          "time_pool": "learned",
+          "time_rank": 2
+        },
+        {
+          "type": "signed_ab",
+          "stamp_rank": 4,
+          "time_rank": 2
+        }
+      ]
+    },
+    "model_params.MeSAE.finetune.spatial_k": 2,
+    "model_params.MeSAE.finetune.dropout": 0.3,
+    "training_params.finetune.learning_rate": 0.01,
+    "training_params.finetune.min_learning_rate": 0.001,
+    "training_params.finetune.weight_decay": 0.01,
+    "training_params.finetune.epochs": 50
+  },
+  "p300_fewshot": {
+    "training_params.finetune.split": {
+      "type": "fewshot",
+      "train_fraction": 0.1,
+      "purge": 5,
+      "sessions": [
+        0
+      ]
+    },
+    "training_params.finetune.class_weight": "balanced",
+    "model_params.MeSAE.finetune": {
+      "features": [
+        {
+          "type": "stamp_power",
+          "time_pool": "learned",
+          "time_rank": 2
+        },
+        {
+          "type": "signed_ab",
+          "stamp_rank": 4,
+          "time_rank": 2
+        }
+      ]
+    },
+    "model_params.MeSAE.finetune.spatial_k": 2,
+    "model_params.MeSAE.finetune.dropout": 0.5,
+    "training_params.finetune.learning_rate": 0.01,
+    "training_params.finetune.min_learning_rate": 0.001,
+    "training_params.finetune.weight_decay": 0.5,
+    "training_params.finetune.epochs": 50
+  },
+  "_dataset_split_comment": "Per-dataset split settings applied on top of any protocol, matching the EEG-FM-Compass code (github.com/Dingkun0817/EEG-FM-Benchmark, datasets/*/Preprocess_Dataset.py and its configs): BNCI2014004 uses session '3test' (index 3 in our caches, 160 trials/subject); BNCI2014008 few-shot calibrates on 5% of the session. train_fraction applies only to fewshot splits.",
+  "_dataset_split": {
+    "BNCI2014004": {
+      "sessions": [
+        3
+      ]
+    },
+    "BNCI2014008": {
+      "train_fraction": 0.05
+    }
+  }
 }
