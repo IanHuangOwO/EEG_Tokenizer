@@ -72,7 +72,7 @@ sub-montages), `configs/finetune_protocols.json`, `configs/sweeps/`. See `config
 
 Key fields (templates show defaults):
 - `model_params.MeSAE.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2), `skip_mode`
-  (`gated` UNet skips / `none`), `skip_drop` (per-sample skip drop-path probability; a list = one per skip, finest first), `decoder_blocks`
+  (`gated` UNet skips / `finest` only the finest skip / `none`), `skip_drop` (per-sample skip drop-path probability; a list = one per skip, finest first), `decoder_blocks`
   (per-channel temporal conv blocks after each upsample, no channel mixing),
   `temporal_bias` (true: a learned bias on the signed time lag in every block's temporal attention),
   `spatial_heads`, `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (true: Fourier electrode-coordinate

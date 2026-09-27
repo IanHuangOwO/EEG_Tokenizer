@@ -513,7 +513,8 @@ class TSAEncoder(nn.Module):
     2i+1) and upsampling interpolates linearly at the same positions, so no level shifts time.
 
     skip_mode 'gated' (the default) adds the skips; 'none' drops them, so everything reaching the
-    output passes through the deepest stage. skip_drop p (training only, gated): each skip is
+    output passes through the deepest stage; 'finest' keeps only the finest skip (per-patch detail)
+    and drops the deeper ones, so everything coarser than a patch must pass the deep path. skip_drop p (training only, gated): each skip is
     dropped per sample with probability p and kept ones scaled by 1/(1-p) (drop-path), so the
     deep path must carry the patch detail part of the time; a list gives one p per skip, finest
     first (the skip_gate_0/1/2 order). decoder_blocks > 0 puts that many
@@ -524,7 +525,7 @@ class TSAEncoder(nn.Module):
                  skip_mode='gated', decoder_blocks=0, skip_drop=0.0, temporal_bias=False):
         super().__init__()
         assert depth % blocks_per_stage == 0, f"depth {depth} is not a multiple of blocks_per_stage {blocks_per_stage}"
-        assert skip_mode in ('gated', 'none'), f"skip_mode {skip_mode!r}: 'gated' or 'none'"
+        assert skip_mode in ('gated', 'finest', 'none'), f"skip_mode {skip_mode!r}: 'gated', 'finest' or 'none'"
         block = lambda: TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout,
                                  n_routed_ffn_experts=n_routed_ffn_experts,
                                  n_shared_ffn_experts=n_shared_ffn_experts, ffn_top_k=ffn_top_k)
@@ -534,11 +535,12 @@ class TSAEncoder(nn.Module):
         self.temporal_bias = RelativeTemporalBias(depth, num_heads) if temporal_bias else None
         drops = list(skip_drop) if isinstance(skip_drop, (list, tuple)) else [skip_drop] * len(self.pool_after)
         assert len(drops) == len(self.pool_after), f"skip_drop {skip_drop}: one p per skip ({len(self.pool_after)})"
-        assert all(0.0 <= p < 1.0 for p in drops) and (not any(drops) or skip_mode == 'gated'), \
-            f"skip_drop {skip_drop} needs skip_mode 'gated' and 0 <= p < 1"
+        assert all(0.0 <= p < 1.0 for p in drops) and (not any(drops) or skip_mode != 'none'), \
+            f"skip_drop {skip_drop} needs skips (skip_mode 'gated' / 'finest') and 0 <= p < 1"
         self.skip_drop = [float(p) for p in drops]       # finest skip first
-        if skip_mode == 'gated':
-            self.skip_gates = nn.ParameterList([nn.Parameter(torch.tensor(3.0)) for _ in self.pool_after])
+        if skip_mode != 'none':   # 'finest': one gate, for the finest skip (index 0)
+            n_gates = len(self.pool_after) if skip_mode == 'gated' else 1
+            self.skip_gates = nn.ParameterList([nn.Parameter(torch.tensor(3.0)) for _ in range(n_gates)])
         else:
             self.skip_gates = None
         # one list per upsample level, deepest level first (the order they run in)
@@ -606,7 +608,7 @@ class TSAEncoder(nn.Module):
         record_norms = not self.training
         if record_norms:
             self.last_block_norms = []
-            gate_for_block = dict(zip(self.pool_after, self.skip_gates)) if self.skip_mode == 'gated' else {}
+            gate_for_block = dict(zip(self.pool_after, self.skip_gates)) if self.skip_gates is not None else {}
         ffn_lb_loss = x.new_zeros(())
         vp = valid_patches
         pos = torch.arange(x.shape[2], device=x.device, dtype=torch.float32)            # token times, fine patches
@@ -637,8 +639,8 @@ class TSAEncoder(nn.Module):
             vps.append(None if vps[-1] is None else self._pool_valid(vps[-1]))
         for level, skip in enumerate(reversed(skips)):
             x = self._upsample(x, skip.shape[2])
-            if self.skip_mode == 'gated':
-                i = len(skips) - 1 - level                                   # this skip's index, finest = 0
+            i = len(skips) - 1 - level                                       # this skip's index, finest = 0
+            if self.skip_mode == 'gated' or (self.skip_mode == 'finest' and i == 0):
                 if self.training and self.skip_drop[i] > 0:
                     keep = (torch.rand(skip.shape[0], 1, 1, 1, device=skip.device) >= self.skip_drop[i])
                     skip = skip * keep.to(skip.dtype) / (1 - self.skip_drop[i])
