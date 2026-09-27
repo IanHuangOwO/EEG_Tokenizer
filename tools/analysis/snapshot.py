@@ -35,7 +35,7 @@ class SnapshotBundle:
     channel_names: List[str]
     valid_channels: np.ndarray   # [C] bool
     patch_len: int
-    mask_np: Optional[np.ndarray] = None   # [C, N] masked-patch overlay, or None (finetune)
+    mask_np: Optional[np.ndarray] = None   # [C, N] masked-patch overlay; None: the recon is unmasked
     title_suffix: str = ''                 # e.g. ' [finetune]'
     event_onset_sec: Optional[float] = None  # real-trial event onset (s into raw_t/recon_t)
     valid_start: Optional[int] = None  # [sample idx into raw_t/recon_t's T axis]
@@ -123,7 +123,7 @@ def build_pretrain_bundle(model, dataset, trial_idx, config, device,
     was_training = model.training
     model.eval()
     try:
-        x_patches, coords, mask, time_indices, _, valid_channels = dataset[trial_idx]
+        x_patches, coords, _mask, time_indices, _, valid_channels = dataset[trial_idx]
         x_in  = x_patches.unsqueeze(0).to(device)
         c_in  = coords.unsqueeze(0).to(device)
         t_in  = time_indices.unsqueeze(0).to(device)
@@ -132,7 +132,6 @@ def build_pretrain_bundle(model, dataset, trial_idx, config, device,
         data = _run_reconstruction(model, dataset, trial_idx, device)
 
         C, N, patch_len = x_patches.shape
-        mask_np = mask.numpy().reshape(C, N)
 
         out = model(x_in, c_in, time_idx=t_in, bool_masked_pos=None, valid_channels=vc_in)
         recon_cnl = out.recon[0].detach().cpu().numpy()
@@ -149,7 +148,7 @@ def build_pretrain_bundle(model, dataset, trial_idx, config, device,
             recon_t=torch.from_numpy(data['recon']).unsqueeze(0),
             raw_cnl=x_patches.numpy(), recon_cnl=recon_cnl,
             coords=coords.numpy(), channel_names=dataset.base_dataset.channel_names,
-            valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=mask_np,
+            valid_channels=valid_channels.numpy(), patch_len=patch_len, mask_np=None,   # recon runs unmasked: no overlay
             event_onset_sec=event_onset_sec, valid_start=valid_start, valid_end=valid_end,
             subject_id=subject_id, trial_idx=trial_idx, epoch=epoch,
         )
