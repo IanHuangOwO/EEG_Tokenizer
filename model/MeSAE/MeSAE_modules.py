@@ -1323,7 +1323,6 @@ class StampBank(nn.Module):
         # content NO ONE ELSE at a higher rank already covered.
         mp_loss = amp.new_zeros(())
         mp_map = None  # [G, C] per-position mp error (mean over ranks and samples)
-        contrib_ranked = None  # [G, C, n_rank, L] per-slot content in rank order (nested reconstruction loss)
         if x_target is not None:
             L = D_sel.shape[-1]
             contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
@@ -1472,7 +1471,7 @@ class StampBank(nn.Module):
 
         return SimpleNamespace(
             recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss, mp_map=mp_map, contrib_ranked=contrib_ranked,
+            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss, mp_map=mp_map,
             # None unless quantization is configured. levels [G, C, K, 2] int64
             # (amp_idx, phase_idx) is the discrete code — with idx [G, K] it forms the
             # full (stamp_id, amp_level, phase_level) symbol per (channel, patch, slot).

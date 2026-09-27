@@ -87,11 +87,7 @@ class MeSAETrainer(BaseTrainer):
                                unmasked_weight=hparams.get('unmasked_weight', 1.0),
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
                                valid_channels=out.valid_channels,
-                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map,
-                               # nested reconstruction loss (docs/adr/0018); unset = plain patch MSE
-                               contrib_ranked=out.contrib_ranked,
-                               nested_sizes=hparams.get('nested_sizes'),
-                               nested_weights=hparams.get('nested_weights'))
+                               mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map)
 
     def update_diagnostics(self, model, out):
         model.update_stamp_router_metrics(out.dense_routed)
@@ -575,7 +571,6 @@ class MeSAEPlotter(BasePlotter):
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
         # group may still straddle a row edge.
         recon = ('masked', 'crimson'), ('unmasked', 'steelblue'), ('mse_patch', 'darkorchid'), ('mse_trial', 'darkorange')
-        nested = sorted((k for k in self.history['val'] if k.startswith('mse_nested_')), key=lambda k: int(k.rsplit('_', 1)[1]))
         loss_panels = [
             dict(title="Total Loss (the training objective)\n(weighted sum of this run's loss terms: not comparable "
                        "across loss configs)", ylabel='Loss', series=[dict(key='loss', color='b')]),
@@ -586,15 +581,8 @@ class MeSAEPlotter(BasePlotter):
             dict(title='Train Recon MSE\n(skip drop-path active, so above val by design)',
                  ylabel='MSE', series=[dict(key=k, color=c, train_only=True) for k, c in recon]),
         ]
-        if nested or self.has_signal('mse_mp'):
-            # Nested reconstruction loss (docs/adr/0018): error using only the strongest k stamps per
-            # patch; the largest k is the full patch MSE. mse_mp: the older anti-duplicate term.
-            loss_panels.append(dict(
-                title='Nested Reconstruction (val)\n(error from the strongest k stamps per patch)', ylabel='MSE',
-                series=[dict(key=k, label=f"k={k.rsplit('_', 1)[1]}", color=f'C{i}',
-                             val_only=True, style_val='-') for i, k in enumerate(nested)]
-                + ([dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss')]
-                   if self.has_signal('mse_mp') else [])))
+        if self.has_signal('mse_mp'):   # the per-stamp anti-duplicate term, when trained
+            loss_panels[1]['series'].append(dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss'))
 
         stamp_health_panels = [
             dict(title='Stamp Aux-K Loss (dead-atom revival)\n[train only, 0 in eval by design]',

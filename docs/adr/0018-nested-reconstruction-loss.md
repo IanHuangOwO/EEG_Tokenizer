@@ -1,6 +1,7 @@
 # 0018 — Nested reconstruction loss
 
-Status: Proposed. On test in run `mesae_tiny_nested_s1` (2026-09-27); adopt or drop by the criteria below.
+Status: Rejected (2026-09-27, run `mesae_tiny_nested_s1`): 1 of 3 criteria passed. Kept: patch MSE +
+per-stamp mp_loss, with the per-patch strength ranking (`c5a0f0c`). The nested-loss code was removed.
 Date: 2026-09-27
 
 ## Context
@@ -66,3 +67,22 @@ Adopt if all three hold, set before the run:
 - If not: keep patch MSE + mp_loss, now with the per-patch strength ranking.
 - Either way, next is a log multi-resolution STFT loss on masked blocks (added, not replacing), on
   top of whichever loss wins here.
+
+## Result (2026-09-27)
+
+`mesae_tiny_nested_s1` vs `mesae_tiny_skipdrop_graded_s1`, tiny corpus, seed 1.
+
+| Criterion | Graded | Nested | |
+|---|---|---|---|
+| 1. masked val MSE (ep 41-50) <= +3% | 0.5277 | 0.5274 | pass |
+| 2. fewer stamp pairs >= 0.9 | 3 (0.992, 0.986, 0.975) | 3 (0.995, 0.961, 0.928) | fail |
+| 3. downstream not significantly worse | | BNCI2014001 stamp head 44.5 -> 39.4 (1/9, p = 0.02) | fail |
+
+Other downstream cells within noise (pre-stamp probe 004 -2.6, 001 +0.1, 008 +0.0; stamp head 004
++1.5, 008 +0.7). Unmasked val MSE +7% (0.128 -> 0.136).
+
+- Ranking stayed top-heavy: the leading stamp ranked first in 62% of patches (graded 72%); 4 stamps
+  first in >= 5% of patches (graded 3).
+- Near-duplicate pairs sit among the slowest stamps in both runs, so they look structural (DC-zeroed
+  templates need several similar slow shapes to span within-patch drift), not something either loss
+  controls. Not verified (would need a remove-one-stamp ablation).
