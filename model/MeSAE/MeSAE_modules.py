@@ -101,6 +101,31 @@ class RelativeSpatialBias(nn.Module):
         return b.view(B, C, C, self.depth, self.heads).permute(0, 3, 4, 1, 2)                # [B, depth, H, C, C]
 
 
+TEMPORAL_WAVELENGTHS = (2.0, 4.0, 8.0, 16.0, 32.0, 64.0)   # in fine patches (x patch_stride samples)
+
+
+class RelativeTemporalBias(nn.Module):
+    """Per-block, per-head bias added to temporal attention scores from the SIGNED time lag of
+    the two tokens, b(i, j) = MLP([lag, sin/cos(2 pi lag / wavelength)]), lag in fine-patch units
+    so it means the same time at every pooling stage (coarse tokens sit at their patches' mean
+    position). Signed: past and future can differ. Last layer zero-initialised: training starts
+    exactly as without it. lag [n, n] -> [depth, H, n, n]."""
+    def __init__(self, depth, num_heads, hidden=32):
+        super().__init__()
+        self.depth, self.heads = depth, num_heads
+        out = nn.Linear(hidden, depth * num_heads)
+        nn.init.zeros_(out.weight)
+        nn.init.zeros_(out.bias)
+        self.mlp = nn.Sequential(nn.Linear(1 + 2 * len(TEMPORAL_WAVELENGTHS), hidden), nn.GELU(), out)
+
+    def forward(self, lag):
+        w = 2 * math.pi / torch.tensor(TEMPORAL_WAVELENGTHS, device=lag.device, dtype=lag.dtype)
+        ang = lag[..., None] * w
+        b = self.mlp(torch.cat([lag[..., None], ang.sin(), ang.cos()], dim=-1))              # [n, n, depth*H]
+        n = lag.shape[0]
+        return b.view(n, n, self.depth, self.heads).permute(2, 3, 0, 1)                       # [depth, H, n, n]
+
+
 class SpatialTemporalEmbeddings(nn.Module):
     def __init__(self, patch_len, dim, max_patches=5000, spatial=True):
         super().__init__()
@@ -400,7 +425,26 @@ class TSABlock(nn.Module):
                                              dropout_p=mha.dropout if self.training else 0.0)
         return mha.out_proj(out.transpose(2, 3).reshape(B, N, C, D))
 
-    def forward(self, x, valid_channels=None, spatial_bias=None, valid_patches=None):
+    def _temporal_attention(self, x, kpm, temporal_bias):
+        """x [B*C, N, D] -> [B*C, N, D]. Without a bias: temporal_attn as a plain MHA call. With
+        one ([H, N, N]): the same weights through scaled_dot_product_attention, the bias and the
+        padded-patch key mask broadcast over B*C."""
+        mha = self.temporal_attn
+        if temporal_bias is None:
+            return mha(x, x, x, key_padding_mask=kpm)[0]
+        BC, N, D = x.shape
+        H = mha.num_heads
+        q, k, v = F.linear(x, mha.in_proj_weight, mha.in_proj_bias).chunk(3, dim=-1)
+        q, k, v = (t.reshape(BC, N, H, D // H).transpose(1, 2) for t in (q, k, v))       # [BC, H, N, d]
+        mask = temporal_bias.to(q.dtype)[None]                                            # [1, H, N, N]
+        if kpm is not None:
+            mask = mask + torch.zeros(BC, 1, 1, N, dtype=q.dtype, device=q.device).masked_fill(
+                kpm[:, None, None, :], float('-inf'))
+        out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask,
+                                             dropout_p=mha.dropout if self.training else 0.0)
+        return mha.out_proj(out.transpose(1, 2).reshape(BC, N, D))
+
+    def forward(self, x, valid_channels=None, spatial_bias=None, valid_patches=None, temporal_bias=None):
         """valid_channels [B, C] bool (optional): zero-padded channels are left out of
         spatial attention as keys, so a montage's missing channels can't dilute the
         softmax (their own rows still get computed, then ignored downstream).
@@ -414,7 +458,7 @@ class TSABlock(nn.Module):
             x_norm_t = self.norm_time(x_flat)
             kpm_t = None if valid_patches is None else \
                 (~valid_patches.bool()).repeat_interleave(C, dim=0)             # [B*C, N], True = ignore
-            attn_out_t, _ = self.temporal_attn(x_norm_t, x_norm_t, x_norm_t, key_padding_mask=kpm_t)
+            attn_out_t = self._temporal_attention(x_norm_t, kpm_t, temporal_bias)
             self._watch(attn_out_t)
             attn_out_t = self.norm_time_out(attn_out_t)
             x_flat = x_flat + self.drop_t(self.scale_t * attn_out_t)
@@ -473,10 +517,11 @@ class TSAEncoder(nn.Module):
     dropped per sample with probability p and kept ones scaled by 1/(1-p) (drop-path), so the
     deep path must carry the patch detail part of the time; a list gives one p per skip, finest
     first (the skip_gate_0/1/2 order). decoder_blocks > 0 puts that many
-    TemporalUpBlocks (per-channel temporal convs, no channel mixing) after each upsample."""
+    TemporalUpBlocks (per-channel temporal convs, no channel mixing) after each upsample.
+    temporal_bias: a RelativeTemporalBias on every block's temporal attention (signed lag)."""
     def __init__(self, dim, depth=8, num_heads=8, mlp_ratio=4., dropout=0.0, blocks_per_stage=2,
                  n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2,
-                 skip_mode='gated', decoder_blocks=0, skip_drop=0.0):
+                 skip_mode='gated', decoder_blocks=0, skip_drop=0.0, temporal_bias=False):
         super().__init__()
         assert depth % blocks_per_stage == 0, f"depth {depth} is not a multiple of blocks_per_stage {blocks_per_stage}"
         assert skip_mode in ('gated', 'none'), f"skip_mode {skip_mode!r}: 'gated' or 'none'"
@@ -486,6 +531,7 @@ class TSAEncoder(nn.Module):
         self.blocks = nn.ModuleList([block() for _ in range(depth)])
         self.pool_after = [i for i in range(blocks_per_stage - 1, depth - 1, blocks_per_stage)]
         self.skip_mode = skip_mode
+        self.temporal_bias = RelativeTemporalBias(depth, num_heads) if temporal_bias else None
         drops = list(skip_drop) if isinstance(skip_drop, (list, tuple)) else [skip_drop] * len(self.pool_after)
         assert len(drops) == len(self.pool_after), f"skip_drop {skip_drop}: one p per skip ({len(self.pool_after)})"
         assert all(0.0 <= p < 1.0 for p in drops) and (not any(drops) or skip_mode == 'gated'), \
@@ -551,9 +597,12 @@ class TSAEncoder(nn.Module):
             gate_for_block = dict(zip(self.pool_after, self.skip_gates)) if self.skip_mode == 'gated' else {}
         ffn_lb_loss = x.new_zeros(())
         vp = valid_patches
+        pos = torch.arange(x.shape[2], device=x.device, dtype=torch.float32)            # token times, fine patches
+        tb = self.temporal_bias(pos[:, None] - pos[None, :]) if self.temporal_bias is not None else None
         for i, block in enumerate(self.blocks):
             x_in = x
-            x, blk_ffn_lb = block(x, valid_channels, None if spatial_bias is None else spatial_bias[:, i], vp)
+            x, blk_ffn_lb = block(x, valid_channels, None if spatial_bias is None else spatial_bias[:, i], vp,
+                                  None if tb is None else tb[i])
             ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
                 with torch.no_grad():
@@ -565,6 +614,10 @@ class TSAEncoder(nn.Module):
                 skips.append(x)
                 x = self._pool(x)
                 vp = None if vp is None else self._pool_valid(vp)
+                if tb is not None:     # coarse token i sits at the mean time of fine tokens 2i, 2i+1
+                    pos = torch.cat([pos, pos[-1:]]) if pos.shape[0] % 2 else pos
+                    pos = (pos[0::2] + pos[1::2]) / 2
+                    tb = self.temporal_bias(pos[:, None] - pos[None, :])
 
         vps = [valid_patches]                  # valid patches per level, finest first
         for _ in skips[1:]:

@@ -68,6 +68,7 @@ def build_model(bp, num_channels):
         skip_mode=bp.get('skip_mode', 'gated'),
         decoder_blocks=bp.get('decoder_blocks', 0),
         skip_drop=bp.get('skip_drop', 0.0),   # per-sample skip drop-path p (training); a list = one per skip, finest first
+        temporal_bias=bp.get('temporal_bias', False),   # RelativeTemporalBias on temporal attention
     )
 
 

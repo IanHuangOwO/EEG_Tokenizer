@@ -45,16 +45,31 @@ def attention_range(model, config, out_path, max_windows=256):
 
     def pre_hook(i):
         def f(block, args):
-            x, vc, _, vp = args
+            x, vc, vp = args[0], args[1], args[3]
             B, C, N, _ = x.shape
             cur.update(i=i, B=B, C=C, N=N, vc=vc, vp=vp)
         return f
 
-    def temporal_hook(block, args, out):
-        w = out[1]                                                           # [B*C, N, N], heads averaged
-        if w is None:
-            return
-        B, C, N, i = cur['B'], cur['C'], cur['N'], cur['i']
+    def temporal_wrap(block):
+        orig = block._temporal_attention
+        def f(x, kpm, temporal_bias):
+            record_temporal(block, x, kpm, temporal_bias)
+            return orig(x, kpm, temporal_bias)
+        return f
+
+    def record_temporal(block, x, kpm, temporal_bias):
+        mha = block.temporal_attn
+        BC, N, D = x.shape
+        H = mha.num_heads
+        q, k, _ = F.linear(x, mha.in_proj_weight, mha.in_proj_bias).chunk(3, dim=-1)
+        q, k = (t.reshape(BC, N, H, D // H).transpose(1, 2) for t in (q, k))            # [BC, H, N, d]
+        logit = q @ k.transpose(-1, -2) / math.sqrt(D // H)
+        if temporal_bias is not None:
+            logit = logit + temporal_bias[None]
+        if kpm is not None:
+            logit = logit.masked_fill(kpm[:, None, None, :], float('-inf'))
+        w = logit.softmax(-1).mean(1)                                        # [B*C, N, N], heads averaged
+        B, C, i = cur['B'], cur['C'], cur['i']
         stage = sum(p < i for p in enc.pool_after)
         pos = torch.arange(N, dtype=torch.float32)
         d = (pos[:, None] - pos[None, :]).abs() * dt * 2 ** stage           # [N, N] seconds
@@ -96,7 +111,7 @@ def attention_range(model, config, out_path, max_windows=256):
 
     for i, block in enumerate(enc.blocks):
         hooks.append(block.register_forward_pre_hook(pre_hook(i)))
-        hooks.append(block.temporal_attn.register_forward_hook(temporal_hook))
+        block._temporal_attention = temporal_wrap(block)
         block._spatial_attention = spatial_wrap(i, block)
     try:
         for _, x, coords, t, valid in batches(ds, idx):
@@ -106,7 +121,7 @@ def attention_range(model, config, out_path, max_windows=256):
         for h in hooks:
             h.remove()
         for block in enc.blocks:
-            del block._spatial_attention                                     # back to the class method
+            del block._spatial_attention, block._temporal_attention         # back to the class methods
 
     res = []
     for i, (block, a) in enumerate(zip(enc.blocks, acc)):
