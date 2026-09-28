@@ -29,3 +29,22 @@ Written 2026-09-28, before any of these runs trained (ADR 0020).
 
 If 1 and 3 pass: the seed programme (seeds 2, 3) runs at patch 100 on S16 vs R. If 1 fails: routed code moves
 to a branch.
+
+## Results (2026-09-28)
+
+| | S32 | S16 | R (64r, k16) | patch-50 64r (ref) |
+|---|---|---|---|---|
+| routed dead share / usage entropy / dataset JS | -- | -- | **58%** / 0.74 / 0.018 | 56% / 0.74 / 0.019 |
+| stamps with a nearest neighbour cos >= 0.95 | 3/32 | 2/16 | 12/30 (listed) | -- |
+| masked MSE token_runs / random_channel / channel_cluster / time_block | 0.476 / 0.327 / 0.349 / 0.833 | 0.459 / 0.351 / 0.367 / 0.843 | 0.432 / 0.343 / 0.360 / 0.838 | -- |
+| ridge probe on z, 004 / 001 / 008 | 68.7 / 43.1 / 65.9 | 72.6 / 40.6 / 66.8 | 71.4 / 41.6 / 67.3 | -- |
+| stamp - raw, 004 / 001 / 008 | -1.0 / -0.2 / -0.0 | -1.1 / -3.1 / +0.9 | -2.5 / -0.2 / +4.0 | -- |
+
+**Verdict: fails at the primary.** R's dead share is 58% at patch 100, the same as at patch 50 (56%): the
+patch space is not what kills routed stamps -- the self-scoring selection is. R vs S32: within 3% on
+time_block only (token_runs -9%, random_channel +5%, channel_cluster +3%). R vs S16 (equal budget): better
+by > 3% on 1 of 4 masks (token_runs -6%). z probe: R and S16 tie (spread 2.2).
+
+The capacity part of the hypothesis holds for static dictionaries: S32 at patch 100 has 3 near-duplicate
+stamps (patch 50 grows duplicates above ~23) -- but 32 static stamps reconstruct no better than 16.
+Per the card, routed code moves to a branch.
