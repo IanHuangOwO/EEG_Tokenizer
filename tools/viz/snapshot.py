@@ -5,7 +5,7 @@ import os
 
 import numpy as np
 
-from tools.viz.extract import extract_flat_stamp_gallery, extract_flat_stamp_psd_by_patch
+from tools.viz.extract import extract_stamp_gallery, extract_stamp_psd_by_patch
 from tools.viz.stamp_plots import plot_stamp_by_patch, plot_stamp_gallery
 from tools.viz.timeseries import visualize_reconstruction
 from tools.viz.topomap import project_coords_2d
@@ -60,8 +60,8 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
 
     # Whole-trial raw/recon PSD -- same FFT settings as the gallery's own per-stamp PSD
     # (freq_resolution=fft_resolution drives both), so the header row is directly
-    # comparable to the stamp rows below it. n_fft must match extract_flat_stamp_
-    # gallery's own n_fft (round(fs/fft_resolution)); rfft's n= transparently
+    # comparable to the stamp rows below it. n_fft must match extract_stamp_gallery's
+    # own n_fft (round(fs/fft_resolution)); rfft's n= transparently
     # zero-pads a short trial or truncates a long one to match.
     raw_t   = bundle.raw_t[0].numpy()
     recon_t = bundle.recon_t[0].numpy()
@@ -81,8 +81,8 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
     raw_power   = (bundle.raw_cnl   ** 2).mean(axis=(1, 2))
     recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
 
-    (used_ids, gal_importance, psd_ch_x_g, psd_x_g, gal_freqs, phase_ch_x_g,
-     waveforms_g, iclabel_probs) = extract_flat_stamp_gallery(
+    (_, gal_importance, psd_ch_x_g, psd_x_g, gal_freqs, phase_ch_x_g,
+     waveforms_g, iclabel_probs) = extract_stamp_gallery(
         model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
         fs=fs, freq_resolution=fft_resolution)
 
@@ -99,14 +99,14 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
         psd_ch_x_g, psd_x_g, gal_freqs, gal_importance, cmap=cmap,
         phase_ch_x=phase_ch_x_g, waveforms=waveforms_g,
         subject_id=bundle.subject_id, trial_idx=bundle.trial_idx, epoch_tag=tagged_epoch_tag,
-        unit_label='Stamp', unit_ids=used_ids,
+        unit_label='Stamp',
         iclabel_probs=iclabel_probs,
     )
     print(f"  [snapshot] -> {out_path}")
 
 
 def render_stamp_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
-    """Per-patch stamp selection grid for one trial (not in any preset; kept for occasional use)."""
+    """Per-patch stamp grid for one trial (not in any preset; kept for occasional use)."""
     model = bundle.psd_model
     viz_dir = out_dir
     os.makedirs(viz_dir, exist_ok=True)
@@ -124,7 +124,7 @@ def render_stamp_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
     psd_range = viz_cfg.get('psd_freq_range')
     psd_l_freq, psd_h_freq = tuple(psd_range) if psd_range else (l_freq, h_freq)
 
-    grid = extract_flat_stamp_psd_by_patch(
+    grid = extract_stamp_psd_by_patch(
         model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
         fs=fs, freq_resolution=fft_resolution, patch_stride=5)
 
@@ -151,7 +151,6 @@ def render_stamp_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
         out_path, pos2d, grid, cmap=cmap,
         subject_id=bundle.subject_id, trial_idx=bundle.trial_idx, epoch_tag=tagged_epoch_tag,
         unit_label='Stamp',
-        signed_stamps=True,  # grid.topo is signed amp (mixing columns)
         onset_col=onset_col,
     )
     print(f"  [snapshot] -> {out_path}")

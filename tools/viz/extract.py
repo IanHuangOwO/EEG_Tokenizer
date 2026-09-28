@@ -1,75 +1,29 @@
 """
-Per-unit (MeFSQ Expert / MeSAE stamp) feature extraction: activation norms, affinity,
-routing/importance scores, and PSD — read by each model's plugin.py and fed into
-viz/panels.py. Model-coupled (runs a partial/full forward pass), unlike viz/topomap.py.
-
-extract_head_*/extract_filter_* return the shared PsdResult/SpectraResult dataclasses —
-same shape for MeFSQ Experts and MeSAE stamps (the "Unit" abstraction model/base_checker.py
-and model/base_plotter.py already use for exactly this reason), so BaseEpochChecker never
-needs to know which model it's plotting. The four functions share their FFT/norm/affinity
-math (_psd_per_channel/_spectra_per_channel/_cosine_affinity below) — only where each
-model's per-Unit decoded vector comes from, and how importance is scored, differs.
-_split_channel_major is duplicated here (not imported from a shared module) — kept local
-to each of this file and model/MeSAE/MeSAE.py on purpose, same
-per-model-ownership rationale as docs/adr/0006.
+Per-stamp feature extraction for the snapshot and codebook panels: each stamp's decoded content,
+signed topography, phase, PSD and whole-trial waveform on one trial. Model-coupled (runs the frozen
+backbone through MeSAEPretrain.encode_stamps), unlike viz/topomap.py. Every stamp is active at every
+patch (static dictionary, docs/adr/0022), so nothing here tracks selection.
 """
 
 from dataclasses import dataclass
-from types import SimpleNamespace
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-
-
-def _split_channel_major(flat, C, P):
-    """[..., C*P] channel-major (C outer, P inner) -> [..., C, P]. Every decoder this
-    file reads from (MeFSQ's MultiHeadDecoder, MeSAE's StampBank decode) is C-major.
-    See docs/agents/reshape-pitfalls.md."""
-    assert flat.shape[-1] == C * P, (
-        f"_split_channel_major: last dim {flat.shape[-1]} != C*P ({C}*{P}={C * P})")
-    return flat.reshape(*flat.shape[:-1], C, P)
-
-
-@dataclass
-class PsdResult:
-    """psd_ch_x: [C, Q] mean per-channel decoded activation norm per Unit.
-    norms: [Q]. affinity: [Q, Q] cosine similarity. importance: [Q] ranking score — routing
-    fraction for MeFSQ Experts, accumulated gate score (sum over patches) for MeSAE
-    Filters; either way, constant for always-on shared units, patch-selection-dependent for
-    routed ones."""
-    psd_ch_x: np.ndarray
-    norms: np.ndarray
-    affinity: np.ndarray
-    importance: np.ndarray
 
 
 @dataclass
 class PatchGridResult:
-    """Real per-patch stamp selection/content — no cross-patch averaging or trial-wide
-    dedup (unlike PsdResult): a stamp firing on many sampled patches shows up
-    once per patch it fired at, with that patch's own real decoded content, instead of
-    being blurred into one trial-averaged row. See extract_flat_stamp_psd_by_patch.
-    patch_ids: [P] sampled patch indices (every patch_stride-th patch).
-    stamp_ids: [P, K] GLOBAL stamp id selected at each sampled patch's each of K=top_k+
-      n_shared slots (same layout StampBank.forward's `idx` uses, routed then shared).
-    topo: [P, K, C] per-channel real-response norm (topomap power) for that (patch, slot).
-    psd: [P, K, C, F] per-channel power spectrum of that (patch, slot)'s real decoded content.
-    h: [P, K] that slot's real selection strength at that patch.
-    recon_topo: [P, C] per-channel norm of that sampled patch's REAL full reconstruction
-      (sum of all K slots' contributions — the same sum StampBank.forward's `recon` is,
-      just for this one patch, not the whole trial) — topo of a sum is not the sum of
-      topos (norm isn't linear), so this is computed from the summed signal, not derived
-      from `topo` above.
-    recon_psd: [P, C, F] power spectrum of that same per-patch full reconstruction.
-    raw_topo: [P, C] per-channel norm of that sampled patch's REAL raw input (the model's
-      own `x` at that patch, before any encoding/decoding) — same FFT settings as
-      recon_topo/psd so it's directly comparable, not derived from recon.
-    raw_psd: [P, C, F] power spectrum of that same per-patch raw input.
+    """Per-patch stamp content, no cross-patch averaging (see extract_stamp_psd_by_patch).
+    patch_ids: [P] sampled patch indices. S = n_stamps; column s is stamp s.
+    topo: [P, S, C] signed per-channel amp (the mixing column) of stamp s at that patch.
+    psd: [P, S, C, F] per-channel power spectrum of stamp s's decoded content at that patch.
+    h: [P, S] stamp strength at that patch.
+    recon_topo / recon_psd: [P, C] / [P, C, F] norm and spectrum of the patch's full
+      reconstruction (computed from the summed signal: norm and FFT are not linear).
+    raw_topo / raw_psd: [P, C] / [P, C, F] the same for the raw input patch.
     freqs: [F].
     """
     patch_ids: np.ndarray
-    stamp_ids: np.ndarray
     topo: np.ndarray
     psd: np.ndarray
     h: np.ndarray
@@ -80,449 +34,118 @@ class PatchGridResult:
     freqs: np.ndarray
 
 
-@dataclass
-class SpectraResult:
-    """psd: [Q, C, F] per-Unit per-channel power spectrum. freqs: [F].
-    importance: [Q], same ranking score as PsdResult.importance."""
-    psd: np.ndarray
-    freqs: np.ndarray
-    importance: np.ndarray
-
-
 def _demean_hann_rfft(x: torch.Tensor, n_fft: int) -> torch.Tensor:
     """Demean + Hann-taper x along its last dim, THEN zero-pad to n_fft and rfft.
-    Every PSD in this file is built from a single short patch_len window (~100ms), far too
-    short to resolve real Delta/Theta content and, worse, a bare rfft on an un-tapered
-    snippet is an implicit rectangular window whose mainlobe (~2*fs/L Hz wide) smears any
-    DC offset or patch-boundary discontinuity across 0-20Hz — that leakage is what was
-    showing up as suspiciously uniform "high power" at 0-10Hz across every dataset/model,
-    not real signal. Demeaning kills the DC spike; the Hann taper suppresses the
-    sidelobes carrying the rest of the leakage. Zero-padding (n_fft > L) still only
-    interpolates this cleaned-up spectrum for display — it doesn't add real resolution
-    below ~1/(L/fs) Hz, that ceiling is unavoidable at patch_len scale."""
+    Every PSD in this file is built from a single short patch_len window, far too short to resolve
+    real Delta/Theta content, and a bare rfft on an un-tapered snippet is an implicit rectangular
+    window whose mainlobe (~2*fs/L Hz wide) smears any DC offset or patch-boundary discontinuity
+    across 0-20 Hz. Demeaning kills the DC spike; the Hann taper suppresses the sidelobes.
+    Zero-padding (n_fft > L) only interpolates the spectrum for display -- no real resolution below
+    ~1/(L/fs) Hz."""
     x = x - x.mean(dim=-1, keepdim=True)
     win = torch.hann_window(x.shape[-1], periodic=False, device=x.device, dtype=x.dtype)
     return torch.fft.rfft(x * win, n=n_fft, dim=-1)
 
 
-def _cosine_affinity(v_mean: torch.Tensor) -> np.ndarray:
-    """v_mean: [Q, D] mean decoded/embedded vector per Unit -> [Q, Q] cosine similarity."""
-    v_mean_n = F.normalize(v_mean, dim=-1)
-    return (v_mean_n @ v_mean_n.T).cpu().numpy()
+def _n_fft(patch_len, fs, freq_resolution):
+    return max(patch_len, int(round(fs / freq_resolution))) if fs and freq_resolution else patch_len
 
 
-def _psd_per_channel(recon_flat: torch.Tensor, B: int, N: int, C: int, P: int) -> np.ndarray:
-    """recon_flat: [M, Q, C*P] per-Unit decoded reconstruction, channel-major.
-    Returns [C, Q] mean per-channel activation norm (norm over patch length P, mean over
-    patches N, first trial in the batch)."""
-    recon = _split_channel_major(recon_flat, C, P).reshape(B, N, -1, C, P)
-    return recon.norm(dim=-1).mean(dim=1)[0].permute(1, 0).cpu().numpy()
-
-
-def _spectra_per_channel(recon_flat: torch.Tensor, B: int, N: int, C: int, L: int,
-                          fs: float = None, freq_resolution: float = None):
-    """recon_flat: [M, Q, C*L] per-Unit decoded reconstruction, channel-major.
-    Zero-padded FFT power spectrum, averaged over patches, first trial in the batch.
-    Returns (psd [Q, C, F], freqs [F])."""
-    Q = recon_flat.shape[1]
-    recon = _split_channel_major(recon_flat, C, L).reshape(B, N, Q, C, L)[0].permute(2, 0, 1, 3)  # [C, N, Q, L]
-
-    n_fft = L
-    if fs and freq_resolution:
-        n_fft = max(L, int(round(fs / freq_resolution)))
-
-    fft_c = _demean_hann_rfft(recon.float(), n_fft)
-    psd = fft_c.real.pow(2) + fft_c.imag.pow(2)   # [C, N, Q, F]
-    psd = psd.mean(dim=1)                          # [C, Q, F] — average over patches
-    psd = psd.permute(1, 0, 2).cpu().numpy()       # [Q, C, F]
-
-    freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
-    return psd, freqs
-
-
-@torch.no_grad()
-def extract_head_psd(model, x: torch.Tensor, coords: torch.Tensor,
-                     time_idx: torch.Tensor = None) -> PsdResult:
-    """
-    Per-head per-channel activation norm, combining BOTH MoE pools (shared experts first,
-    at indices [0, n_shared_experts), then routed) — same order as encode_pre_vq, so this
-    lines up with the finetune head's attn_h/attn_n head axis.
-
-    Computed in up-projected embed_dim space (z_per_head = v_q @ vq_proj), not raw v_q —
-    routed/shared pools can have different r (quantizer vocab width), so their raw v_q
-    can't be concatenated/compared directly, but both always up-project to the same
-    embed_dim, which is also the space the decoder actually reads.
-
-    psd_ch_h — [C, H_total] mean per-channel decoded activation norm per head (fused
-      per-patch VQ has no per-channel axis pre-decode, so this decodes each pool through
-      its own decoder to recover a per-channel magnitude, rather than the pre-decode
-      embedding norm used before the channel fusion).
-    importance — fraction of patches selecting each head (model.shared_weight for shared,
-      always active but down-weighted).
-    """
-    B, C, N, L = x.shape
-    out = model(x, coords=coords, time_idx=time_idx, bool_masked_pos=None)
-
-    z_shared = torch.einsum('mhr,hdr->mhd', out.v_q_shared, model.vq_proj_shared)  # [M, Hs, D]
-    z_routed = torch.einsum('mhr,hdr->mhd', out.v_q_routed, model.vq_proj_routed)  # [M, Hr, D]
-    z_all    = torch.cat([z_shared, z_routed], dim=1)                              # [M, H_total, D]
-
-    head_norms    = z_all.norm(dim=-1).mean(dim=0).cpu().numpy()  # [H_total]
-    head_affinity = _cosine_affinity(z_all.mean(dim=0))
-
-    recon_shared = model.decoder_shared(z_shared)               # [M, Hs, C*patch_len]
-    recon_routed = model.decoder_routed(z_routed)               # [M, Hr, C*patch_len]
-    recon_all    = torch.cat([recon_shared, recon_routed], dim=1)  # [M, H_total, C*patch_len]
-    patch_len    = recon_all.shape[-1] // C
-    psd_ch_h     = _psd_per_channel(recon_all, B, N, C, patch_len)  # [C, H_total]
-
-    # routing importance: shared experts are always active, scaled by their fixed contribution
-    # weight to recon (model.shared_weight) rather than a flat 1.0 — otherwise they'd always
-    # rank as "most important" even though their recon contribution is deliberately down-weighted;
-    # routed experts by fraction of patches that selected them
-    routing_shared = torch.full((model.n_shared_experts,), model.shared_weight, device=z_all.device)
-    routing_routed = (out.gate_mask_routed.detach() > 0).float().mean(dim=0)
-    routing_score  = torch.cat([routing_shared, routing_routed]).cpu().numpy()  # [H_total]
-
-    return PsdResult(psd_ch_h, head_norms, head_affinity, routing_score)
-
-
-@torch.no_grad()
-def extract_head_spectra(model, x: torch.Tensor, coords: torch.Tensor,
-                          time_idx: torch.Tensor = None, fs: float = None,
-                          freq_resolution: float = None) -> SpectraResult:
-    """
-    Per-head, per-channel power spectrum of that head's OWN decoded reconstruction
-    (v_q -> vq_proj -> decoder, per head, un-gated so every routed head shows what it would
-    reconstruct if selected — shared heads have no gating to begin with) — not the
-    shared-embedding VQ activation norm extract_head_psd reports, an actual frequency-domain
-    view of each head's specialization. Combines both MoE pools (shared experts first, at
-    indices [0, n_shared_experts), then routed) — same order as encode_pre_vq.
-    fs: sample rate in Hz for the freq axis; if None, freqs are cycles/patch (bin index).
-    freq_resolution: Hz per bin via zero-padded FFT (n_fft = fs / freq_resolution) — the
-    patch itself (L samples) is far shorter than what a fine resolution needs, so this is
-    padding for display resolution, not real added information beyond the L-sample window.
-    """
-    B, C, N, L = x.shape
-    out = model(x, coords=coords, time_idx=time_idx, bool_masked_pos=None)
-
-    z_shared = torch.einsum('mhr,hdr->mhd', out.v_q_shared,     model.vq_proj_shared)  # [M, Hs, D]
-    z_routed = torch.einsum('mhr,hdr->mhd', out.v_q_routed_raw, model.vq_proj_routed)  # [M, Hr, D], un-gated
-    recon_shared = model.decoder_shared(z_shared)  # [M, Hs, C*L] — fused per-patch decode covers all channels jointly
-    recon_routed = model.decoder_routed(z_routed)  # [M, Hr, C*L]
-    recon_all = torch.cat([recon_shared, recon_routed], dim=1)  # [M, H_total, C*L]
-
-    psd, freqs = _spectra_per_channel(recon_all, B, N, C, L, fs=fs, freq_resolution=freq_resolution)
-
-    routing_shared = torch.full((model.n_shared_experts,), model.shared_weight, device=recon_routed.device)
-    routing_routed = (out.gate_mask_routed.detach() > 0).float().mean(dim=0)
-    routing_score  = torch.cat([routing_shared, routing_routed]).cpu().numpy()  # [H_total]
-
-    return SpectraResult(psd, freqs, routing_score)
-
-
-# ==========================================
-# MeSAE StampBank: decode every (channel, patch) token directly and ZERO-FILL (channel,
-# {patch|stamp}) combinations that carry no stamp (see MeSAE_modules.StampBank).
-# ==========================================
-
-@torch.no_grad()
-def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
-    """(used_ids [Qu], importance [Qu], fp [Qu, C, patch_len], amp_topo [Qu, C] SIGNED
-    trial-mean per-channel amp — the mixing/topomap column, phase_topo [Qu, C] RAW
-    per-channel phase in radians).
-    Selection is per PATCH POSITION now (shared by all C channels, see
-    MeSAE_modules.StampBank class docstring), so importance is the accumulated
-    post-rms amp magnitude h (sqrt(a^2+b^2) averaged over channels, see
-    StampBank.forward) over the patches that picked each used stamp — real
-    reconstruction energy, not a selection-frequency proxy — and fp is each used
-    stamp's per-channel contribution (amp_c * rms_c * D_hat, the stamp's real
-    mixing/topomap content) averaged over the patches that actually SELECTED it (not
-    over all N patches) — so fp is the real per-firing average, matching what
-    `importance` is a sum of; a patch that didn't select the stamp contributes nothing
-    to either the numerator or the denominator here, instead of diluting the average
-    toward 0 in proportion to how rarely a stamp fired (the earlier /N convention,
-    which made two stamps of equal importance render at very different visual power
-    purely from firing-count differences, not from anything the stamp actually did).
-    WITHIN a selected patch every channel has a real dense amp value: the per-channel
-    zero-holes of the old per-token selection (a channel that lost the top-k race
-    showing 0 despite genuinely containing the source) are gone by construction."""
-    z, _ = model.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [1, C, N, D]
-    B, C, N, D = z.shape
-    z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
-    x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)
-    # rms must match the training path (see MeSAEPretrain.forward) — contribution
-    # is amp*rms*D_hat, so without rms every decoded panel is mis-scaled.
-    rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
-    vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C) \
-        if valid_channels is not None else None
-
-    out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vc_g)  # eval-mode call
-    idx, h = out.idx, out.h  # [N, K]
-    K = idx.shape[1]
-    n_stamps = model.n_stamps
-
-    dense_imp = h.new_zeros(n_stamps)
-    dense_imp.scatter_add_(0, idx.reshape(-1), h.reshape(-1))
-    used_ids = torch.arange(min(n_stamps, max_stamps), device=idx.device)   # every stamp is active (static dictionary)
-    importance = dense_imp[used_ids].cpu().numpy()
-
-    contribution = model.stamps.decode_selected(idx, out.amp)  # [N, C, K, patch_len]
-    patch_len = contribution.shape[-1]
-
-    # Hit count per stamp: how many of the N patches actually selected it (idx has at
-    # most one occurrence of a given id per patch, so this is a real per-stamp firing
-    # count, 0..N). Dividing by this instead of the constant N is what makes the
-    # DISPLAYED waveform/PSD agree with `importance` (a real accumulated sum over hit
-    # patches, see dense_imp above): dividing by N always would shrink a stamp's shown
-    # magnitude toward 0 in proportion to how RARELY it fired, on top of its real
-    # per-firing amplitude — so two stamps with the same importance (same total summed
-    # energy) but different firing counts used to render at very different visual
-    # power, purely from dilution, not from anything the stamp actually did
-    # differently. Dividing by hit count instead yields the real per-firing average
-    # amplitude, consistent with what importance is a sum OF.
-    hit_count = idx.new_zeros(n_stamps, dtype=contribution.dtype)
-    hit_count.scatter_add_(0, idx.reshape(-1), torch.ones_like(idx.reshape(-1), dtype=contribution.dtype))
-    hit_count_c = hit_count.clamp(min=1).view(n_stamps, 1, 1)
-
-    # Accumulate per stamp over patches: group-major/slot-minor flatten of idx matches
-    # the same flatten of contribution's (N, K) axes.
-    buf = contribution.new_zeros(n_stamps, C, patch_len)
-    buf.index_add_(0, idx.reshape(-1), contribution.permute(0, 2, 1, 3).reshape(N * K, C, patch_len))
-    fp_full = buf / hit_count_c  # real per-firing average, not diluted by non-firing patches
-
-    # SIGNED per-channel mean amp per stamp — the trial-averaged mixing/topomap column.
-    # Quadrature version: accumulate the (a, b) pairs over the patches that actually
-    # fired (coherent average — a source arriving at random phase per patch partially
-    # cancels here, same real-per-firing-average convention as fp above, not diluted by
-    # N), then project each channel onto the stamp's channel-mean phase direction for a
-    # signed scalar (A_c * cos(phi_c - phi_ref); polarity IS the dipole structure, see
-    # plot panels' RdBu cells).
-    buf_amp = out.amp.new_zeros(n_stamps, C, 2)
-    buf_amp.index_add_(0, idx.reshape(-1), out.amp.permute(0, 2, 1, 3).reshape(N * K, C, 2))
-    hit_count_sel = hit_count[used_ids].clamp(min=1).view(-1, 1, 1)
-    ab = buf_amp[used_ids] / hit_count_sel                          # [Qu, C, 2]
-    ref = ab.mean(dim=1, keepdim=True)                             # [Qu, 1, 2]
+def _signed_topo(ab):
+    """ab [..., C, 2] (a, b) pairs -> [..., C] signed scalar: each channel's pair projected onto the
+    channel-mean phase direction, A_c * cos(phi_c - phi_ref). Zero-lag sources keep their magnitude
+    with the dipole's sign structure; out-of-phase (travelling-wave) components drop out."""
+    ref = ab.mean(dim=-2, keepdim=True)
     ref = ref / (ref.norm(dim=-1, keepdim=True) + 1e-8)
-    amp_topo = (ab * ref).sum(dim=-1)                              # [Qu, C] signed projection
-    # Raw per-channel PHASE (not projected away like amp_topo's scalar magnitude) --
-    # atan2(b, a), radians -- lets a caller see phase differ across channels for one
-    # stamp directly (e.g. paired with the PSD panel in plot_stamp_gallery).
-    phase_topo = torch.atan2(ab[..., 1], ab[..., 0])               # [Qu, C]
-
-    fp = fp_full[used_ids]           # [Qu, C, patch_len]
-    # raw selection objects, for callers that need per-patch detail beyond the
-    # trial-averaged fp/amp_topo (the ICLabel pseudo-activity builder in
-    # extract_flat_stamp_gallery)
-    sel = SimpleNamespace(idx=idx, amp=out.amp)
-    return used_ids, importance, fp, amp_topo, phase_topo, sel
+    return (ab * ref).sum(dim=-1)
 
 
 @torch.no_grad()
-def extract_flat_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
-                                time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
-                                fs: float = None, freq_resolution: float = None, max_stamps: int = 100):
-    """
-    Everything MeSAEChecker's standalone whole-trial stamp gallery panel
-    (viz.panels.plot_stamp_gallery) needs, off ONE _used_flat_stamps call — avoids calling
-    extract_flat_stamp_psd AND a separate spectra extraction, each independently
-    re-running decode_selected/StampBank.forward for the same trial, when both just read
-    different views (norm vs FFT) of the same fp. Not part of the shared PsdResult/
-    SpectraResult "Unit" contract (model/base_checker.py's extract_psd/extract_spectra) —
-    this is a bespoke one-off panel, not the generic per-model dispatch path.
+def _stamp_summary(model, x, coords, time_idx=None, valid_channels=None):
+    """One trial (B=1) -> (importance [S] summed strength h over patches, fp [S, C, patch_len] mean
+    decoded content, amp_topo [S, C] signed trial-mean topography, phase_topo [S, C] raw per-channel
+    phase of the trial-mean (a, b), out: the StampBank output). The trial-mean (a, b) is a coherent
+    average: a source arriving at random phase per patch partially cancels."""
+    out = model.encode_stamps(x, coords, time_idx=time_idx, valid_channels=valid_channels)
+    importance = out.h.sum(dim=0).cpu().numpy()                           # [S]
+    fp = model.stamps.decode(out.amp).mean(dim=0).transpose(0, 1)         # [S, C, L]
+    ab = out.amp.mean(dim=0).transpose(0, 1)                              # [S, C, 2]
+    return importance, fp, _signed_topo(ab), torch.atan2(ab[..., 1], ab[..., 0]), out
 
-    Returns (used_ids [Qu] np.ndarray, importance [Qu] np.ndarray, psd_ch_x [C, Qu]
-    np.ndarray — SIGNED trial-mean amp per channel (the mixing/topomap column,
-    rendered as a diverging RdBu topo by plot_stamp_gallery — polarity is the dipole
-    structure), psd_x [Qu, C, F] np.ndarray, freqs [F] np.ndarray, phase_ch_x [C, Qu]
-    np.ndarray — RAW per-channel phase (atan2(b,a), radians, NOT projected away like
-    psd_ch_x's signed scalar) so a caller can see phase differ across channels for one
-    stamp directly, e.g. paired with the psd_x panel, waveforms — list of Qu 1-D
-    np.ndarray, all SAME length T = (N-1)*patch_stride + patch_len (the real trial
-    length): real decoded content at ONE pinned channel (the channel with the most
-    total energy across all this stamp's firings — see the ICLabel section below),
-    placed at each fired patch's true n*patch_stride position (overlapping firings
-    plain-averaged, not duplicated); positions no fired patch ever covers are NaN (a
-    real silent gap, not synthesized zero) — matplotlib breaks the plotted line there.
-    Not the same array ICLabel's classification reads (that one is gap-free, see the
-    ICLabel section), iclabel_probs
-    [Qu, 7] np.ndarray or None — per-stamp ICLabel class distribution
-    (viz.iclabel.ICLABEL_CLASSES order; None when mne-icalabel is unavailable or the
-    pipeline fails, see viz/iclabel.py's caveat on interpreting these)).
-    """
-    used_ids, importance, fp, amp_topo, phase_topo, sel = _used_flat_stamps(
-        model, x, coords, time_idx=time_idx, valid_channels=valid_channels, max_stamps=max_stamps)
-    psd_ch_x = amp_topo.permute(1, 0).cpu().numpy()  # [C, Qu] signed
-    phase_ch_x = phase_topo.permute(1, 0).cpu().numpy()  # [C, Qu] radians
 
-    patch_len = fp.shape[-1]
-    n_fft = patch_len
-    if fs and freq_resolution:
-        n_fft = max(patch_len, int(round(fs / freq_resolution)))
-    fft_c = _demean_hann_rfft(fp.float(), n_fft)  # [Qu, C, F]
+@torch.no_grad()
+def extract_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
+                          time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
+                          fs: float = None, freq_resolution: float = None):
+    """
+    Everything the whole-trial stamp gallery (tools/viz/stamp_plots.plot_stamp_gallery) needs, from
+    one _stamp_summary call. Returns (ids [S], importance [S], psd_ch_x [C, S] SIGNED trial-mean amp
+    per channel (the mixing column, rendered as a diverging topo), psd_x [S, C, F], freqs [F],
+    phase_ch_x [C, S] raw per-channel phase (radians), waveforms: S arrays of the real trial length
+    T = (N-1)*patch_stride + patch_len -- stamp s's decoded content at ONE pinned channel (the channel
+    with the most total energy for that stamp), overlapping patches averaged -- and iclabel_probs
+    [S, 7] or None (viz/iclabel.py; None when mne-icalabel is unavailable or fails).
+    """
+    importance, fp, amp_topo, phase_topo, out = _stamp_summary(
+        model, x, coords, time_idx=time_idx, valid_channels=valid_channels)
+    S, C, L = fp.shape
+    n_fft = _n_fft(L, fs, freq_resolution)
+    fft_c = _demean_hann_rfft(fp.float(), n_fft)                          # [S, C, F]
     psd_x = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
 
-    # --- ICLabel pseudo-IC classification (see viz/iclabel.py, incl. the caveat) ---
-    # Activation per used stamp: at every patch that selected it, the stamp's decoded
-    # waveform at ONE pinned channel (the channel with the most total energy across all
-    # this stamp's firings — see channel-pinning note below), concatenated only over the
-    # patches it actually fired on. Deliberately NOT stitched to a common length with
-    # zeros at unfired patches: _eeg_rpsd medians over windows and any all-zero window
-    # makes the whole feature NaN (measured at 25% and 12.5% nonzero, not just 0%), which
-    # is what used to leave most stamps unclassified. Those zeros were never part of the
-    # source anyway. Lengths therefore differ per stamp, which viz.iclabel handles by
-    # extracting features one stamp at a time.
+    # --- whole-trial waveform per stamp, and ICLabel pseudo-IC classification (viz/iclabel.py) ---
     from tools.viz.iclabel import stamp_iclabel_probs
-    D_all, H_all = model.stamps._template_tables()          # [n_stamps, L]
-    N, K = sel.idx.shape
-    L = D_all.shape[1]
-    C = x.shape[1]
+    D, H = model.stamps.templates()                                       # [S, L]
+    N = out.amp.shape[0]
     stride = getattr(model, 'patch_stride', None) or L
-    T = (N - 1) * stride + L  # real trial length these N patches were sliced from
-    vc = valid_channels[0].bool() if valid_channels is not None         else torch.ones(C, dtype=torch.bool, device=x.device)
-    mag = sel.amp.pow(2).sum(-1)                            # [N, C, K]
-    mag = mag.masked_fill(~vc.view(1, C, 1), 0.0)
-    acts = []
-    waveforms = []  # untiled `sig` per stamp — the real thing ICLabel's features were built
-    # from, kept for plot_stamp_gallery's waveform panel (paired visually with that
-    # stamp's ICLabel bar right below it: "here's the actual signal, here's the call").
-    for sid in used_ids.tolist():
-        hit = sel.idx == sid                                # [N, K] — <=1 slot per patch
-        fired = hit.any(dim=1).nonzero(as_tuple=True)[0].tolist()
-        nk = [(n, int(hit[n].float().argmax())) for n in fired]
+    T = (N - 1) * stride + L
+    vc = valid_channels[0].bool() if valid_channels is not None else torch.ones(C, dtype=torch.bool, device=x.device)
+    energy = out.amp.pow(2).sum(-1).masked_fill(~vc.view(1, C, 1), 0.0).sum(0)   # [C, S]
+    waveforms, acts = [], []
+    for s in range(S):
+        c = int(energy[:, s].argmax())    # ONE pinned channel for the whole waveform
+        seg = (out.amp[:, c, s, 0, None] * D[s] + out.amp[:, c, s, 1, None] * H[s]).cpu().numpy()   # [N, L]
+        acc, wsum = np.zeros(T, dtype=np.float32), np.zeros(T, dtype=np.float32)
+        for n in range(N):
+            acc[n * stride:n * stride + L] += seg[n]
+            wsum[n * stride:n * stride + L] += 1.0
+        sig = acc / np.maximum(wsum, 1.0)
+        waveforms.append(sig)
+        # ICLabel's feature needs at least ~fs samples: tile the real content up to N*L
+        acts.append(np.tile(sig, int(np.ceil(N * L / T)))[:N * L])
+    mixing = amp_topo[:, vc].transpose(0, 1).cpu().numpy()               # [Cv, S] signed
+    iclabel_probs = stamp_iclabel_probs(coords[0, vc].cpu().numpy(), fs or 1.0, mixing, acts)
 
-        # Pin ONE channel for the whole waveform — the channel with the most total
-        # energy across every patch this stamp fired on — instead of re-picking the
-        # per-patch strongest channel each time (the old behavior silently swapped
-        # channels mid-signal whenever a different channel briefly outscored the rest).
-        if nk:
-            c_star = int(sum(mag[n, :, k] for n, k in nk).argmax())
-        else:
-            c_star = 0
-
-        # Place each fired patch's decoded segment at its REAL position (n*stride) in a
-        # full-trial-length buffer instead of plain-concatenating (torch.cat) segment
-        # after segment regardless of true spacing — the same overlap-duplication /
-        # false-adjacency bug overlap_add_patches fixed for the actual recon display
-        # (model/MeSAE/MeSAE_modules.py), just never fixed here: consecutive overlapping
-        # firings were double-counted (inflating apparent duration beyond patch_len),
-        # and non-adjacent firings were joined with zero indication of the real silent
-        # gap between them. Overlapping fired patches are plain-averaged (uniform
-        # weight, not a full crossfade — sparse/gappy input doesn't need the trapezoid
-        # ramp, just correct normalization); positions no fired patch ever covers stay
-        # NaN (a real gap, not synthesized silence) — matplotlib's plot breaks the line
-        # there automatically.
-        acc = np.zeros(T, dtype=np.float32)
-        wsum = np.zeros(T, dtype=np.float32)
-        for n, k in nk:
-            a, b = sel.amp[n, c_star, k, 0], sel.amp[n, c_star, k, 1]
-            seg = (a * D_all[sid] + b * H_all[sid]).detach().cpu().numpy()
-            start = n * stride
-            acc[start:start + L] += seg
-            wsum[start:start + L] += 1.0
-        sig_full = np.full(T, np.nan, dtype=np.float32)
-        covered = wsum > 0
-        sig_full[covered] = acc[covered] / wsum[covered]
-        waveforms.append(sig_full)
-
-        # ICLabel needs a contiguous, gap-free signal (see docstring above) — build that
-        # separately from the displayed (gapped, true-position) waveform: real content
-        # only, in firing order, no NaNs, same pinned channel.
-        sig = sig_full[covered] if covered.any() else np.zeros(L, dtype=np.float32)
-        # TILE the fired content up to the full trial length rather than zero-padding:
-        # _eeg_rpsd emits its fixed 100-bin feature only for signals of at least ~sfreq
-        # samples (a 1-patch stamp otherwise yields 99 bins and fails to stack), and
-        # zero-padding is what poisoned the median in the first place. Repeating the
-        # stamp's own content keeps every window occupied by real signal and leaves its
-        # spectrum essentially unchanged.
-        reps = int(np.ceil((N * L) / max(len(sig), 1)))
-        acts.append(np.tile(sig, reps)[:N * L])
-    mixing = amp_topo[:, vc.cpu()].permute(1, 0).cpu().numpy()   # [Cv, Qu] signed
-    ch_pos = coords[0, vc].cpu().numpy()                          # [Cv, 3]
-    iclabel_probs = stamp_iclabel_probs(ch_pos, fs or 1.0, mixing, acts)
-
-    return used_ids.cpu().numpy(), importance, psd_ch_x, psd_x, freqs, phase_ch_x, waveforms, iclabel_probs
+    return (np.arange(S), importance, amp_topo.transpose(0, 1).cpu().numpy(), psd_x, freqs,
+            phase_topo.transpose(0, 1).cpu().numpy(), waveforms, iclabel_probs)
 
 
 @torch.no_grad()
-def extract_flat_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
-                                     time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
-                                     fs: float = None, freq_resolution: float = None,
-                                     patch_stride: int = 1, k_display: int = None) -> PatchGridResult:
-    """
-    MeSAEPretrain analog of extract_filter_psd_by_patch. StampBank selects ONE
-    top_k+n_shared stamp set per patch position, shared by all C channels (group
-    selection, see MeSAE_modules.StampBank class docstring) — so the per-patch grid
-    is direct: slot k of patch n is a real global stamp id for every channel, and its
-    [C] row of decoded content is that stamp's actual dense per-channel contribution
-    (amp_c * rms_c * D_hat — the stamp's mixing/topomap column at that patch time, no
-    zero-holes). The old per-token union/zero-fill machinery (union of C independent
-    selections, importance-ranked, -1-padded) is gone with the architecture that
-    needed it.
-
-    k_display, if given, keeps only the first k_display slots (routed slots come
-    score-ordered first, shared last — so a small k_display drops shared first).
-    h is each slot's post-rms amp magnitude (sqrt(a^2+b^2) averaged over channels,
-    see StampBank.forward) — real reconstruction energy for both routed and shared
-    slots, not a selection-frequency proxy.
-    """
-    z, _ = model.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [1, C, N, D]
-    B, C, N, D = z.shape
-    z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, D)           # [G=N, C, D] (B=1)
-    x_g = x.permute(0, 2, 1, 3).reshape(B * N, C, -1)
-    # rms must match the training path (see MeSAEPretrain.forward) — contribution
-    # is amp*rms*D_hat, so without rms every decoded panel is mis-scaled.
-    rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
-    vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C) \
-        if valid_channels is not None else None
-
-    out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vc_g)  # eval-mode call
-    idx, h = out.idx, out.h  # [N, K]
-    K = idx.shape[1]
-    Kd = min(k_display, K) if k_display is not None else K
-
-    contribution = model.stamps.decode_selected(idx, out.amp)  # [N, C, K, patch_len]
-    patch_len = contribution.shape[-1]
-
+def extract_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
+                               time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
+                               fs: float = None, freq_resolution: float = None,
+                               patch_stride: int = 1) -> PatchGridResult:
+    """Every patch_stride-th patch of one trial (B=1): each stamp's signed topography, strength h and
+    decoded-content spectrum at that patch, plus the patch's raw and full-reconstruction spectra."""
+    out = model.encode_stamps(x, coords, time_idx=time_idx, valid_channels=valid_channels)
+    contribution = model.stamps.decode(out.amp)                           # [N, C, S, L]
+    N, _, _, L = contribution.shape
     sel = list(range(0, N, patch_stride))
+    n_fft = _n_fft(L, fs, freq_resolution)
 
-    grid_ids = idx[sel, :Kd]                                        # [P, Kd]
-    grid_h = h[sel, :Kd]                                            # [P, Kd]
-    grid_contrib = contribution[sel][:, :, :Kd].permute(0, 2, 1, 3)  # [P, Kd, C, patch_len]
+    def spectrum(t):
+        f = _demean_hann_rfft(t.float(), n_fft)
+        return (f.real.pow(2) + f.imag.pow(2)).cpu().numpy()
 
-    n_fft = patch_len
-    if fs and freq_resolution:
-        n_fft = max(patch_len, int(round(fs / freq_resolution)))
-    fft_c = _demean_hann_rfft(grid_contrib.float(), n_fft)  # [P, Kd, C, F]
-    psd = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
-    freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
-    # SIGNED per-channel value for the diverging topo, generalized for quadrature amps:
-    # project each channel's (a, b) pair onto the slot's channel-mean phase direction —
-    # A_c * cos(phi_c - phi_ref). Zero-lag sources keep their full magnitude with the
-    # dipole's sign structure intact (a 180-degree channel projects negative), while
-    # any residual out-of-phase (travelling-wave) component drops out of this view.
-    ab = out.amp[sel][:, :, :Kd, :]                                # [P, C, Kd, 2]
-    ref = ab.mean(dim=1, keepdim=True)                             # [P, 1, Kd, 2] channel-mean phase dir
-    ref = ref / (ref.norm(dim=-1, keepdim=True) + 1e-8)
-    topo = (ab * ref).sum(dim=-1).permute(0, 2, 1).cpu().numpy()   # [P, Kd, C] signed projection
-
-    # Real per-patch, per-channel full reconstruction — ALL K slots summed (StampBank.
-    # forward's recon for this patch), not just the Kd displayed ones.
-    recon_cn = contribution[sel].sum(dim=2)           # [P, C, patch_len]
-    fft_recon = _demean_hann_rfft(recon_cn.float(), n_fft)
-    recon_psd = (fft_recon.real.pow(2) + fft_recon.imag.pow(2)).cpu().numpy()
-    recon_topo = recon_cn.norm(dim=-1).cpu().numpy()
-
-    raw_sel = x[0, :, sel, :].permute(1, 0, 2)  # [P, C, L]
-    fft_raw = _demean_hann_rfft(raw_sel.float(), n_fft)
-    raw_psd = (fft_raw.real.pow(2) + fft_raw.imag.pow(2)).cpu().numpy()
-    raw_topo = raw_sel.norm(dim=-1).cpu().numpy()
-
+    recon = contribution[sel].sum(dim=2)                                  # [P, C, L]
+    raw = x[0, :, sel, :].permute(1, 0, 2)                                # [P, C, L]
     return PatchGridResult(
-        patch_ids=np.array(sel), stamp_ids=grid_ids.cpu().numpy(),
-        topo=topo, psd=psd, h=grid_h.cpu().numpy(),
-        recon_topo=recon_topo, recon_psd=recon_psd,
-        raw_topo=raw_topo, raw_psd=raw_psd, freqs=freqs,
+        patch_ids=np.array(sel),
+        topo=_signed_topo(out.amp[sel].transpose(1, 2)).cpu().numpy(),  # [P, S, C]
+        psd=spectrum(contribution[sel].transpose(1, 2)),                  # [P, S, C, F]
+        h=out.h[sel].cpu().numpy(),
+        recon_topo=recon.norm(dim=-1).cpu().numpy(), recon_psd=spectrum(recon),
+        raw_topo=raw.norm(dim=-1).cpu().numpy(), raw_psd=spectrum(raw),
+        freqs=np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0),
     )
-

@@ -27,17 +27,21 @@ def _ema_update(buf, val, decay=0.99):
 _ROUTED_STATE = ('stamps.W_down_routed', 'stamps.b_down_routed', 'stamps.w_amp_routed', 'stamps.b_amp_routed',
                  'stamps.D_routed', 'stamps.fire_ema', 'ema_stamp_router_entropy', 'ema_stamp_router_load_std',
                  'ema_stamp_gate_entropy')
+_RENAMED_STATE = ('W_down', 'b_down', 'w_amp', 'b_amp', 'D')   # were stamps.<name>_shared
 
 
-def _drop_routed_state(state_dict, prefix, *args):
-    """load_state_dict pre-hook: a static checkpoint trained before the routed stamps were removed
-    (docs/adr/0022) carries empty routed tensors and routing EMAs -- drop them. A checkpoint with
-    routed stamps cannot be rebuilt here: it needs the `routed-stamps` branch."""
+def _legacy_state(state_dict, prefix, *args):
+    """load_state_dict pre-hook for checkpoints trained before docs/adr/0022: drop the empty routed
+    tensors and routing EMAs of a static checkpoint, and rename stamps.<name>_shared to stamps.<name>.
+    A checkpoint with routed stamps cannot be rebuilt here: it needs the `routed-stamps` branch."""
     for k in _ROUTED_STATE:
         v = state_dict.pop(prefix + k, None)
         if v is not None and k.startswith('stamps.') and v.numel() > 0:
             raise ValueError("checkpoint has routed stamps, removed in docs/adr/0022: "
                              "load it from the `routed-stamps` branch")
+    for k in _RENAMED_STATE:
+        if prefix + f'stamps.{k}_shared' in state_dict:
+            state_dict[prefix + f'stamps.{k}'] = state_dict.pop(prefix + f'stamps.{k}_shared')
 
 
 def _restore_phase(module, incompatible_keys):
@@ -51,8 +55,7 @@ def _restore_phase(module, incompatible_keys):
 
 class MeSAEPretrain(nn.Module):
     """
-    Spatiotemporal stamp-dictionary EEG tokenizer — parallel to MeFSQPretrain, not a
-    variant of it. Goal is explainable, per-patch embeddings (not a discrete vocabulary):
+    Spatiotemporal stamp-dictionary EEG tokenizer. Goal is explainable, per-patch embeddings (not a discrete vocabulary):
     channel-count invariant (cross-dataset unification still matters) but NOT
     length-invariant (each patch keeps its own embedding, for temporal localization of
     events within a trial).
@@ -86,9 +89,6 @@ class MeSAEPretrain(nn.Module):
         spatial_embedding=True,
         n_stamps=16,
         stamp_hidden_width=16,
-        stamp_amp_levels=None,
-        stamp_phase_levels=None,
-        stamp_amp_log2_range=(-6.0, 3.0),
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
@@ -121,16 +121,12 @@ class MeSAEPretrain(nn.Module):
         # every block's spatial attention (RelativeSpatialBias), on or off together (the ablation).
         self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_embedding else None
 
-        self.stamps = StampBank(
-            embed_dim, patch_len, n_stamps=n_stamps, hidden_width=stamp_hidden_width,
-            amp_levels=stamp_amp_levels, phase_levels=stamp_phase_levels,
-            amp_log2_range=stamp_amp_log2_range,
-        )
+        self.stamps = StampBank(embed_dim, patch_len, n_stamps=n_stamps, hidden_width=stamp_hidden_width)
         # convenience alias — viz/checker code reads it off the model directly
         self.n_stamps = self.stamps.n_stamps
         self.stamps_frozen = False
         self.register_buffer('masked_phase', torch.tensor(False))
-        self._register_load_state_dict_pre_hook(_drop_routed_state)
+        self._register_load_state_dict_pre_hook(_legacy_state)
         self.register_load_state_dict_post_hook(_restore_phase)
 
         # EMA health of the FFN MoE routers (MoEFFN/FFNRouter, one per TSABlock, averaged
@@ -182,8 +178,7 @@ class MeSAEPretrain(nn.Module):
         """
         End of Tokenizer stage: lock StampBank so the Masked stage's frozen reconstruction
         target stops moving (mp_loss is dropped from the Masked-stage loss once this is
-        called, see get_loss). Mirrors MeFSQ's freeze_vq_and_decoder(), but
-        two-stage/sequential rather than joint-warmup-then-freeze (see
+        called, see get_loss): two-stage/sequential rather than joint-warmup-then-freeze (see
         docs/adr/0003-mesae-two-stage-masked-training.md).
         """
         for p in self.stamps.parameters():
@@ -210,65 +205,17 @@ class MeSAEPretrain(nn.Module):
         valid_patches = x.abs().amax(dim=(1, 3)) > 0                                    # [B, N]
         return self.encoder(z, valid_channels, bias, valid_patches)  # [B, C, N, D], ffn_lb_loss
 
-    # -- Finetune-only entry points, NOT used by the Tokenizer/Pretrain forward() path
-    # below.
-
-    def encode_post_stamp_expert(self, x, coords, time_idx=None, valid_channels=None, return_chan_attn=False):
-        """Per-stamp channel View for the finetune StampExtractor: unlike MeFSQ's Experts (already
-        channel-free via ExpertChannelPool before quantization), a StampBank stamp's
-        response is inherently per-channel — its amp IS a topomap. Collapse channels
-        here the same way, but for free: pool z's C channels for stamp i weighted by
-        that stamp's OWN per-channel amp magnitude (softmax over C), instead of a
-        learned query. Zero new params, and the weight is the physically meaningful
-        quantity already (a stamp's mixing/topomap column) rather than something a
-        classifier head would have to learn from scratch and risk overfitting on (see
-        docs/agents/ / CONTEXT.md finetune val-chance bug).
-
-        Returns z_per_head [B, N, n_stamps, D] (the per-stamp view a finetune head consumes),
-        plus chan_attn [B, N, n_stamps, C] (the pooling weights, i.e. each stamp's
-        per-patch topomap) if return_chan_attn=True.
-        """
-        z, _ = self.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)  # [B, C, N, D]
-        B, C, N, D = z.shape
-        G = B * N
-        z_g = z.permute(0, 2, 1, 3).reshape(G, C, D)   # [G, C, D]
-        x_g = x.permute(0, 2, 1, 3).reshape(G, C, -1)  # [G, C, L]
-        rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()  # [G, C, 1]
-
-        amp = self.stamps.dense_amp(z_g, rms=rms)      # [G, C, n_stamps, 2]
-        mag = amp.pow(2).sum(dim=-1).sqrt()            # [G, C, n_stamps]
-
-        if valid_channels is not None:
-            vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(G, C)
-            mag = mag.masked_fill(~vc_g.unsqueeze(-1), float('-inf'))
-
-        chan_attn = torch.softmax(mag, dim=1)          # [G, C, n_stamps] — softmax over C, per stamp
-        chan_attn = torch.nan_to_num(chan_attn)        # guards an all-padded channel set, shouldn't occur in practice
-        z_per_head = torch.einsum('gcn,gcd->gnd', chan_attn, z_g)  # [G, n_stamps, D]
-        z_per_head = z_per_head.view(B, N, self.n_stamps, D)
-
-        if return_chan_attn:
-            # chan_attn is [G, C, n_stamps] — permute to [G, n_stamps, C] before
-            # splitting G, or view() silently swaps C and n_stamps instead of
-            # transposing them (docs/agents/reshape-pitfalls.md).
-            chan_attn = chan_attn.permute(0, 2, 1).reshape(B, N, self.n_stamps, C)
-            return z_per_head, chan_attn
-        return z_per_head
-
-    def encode_used_stamps(self, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
-        """Viz-only convenience over encode_post_stamp_expert: same z_per_head/chan_attn,
-        capped to the max_stamps stamps with the largest trial-summed View magnitude —
-        at n_stamps up to a few hundred, rendering every one regardless of relevance
-        would swamp the panels (a viz-only concern). Ranked by real magnitude
-        here, not selection frequency: unlike the Tokenizer/Pretrain path, nothing here
-        goes through top-k, so there's no "selected" notion to rank by in the first
-        place. Returns (z_per_head [B, N, Qu, D], chan_attn [B, N, Qu, C],
-        used_ids [Qu])."""
-        z_per_head, chan_attn = self.encode_post_stamp_expert(
-            x, coords, time_idx=time_idx, valid_channels=valid_channels, return_chan_attn=True)
-        importance = z_per_head.norm(dim=-1).sum(dim=(0, 1))  # [n_stamps] — ranking only
-        used_ids = torch.argsort(importance, descending=True)[:max_stamps]
-        return z_per_head[:, :, used_ids, :], chan_attn[:, :, used_ids, :], used_ids
+    @torch.no_grad()
+    def encode_stamps(self, x, coords, time_idx=None, valid_channels=None):
+        """Unmasked stamp code for analysis/viz: StampBank output (recon [G, C, L], amp
+        [G, C, n_stamps, 2] with rms, h [G, n_stamps]; G = B*N positions, b*N + n), no mp_loss.
+        Same per-channel rms as forward() -- without it amp lacks its raw-amplitude factor."""
+        B, C, N, L = x.shape
+        z, _ = self.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)
+        z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
+        rms = x.permute(0, 2, 1, 3).reshape(B * N, C, L).pow(2).mean(dim=-1, keepdim=True).sqrt()
+        vc_g = None if valid_channels is None else valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
+        return self.stamps(z_g, rms=rms, valid_channels=vc_g)
 
     def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """
@@ -281,9 +228,10 @@ class MeSAEPretrain(nn.Module):
         SimpleNamespace so get_loss/_recon_loss can exclude padded channels from the loss — a
         zero-padded channel's "reconstruction" is meaningless signal, not a real target. Padded
         channels still decode/reconstruct like any other.
-        returns SimpleNamespace(recon [B,C,N,L], h [G, n_stamps] stamp strengths (G = B*N patch
-        positions), idx/amp (StampBank.decode_selected), mp_loss/mp_map, ffn_lb_loss scalar
-        (TSABlock MoEFFN routers, summed across blocks), FFN router health, quantization outputs.
+        returns SimpleNamespace(recon [B,C,N,L], h [G, n_stamps] stamp strengths and amp
+        [G, C, n_stamps, 2] (G = B*N patch positions, b*N + n; StampBank.decode re-expands amp),
+        mp_loss/mp_map, ffn_lb_loss scalar (TSABlock MoEFFN routers, summed across blocks), FFN
+        router health.
         """
         B, C, N, L = x.shape
 
@@ -292,8 +240,7 @@ class MeSAEPretrain(nn.Module):
         # Channel-grouped layout for StampBank: [B, C, N, *] -> permute to [B, N, C, *]
         # then merge (B, N) — adjacent after the permute, so the merge is a safe reshape
         # (docs/agents/reshape-pitfalls.md; permute forces a copy, contiguity handled by
-        # reshape itself). One group = one patch position with all its channels — the
-        # unit StampBank selects stamps for (see its class docstring).
+        # reshape itself). One group = one patch position with all its channels.
         G = B * N
         z_g = z.permute(0, 2, 1, 3).reshape(G, C, -1)          # [G, C, D]
         x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)           # [G, C, L] — mp_loss target
@@ -329,7 +276,7 @@ class MeSAEPretrain(nn.Module):
         return SimpleNamespace(
             recon=recon,
             h=out.h,
-            idx=out.idx, amp=out.amp,   # [G, K] slot -> stamp id, [G, C, K, 2] (G = B*N), for StampBank.decode_selected
+            amp=out.amp,   # [G, C, n_stamps, 2] (G = B*N), for StampBank.decode
             mp_loss=out.mp_loss,
             # [B, C, N], same layout as bool_masked_pos (G = B*N rows were b*N + n)
             mp_map=None if out.mp_map is None else out.mp_map.reshape(B, N, C).permute(0, 2, 1),
@@ -338,14 +285,6 @@ class MeSAEPretrain(nn.Module):
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
             valid_channels=valid_channels,
-            # None unless stamp quantization is configured. Carried up from StampBank
-            # rather than left at its boundary: quant_clip_frac/quant_off_frac are the
-            # only visibility into a mis-set amp_log2_range (neither shows up in the
-            # loss), so the trainer's epoch metrics and the checkers have to be able to
-            # read them. levels [G, C, K, 2] is the discrete code itself.
-            levels=out.levels,
-            quant_clip_frac=out.quant_clip_frac,
-            quant_off_frac=out.quant_off_frac,
         )
 
     def _position_weights(self, x, bool_masked_pos, valid_channels, unmasked_weight):
@@ -405,9 +344,8 @@ class MeSAEPretrain(nn.Module):
             if bool_masked_pos is not None:
                 l_masked = wmean(patch_err, valid * hidden)
                 l_unmasked = wmean(patch_err, valid * (1.0 - hidden))
-        # Named so the log/dashboard key reads mse_patch (train_pretrain.py reads
-        # _last_pyramid_levels; plugin.py matches the 'mse_' prefix).
-        self._last_pyramid_levels = {'patch': plain_patch.item()}
+        # Logged as mse_<name> (train_pretrain.py reads _last_loss_terms; plugin.py matches 'mse_').
+        self._last_loss_terms = {'patch': plain_patch.item()}
         return total, l_masked, l_unmasked
 
     def get_loss(self, x, recon, bool_masked_pos=None,
@@ -417,10 +355,9 @@ class MeSAEPretrain(nn.Module):
         """
         Returns (total, l_masked, l_unmasked).
 
-        mp_loss/mp_weight: optional Matching-Pursuit-style residual loss (see
-        StampBank.forward's mp_loss section) — always computed there (cheap relative
-        to the rest of the forward pass) but only added to total when mp_weight != 0,
-        same "off by default, zero cost when off" convention as everything else here.
+        mp_map/mp_weight: the Matching-Pursuit-style residual loss per position (StampBank.forward),
+        trained under the same position weights as the recon MSE; mp_loss (its plain valid-channel
+        mean) is only logged. Added only when mp_weight != 0.
 
         Reconstruction term is _recon_loss's weighted patch MSE (see its docstring for
         mse_patch_weight / unmasked_weight).
@@ -451,26 +388,22 @@ class MeSAEPretrain(nn.Module):
         # encoder to make greedy residual decomposition easier is not the Masked stage's
         # job — that stage optimizes masked reconstruction, and leaving this on would
         # quietly add a second, unrelated objective to it.
-        if mp_loss is not None and mp_weight and (bool_masked_pos is None or not self.stamps_frozen):
-            if mp_map is not None:
-                # Same position weights as the recon MSE: without this, mp_loss counts
-                # visible patches at full weight and undoes unmasked_weight.
-                _, w, _ = self._position_weights(x, bool_masked_pos, valid_channels, unmasked_weight)
-                w = w.mean(-1).to(mp_map.dtype)                                          # per patch
-                s = w.sum()
-                mp_train = (w * mp_map).sum() / s if s > 0 else mp_map.new_zeros(())
-            else:
-                mp_train = mp_loss
-            total = total + mp_weight * mp_train
+        if mp_map is not None and mp_weight and (bool_masked_pos is None or not self.stamps_frozen):
+            # Same position weights as the recon MSE: without them mp_loss counts visible patches at
+            # full weight and undoes unmasked_weight.
+            _, w, _ = self._position_weights(x, bool_masked_pos, valid_channels, unmasked_weight)
+            w = w.mean(-1).to(mp_map.dtype)                                          # per patch
+            s = w.sum()
+            total = total + mp_weight * ((w * mp_map).sum() / s if s > 0 else mp_map.new_zeros(()))
             # logged value stays the plain valid-channel mean, comparable across phases
-            self._last_pyramid_levels['mp'] = mp_loss.detach().item()
+            self._last_loss_terms['mp'] = mp_loss.detach().item()
         return total, l_masked, l_unmasked
 
     def get_metrics(self):
         metrics = {}
 
         # U-Net skip gate(s) on the encoder's residual-add path: sigmoid(g) in [0,1],
-        # 0 = drop skip, 1 = plain add (same convention as MeFSQ.get_metrics).
+        # 0 = drop skip, 1 = plain add.
         if self.encoder.skip_gates is not None:
             for i, g in enumerate(self.encoder.skip_gates):
                 metrics[f'skip_gate_{i}'] = torch.sigmoid(g).item()
@@ -525,7 +458,7 @@ class FinetuneModel(nn.Module):
         stamp = needs_stamp(head_cfg)
         self.extractor = StampExtractor(backbone, channel_idx) if stamp else None
         if stamp:
-            assert head_cfg['num_stamps'] == len(self.extractor.keep), "num_stamps must equal the stamp count"
+            assert head_cfg['num_stamps'] == backbone.n_stamps, "num_stamps must equal the stamp count"
         self.head = FeatureHead(head_cfg)
         if 'stamp_band' in feature_names(head_cfg):
             E_D, E_H = self.extractor.band_tables(head_cfg['sample_freq'])
@@ -549,17 +482,14 @@ class FinetuneModel(nn.Module):
         return self.head(inp), None, None
 
     def head_checkpoint(self, backbone_checkpoint):
-        return make_head_checkpoint(self.head, self.head_cfg, self.channel_idx.tolist(),
-                                    self.extractor.keep.tolist() if self.extractor is not None else None,
-                                    backbone_checkpoint)
+        return make_head_checkpoint(self.head, self.head_cfg, self.channel_idx.tolist(), backbone_checkpoint)
 
     @classmethod
     def from_checkpoint(cls, backbone, ckpt):
         cfg = dict(ckpt['head_config'])
-        channel_idx, keep = cfg.pop('channel_idx'), cfg.pop('keep')
+        channel_idx = cfg.pop('channel_idx')
+        cfg.pop('keep', None)   # heads saved before docs/adr/0022 list the alive stamps: now all of them
         model = cls(backbone, cfg, channel_idx)
-        if keep is not None and model.extractor.keep.tolist() != keep:
-            raise ValueError("backbone's stamps differ from the checkpoint's head_config['keep']")
         model.head.load_state_dict(ckpt['model_state_dict'])
         return model
 

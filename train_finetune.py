@@ -238,7 +238,7 @@ class StampSource:
         subs = [str(s) for s in pool]
         self.data = CachedStampDataset(get_stamp_cache(config, ds_name, subs, device=device, latent=latent), subs)
         self.labels, self.subject_data = self.data.labels, self.data.subject_data
-        self.channel_idx, self.keep = self.data.channel_idx, self.data.keep
+        self.channel_idx = self.data.channel_idx
         self.num_patches, self.num_stamps = self.data.num_patches, self.data.num_stamps
         self.amp, self.labels_dev = self.data.amp.to(device), self.labels.to(device)
         self.z = self.data.z.to(device) if latent else None                 # [T, N', Cv, D] fp16
@@ -269,7 +269,7 @@ class RawSource:
         self.patch_len = pp.get('patch_length', 100)
         self.patch_stride = pp.get('patch_stride', self.patch_len)
         self.num_patches = num_patches(self.x.shape[-1], self.patch_len, self.patch_stride)
-        self.num_stamps, self.keep = 0, None
+        self.num_stamps = 0
 
     def get(self, idx):
         xp, _ = slice_patches(self.x[idx], self.patch_len, self.patch_stride)  # [B, C_valid, N', L]
@@ -279,7 +279,7 @@ class RawSource:
 class CombinedSource:
     """Serves a StampSource and a RawSource together, for a head whose features list needs
     both (e.g. features=['stamp_power', 'raw_band']). Exposes the union of attributes either
-    single source exposes (num_patches/num_stamps/channel_idx/keep/labels/subject_data) --
+    single source exposes (num_patches/num_stamps/channel_idx/labels/subject_data) --
     both sources are built from the SAME (ds_name, pool), so their per-trial ordering,
     labels and channel_idx must already agree; asserted once at construction, not re-checked
     per batch."""
@@ -292,7 +292,7 @@ class CombinedSource:
             "StampSource/RawSource label order mismatch -- same dataset/pool should agree"
         self.stamp, self.raw = stamp_source, raw_source
         self.labels, self.subject_data = stamp_source.labels, stamp_source.subject_data
-        self.channel_idx, self.keep = stamp_source.channel_idx, stamp_source.keep
+        self.channel_idx = stamp_source.channel_idx
         self.num_patches, self.num_stamps = stamp_source.num_patches, stamp_source.num_stamps
         self.z, self.latent_dim = stamp_source.z, stamp_source.latent_dim
 
@@ -458,7 +458,7 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
         logger.info("-" * 40)
         plotter.update(train_metrics=train_metrics, val_metrics=val_metrics)
     plotter.plot_finetune(freeze_backbone=True)       # once, at the end (the 'Backbone Recon MSE' panel stays empty)
-    torch.save(make_head_checkpoint(head, head_cfg, source.channel_idx, source.keep, tp['pretrained_checkpoint']),
+    torch.save(make_head_checkpoint(head, head_cfg, source.channel_idx, tp['pretrained_checkpoint']),
                os.path.join(out_dir['ckpt'], 'head.pth'))
     out = {}
     for g, subs in run['eval'].items():

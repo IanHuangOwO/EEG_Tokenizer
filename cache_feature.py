@@ -51,12 +51,11 @@ def _code_hash():
     return h.hexdigest()[:12]
 
 
-def cache_key(config, dataset_name, keep, checkpoint_path, latent=False, build_config=None):
+def cache_key(config, dataset_name, checkpoint_path, latent=False, build_config=None):
     """Folder key: everything that changes the amplitudes of a given subject file."""
     ds_args = config['dataset_params']['finetune'][dataset_name]
     parts = dict(
         ckpt=[os.path.basename(checkpoint_path), *_fingerprint(checkpoint_path)],
-        keep=[int(k) for k in keep],
         preprocess=config.get('preprocess_params', {}),
         dataset={k: v for k, v in ds_args.items() if k != 'subject_to_use'},
         metadata=_fingerprint(os.path.join(ds_args['dataset_path'], 'metadata.json')),
@@ -135,7 +134,7 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
     extra = {'z': torch.cat(zs).numpy()} if latent else {}
     np.savez(tmp, **extra, amp=amp.half().numpy(), labels=base.labels.numpy().astype(np.int64),
              valid_length=np.full(len(amp), vlen, dtype=np.int64), channel_idx=np.asarray(channel_idx, dtype=np.int64),
-             keep=extractor.keep.cpu().numpy().astype(np.int64), meta=np.array(json.dumps({'data': data_fp})))
+             meta=np.array(json.dumps({'data': data_fp})))
     os.replace(tmp, path)
     return amp.shape
 
@@ -148,9 +147,8 @@ def get_stamp_cache(config, dataset_name, subjects, device=None, batch_size=64, 
     backbone = build_from_checkpoint(ckpt_dict).to(device).eval()
     for p in backbone.parameters():
         p.requires_grad_(False)
-    keep = StampExtractor(backbone, [0]).keep.cpu().tolist()   # alive stamps do not depend on the channels
     run_dir = os.path.dirname(os.path.dirname(ckpt))
-    folder = os.path.join(run_dir, 'feature_cache', dataset_name, cache_key(config, dataset_name, keep, ckpt, latent, ckpt_dict['build_config']))
+    folder = os.path.join(run_dir, 'feature_cache', dataset_name, cache_key(config, dataset_name, ckpt, latent, ckpt_dict['build_config']))
     os.makedirs(folder, exist_ok=True)
     for sub in subjects:
         sub = str(sub)
@@ -168,17 +166,15 @@ class CachedStampDataset(Dataset):
         parts = []
         for s in subjects:
             with np.load(os.path.join(folder, f'{s}.npz')) as z:
-                parts.append({k: z[k] for k in ('amp', 'labels', 'valid_length', 'channel_idx', 'keep', 'z') if k in z})
+                parts.append({k: z[k] for k in ('amp', 'labels', 'valid_length', 'channel_idx', 'z') if k in z})
         for p in parts[1:]:
             assert np.array_equal(p['channel_idx'], parts[0]['channel_idx']), "subjects have different real-channel sets"
-            assert np.array_equal(p['keep'], parts[0]['keep']), "subjects were cached with different alive stamps"
         self.amp = torch.from_numpy(np.concatenate([p['amp'] for p in parts]))
         self.labels = torch.from_numpy(np.concatenate([p['labels'] for p in parts])).long()
         self.valid_length = torch.from_numpy(np.concatenate([p['valid_length'] for p in parts])).long()
         self.subject_data = torch.cat([torch.full((len(p['labels']),), int(s), dtype=torch.long)
                                        for s, p in zip(subjects, parts)])
         self.channel_idx = parts[0]['channel_idx'].tolist()
-        self.keep = parts[0]['keep'].tolist()
         self.num_patches, self.num_channels, self.num_stamps = self.amp.shape[1], self.amp.shape[2], self.amp.shape[3]
         self.z = torch.from_numpy(np.concatenate([p['z'] for p in parts])) if 'z' in parts[0] else None   # [T, N', Cv, D]
 

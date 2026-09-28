@@ -227,8 +227,7 @@ class MoEFFN(nn.Module):
     """
     DeepSeekMoE-style FFN: n_routed Experts (top-k gated per token, competing for a fixed
     per-token budget) + n_shared Experts (always active on every token, summed at full
-    weight — unlike the 0.2x-weighted shared stamps in the StampBank, true DeepSeekMoE
-    shared Experts aren't down-weighted). Replaces the single dense FFN sub-layer in
+    weight). Replaces the single dense FFN sub-layer in
     TSABlock. See docs/adr/0008-moe-ffn-for-mesae.md.
 
     Each expert's inner width is a fraction of the dense FFN's hidden_dim (dim * mlp_ratio)
@@ -671,174 +670,52 @@ class TSAEncoder(nn.Module):
 class StampBank(nn.Module):
     """
     Static stamp dictionary over CHANNEL-GROUPED tokens: input is [G, C, D] where each group g is one
-    patch POSITION (G = B*N) carrying all C channels' embeddings for that moment. Every stamp is
-    active at every position (no selection); amplitude is read per channel. This is the
-    instantaneous-mixing ICA picture made structural: x_c(t) = sum_s A[c, s] * source_s(t) -- D_hat_s
-    is source s's waveform, and the [C] vector of per-channel amps of a stamp IS that source's mixing
-    column (its topomap at that patch time), dense across channels by construction.
-
-    Routed stamps (top-k selection, dead-stamp rescue, 'gain' selection) were removed (docs/adr/0022):
-    at 64 routed stamps half the pool stayed dead at patch_len 50 and 100 alike, and neither
-    reconstruction nor the z probe beat this static dictionary. The routed code lives on the
-    `routed-stamps` branch. Parameter names keep their `_shared` suffix so static checkpoints load.
+    patch POSITION (G = B*N) carrying all C channels' embeddings for that moment. Every stamp is active
+    at every position; amplitude is read per channel. The instantaneous-mixing ICA picture made
+    structural: x_c(t) = sum_s A[c, s] * source_s(t) -- D_hat_s is source s's waveform, and the [C]
+    vector of a stamp's per-channel amps IS that source's mixing column (its topomap at that patch
+    time). Routed (top-k) stamps were removed, docs/adr/0022 (`routed-stamps` branch).
 
     phi_s(z_c) = rms_c * (a_s(z_c) * D_hat_s + b_s(z_c) * Hilbert(D_hat_s)): a fixed per-stamp waveform
-    TEMPLATE D_s (nn.Parameter [patch_len], no z dependence, used UNIT-L2-NORMALIZED everywhere --
-    with a free-norm D, amp*D has a scale degeneracy) plus its DERIVED Hilbert quadrature partner
-    (never a free parameter, see _quadrature), combined by a per-CHANNEL, per-stamp gain pair (a, b)
-    from the stamp's own small MLP on z -- amplitude sqrt(a^2+b^2), phase atan2(b, a): the stamp can
-    present its source at any arrival phase without shape freedom -- times that channel's raw-input
-    RMS (the LayerNorm stack erases amplitude from z, so the gain multiplies it back in explicitly).
-    Deliberately NOT a generator that can bend its own shape per token: shape is a pure parameter
-    and amplitude/phase the only z-dependent knobs, so "same waveform, different amplitude across
-    channels" is structural (docs/adr/0009 discusses the trade-off: no per-token shape warping).
-
-    A free [patch_len]-length D_s's frequency content is bound to the patch_len-length FFT grid
-    (Df = fs/patch_len); parametric oscillator atoms were tried and withdrawn (docs/adr/0010).
+    TEMPLATE D_s (no z dependence, used UNIT-L2-NORMALIZED everywhere -- with a free-norm D, amp*D has
+    a scale degeneracy) plus its DERIVED Hilbert quadrature partner (see _quadrature), combined by a
+    per-CHANNEL gain pair (a, b) from the stamp's own small MLP on z -- amplitude sqrt(a^2+b^2), phase
+    atan2(b, a) -- times that channel's raw-input RMS (the LayerNorm stack erases amplitude from z, so
+    the gain multiplies it back in). Shape is a pure parameter and amplitude/phase the only
+    z-dependent knobs, so "same waveform, different amplitude across channels" is structural
+    (docs/adr/0009: no per-token shape warping). A free [patch_len] template's frequency content is
+    bound to the patch_len FFT grid (Df = fs/patch_len); oscillator atoms were withdrawn (0010).
     """
-    def __init__(self, dim, patch_len, n_stamps=16, hidden_width=16,
-                 amp_levels=None, phase_levels=None, amp_log2_range=(-6.0, 3.0)):
+    def __init__(self, dim, patch_len, n_stamps=16, hidden_width=16):
         super().__init__()
         self.n_stamps = n_stamps
         # Normalizes z before it's used (z inherits whatever scale the encoder drifts to).
         self.input_norm = nn.LayerNorm(dim)
-        self.dim = dim
-        self.hidden_width = hidden_width
+        # amp_s(z): per-stamp MLP z -> hidden (GELU) -> quadrature gain pair (a, b). Because H is derived
+        # from the SAME template, (a, b) can only re-phase and scale the shape, never morph it.
+        self.W_down = nn.Parameter(torch.empty(n_stamps, dim, hidden_width))
+        self.b_down = nn.Parameter(torch.zeros(n_stamps, hidden_width))
+        nn.init.kaiming_uniform_(self.W_down, a=math.sqrt(5))
+        self.w_amp = nn.Parameter(torch.empty(n_stamps, hidden_width, 2))
+        self.b_amp = nn.Parameter(torch.zeros(n_stamps, 2))
+        nn.init.kaiming_uniform_(self.w_amp, a=math.sqrt(5))
+        # D_s: the stamp's waveform template, used unit-normalized; the raw parameter's norm is irrelevant.
+        self.D = nn.Parameter(torch.randn(n_stamps, patch_len) * 0.02)
 
-        # amp_s(z): per-stamp MLP z -> hidden (GELU) -> QUADRATURE PAIR of gains (a, b); contribution =
-        # a*D_hat + b*Hilbert(D_hat), so the pair encodes amplitude A=sqrt(a^2+b^2) and phase
-        # phi=atan2(b, a) of the template with the generator staying linear in (a, b). Because the
-        # partner is derived from the SAME template, (a, b) can only re-phase and scale the shape,
-        # never morph it. Free/unbounded/signed, no clamp.
-        self.W_down_shared = nn.Parameter(torch.empty(n_stamps, dim, hidden_width))
-        self.b_down_shared = nn.Parameter(torch.zeros(n_stamps, hidden_width))
-        nn.init.kaiming_uniform_(self.W_down_shared, a=math.sqrt(5))
-        self.w_amp_shared = nn.Parameter(torch.empty(n_stamps, hidden_width, 2))
-        self.b_amp_shared = nn.Parameter(torch.zeros(n_stamps, 2))
-        nn.init.kaiming_uniform_(self.w_amp_shared, a=math.sqrt(5))
-
-        # D_s: the stamp's own waveform template, no z dependence, used unit-normalized at every
-        # consumption site; the raw parameter's norm is irrelevant. Normal-init at a modest std.
-        self.D_shared = nn.Parameter(torch.randn(n_stamps, patch_len) * 0.02)
-
-        # Optional amp/phase quantization of the (a, b) pair (see _quantize_amp_phase). BOTH must be
-        # set to enable it; either left None keeps the fully continuous path.
-        self.amp_levels = amp_levels
-        self.phase_levels = phase_levels
-        self.quantized = amp_levels is not None and phase_levels is not None
-        if self.quantized:
-            lo, hi = amp_log2_range
-            # Geometric (log2-spaced) amp grid: EEG amplitude is multiplicative.
-            self.amp_log2_lo, self.amp_log2_hi = float(lo), float(hi)
-            self.amp_log2_step = (self.amp_log2_hi - self.amp_log2_lo) / max(1, amp_levels - 1)
-            # persistent=False: derived from config, not a checkpoint schema change.
-            self.register_buffer(
-                'amp_grid',
-                torch.pow(2.0, torch.linspace(self.amp_log2_lo, self.amp_log2_hi, amp_levels)),
-                persistent=False)
-
-    def _amp_dense(self, z):
-        """z: [G, C, D] ALREADY input_norm'd tokens -> per-channel, per-stamp quadrature gain pairs
-        amp [G, C, n_stamps, 2], NO rms applied. GELU between W_down and w_amp: without it the two
-        linear maps collapse into one of rank <= 2 and hidden_width buys nothing."""
-        hidden = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down_shared) + self.b_down_shared)
-        return torch.einsum('gchk,hkp->gchp', hidden, self.w_amp_shared) + self.b_amp_shared
-
-    def _quantize_amp_phase(self, amp):
-        """amp: [..., 2] continuous quadrature pairs (a, b) -> (amp_q [..., 2],
-        levels [..., 2] int64, clip_frac, off_frac). POLAR quantization, not rectangular:
-        the pair means amplitude A=sqrt(a^2+b^2) and phase phi=atan2(b, a) (see the
-        w_amp init comment), and a rectangular grid on (a, b) would give uneven phase
-        resolution at different amplitudes and destroy exactly that decomposition.
-
-        - phase: UNIFORM on the circle, phi_hat = 2*pi*p/P. Uniform is the only grid
-          that keeps rotational equivariance (a phase-shifted input has to map to a
-          phase-shifted code and nothing else); any non-uniform phase grid would make
-          the code depend on absolute arrival phase.
-        - amplitude: nearest in LOG2 space on a geometric grid, plus an explicit "off"
-          level below the grid floor. Level 0 = off (contribution exactly zero, phase
-          irrelevant); levels 1..amp_levels index amp_grid.
-
-        Called on the PRE-rms (relative) amp only: rms restores raw per-channel
-        microvolt scale, and a fixed level grid is meaningless there (it would mean a
-        different thing per subject/dataset). Pre-rms, amp is a relative coefficient off
-        a LayerNorm'd z, so a fixed grid is well-posed.
-
-        Straight-through estimator for the gradient (same trick MeFSQ already uses):
-        forward sees the quantized value, backward sees identity. No commitment loss —
-        with a FIXED grid there is no codebook to pull toward the encoder, and the real
-        risk (amp drifting outside amp_log2_range) is reported rather than penalized,
-        until measurement says it needs a term.
-
-        BOTH saturation directions are reported, since they fail differently and neither
-        is visible in the loss: clip_frac = fraction pinned to the TOP level, off_frac =
-        fraction that fell below the grid floor and was zeroed outright (a silently
-        DROPPED contribution, not merely a coarse one).
-
-        Set the range from TRAINED amps of the SELECTED slots -- not from init, and not
-        from the dense all-atom distribution. Those are three different distributions and
-        picking the wrong one is expensive. Measured post-hoc on trained
-        mesae_tokenizer_v5 (real data, no STE adaptation):
-            init, dense                      log2|A| -7.4 .. -2.5
-            trained, dense (all 60 atoms)    log2|A| -11.2 .. +2.0   (~17 oct with tails)
-            trained, SELECTED slots only     log2|A| -5.0 .. +2.7    (7.8 oct)  <-- this one
-        The dense distribution's long bottom tail is DEAD atoms sitting near 2^-11, which
-        are never selected and therefore never quantized. Sizing the grid off it wastes
-        half the resolution covering amplitudes this function never sees.
-
-            range (-8,-2)  A=16 P=16 -> mse_patch 61.5x continuous, clip 0.650
-            range (-12,2)  A=16 P=16 ->            6.28x,           clip 0.009
-            range (-12,2)  A=128 P=32 ->           4.50x,           clip 0.034
-            range (-14,3)  A=64 P=32 ->            1.43x,           clip 0.000
-            range (-6,3)   A=64 P=32 ->            1.29x,           clip 0.000, off 0.021
-            range (-6,3)   A=32 P=32 ->            1.46x
-            range (-6,3)   A=32 P=16 ->            2.12x
-        Clipping is far more damaging than coarse resolution -- it truncates the
-        HIGHEST-energy components (up to 16x in amplitude) -- so never let clip_frac run.
-        off_frac is the opposite: ~2% is CORRECT, not a defect. Widening (-6,3) to (-7,3)
-        to rescue that quiet tail (off 0.021 -> 0.005) made things worse (1.46 -> 1.52x),
-        because the octave spent covering it costs more resolution than those
-        near-silent slots were contributing. Re-read both fracs on any new run."""
-        a, b = amp[..., 0], amp[..., 1]
-        A = torch.sqrt(a.pow(2) + b.pow(2) + 1e-12)
-        phi = torch.atan2(b, a)
-
-        two_pi = 2.0 * math.pi
-        p_idx = torch.round(phi / (two_pi / self.phase_levels)) % self.phase_levels  # [...] in [0, P)
-        phi_q = p_idx * (two_pi / self.phase_levels)
-
-        log2A = torch.log2(A.clamp(min=1e-12))
-        lvl = torch.round((log2A - self.amp_log2_lo) / self.amp_log2_step)
-        # Below the grid floor by more than half a step -> "off" (level 0). Above the
-        # ceiling -> clamped to the top level, and counted in clip_frac: a high clip rate
-        # means amp_log2_range is mis-set for this run's actual amp distribution, which
-        # would otherwise show up only as a quiet accuracy loss.
-        clipped_hi = lvl > (self.amp_levels - 1)
-        off = lvl < 0
-        lvl = lvl.clamp(0, self.amp_levels - 1)
-        A_q = torch.pow(2.0, self.amp_log2_lo + lvl * self.amp_log2_step)
-        A_q = torch.where(off, torch.zeros_like(A_q), A_q)
-
-        amp_q = torch.stack([A_q * torch.cos(phi_q), A_q * torch.sin(phi_q)], dim=-1)
-        # amp_idx: 0 = off, 1..amp_levels = amp_grid entry (so one integer carries both).
-        amp_idx = torch.where(off, torch.zeros_like(lvl), lvl + 1).to(torch.int64)
-        levels = torch.stack([amp_idx, p_idx.to(torch.int64)], dim=-1)
-        clip_frac = clipped_hi.float().mean().detach()
-        off_frac = off.float().mean().detach()
-
-        return amp + (amp_q - amp).detach(), levels, clip_frac, off_frac
+    def _amp(self, z):
+        """z: [G, C, D] ALREADY input_norm'd tokens -> per-channel quadrature gains [G, C, n_stamps, 2],
+        no rms. GELU between the two maps: without it they collapse into one of rank <= 2."""
+        hidden = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down) + self.b_down)
+        return torch.einsum('gchk,hkp->gchp', hidden, self.w_amp) + self.b_amp
 
     @staticmethod
     def _quadrature(D):
-        """D: [M, L] unit templates -> each row's Hilbert quadrature partner [M, L],
-        unit-normalized. Derived (rFFT, rotate every positive-frequency bin by -90
-        degrees, zero DC/Nyquist which have no quadrature, irFFT), NEVER a free
-        parameter — <D, H(D)> = 0 exactly, so (a*D_hat + b*H_hat) spans amplitude
-        A=sqrt(a^2+b^2) and constant phase phi=atan2(b,a) of the template's analytic
-        signal WITHOUT any shape freedom (see the w_amp init comment: the tie is what
-        makes two coefficients mean phase, not morphing). Re-normalized since zeroing
-        DC/Nyquist drops whatever energy the template had there; an (almost-)pure-DC
-        template's partner is degenerate — its b head just learns ~0."""
+        """D: [M, L] unit templates -> each row's Hilbert quadrature partner [M, L], unit-normalized.
+        Derived (rFFT, rotate every positive-frequency bin by -90 degrees, zero DC/Nyquist which have no
+        quadrature, irFFT), NEVER a free parameter -- <D, H(D)> = 0 exactly, so a*D_hat + b*H_hat spans
+        amplitude and constant phase of the template's analytic signal WITHOUT shape freedom.
+        Re-normalized since zeroing DC/Nyquist drops that energy; an (almost-)pure-DC template's
+        partner is degenerate -- its b head just learns ~0."""
         Fd = torch.fft.rfft(D.float(), dim=-1) * (-1j)
         Fd[..., 0] = 0
         if D.shape[-1] % 2 == 0:
@@ -846,125 +723,75 @@ class StampBank(nn.Module):
         H = torch.fft.irfft(Fd, n=D.shape[-1], dim=-1)
         return F.normalize(H, dim=-1).to(D.dtype)
 
-    def _template_tables(self):
-        """(D_all, H_all): unit templates and their quadrature partners, each [n_stamps, patch_len]."""
-        D_all = F.normalize(self.D_shared, dim=-1)
-        return D_all, self._quadrature(D_all)
+    def templates(self):
+        """(D_hat, H_hat): unit templates and their quadrature partners, each [n_stamps, patch_len]."""
+        D = F.normalize(self.D, dim=-1)
+        return D, self._quadrature(D)
 
-    def decode_selected(self, idx, amp):
-        """idx: [G, K] stamp ids (forward()'s out.idx), amp: [G, C, K, 2] per-channel quadrature gain
-        pairs WITH rms already in (forward()'s out.amp) -> contribution [G, C, K, patch_len] =
-        a*D_hat + b*H_hat per slot, unsummed (viz reads per-stamp per-channel content). Pure
-        re-expansion of forward()'s quantities, no model re-evaluation."""
-        D_all, H_all = self._template_tables()
-        D_sel, H_sel = D_all[idx], H_all[idx]
-        return (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
-                + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))
-
-    @torch.no_grad()
-    def fingerprint(self):
-        """Every stamp's unit waveform template [n_stamps, patch_len], at one arbitrary reference
-        phase: amp_s(z) never touches shape, so this is the complete answer to "what does this
-        stamp look like"."""
-        return self._template_tables()[0]
+    def decode(self, amp):
+        """amp: [G, C, n_stamps, 2] per-channel gains WITH rms (forward()'s out.amp) -> per-stamp
+        contribution [G, C, n_stamps, patch_len] = a*D_hat + b*H_hat, unsummed (forward's recon is its
+        sum over stamps). Pure re-expansion, no model re-evaluation."""
+        D, H = self.templates()
+        return amp[..., 0, None] * D + amp[..., 1, None] * H
 
     @torch.no_grad()
     def dense_amp(self, z, rms=None):
-        """z: [G, C, D] channel-grouped embeddings (same input forward() takes) -> amp
-        [G, C, n_stamps, 2], input_norm'd and rms-scaled the same way forward() is (unquantized)."""
-        amp = self._amp_dense(self.input_norm(z))
-        if rms is not None:
-            amp = amp * rms.unsqueeze(-1)
-        return amp
-
-    def dense_probe(self, z, rms=None):
-        """Per-channel, per-stamp contribution amp_s(z_c) * rms_c * D_hat_s: z [G, C, D], rms
-        [G, C, 1] or None -> [G, C, n_stamps, patch_len]. Diagnostic only."""
-        amp = self.dense_amp(z, rms=rms)
-        D_all, H_all = self._template_tables()
-        return (amp[..., 0].unsqueeze(-1) * D_all.view(1, 1, self.n_stamps, -1)
-                + amp[..., 1].unsqueeze(-1) * H_all.view(1, 1, self.n_stamps, -1))
+        """z: [G, C, D] channel-grouped embeddings (same input forward() takes) -> amp [G, C, n_stamps, 2],
+        input_norm'd and rms-scaled the same way forward() is."""
+        amp = self._amp(self.input_norm(z))
+        return amp if rms is None else amp * rms.unsqueeze(-1)
 
     def forward(self, z, x_target=None, rms=None, valid_channels=None):
         """
-        z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions), x_target:
-        [G, C, patch_len] the real patch content (for mp_loss; None skips it), rms: [G, C, 1]
-        per-channel raw-input RMS or None -- multiplied into every amp; callers running the real
-        pipeline should always pass it. valid_channels: [G, C] bool (True = real channel) or None --
-        excludes zero-padded channels from h and mp_loss; padded channels still decode.
+        z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions), x_target: [G, C, patch_len]
+        the real patch content (for mp_loss; None skips it), rms: [G, C, 1] per-channel raw-input RMS or
+        None -- multiplied into every amp; callers running the real pipeline always pass it.
+        valid_channels: [G, C] bool (True = real channel) or None -- excludes zero-padded channels from
+        h and mp_loss; padded channels still decode.
 
-        Returns recon [G, C, patch_len], idx [G, n_stamps] (stamp ids; every stamp at every
-        position), amp [G, C, n_stamps, 2] (per-channel (a, b), rms included -- a stamp's [C]
-        magnitude column is its phase-invariant topomap at this patch time), h [G, n_stamps]
-        (post-rms amp magnitude averaged over valid channels: reconstruction-energy importance,
-        orders mp_loss, never touches recon), mp_loss / mp_map, and the quantization outputs.
+        Returns recon [G, C, patch_len], amp [G, C, n_stamps, 2] (per-channel (a, b), rms included -- a
+        stamp's [C] magnitude column is its phase-invariant topomap at this patch time), h [G, n_stamps]
+        (post-rms amp magnitude averaged over valid channels: reconstruction-energy importance, orders
+        mp_loss), mp_loss (scalar, valid-channel mean, for logging) and mp_map ([G, C], per position, what
+        get_loss weights and trains on).
         """
-        G, C, D = z.shape
-        z = self.input_norm(z)
-        amp = self._amp_dense(z)                                            # [G, C, n_stamps, 2]
-        idx = torch.arange(self.n_stamps, device=z.device).unsqueeze(0).expand(G, -1)
-
-        # Quantize before rms (see _quantize_amp_phase for why pre-rms).
-        levels, quant_clip_frac, quant_off_frac = None, None, None
-        if self.quantized:
-            amp, levels, quant_clip_frac, quant_off_frac = self._quantize_amp_phase(amp)
-
+        G, C, _ = z.shape
+        amp = self._amp(self.input_norm(z))                                 # [G, C, S, 2]
         if rms is not None:
-            amp = amp * rms.unsqueeze(-1)  # [G, C, 1, 1] broadcast -- restores raw amplitude
+            amp = amp * rms.unsqueeze(-1)                                   # restores raw amplitude
 
-        slot_energy = amp.pow(2).sum(dim=-1)                                # [G, C, K]
+        energy = amp.pow(2).sum(dim=-1)                                     # [G, C, S]
         if valid_channels is not None:
-            vc = valid_channels.unsqueeze(-1).to(slot_energy.dtype)         # [G, C, 1]
-            slot_mag = (slot_energy * vc).sum(dim=1) / vc.sum(dim=1).clamp(min=1.0)
+            vc = valid_channels.unsqueeze(-1).to(energy.dtype)              # [G, C, 1]
+            h = ((energy * vc).sum(dim=1) / vc.sum(dim=1).clamp(min=1.0)).clamp(min=0).sqrt()
         else:
-            slot_mag = slot_energy.mean(dim=1)                              # [G, K]
-        h = slot_mag.clamp(min=0).sqrt()                                    # [G, K]
+            h = energy.mean(dim=1).clamp(min=0).sqrt()                      # [G, S]
 
-        D_all, H_all = self._template_tables()
-        D_sel, H_sel = D_all[idx], H_all[idx]  # each [G, n_stamps, patch_len]
-        # a*D_hat + b*Hilbert(D_hat) summed over stamps -- no [G,C,K,L] materialized
-        recon = (torch.einsum('gck,gkl->gcl', amp[..., 0], D_sel)
-                 + torch.einsum('gck,gkl->gcl', amp[..., 1], H_sel))
+        D, H = self.templates()
+        recon = torch.einsum('gck,kl->gcl', amp[..., 0], D) + torch.einsum('gck,kl->gcl', amp[..., 1], H)
 
-        # Matching-Pursuit-style residual loss: rank the stamps per position by h (strength), then
-        # grade rank m against x_target MINUS what ranks 0..m-1 already explained (detached, so
-        # gradient only pushes a stamp toward what is genuinely still unexplained). A duplicate of a
-        # higher-ranked stamp sees a near-zero residual and gets no reward for repeating it. Doesn't
-        # change recon; only reshapes each stamp's training target (docs/adr/0011). Ranked per patch,
-        # not by stamp index, which would impose one fixed global hierarchy (stamp 0 first
-        # everywhere) instead of deduplicating.
-        mp_loss = amp.new_zeros(())
-        mp_map = None  # [G, C] per-position mp error (mean over ranks and samples)
+        # Matching-Pursuit-style residual loss: rank the stamps per position by h, then grade rank m
+        # against x_target MINUS what ranks 0..m-1 already explained (detached, so gradient only pushes a
+        # stamp toward what is still unexplained). A duplicate of a higher-ranked stamp sees a near-zero
+        # residual and earns nothing. Doesn't change recon; only reshapes each stamp's training target
+        # (docs/adr/0011). Ranked per patch, not by stamp index (a fixed global hierarchy).
+        mp_loss, mp_map = amp.new_zeros(()), None
         if x_target is not None:
-            L = D_sel.shape[-1]
-            contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
-                           + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))   # [G, C, K, L]
-            order = h.argsort(dim=-1, descending=True)                          # [G, K]
-            n_rank = order.shape[1]
-            order_c = order.unsqueeze(1).unsqueeze(-1).expand(G, C, n_rank, L)
-            contrib_ranked = contrib_all.gather(2, order_c)             # rank 0 = first claim
-            # Exclusive cumsum over rank of the detached contributions = the sequential loop's
-            # residuals for every rank at once.
-            cum_excl = contrib_ranked.detach().cumsum(dim=2) - contrib_ranked.detach()  # [G,C,n_rank,L]
-            resid_all = x_target.unsqueeze(2) - cum_excl
-            diff2_all = (contrib_ranked - resid_all).pow(2)                 # [G, C, n_rank, L]
-            # Unreduced per position, so get_loss can apply the same masked/unmasked position
-            # weights as the recon MSE. mp_loss below is its valid-channel mean.
-            mp_map = diff2_all.mean(dim=(2, 3))
+            contrib = self.decode(amp)                                      # [G, C, S, L]
+            order = h.argsort(dim=-1, descending=True)                      # [G, S]
+            ranked = contrib.gather(2, order[:, None, :, None].expand_as(contrib))
+            # Exclusive cumsum over rank of the detached contributions = every rank's residual at once.
+            cum_excl = ranked.detach().cumsum(dim=2) - ranked.detach()
+            diff2 = (ranked - (x_target.unsqueeze(2) - cum_excl)).pow(2)    # [G, C, S, L]
+            mp_map = diff2.mean(dim=(2, 3))                                 # [G, C]
             if valid_channels is not None:
-                vmask = valid_channels.unsqueeze(-1).to(contrib_ranked.dtype)  # [G, C, 1]
-                per_rank = (diff2_all * vmask.unsqueeze(2)).sum(dim=(0, 1, 3)) \
-                    / vmask.sum().clamp(min=1.0) / L
+                vm = valid_channels.to(diff2.dtype)
+                mp_loss = (mp_map * vm).sum() / vm.sum().clamp(min=1.0)
             else:
-                per_rank = diff2_all.mean(dim=(0, 1, 3))
-            mp_loss = per_rank.mean()
+                mp_loss = mp_map.mean()
 
-        return SimpleNamespace(
-            recon=recon, idx=idx, amp=amp, h=h, mp_loss=mp_loss, mp_map=mp_map,
-            # None unless quantization is configured. levels [G, C, K, 2] int64 (amp_idx, phase_idx)
-            # is the discrete code: with idx it forms the (stamp_id, amp_level, phase_level) symbol.
-            levels=levels, quant_clip_frac=quant_clip_frac, quant_off_frac=quant_off_frac,
-        )
+        return SimpleNamespace(recon=recon, amp=amp, h=h, mp_loss=mp_loss, mp_map=mp_map)
 
 
 # ==========================================
@@ -1089,11 +916,11 @@ _HEAD_DEFAULTS = dict(features=[{'type': 'stamp_power'}], spatial_k=8, time_pool
                       latent_source='output')
 
 
-def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint):
-    """Head-only checkpoint: state, resolved config (plus the real channels and stamps it was
-    built for) and the frozen backbone it belongs to. Loaded by FinetuneModel.from_checkpoint."""
+def make_head_checkpoint(head, head_cfg, channel_idx, backbone_checkpoint):
+    """Head-only checkpoint: state, resolved config (plus the real channels it was built for) and the
+    frozen backbone it belongs to. Loaded by FinetuneModel.from_checkpoint."""
     return {'model_state_dict': head.state_dict(),
-            'head_config': dict(head_cfg, channel_idx=list(channel_idx), keep=None if keep is None else list(keep)),
+            'head_config': dict(head_cfg, channel_idx=list(channel_idx)),
             'backbone_checkpoint': backbone_checkpoint}
 
 
@@ -1188,7 +1015,6 @@ class StampExtractor(nn.Module):
     def __init__(self, backbone, channel_idx):
         super().__init__()
         self.backbone = backbone
-        self.register_buffer('keep', torch.arange(backbone.stamps.n_stamps))
         self.register_buffer('channel_idx', torch.as_tensor(channel_idx, dtype=torch.long))
 
     @torch.no_grad()
@@ -1219,7 +1045,7 @@ class StampExtractor(nn.Module):
         zg = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
         rg = rms.permute(0, 2, 1).reshape(B * N, C, 1)
         amp = self.backbone.stamps.dense_amp(zg, rms=rg)
-        amp = amp[:, :, self.keep].reshape(B, N, C, -1, 2).float() * vmask.float()[:, None, :, None, None]
+        amp = amp.reshape(B, N, C, -1, 2).float() * vmask.float()[:, None, :, None, None]
         amp = amp[:, :, self.channel_idx]                                                 # [B, N, Cv, S, 2]
         if return_z:   # z for the latent_* head entries: [B, N, Cv, D]
             if return_z == 'bottleneck':
@@ -1230,7 +1056,7 @@ class StampExtractor(nn.Module):
     def band_tables(self, sample_freq):
         """Per-stamp template band energies (E_D, E_H), each [S, len(BANDS)], for feature='stamp_band'."""
         with torch.no_grad():
-            D_tab, H_tab = (t[self.keep].float() for t in self.backbone.stamps._template_tables())
+            D_tab, H_tab = (t.float() for t in self.backbone.stamps.templates())
             fr = torch.fft.rfftfreq(D_tab.shape[-1], 1.0 / sample_freq)
             sel = [((fr >= lo) & (fr < hi)).to(D_tab.device) for lo, hi in BANDS]
             spec = lambda T: torch.stack([torch.fft.rfft(T, dim=-1).abs().pow(2)[:, m].sum(-1) for m in sel], -1)

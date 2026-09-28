@@ -47,27 +47,11 @@ class BasePlotter:
 
     # -- helpers for building panel specs --------------------------------------
 
-    def pool_pair_series(self, prefix, colors=('green', 'steelblue'), source='val'):
-        """routed/shared metric variants -- used e.g. for codebook_perplexity_routed/_shared."""
-        hist = self.history[source]
-        candidates = [(f'{prefix}_routed', 'routed', colors[0]), (f'{prefix}_shared', 'shared', colors[1])]
-
-        series = []
-        for key, label, color in candidates:
-            vals = hist.get(key)
-            if not vals:
-                continue
-            entry = dict(key=None, label=label or prefix, color=color, train_only=(source == 'train'))
-            entry['override_train' if source == 'train' else 'override_val'] = vals
-            series.append(entry)
-        return series
-
     def router_health_series(self, prefix='', entropy_label='Router entropy (higher=balanced)'):
         """MoE router-health panel shape shared by every router in this codebase (Expert,
         Stamp, FFN, ...): router_entropy + gate_entropy on the main axis, router_load_std
-        + lb_loss on a twin axis. History keys are unprefixed for the bare 'router' (MeFSQ's
-        Expert router: 'router_entropy', 'lb_loss', ...) or f'{prefix}_<key>' otherwise
-        (MeSAE's 'stamp'/'ffn' routers: 'stamp_router_entropy', 'ffn_lb_loss', ...).
+        + lb_loss on a twin axis. History keys are f'{prefix}_<key>' (e.g. 'ffn_router_entropy',
+        'ffn_lb_loss'), unprefixed for prefix=''.
         Returns (main_series, twin_series) — pass twin_series into a panel's twin dict
         only if non-empty, same guard every call site already used by hand."""
         def k(key):

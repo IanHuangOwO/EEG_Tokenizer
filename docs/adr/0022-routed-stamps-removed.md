@@ -34,6 +34,19 @@ Downstream heads read z (the encoder output), not the stamp code (finetune templ
 
 Seeds 2-3 were not run: two independent designs failed the same pre-registered primary metric.
 
+## Follow-up cleanup (same day)
+
+With every stamp always active, selection bookkeeping went too: StampBank returns no per-patch
+stamp ids (`idx`) and decodes against its templates directly (`decode(amp)`, `templates()`); its
+parameters are `W_down, b_down, w_amp, b_amp, D` (old `*_shared` names are renamed on load); the
+unused amp/phase quantization is removed; the finetune side has no alive-stamp list (`keep`, in
+head checkpoints and the feature cache key). `MeSAEPretrain.encode_stamps` is the one unmasked
+stamp-code path for analysis. Viz: panels that measured selection were dropped (Jaccard stamp
+similarity, per-unit atom usage and freedom, selection rates); dataset relation and patch-position
+consistency now read stamp strength h, event dynamics plot h over time, and stamps are no longer
+coloured by pool. Logged `mse_mp` can differ from before at ~1e-7 (reduction order); everything the
+training step uses is bit-identical.
+
 ## Verification
 
 Static-model outputs bit-identical before/after on a fixed CPU batch of mesae_tiny_notrial_s1

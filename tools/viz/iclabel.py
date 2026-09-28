@@ -15,7 +15,7 @@ model objects:
   normalization).
 
 Each activation concatenates ONLY the patches where a stamp actually fired, then tiles
-that content up to a common length (viz.extract.extract_flat_stamp_gallery) — never
+that content up to a common length (viz.extract.extract_stamp_gallery) — never
 zero-stitched across the patches it skipped. Zero-padding breaks _eeg_rpsd's per-window
 median (an all-zero window poisons it — NaN even at 12.5%/25% nonzero, not just 0%), so
 concatenating only real content keeps every window carrying signal and lets every stamp

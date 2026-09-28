@@ -13,12 +13,11 @@ from model.base_trainer import BaseTrainer
 from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
-from tools.viz.extract import extract_flat_stamp_psd_by_patch, extract_flat_stamp_gallery
+from tools.viz.extract import extract_stamp_psd_by_patch, extract_stamp_gallery
 from tools.viz.stamp_plots import plot_event_stamp_dynamics
-from tools.viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
-                           plot_stamp_identity_consistency, plot_fingerprint_similarity,
+from tools.viz.codebook import (plot_stamp_identity_consistency, plot_fingerprint_similarity,
                            plot_stamp_phase_consistency, plot_topography_distance)
-from tools.analysis import event_onset_patch, lookup_event_onset_sample
+from tools.analysis import lookup_event_onset_sample
 from IO.preprocessing import slice_patches
 
 
@@ -44,11 +43,6 @@ def build_model(bp, num_channels):
         spatial_embedding=bp.get('spatial_embedding', True),
         n_stamps=sb.get('n_stamps', sb.get('n_shared_stamps', 16)),
         stamp_hidden_width=sb.get('hidden_width', sb.get('stamp_shared_hidden_width', 16)),
-        # Both None (the default) = fully continuous (a, b), exactly as before
-        # quantization existed. See StampBank._quantize_amp_phase.
-        stamp_amp_levels=sb.get('amp_levels'),
-        stamp_phase_levels=sb.get('phase_levels'),
-        stamp_amp_log2_range=tuple(sb.get('amp_log2_range', (-6.0, 3.0))),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
@@ -96,33 +90,20 @@ class MeSAETrainer(BaseTrainer):
 
 class MeSAECodebookChecker(BaseCodebookChecker):
     unit_label = 'Stamp'
-    needs_raw_tensors = True  # _render_patch_position_consistency and
-    # _render_identity_consistency both need a fresh forward pass per trial
-    # (extract_stamp_content / model.stamps) — too expensive for check_codebook's full
-    # trial set, see needs_raw_tensors' docstring on the base class.
-    # (_render_patch_similarity no longer needs this — it now reads the cheap `usage`
-    # already in trial_records.)
+    needs_raw_tensors = True  # identity consistency and event dynamics re-run the stamp bank on a
+    # subsample of trials (see needs_raw_tensors' docstring on the base class)
 
     @torch.no_grad()
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
         """[N, n_stamps] usage, one row per PATCH POSITION: each stamp's post-rms amp magnitude
         (StampBank.forward's h; G = N for a B=1 trial)."""
-        out = model(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
-        return out.h.detach().cpu().numpy()
+        return model.encode_stamps(x_in, c_in, time_idx=t_in, valid_channels=vc_in).h.cpu().numpy()
 
     def decoder_fingerprint_matrix(self, model):
-        """Per-stamp [patch_len] waveform template D_i (see StampBank.fingerprint —
-        content-free and exact now, no probe involved: D_i never depends on any input),
-        pairwise cosine sim — this is `filter_relation.png`'s direct successor and the
-        empirical check on template diversity. mp_loss is what now discourages
-        duplicate atoms (docs/adr/0011); this panel is how you verify it held."""
-        fp = model.stamps.fingerprint().cpu().numpy()  # [n_stamps, patch_len]
-        flat = fp.reshape(fp.shape[0], -1)
-        flat = flat / (np.linalg.norm(flat, axis=1, keepdims=True) + 1e-8)
-        return flat @ flat.T
-
-    def rank_ceiling(self, model):
-        return min(model.n_stamps, model.head_dim)
+        """Pairwise cosine similarity of the unit templates D_s (content-free: D never depends on
+        input) -- the check on template diversity that mp_loss is meant to keep (docs/adr/0011)."""
+        D = model.stamps.templates()[0].detach().cpu().numpy()        # [n_stamps, patch_len], unit rows
+        return D @ D.T
 
     def _render_fingerprint_similarity(self, viz_dir, model):
         plot_fingerprint_similarity(
@@ -130,65 +111,19 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             self.decoder_fingerprint_matrix(model), unit_label=self.unit_label)
 
     @torch.no_grad()
-    def extract_stamp_content(self, model, x_in, c_in, t_in, vc_in):
-        """Dense per-(channel,patch) DECODED CONTENT [C, N, n_stamps, patch_len],
-        zero-filled at stamps that (channel, patch) token didn't select — real content
-        where selected, exact 0 elsewhere (same zero-fill convention as viz.extract's
-        flat-token panels, e.g. extract_flat_stamp_psd_by_patch). Unlike extract_usage (a
-        scalar gating strength h per stamp), this is the actual decoder output — used only
-        by _render_patch_position_consistency (viz.codebook.plot_patch_position_consistency),
-        which needs real content to compare, not just selection confidence.
-        (_render_patch_similarity used to read this too, for a content-based
-        stamp_similarity.png — dropped in favor of the cheaper usage/Jaccard-only version,
-        see plot_stamp_similarity's docstring.)
-
-        Expensive: T=C*N tokens x n_stamps x patch_len dense per trial (e.g. 64*16*120*50
-        ~= 6M floats, ~25MB). _render_patch_position_consistency only calls this for a
-        small subsample of trials (see needs_raw_tensors), not every trial check_codebook
-        samples up front."""
-        B, C, N, L = x_in.shape
-        z, _ = model.stage_features(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
-        z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)   # [G, C, D], G = N (B=1)
-        x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
-        # rms must match the training path (see MeSAEPretrain.forward) — without it
-        # amp lacks its raw-amplitude factor and every panel shows systematically
-        # mis-scaled contributions.
-        rms = x_g.pow(2).mean(dim=-1, keepdim=True).sqrt()
-        vc_g = vc_in.unsqueeze(1).expand(B, N, C).reshape(B * N, C) if vc_in is not None else None
-        out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vc_g)
-        contribution = model.stamps.decode_selected(out.idx, out.amp)  # [G, C, K, patch_len]
-        G, _, K, patch_len = contribution.shape
-        n_stamps = model.n_stamps
-
-        dense = contribution.new_zeros(G, C, n_stamps, patch_len)
-        dense.scatter_(2, out.idx.view(G, 1, K, 1).expand(G, C, K, patch_len), contribution)
-        return dense.permute(1, 0, 2, 3).cpu().numpy()  # [C, N, n_stamps, patch_len]
-
-    def _render_patch_similarity(self, trial_records, viz_dir, model, device, seed):
-        """Overrides the base's default groupings (Intra-Trial/Inter-Trial/Inter-Subject,
-        all 3) with the StampBank-specific version (viz.codebook.plot_stamp_similarity):
-        Intra-Trial/Inter-Trial only (Intra-Patch and Inter-Subject dropped — see that
-        function's docstring), binary + weighted Jaccard on `usage` instead of Jaccard +
-        cosine on decoder content. `usage` is already sitting in trial_records (cheap,
-        built by check_codebook's extract_usage pass) — no fresh forward pass needed for
-        this panel anymore, unlike the identity-consistency one below which still does."""
-        plot_stamp_similarity(
-            os.path.join(viz_dir, 'stamp_similarity.png'), trial_records,
-            unit_label=self.unit_label, seed=seed)
-
-        max_trials_per_group = 60
+    def _render_unit_consistency(self, trial_records, viz_dir, model, device, seed):
+        """Identity, phase and topography consistency of the stamps on a subsample of trials."""
         rng = random.Random(seed)
-        sample = trial_records if len(trial_records) <= max_trials_per_group else \
-            rng.sample(trial_records, max_trials_per_group)
+        sample = trial_records if len(trial_records) <= 60 else rng.sample(trial_records, 60)
         self._render_identity_consistency(sample, viz_dir, model, device)
 
     @torch.no_grad()
     def _render_identity_consistency(self, trial_records, viz_dir, model, device):
         """Does one stamp id mean one thing across patches/trials? The waveform half is
-        trivially yes (D_i is a fixed parameter), so this measures the TOPOGRAPHY: every
+        trivially yes (D_s is a fixed parameter), so this measures the TOPOGRAPHY: every
         occurrence's mixing column, compared within-id vs between-id. Nothing in the
-        architecture ties a stamp across patches — group selection binds channels within
-        a patch only — so this is a real open question, not a formality. See
+        architecture ties a stamp's topography across patches, so this is a real open
+        question, not a formality. See
         viz.codebook.plot_stamp_identity_consistency for the metric's construction (and
         the two biases it has to avoid)."""
         from collections import defaultdict
@@ -202,33 +137,27 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         # within each dataset and pooled.
         cols, labels = defaultdict(list), defaultdict(list)
         # ab_cols: same (dataset, id) keying, but the raw signed (a, b) pair per valid
-        # channel per firing (not just magnitude) — feeds _render_topography_distance's
+        # channel per occurrence (not just magnitude) — feeds _render_topography_distance's
         # coherent per-channel average below. phase_cols: dataset-agnostic (a scalar, not
-        # a channel-shaped vector, so pooling across datasets is fine) — every firing's
+        # a channel-shaped vector, so pooling across datasets is fine) — every occurrence's
         # OVERALL phase (channel-summed complex value's angle), feeds the phase
         # consistency panel.
         ab_cols, phase_cols = defaultdict(list), defaultdict(list)
         for t in trial_records:
             ds_name = t.get('dataset', '_')
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
-            B, C, N, L = x_in.shape
-            z, _ = model.stage_features(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
-            z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
-            x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
-            rms = x_g.pow(2).mean(-1, keepdim=True).sqrt()
-            vg = vc_in.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
-            o = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vg)
-            mag = o.amp.pow(2).sum(-1).sqrt()                      # [G, C, K]
+            o = model.encode_stamps(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
             m = vc_in[0].bool()
-            ab_sum = o.amp[:, m, :, :].sum(dim=1)                  # [G, K, 2] channel-summed (a, b)
-            phase = torch.atan2(ab_sum[..., 1], ab_sum[..., 0])    # [G, K] this firing's overall phase
+            amp = o.amp[:, m].cpu()                                # [G, Cv, S, 2]
+            mag = amp.pow(2).sum(-1).sqrt()                        # [G, Cv, S]
+            ab_sum = amp.sum(dim=1)                                # [G, S, 2] channel-summed (a, b)
+            phase = torch.atan2(ab_sum[..., 1], ab_sum[..., 0])    # [G, S] each occurrence's overall phase
             for g in range(mag.shape[0]):
-                for k in range(o.idx.shape[1]):
-                    sid = int(o.idx[g, k])
-                    cols[(ds_name, sid)].append(mag[g, m, k].detach().cpu().numpy())
-                    ab_cols[(ds_name, sid)].append(o.amp[g, m, k, :].detach().cpu().numpy())
-                    phase_cols[sid].append(float(phase[g, k]))
-            gal = extract_flat_stamp_gallery(model, x_in, c_in, time_idx=t_in,
+                for sid in range(mag.shape[2]):
+                    cols[(ds_name, sid)].append(mag[g, :, sid].numpy())
+                    ab_cols[(ds_name, sid)].append(amp[g, :, sid].numpy())
+                    phase_cols[sid].append(float(phase[g, sid]))
+            gal = extract_stamp_gallery(model, x_in, c_in, time_idx=t_in,
                                               valid_channels=vc_in, fs=200, freq_resolution=0.2)
             uids, probs = gal[0], gal[-1]
             if probs is not None:
@@ -263,9 +192,9 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             return
         P = {k: prep(np.stack(cols[k])) for k in keys}
 
-        # Topography distance matrix, per dataset: same coherent per-firing (a, b) average
-        # + reference-phase projection _used_flat_stamps uses for one trial's amp_topo, here
-        # pooled across every firing in this dataset's sampled trials instead of one trial's
+        # Topography distance matrix, per dataset: same coherent per-occurrence (a, b) average
+        # + reference-phase projection _stamp_summary uses for one trial's amp_topo, here
+        # pooled across every occurrence in this dataset's sampled trials instead of one trial's
         # N patches — see plot_topography_distance's docstring for what this adds on top of
         # decoder_fingerprint_matrix (raw waveform shape) and the within/between stats above
         # (aggregate only, not a full pairwise view).
@@ -307,41 +236,16 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             np.asarray(within), np.asarray(between), ids, per_stamp,
             label_agree=agree or None, unit_label=self.unit_label)
 
-    def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed, config=None):
-        """Overrides the base's usage/gating-based panel with a content-based one (real
-        decoder output, channel-collapsed to stay a [N, D] per-trial code like the base's
-        `usage` — see extract_stamp_content and plot_patch_position_consistency's
-        code_label). Same expensive-dense-decode-on-a-subsample tradeoff as
-        _render_patch_similarity (see needs_raw_tensors): re-runs a fresh forward pass on
-        only a small subsample of this dataset's trials, not every trial check_codebook
-        sampled for it."""
-        max_trials_per_group = 60
-        rng = random.Random(seed)
-        sample = ds_trials if len(ds_trials) <= max_trials_per_group else \
-            rng.sample(ds_trials, max_trials_per_group)
-
-        content_records = []
-        for t in sample:
-            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
-            content = self.extract_stamp_content(model, x_in, c_in, t_in, vc_in)  # [C, N, n_stamps, patch_len]
-            collapsed = content.mean(axis=0).reshape(content.shape[1], -1)  # [N, n_stamps*patch_len]
-            content_records.append(dict(usage=collapsed, dataset=t['dataset'], subject=t['subject']))
-
-        plot_patch_position_consistency(
-            os.path.join(viz_dir, f'patch_position_consistency_{ds_name}.png'), content_records,
-            unit_label=self.unit_label, seed=seed, code_label='decoder output',
-            event_patch=event_onset_patch(config, ds_name) if config else None)
-
     @torch.no_grad()
     def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
-        """Event-locked stamp-selection / power trajectory -> event_stamp_dynamics_<ds_name>.png.
+        """Event-locked stamp-strength / power trajectory -> event_stamp_dynamics_<ds_name>.png.
 
-        The tokenizer was trained at one patch stride; to read selection/power on a finer
+        The tokenizer was trained at one patch stride; to read stamp strength/power on a finer
         time axis WITHOUT an out-of-distribution token spacing, this does a sliding-window
         eval: for each sub-stride offset it re-patchifies the raw trial at the NATIVE
         stride (every forward pass in-distribution), runs the stamp bank, and places each
         patch's result at its true sample time. Pooled over trials x offsets -> per-time-bin
-        selection rate and power. Trials are onset-aligned (assemble_trials=False in the
+        stamp strength h and power. Trials are onset-aligned (assemble_trials=False in the
         analysis path), so a fixed time within the trial is comparable across trials.
 
         Event onset per dataset: this dataset's own metadata.json event_onset_sample (see
@@ -376,10 +280,8 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         sample = ds_trials if len(ds_trials) <= max_trials else rng.sample(ds_trials, max_trials)
 
         n_stamps = int(model.n_stamps)
-        # One accumulator per time-bin center `c`, not six co-indexed dicts — keeps the
-        # per-bin fields (sel/amp/obs/pow/pow_sq/h) from being able to drift out of sync.
-        bins = defaultdict(lambda: {'sel': np.zeros(n_stamps), 'amp': np.zeros(n_stamps),
-                                     'obs': 0, 'pow': 0.0, 'pow_sq': 0.0, 'h': 0.0})
+        # One accumulator per time-bin center `c`, so the per-bin fields can't drift out of sync.
+        bins = defaultdict(lambda: {'amp': np.zeros(n_stamps), 'obs': 0, 'pow': 0.0, 'pow_sq': 0.0})
 
         for t in sample:
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])   # x_in [1,C,N,L] native-stride patches
@@ -399,37 +301,32 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                 xps, tidx = slice_patches(raw[:, off:], patch_len, native_stride)  # [C, P, L]
                 if xps.shape[1] == 0:
                     continue
-                grid = extract_flat_stamp_psd_by_patch(
+                grid = extract_stamp_psd_by_patch(
                     model, xps.unsqueeze(0), c_in, time_idx=tidx.unsqueeze(0).to(device),
                     valid_channels=vc_in, fs=fs, freq_resolution=None, patch_stride=1)
-                ids, hh = grid.stamp_ids, grid.h                          # [P, K]
+                hh = grid.h                                               # [P, n_stamps]
                 re = (grid.recon_topo ** 2).mean(axis=1)                  # [P]
-                for pi in range(ids.shape[0]):
-                    c = off + pi * native_stride + patch_len // 2
-                    b = bins[c]
-                    b['obs'] += 1; b['pow'] += re[pi]; b['pow_sq'] += re[pi] ** 2; b['h'] += hh[pi].mean()
-                    for k, sid in enumerate(ids[pi]):
-                        b['sel'][sid] += 1; b['amp'][sid] += hh[pi, k]
+                for pi in range(hh.shape[0]):
+                    b = bins[off + pi * native_stride + patch_len // 2]
+                    b['obs'] += 1; b['pow'] += re[pi]; b['pow_sq'] += re[pi] ** 2; b['amp'] += hh[pi]
 
         centers = np.array(sorted(bins))
         if len(centers) == 0:
             return
         B = len(centers)
-        sr, am = np.zeros((n_stamps, B)), np.zeros((n_stamps, B))
-        pm, ps_, hm = np.zeros(B), np.zeros(B), np.zeros(B)
+        am = np.zeros((n_stamps, B))
+        pm, ps_ = np.zeros(B), np.zeros(B)
         for j, c in enumerate(centers):
             b = bins[c]
             o = b['obs']
-            sr[:, j] = b['sel'] / o
-            am[:, j] = np.divide(b['amp'], b['sel'], out=np.zeros(n_stamps), where=b['sel'] > 0)
+            am[:, j] = b['amp'] / o
             pm[j] = b['pow'] / o
             ps_[j] = np.sqrt(max(b['pow_sq'] / o - pm[j] ** 2, 0.0))
-            hm[j] = b['h'] / o
         t_axis = centers / fs if fs else centers.astype(float)
 
         plot_event_stamp_dynamics(
             os.path.join(viz_dir, f'event_stamp_dynamics_{ds_name}.png'),
-            t_axis, sr, am, pm, ps_, hm, onset_sec=onset_sec, unit_label=self.unit_label,
+            t_axis, am, pm, ps_, onset_sec=onset_sec, unit_label=self.unit_label,
             title_suffix=f' — {ds_name} ({len(sample)} trials x {len(offsets)} offsets, '
                          f'step {fine} samp)')
 

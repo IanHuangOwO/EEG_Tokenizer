@@ -31,29 +31,23 @@ def stamp_usage(model, config, out_path, max_windows=256):
     energy, cost, base = np.zeros(S), np.zeros(S), 0.0
     for _, x, coords, t, valid in batches(ds, idx):
         B, C, N, L = x.shape
-        out = model(x, coords, t, valid_channels=valid)
+        out = model.encode_stamps(x, coords, t, valid_channels=valid)
         G = B * N
         x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)                         # G = b*N + n, as in forward
         v = valid[:, None, :].expand(B, N, C).reshape(G, C, 1).float() \
             * (x_g.abs().amax(-1, keepdim=True) > 0).float()                  # real channel AND real patch
-        contrib = st.decode_selected(out.idx, out.amp).float()               # [G, C, K, L]
+        contrib = st.decode(out.amp).float()                                 # [G, C, S, L]
         recon = contrib.sum(2)
         err = (x_g - recon).pow(2)
         base += float((err * v).sum())
         real_g = v.amax(1).flatten() > 0                                     # [G] patches with real content
-        h = out.h[real_g]                                                     # [G', K] strength per slot
-        ids = out.idx[real_g]                                                 # [G', K] stamp id per slot
-        order = h.argsort(-1, descending=True)
-        ranked_ids = ids.gather(1, order)                                     # [G', K], rank 0 = strongest
+        ranked_ids = out.h[real_g].argsort(-1, descending=True)              # [G', S], rank 0 = strongest
         np.add.at(first, ranked_ids[:, 0].numpy(), 1)
-        for r in range(ranked_ids.shape[1]):
+        for r in range(S):
             np.add.at(ranks[:, r], ranked_ids[:, r].numpy(), 1)
-        for k in range(contrib.shape[2]):
-            sid = out.idx[:, k]                                               # [G]
-            e_k = (contrib[:, :, k].pow(2) * v).sum((1, 2))
-            c_k = (((x_g - recon + contrib[:, :, k]).pow(2) - err) * v).sum((1, 2))
-            np.add.at(energy, sid.numpy(), e_k.numpy())
-            np.add.at(cost, sid.numpy(), c_k.numpy())
+        for s in range(S):
+            energy[s] += float((contrib[:, :, s].pow(2) * v).sum())
+            cost[s] += float((((x_g - recon + contrib[:, :, s]).pow(2) - err) * v).sum())
     n_patch = first.sum()
     p = ranks / np.maximum(ranks.sum(1, keepdims=True), 1)
     rank_ent = -(p * np.log(p + 1e-12)).sum(1) / np.log(ranks.shape[1])

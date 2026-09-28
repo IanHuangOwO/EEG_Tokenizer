@@ -103,7 +103,7 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
         totals["unmasked"] += l_unmasked.item()
         if hasattr(out, 'lb_loss'):
             totals["lb_loss"] = totals.get("lb_loss", 0.0) + (out.lb_loss.item() if hasattr(out.lb_loss, 'item') else float(out.lb_loss))
-        for name, v in (getattr(model, '_last_pyramid_levels', None) or {}).items():
+        for name, v in (getattr(model, '_last_loss_terms', None) or {}).items():
             key = f'mse_{name}'
             totals[key] = totals.get(key, 0.0) + v
 
@@ -148,7 +148,7 @@ def validate_one_epoch(model, trainer, data_loader, device, masked, **loss_hpara
             totals["unmasked"] += l_unmasked.item()
             if hasattr(out, 'lb_loss'):
                 totals["lb_loss"] = totals.get("lb_loss", 0.0) + (out.lb_loss.item() if hasattr(out.lb_loss, 'item') else float(out.lb_loss))
-            for name, v in (getattr(model, '_last_pyramid_levels', None) or {}).items():
+            for name, v in (getattr(model, '_last_loss_terms', None) or {}).items():
                 key = f'mse_{name}'
                 totals[key] = totals.get(key, 0.0) + v
 

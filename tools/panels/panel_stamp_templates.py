@@ -1,4 +1,4 @@
-"""stamp_templates: every alive stamp's template D and quadrature partner H, shared stamps first
+"""stamp_templates: every stamp's template D and quadrature partner H
 (tools.analysis.stamp_dist.stamp_templates) -> analysis/stamp_templates.png."""
 import os
 

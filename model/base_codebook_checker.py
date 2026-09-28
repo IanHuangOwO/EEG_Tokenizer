@@ -17,8 +17,7 @@ import torch
 from tools.analysis import event_onset_patch
 from tools.viz.codebook import (
     plot_usage_and_activity, plot_embedding_scatter_by_dataset, plot_embedding_scatter_by_target,
-    plot_patch_similarity_hierarchy,
-    plot_patch_position_consistency, plot_dataset_relation, plot_unit_freedom,
+    plot_patch_position_consistency, plot_dataset_relation,
 )
 
 
@@ -26,18 +25,13 @@ class BaseCodebookChecker:
     """unit_label: 'Expert' | 'Filter' | ... — used in panel titles/axis labels."""
     unit_label = 'Unit'
 
-    # True only for subclasses whose _render_patch_similarity override needs a fresh
-    # forward pass per trial (e.g. MeSAECodebookChecker's dense per-token decoder
-    # content — too expensive to compute for every sampled trial up front, see
-    # extract_stamp_content) — check_codebook stashes each trial's (cpu-side, cheap) input
-    # tensors in trial_records only when this is set, so the default (usage-only) path
-    # pays nothing for it.
+    # True for subclasses whose hooks need a fresh forward pass per trial (too expensive for every
+    # sampled trial up front) — check_codebook stashes each trial's (cpu-side, cheap) input
+    # tensors in trial_records only when this is set, so the default (usage-only) path pays nothing.
     needs_raw_tensors = False
 
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
-        """One trial -> np.ndarray [M, Q, F]: M patches, Q units (Experts/Filters), F
-        dictionary/discrete-code activations per unit. Subclass-specific: reads whatever
-        the model's forward() returns for its own sparse-code representation."""
+        """One trial -> np.ndarray [M, Q]: M patches, Q units, a nonnegative strength per unit."""
         raise NotImplementedError
 
     def decoder_fingerprint_matrix(self, model):
@@ -45,23 +39,9 @@ class BaseCodebookChecker:
         (structural redundancy, independent of any particular dataset's activations)."""
         raise NotImplementedError
 
-    def rank_ceiling(self, model):
-        """Architectural cap on plot_unit_freedom's effective-rank panel, e.g.
-        min(sparse-code k, embed_dim) -- the code is generated from an embed_dim-dim
-        bottleneck and/or top-k-sparse encoding, so its covariance rank can't usefully
-        exceed that regardless of dictionary size F. Return None (default) to let
-        plot_unit_freedom fall back to F, a much looser bound. Override per model."""
-        return None
-
-    def _render_patch_similarity(self, trial_records, viz_dir, model, device, seed):
-        """Default: plot_patch_similarity_hierarchy off the already-computed (cheap,
-        gating-strength) usage in trial_records -> patch_similarity_hierarchy.png.
-        Override (e.g. MeSAECodebookChecker) to render a different question/basis
-        instead -- model/device are passed through only for overrides that need a fresh
-        forward pass per trial (see needs_raw_tensors), unused by this default."""
-        plot_patch_similarity_hierarchy(
-            os.path.join(viz_dir, 'patch_similarity_hierarchy.png'), trial_records,
-            unit_label=self.unit_label, seed=seed)
+    def _render_unit_consistency(self, trial_records, viz_dir, model, device, seed):
+        """Default: no-op. Override for per-unit consistency panels that need a fresh forward pass
+        on a subsample of trials (see needs_raw_tensors)."""
 
     def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed, config=None):
         """Default: plot_patch_position_consistency off the already-computed (cheap,
@@ -90,39 +70,6 @@ class BaseCodebookChecker:
         panel here it needs none of check_codebook's sampled trials -- safe to call
         unconditionally before the per-dataset sampling loop."""
 
-    def _render_pool_energy_share(self, usage_by_dataset, viz_dir, model):
-        """Default: no-op. Override for a model whose dictionary splits into an
-        always-on/context pool and a competitively-selected/specialized pool (e.g. MeSAE's
-        Routed/Shared) to render what fraction of total reconstruction energy each pool
-        carries, per dataset -> pool_energy_share.png. Reuses check_codebook's
-        already-computed usage_by_dataset, no fresh forward pass needed."""
-
-    def _render_stamp_energy_and_rank(self, usage_by_dataset, viz_dir, model):
-        """Default: no-op. Override to render per-unit mean firing strength and (for a
-        competitively-ranked pool) mean rank-when-selected -> stamp_energy_rank.png.
-        Reuses usage_by_dataset like _render_pool_energy_share, no fresh forward pass."""
-
-    def _render_pool_ablation(self, trial_records, viz_dir, model, device, seed):
-        """Default: no-op. Override for a causal check: zero one pool's contribution to
-        recon and measure the resulting MSE increase, per dataset -> pool_ablation.png --
-        the correlational usage/energy panels above show firing strength, not necessity.
-        Needs raw tensors (needs_raw_tensors)."""
-
-    def _render_pool_label_probe(self, trial_usage_by_dataset, trial_labels_by_dataset, trial_records, viz_dir, model):
-        """Default: no-op. Override for a model with a routed/shared-style pool split to
-        linear-probe (5-fold CV logistic regression) each pool's trial-level usage
-        against the per-trial task label -> pool_label_probe.png -- a different question
-        from _render_pool_energy_share/_render_pool_ablation: those measure which pool
-        carries more RECONSTRUCTION mass/necessity, this measures which pool's usage
-        pattern is actually predictive of the task label. A pool can dominate recon
-        while sitting at chance on label information, or the reverse. Reuses
-        trial_usage_by_dataset/trial_labels_by_dataset (already built by
-        check_codebook), no fresh forward pass needed. trial_records passed through so an
-        override can build a RAW-signal baseline feature (e.g. per-channel power) for the
-        same trials, in the same order, to tell "the model failed to capture task info"
-        apart from "this task has ~no linearly-decodable info in anything" — needs
-        needs_raw_tensors if the override uses it."""
-
     @staticmethod
     def _trial_tensors(dataset, trial_idx, device):
         x_patches, coords, _mask, time_indices, label, valid_channels = dataset[trial_idx]
@@ -144,9 +91,9 @@ class BaseCodebookChecker:
         model.eval()
         rng = random.Random(seed)
 
-        usage_by_dataset, labels_by_dataset = {}, {}          # patch-level: [M_total, Q, F], [M_total]
-        trial_usage_by_dataset, trial_labels_by_dataset = {}, {}  # trial-level: [n_trials, Q, F], [n_trials]
-        trial_records = []  # one dict per trial: {usage: [M,Q,F], dataset, subject[, raw]} -- feeds _render_patch_similarity
+        usage_by_dataset, labels_by_dataset = {}, {}          # patch-level: [M_total, Q], [M_total]
+        trial_usage_by_dataset, trial_labels_by_dataset = {}, {}  # trial-level: [n_trials, Q], [n_trials]
+        trial_records = []  # one dict per trial: {usage: [M, Q], dataset, subject[, raw]}
         for ds_name, dataset in datasets_by_name.items():
             n = len(dataset)
             n_trials = min(max_trials_per_dataset, n)
@@ -155,10 +102,10 @@ class BaseCodebookChecker:
             chunks, label_chunks, trial_chunks, trial_labels = [], [], [], []
             for t_idx in trial_idxs:
                 x_in, c_in, t_in, vc_in, label = self._trial_tensors(dataset, t_idx, device)
-                usage = self.extract_usage(model, x_in, c_in, t_in, vc_in)  # [M, Q, F]
+                usage = self.extract_usage(model, x_in, c_in, t_in, vc_in)  # [M, Q]
                 chunks.append(usage)
                 label_chunks.append(np.full(usage.shape[0], label, dtype=np.int64))  # label per trial -> broadcast to all M patches in it
-                trial_chunks.append(usage.mean(axis=0))  # [Q, F] -- one point per trial, patches averaged out
+                trial_chunks.append(usage.mean(axis=0))  # [Q] -- one point per trial, patches averaged out
                 trial_labels.append(label)
                 record = dict(usage=usage, dataset=ds_name, subject=self._subject_id(dataset, t_idx))
                 if self.needs_raw_tensors:
@@ -167,9 +114,9 @@ class BaseCodebookChecker:
                     # used to recompute on demand for only a small subsample of trials.
                     record['raw'] = (x_in.cpu(), c_in.cpu(), t_in.cpu(), vc_in.cpu())
                 trial_records.append(record)
-            usage_by_dataset[ds_name] = np.concatenate(chunks, axis=0)  # [M_total, Q, F]
+            usage_by_dataset[ds_name] = np.concatenate(chunks, axis=0)  # [M_total, Q]
             labels_by_dataset[ds_name] = np.concatenate(label_chunks, axis=0)  # [M_total]
-            trial_usage_by_dataset[ds_name] = np.stack(trial_chunks, axis=0)  # [n_trials, Q, F]
+            trial_usage_by_dataset[ds_name] = np.stack(trial_chunks, axis=0)  # [n_trials, Q]
             trial_labels_by_dataset[ds_name] = np.array(trial_labels, dtype=np.int64)  # [n_trials]
             print(f"  [codebook] {ds_name}: sampled {n_trials}/{n} trials "
                   f"-> {usage_by_dataset[ds_name].shape[0]} patches")
@@ -198,36 +145,18 @@ class BaseCodebookChecker:
             os.path.join(viz_dir, 'trial_embedding_scatter_per_dataset.png'),
             trial_usage_by_dataset, trial_labels_by_dataset,
             unit_label=self.unit_label, max_points=max_scatter_points, random_state=seed)
-        self._render_patch_similarity(trial_records, viz_dir, model, device, seed)
+        self._render_unit_consistency(trial_records, viz_dir, model, device, seed)
         plot_dataset_relation(
             os.path.join(viz_dir, 'dataset_relation.png'), usage_by_dataset, unit_label=self.unit_label)
-        plot_unit_freedom(
-            os.path.join(viz_dir, 'unit_freedom.png'), usage_by_dataset, unit_label=self.unit_label,
-            rank_ceiling=self.rank_ceiling(model))
 
-        # Filter x Dataset specialization: strength = per-patch, per-unit L1 sum of the
-        # sparse code (how much that Filter contributed to this patch), paired side by
-        # side with the atom-usage histogram (same units, same datasets, different axis).
+        # Unit x Dataset specialization: mean per-unit strength by dataset.
         dataset_order = list(usage_by_dataset.keys())
-        combined_usage   = np.concatenate([usage_by_dataset[d] for d in dataset_order], axis=0)   # [M_total, Q, F] or [M_total, Q]
+        strength = np.concatenate([usage_by_dataset[d] for d in dataset_order], axis=0)          # [M_total, Q]
         combined_dataset = np.concatenate(
             [np.full(usage_by_dataset[d].shape[0], d) for d in dataset_order])                     # [M_total]
-        # Flat [M,Q] usage (e.g. StampBank) already IS the per-unit strength, no F axis to
-        # sum over -- summing axis=-1 there would collapse the wrong (unit) axis instead.
-        strength = combined_usage if combined_usage.ndim == 2 else combined_usage.sum(axis=-1)  # [M_total, Q]
-
         plot_usage_and_activity(
-            os.path.join(viz_dir, 'filter_usage_and_activity.png'), usage_by_dataset, strength, combined_dataset,
+            os.path.join(viz_dir, 'unit_activity_by_dataset.png'), strength, combined_dataset,
             category_order=dataset_order, unit_label=self.unit_label)
-
-        # Both reuse usage_by_dataset directly -- no fresh forward pass, model-agnostic
-        # no-op unless a subclass has a routed/shared-style pool split to report on.
-        self._render_pool_energy_share(usage_by_dataset, viz_dir, model)
-        self._render_stamp_energy_and_rank(usage_by_dataset, viz_dir, model)
-        # Causal check over the whole sampled corpus at once (not per-dataset-loop below,
-        # it renders one panel spanning every dataset) -- needs raw tensors.
-        self._render_pool_ablation(trial_records, viz_dir, model, device, seed)
-        self._render_pool_label_probe(trial_usage_by_dataset, trial_labels_by_dataset, trial_records, viz_dir, model)
 
         # Cross-trial, patch-position-aligned consistency (per dataset -- patch position
         # only means the same timeline slot within one dataset's own trial length/patch_len).

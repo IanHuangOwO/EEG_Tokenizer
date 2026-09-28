@@ -135,13 +135,7 @@ def run_profile(config, device, train_mode=False):
             if device.type == 'cuda':
                 torch.cuda.synchronize()
             t1 = time.perf_counter()
-            # get_loss's signature differs by model type (MeSAE inserts aux_loss before
-            # bool_masked_pos, MeFSQ doesn't have aux_loss at all) -- passing bool_masked_pos
-            # positionally silently mis-binds it into MeSAE's aux_loss slot.
-            loss_kwargs = dict(bool_masked_pos=bool_masked_pos)
-            if hasattr(out, 'aux_loss'):
-                loss_kwargs['aux_loss'] = out.aux_loss
-            model.get_loss(x, out.recon, **loss_kwargs)
+            model.get_loss(x, out.recon, bool_masked_pos=bool_masked_pos)
             if device.type == 'cuda':
                 torch.cuda.synchronize()
             t2 = time.perf_counter()
