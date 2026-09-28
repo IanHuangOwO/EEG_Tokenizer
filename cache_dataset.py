@@ -106,8 +106,11 @@ def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_fi
             data, labels, session = data[keep], labels[keep], session[keep]
             valid_start, valid_end = valid_start[keep], valid_end[keep]
         out_path = os.path.join(cache_dir, f"{sub_id}_{suffix}.npz")
-        np.savez(out_path, data=data.astype(np.float32), labels=labels.astype(np.int64),
+        # write-then-rename: a training run reading the cache must never see a half-written file
+        tmp_path = f"{out_path[:-4]}.{os.getpid()}.tmp.npz"
+        np.savez(tmp_path, data=data.astype(np.float32), labels=labels.astype(np.int64),
                  valid_start=valid_start, valid_end=valid_end, session=session)
+        os.replace(tmp_path, out_path)
         print(f"  [{ds_name} S{sub_id}] {data.shape} -> {out_path}")
         n_written += 1
 
