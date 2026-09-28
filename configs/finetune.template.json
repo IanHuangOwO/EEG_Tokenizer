@@ -16,13 +16,13 @@
   "model_params": {
     "MeSAE": {
       "finetune": {
-        "_comment": "Modular head (MeSAE_modules FeatureHead): each features entry is {type, its own keys} and gets its own spatial filter. Types: stamp_power / stamp_band (log power, time_pool flat|learned|window|none, time_rank, window), signed_ab (signed phase-locked: stamp_rank, time_rank), evoked (evoked_rank), phase_advance, raw_band, raw_signal. Any entry may set its own spatial_k (default below).",
+        "_comment": "Modular head (MeSAE_modules FeatureHead): each features entry is {type, its own keys} and gets its own spatial filter. Types: stamp_power / stamp_band (log power, time_pool flat|learned|window|none, time_rank, window), signed_ab (signed phase-locked: stamp_rank, time_rank), evoked (evoked_rank), phase_advance, raw_band, raw_signal, latent_power / latent_signed (on the encoder output z; the default: latent_signed is the linear probe, z is the downstream representation, see docs/cards/2026-09-28-routed-stamps.md). Any entry may set its own spatial_k (default below).",
         "spatial_k": 8,
         "dropout": 0.5,
         "features": [
           {
-            "type": "stamp_power",
-            "time_pool": "learned",
+            "type": "latent_signed",
+            "latent_proj": "pca",
             "time_rank": 2
           }
         ]
