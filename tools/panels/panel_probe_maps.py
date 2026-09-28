@@ -1,7 +1,8 @@
 """probe_maps: where the linear probe (latent_signed head entry) reads from, per cell: virtual channel x
 time decision weight (event at 0 s) and the spatial filters (tools/analysis/probe_maps.py), over every
 fold and finetune seed of the cell (cells named *_seed<N> are pooled) -> probe_maps_<cell>.png.
-Run it with --head <the probe's head label>, e.g. cw_probe."""
+Run it with --head <the probe's head label>, e.g. cw_probe; runs on an older trial window than the dataset's
+current metadata need --event-onset DATASET=SECONDS."""
 import glob
 import json
 import os
@@ -46,8 +47,11 @@ def run(ctx):
         n_expected = int((meta['acquisition']['window_size_seconds'] * sf - L) // stride + 1)
         onset = lookup_event_onset_sample(cfg, ds)
         note = ''
-        if onset is not None and n_expected != n_patch:   # the run predates the dataset's current trial window
-            onset, note = None, ' (event line omitted: run predates the current trial window)'
+        override = dict(e.split('=', 1) for e in getattr(ctx.args, 'event_onset', []))
+        if ds in override:                                   # the run's own window, given explicitly
+            onset, note = float(override[ds]) * sf, f' (event at {override[ds]} s in the run\'s window, given)'
+        elif onset is not None and n_expected != n_patch:    # the run predates the dataset's current trial window
+            onset, note = None, ' (event line omitted: run predates the current trial window; pass --event-onset)'
         t = (np.arange(n_patch) * stride + L / 2 - (onset or 0)) / sf
         chans = resolve_canonical_channels(pp['canonical_channels'])
         hc = torch.load(glob.glob(f'output/{next(iter(ctx.groups.values()))}/finetune/{ctx.head}/{cell}*/finetune/run_*/head.pth')[0],

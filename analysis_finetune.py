@@ -32,6 +32,9 @@ def main():
     ap.add_argument('--rank', type=int, default=0, help='summary: top N rows per column instead of the table')
     ap.add_argument('--margin', type=float, default=0.02, help='seed_equivalence: equivalence margin')
     ap.add_argument('--checkpoint', help='class_snapshots: a head.pth')
+    ap.add_argument('--event-onset', action='append', default=[], metavar='DATASET=SECONDS', dest='event_onset',
+                    help="probe_maps: the event's time in the trial window, for runs made on an older trial "
+                         "window than the dataset's current metadata (e.g. BNCI2014001=1.0)")
     args = ap.parse_args()
 
     groups = dict(g.split('=', 1) for g in args.group)
