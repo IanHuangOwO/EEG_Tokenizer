@@ -43,3 +43,18 @@ Both models scored on the **tiny corpus's** held-out windows and masks (the smal
 
 - One pretrain per corpus size: the backbone spread comes from a different pair of tiny runs.
 - The stamp-head `spatial_k` 8 is not the development-set-tuned protocol value.
+
+## Result (2026-09-28 08:09): scaling helps -- 11 / 14 backbone metrics, 10 / 12 downstream cells
+
+Tiny `mesae_tiny_notrial_s1` -> small `mesae_small_graded_s1` (graded recipe).
+
+- Backbone: masked MSE down on every mask (token runs -18.8%, time block -10.3%, channel masks -6.4 to
+  -7.4%, all 3-20x the spread); imputation vs idw -6 to -7%; seam -22%; ridge probe BNCI2014001 +7.6%.
+  Not passing: unmasked band error (+0.8%), ridge BNCI2014004 (+3.6%, under threshold), BNCI2014008 (-0.4%).
+- Downstream (seed-averaged, 3 finetune seeds, seed sd 0.1-1.2): probe 004 loso 71.2 -> 75.5 (8/9,
+  p 0.008), 001 loso 46.2 -> 49.6 (p 0.012), 001 few-shot 30.0 -> 34.5 (9/9, p 0.004); stamp head 001
+  loso 40.4 -> 43.8 (p 0.008), 008 loso 70.2 -> 70.8 (7/8, p 0.016). Only the 004 stamp head dips
+  (-0.8 / -1.0, n.s.).
+- vs Compass best frozen FM (loso): 004 75.5 probe / 76.0 stamp vs 75.57; 001 49.6 vs 48.24; 008 69.6 /
+  70.8 vs 67.11. MI few-shot still behind (004 71.2 stamp vs 76.69; 001 45.1 stamp vs 49.82).
+Full report: output/reports/overnight/small_card.md.
