@@ -19,15 +19,17 @@ class BandpassResample:
             x = x.cpu().numpy()
 
         if self.l_freq is not None and self.h_freq is not None:
-            # h_freq must be strictly < Nyquist (original_freq/2) — clamp rather than
-            # error out, since a shared config bandpass_filter can legitimately exceed
-            # a low-native-rate dataset's Nyquist (e.g. h_freq=100 vs a 200Hz dataset).
+            # A native rate at or below 2 x h_freq (e.g. 100-200 Hz vs h_freq 100) holds no content
+            # above its Nyquist frequency, so there is nothing to low-pass: high-pass only. (A
+            # band-pass with its upper edge clamped just under Nyquist did nothing useful and is
+            # numerically fragile.) Resampling up to sample_freq cannot add content above it either.
             nyquist = self.original_freq / 2
-            h_freq = min(self.h_freq, nyquist - 1e-6)
-            if h_freq != self.h_freq:
-                print(f"  [Warning] h_freq={self.h_freq} >= Nyquist ({nyquist}) at "
-                      f"original_freq={self.original_freq} — clamped to {h_freq:.4f}.")
-            sos = scipy.signal.butter(4, [self.l_freq, h_freq], btype='bandpass', fs=self.original_freq, output='sos')
+            if self.h_freq >= nyquist:
+                print(f"  [Info] native band ends at {nyquist:g} Hz (original_freq={self.original_freq}): "
+                      f"high-pass {self.l_freq} Hz only, no low-pass needed.")
+                sos = scipy.signal.butter(4, self.l_freq, btype='highpass', fs=self.original_freq, output='sos')
+            else:
+                sos = scipy.signal.butter(4, [self.l_freq, self.h_freq], btype='bandpass', fs=self.original_freq, output='sos')
             x = scipy.signal.sosfiltfilt(sos, x, axis=-1)
 
         if self.notch_freq is not None:

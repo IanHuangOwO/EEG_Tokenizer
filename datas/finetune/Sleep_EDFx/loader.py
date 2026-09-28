@@ -50,9 +50,11 @@ class Loader(BaseSubjectLoader):
 
             # Sleep-period crop: exclude the long pre-lights-off/post-wake-up W
             # padding, keeping CROP_MARGIN_MIN before the first and after the
-            # last non-W annotation (standard convention, see gen_metadata.py).
+            # last SLEEP-stage annotation (standard convention, see gen_metadata.py).
+            # Only real sleep stages count: the unscored 'Sleep stage ?' tail usually
+            # runs to the end of the recording and would disable the crop.
             non_w = [(o, o + d) for o, d, desc in zip(ann.onset, ann.duration, ann.description)
-                     if desc != "Sleep stage W"]
+                     if STAGE_LABEL.get(desc, 0) != 0]
             if not non_w:
                 continue  # whole night unscored/all-wake, skip
             sleep_start = max(0.0, min(s for s, _ in non_w) - CROP_MARGIN_MIN * 60)
