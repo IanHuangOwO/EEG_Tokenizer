@@ -119,7 +119,7 @@ output/<backbone>/
     feature_cache/                # regenerable features for finetuning
   finetune/<head>/<dataset>_<split>/
     artifacts/group_eval.json     # per-subject balanced accuracy (tail = mean of the last 10 epochs)
-output/reports/                   # cross-backbone comparison reports
+output/reports/                   # generated comparison reports (curated write-ups: docs/reports/)
 output/archive/                   # superseded experiments
 ```
 

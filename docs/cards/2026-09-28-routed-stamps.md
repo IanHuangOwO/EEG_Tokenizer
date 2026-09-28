@@ -66,3 +66,32 @@ Static: the invisible part is neutral; the code is a learned filterbank (a ridge
 scores the same). Routed: the whole P300 gain over raw band power sits in the invisible part -- encoder
 information carried by coefficients the reconstruction does not constrain; removing it (an L2 on (a, b), or
 a ridge-fit head) would remove the gain. The probe on z still scores higher (008: 69.6).
+
+## Recorded numbers (runs archived 2026-09-29)
+
+From each run's `pretrain/analysis/` (now `output/archive/<run>/`): backbone_eval masked MSE and log-spectral
+distance per test mask, seam disagreement, masked MSE under an ablation as a multiple of the baseline,
+attention_range block means, stamp_usage, ridge probes. A and rankfix stay live as references.
+
+| | A static (notrial) | rankfix (spread) | B 4s+60r | C 64r |
+|---|---|---|---|---|
+| masked MSE token_runs | 0.405 | 0.412 | 0.412 | 0.392 |
+| masked MSE random_channel | 0.318 | 0.317 | 0.312 | 0.312 |
+| masked MSE channel_cluster | 0.339 | 0.338 | 0.333 | 0.335 |
+| masked MSE time_block | 0.780 | 0.784 | 0.761 | 0.779 |
+| masked MSE motor3_to_bci22 | 0.256 | 0.253 | 0.245 | 0.245 |
+| seam disagreement | 0.0660 | 0.1080 | 0.0587 | 0.0575 |
+| log-spectral dist token_runs | 1.202 | 1.166 | 1.188 | 1.191 |
+| log-spectral dist time_block | 1.755 | 1.718 | 1.761 | 1.809 |
+| log-spectral dist random_channel | 0.950 | 0.880 | 0.899 | 0.929 |
+| ablation skips_off (x baseline) | 1.90 | 1.87 | 1.80 | 1.86 |
+| ablation coords_shuffle (x baseline) | 1.65 | 1.64 | 1.63 | 1.71 |
+| ablation time_shuffle (x baseline) | 1.18 | 1.17 | 1.23 | 1.16 |
+| temporal attn mean |dt| s (block mean) | 0.69 | 0.69 | 0.72 | 0.71 |
+| spatial attn dist ratio (block mean) | 0.43 | 0.42 | 0.47 | 0.41 |
+| stamps ranked first >= 5% | 3/16 | 5/16 | 2/64 | 4/64 |
+| redundant stamps (remove cost < 1%) | 0 | 1 | 44 | 43 |
+| ridge probe on z, 004 / 001 / 008 | 67.6 / 40.0 / 69.2 | 69.8 / 37.8 / 69.8 | 71.4 / 40.2 / 69.2 | 71.2 / 39.8 / 69.6 |
+| stamp - raw ridge, 004 / 001 / 008 | +2.4 / -0.3 / +0.0 | - | -4.2 / -0.8 / +6.9 | +2.0 / +0.3 / +8.4 |
+| stamp power ridge net / clean / ridge-fit (008) | 55.2 / 54.2 / 54.3 | - | - | 63.6 / 54.8 / 54.6 |
+| routing entropy / dead / dataset JS | - | - | 0.73 / 45% / 0.038 | 0.74 / 56% / 0.019 |

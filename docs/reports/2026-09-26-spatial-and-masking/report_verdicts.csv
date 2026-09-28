@@ -1,0 +1,22 @@
+group,hypothesis,evidence,verdict
+A,"wins overall: >= +2 on a key cell (BNCI2014001_loso, BNCI2014004_loso, BNCI2014004_fewshot), no cell below -3","best key -0.1, worst cell -0.3, mean +0.5",not supported
+A,helps the 3-channel cap (BNCI2014004) downstream,-0.3 / -0.1,not supported
+A,beats IDW interpolation on whole-channel masks by >= 5%,"random_channel 0.92x, channel_cluster 0.82x",SUPPORTED
+A,sparse-to-dense imputation (motor3_to_bci22) >= 5% better than base,0.238 vs 0.290,SUPPORTED
+A,channel masks on sparse caps >= 5% better than base,"0.330 vs 0.332, 0.482 vs 0.518",not supported
+A,(diagnostic) uses time under time_block masks,time_shuffle +21% vs base +15%,-
+B,"wins overall: >= +2 on a key cell (BNCI2014001_loso, BNCI2014004_loso, BNCI2014004_fewshot), no cell below -3","best key +0.5, worst cell -1.6, mean -0.0",not supported
+B,helps the 3-channel cap (BNCI2014004) downstream,+0.5 / -0.3,not supported
+B,beats IDW interpolation on whole-channel masks by >= 5%,"random_channel 0.92x, channel_cluster 0.83x",SUPPORTED
+B,sparse-to-dense imputation (motor3_to_bci22) >= 5% better than base,0.242 vs 0.290,SUPPORTED
+B,channel masks on sparse caps >= 5% better than base,"0.323 vs 0.332, 0.500 vs 0.518",not supported
+B,spatial bias is used (block rho > 0.5 and mean abs > 0.5),"6/8 blocks: [0, 1, 2, 3, 4, 5]",SUPPORTED
+B,(diagnostic) uses time under time_block masks,time_shuffle +12% vs base +15%,-
+AB,"wins overall: >= +2 on a key cell (BNCI2014001_loso, BNCI2014004_loso, BNCI2014004_fewshot), no cell below -3","best key +2.2, worst cell -2.5, mean +0.7",SUPPORTED
+AB,helps the 3-channel cap (BNCI2014004) downstream,-2.5 / +0.4,not supported
+AB,beats IDW interpolation on whole-channel masks by >= 5%,"random_channel 0.91x, channel_cluster 0.81x",SUPPORTED
+AB,sparse-to-dense imputation (motor3_to_bci22) >= 5% better than base,0.234 vs 0.290,SUPPORTED
+AB,channel masks on sparse caps >= 5% better than base,"0.325 vs 0.332, 0.470 vs 0.518",not supported
+AB,spatial bias is used (block rho > 0.5 and mean abs > 0.5),"4/8 blocks: [0, 1, 2, 3]",SUPPORTED
+AB,(diagnostic) uses time under time_block masks,time_shuffle +22% vs base +15%,-
+AB,"stacks: mean diff >= max(A, B) and AB wins overall",AB +0.7 vs A +0.5 / B -0.0,SUPPORTED

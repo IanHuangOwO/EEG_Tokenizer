@@ -48,3 +48,31 @@ by > 3% on 1 of 4 masks (token_runs -6%). z probe: R and S16 tie (spread 2.2).
 The capacity part of the hypothesis holds for static dictionaries: S32 at patch 100 has 3 near-duplicate
 stamps (patch 50 grows duplicates above ~23) -- but 32 static stamps reconstruct no better than 16.
 Per the card, routed code moves to a branch.
+
+## Recorded numbers (runs archived 2026-09-29)
+
+From each run's `pretrain/analysis/` (now `output/archive/<run>/`): backbone_eval masked MSE and log-spectral
+distance per test mask, seam disagreement, masked MSE under an ablation as a multiple of the baseline,
+attention_range block means, stamp_usage, ridge probes. All three arms archived.
+
+| | S32 | S16 | R 64r k16 |
+|---|---|---|---|
+| masked MSE token_runs | 0.476 | 0.459 | 0.432 |
+| masked MSE random_channel | 0.327 | 0.351 | 0.343 |
+| masked MSE channel_cluster | 0.349 | 0.367 | 0.360 |
+| masked MSE time_block | 0.833 | 0.843 | 0.837 |
+| masked MSE motor3_to_bci22 | 0.239 | 0.259 | 0.256 |
+| seam disagreement | 0.0643 | 0.0798 | 0.0673 |
+| log-spectral dist token_runs | 1.263 | 1.414 | 1.450 |
+| log-spectral dist time_block | 1.690 | 1.786 | 1.832 |
+| log-spectral dist random_channel | 0.990 | 1.252 | 1.316 |
+| ablation skips_off (x baseline) | 1.69 | 1.86 | 1.82 |
+| ablation coords_shuffle (x baseline) | 1.54 | 1.59 | 1.64 |
+| ablation time_shuffle (x baseline) | 1.24 | 1.23 | 1.23 |
+| temporal attn mean |dt| s (block mean) | 0.99 | 0.99 | 1.00 |
+| spatial attn dist ratio (block mean) | 0.56 | 0.52 | 0.49 |
+| stamps ranked first >= 5% | 4/32 | 6/16 | 5/64 |
+| redundant stamps (remove cost < 1%) | 0 | 0 | 43 |
+| ridge probe on z, 004 / 001 / 008 | 68.7 / 43.1 / 65.9 | 72.6 / 40.6 / 66.8 | 71.4 / 41.6 / 67.3 |
+| stamp - raw ridge, 004 / 001 / 008 | -1.0 / -0.2 / -0.0 | -1.1 / -3.1 / +0.9 | -2.5 / -0.2 / +4.0 |
+| routing entropy / dead / dataset JS | - | - | 0.74 / 58% / 0.018 |

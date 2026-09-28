@@ -1,7 +1,7 @@
 # Mechanism card: finest-only skips vs graded skip drop-path (tiny corpus)
 
 Written 2026-09-28, before `mesae_tiny_finestskip_s1` finished training (ADR 0020). Evaluated
-automatically by `output/queue/overnight/decide.py`.
+automatically by `decide.py` (docs/reports/2026-09-28-overnight/scripts/).
 
 - **Change:** `skip_mode: finest` (only the finest skip; the two deeper skips removed; no drop-path)
   vs graded drop-path on all three skips (`mesae_tiny_notrial_s1`, same code and loss otherwise).
@@ -29,4 +29,32 @@ automatically by `output/queue/overnight/decide.py`.
 Finest-only recovers imputation (channel masked MSE 0.251, baseline level), visible detail and seams
 (0.066 -> 0.014), but loses temporal inference (time-block MSE 0.888, worse than the no-drop baseline's
 0.858) and the ridge probe drops (004 / 001 / 008: 65.8 / 34.1 / 57.9 vs 69.4 / 38.7 / 69.8; P300 -12).
-Full report: output/reports/overnight/decision.md.
+Full report: docs/reports/2026-09-28-overnight.md.
+
+## Recorded numbers (runs archived 2026-09-29)
+
+From each run's `pretrain/analysis/` (now `output/archive/<run>/`): backbone_eval masked MSE and log-spectral
+distance per test mask, seam disagreement, masked MSE under an ablation as a multiple of the baseline,
+attention_range block means, stamp_usage, ridge probes. The graded run (notrial) stays live.
+
+| | graded (notrial) | finest-only |
+|---|---|---|
+| masked MSE token_runs | 0.405 | 0.303 |
+| masked MSE random_channel | 0.318 | 0.251 |
+| masked MSE channel_cluster | 0.339 | 0.276 |
+| masked MSE time_block | 0.780 | 0.888 |
+| masked MSE motor3_to_bci22 | 0.256 | 0.205 |
+| seam disagreement | 0.0660 | 0.0143 |
+| log-spectral dist token_runs | 1.202 | 0.859 |
+| log-spectral dist time_block | 1.755 | 1.632 |
+| log-spectral dist random_channel | 0.950 | 0.830 |
+| ablation skips_off (x baseline) | 1.90 | 3.26 |
+| ablation coords_shuffle (x baseline) | 1.65 | 2.27 |
+| ablation time_shuffle (x baseline) | 1.18 | 1.04 |
+| temporal attn mean |dt| s (block mean) | 0.69 | 1.55 |
+| spatial attn dist ratio (block mean) | 0.43 | 0.78 |
+| stamps ranked first >= 5% | 3/16 | 4/16 |
+| redundant stamps (remove cost < 1%) | 0 | 0 |
+| ridge probe on z, 004 / 001 / 008 | 67.6 / 40.0 / 69.2 | 65.8 / 34.1 / 57.9 |
+| stamp - raw ridge, 004 / 001 / 008 | +2.4 / -0.3 / +0.0 | - |
+| stamp power ridge net / clean / ridge-fit (008) | 55.2 / 54.2 / 54.3 | - |

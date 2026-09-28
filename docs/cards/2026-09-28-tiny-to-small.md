@@ -1,7 +1,7 @@
 # Mechanism card: tiny -> small corpus (4x pretraining data)
 
 Written 2026-09-28, before the small run (ADR 0020). Evaluated automatically by
-`output/queue/overnight/summarize_small.py`; report in `output/reports/overnight/small_card.md`.
+`summarize_small.py` (docs/reports/2026-09-28-overnight/scripts/); report in docs/reports/2026-09-28-overnight.md.
 
 - **Change:** the tiny winner's exact recipe (finest-only skips or graded drop-path, per the card
   above) trained on the small corpus (`window_fraction` 0.2: 4x the windows of every subject, nested
@@ -13,7 +13,7 @@ Written 2026-09-28, before the small run (ADR 0020). Evaluated automatically by
 ## Backbone metrics (primary)
 
 Both models scored on the **tiny corpus's** held-out windows and masks (the small run is evaluated with
-`window_fraction` 0.05, `output/queue/overnight/eval_tiny_windows.json`), so the comparison is paired.
+`window_fraction` 0.05, `eval_tiny_windows.json` in docs/reports/2026-09-28-overnight/scripts/), so the comparison is paired.
 
 | Metric | Better is | Tool |
 |---|---|---|
@@ -57,4 +57,4 @@ Tiny `mesae_tiny_notrial_s1` -> small `mesae_small_graded_s1` (graded recipe).
   (-0.8 / -1.0, n.s.).
 - vs Compass best frozen FM (loso): 004 75.5 probe / 76.0 stamp vs 75.57; 001 49.6 vs 48.24; 008 69.6 /
   70.8 vs 67.11. MI few-shot still behind (004 71.2 stamp vs 76.69; 001 45.1 stamp vs 49.82).
-Full report: output/reports/overnight/small_card.md.
+Full report: docs/reports/2026-09-28-overnight.md.
