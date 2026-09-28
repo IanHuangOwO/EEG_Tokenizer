@@ -225,8 +225,11 @@ class EEGDataset(Dataset):
             # subject's windows -- the first n_keep of one fixed permutation seeded by
             # (window_fraction_seed, dataset, subject), so every subject stays in the corpus
             # and, at one seed, a smaller fraction is a subset of a larger one (corpus
-            # sizes tiny 5% < small 20% < medium 50% < large 100%, 2026-09-24).
-            frac = self.assembly_params.get('window_fraction', 1.0)
+            # sizes tiny 5% < small 20% < medium 50% < large 100%, 2026-09-24). A dataset's own
+            # dataset_params.pretrain.<ds>.window_fraction multiplies in: the corpus builder balances
+            # paradigms by capping windows per subject, never by dropping subjects -- the product
+            # keeps the nesting across corpus sizes.
+            frac = self.assembly_params.get('window_fraction', 1.0) * ds_config['dataset_params'].get('window_fraction', 1.0)
             if frac < 1.0 and len(padded):
                 seed = zlib.crc32(f"{self.assembly_params.get('window_fraction_seed', 0)}/{ds_name}/{subject_id}".encode())
                 n_keep = max(1, int(round(frac * len(padded))))

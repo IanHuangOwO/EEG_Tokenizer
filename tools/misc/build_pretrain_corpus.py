@@ -1,12 +1,12 @@
 """
 Builds dataset_params.pretrain for the balanced pretrain corpus (2026-09-24 design): motor
-(MI + motor execution) ~50%, the other paradigms ~12.5% each, whole subjects only.
+(MI + motor execution) ~50%, the other paradigms ~12.5% each.
 
-ALLOC below is the full corpus in hours per dataset. Subjects are taken in one seeded order
-per dataset, adding whole subjects while that brings the total closer to the allocation.
-The fast tiny corpus is NOT a subject subset: configs/pretrain_tiny.template.json uses the
-same subjects with preprocess_params.window_fraction = 0.05 (5% of each subject's windows,
-IO/dataset.py), so every subject stays in.
+ALLOC below is the full corpus in hours per dataset. Every compiled subject of a dataset is used; a
+dataset over its allocation gets a per-dataset window_fraction = allocation / its hours (IO/dataset.py
+keeps that fraction of every subject's windows), so balancing never drops subjects (2026-09-29; the
+model has to see cross-subject variation). The corpus sizes multiply in on top:
+configs/pretrain_tiny.template.json sets preprocess_params.window_fraction = 0.05.
 
     python -m tools.misc.build_pretrain_corpus --out configs/pretrain.template.json
 
@@ -16,7 +16,6 @@ import argparse
 import glob
 import json
 import os
-import random
 
 import numpy as np
 
@@ -30,7 +29,6 @@ ALLOC = {
                         'UCSD_PD': None, 'SPIS': None},
     'cognitive / affective': {'BCMI_MusicEmotion': 18, 'BCIC2020-3': None, 'STEW': None},
 }
-SEED = 42
 SUFFIX = 'fs200_bp0.5-100.0_pre1_post4'
 
 
@@ -43,19 +41,13 @@ def subject_hours(ds):
 
 
 def pick(ds, hours):
+    """-> (every compiled subject, window fraction or None, hours after the fraction)."""
     h = subject_hours(ds)
     if not h:
         raise SystemExit(f'{ds}: no compiled cache')
-    order = sorted(h, key=lambda s: (len(s), s))
-    random.Random(SEED).shuffle(order)
-    target = sum(h.values()) if hours is None else hours
-    chosen, t = [], 0.0
-    for s in order:
-        if chosen and t + h[s] / 2 > target:   # stop at the subject count closest to the target
-            break
-        chosen.append(s)
-        t += h[s]
-    return sorted(chosen, key=lambda s: (len(s), s)), t
+    total = sum(h.values())
+    frac = None if hours is None or hours >= total else round(hours / total, 4)
+    return sorted(h, key=lambda s: (len(s), s)), frac, total * (frac or 1.0)
 
 
 def main():
@@ -66,11 +58,13 @@ def main():
     dp, total, per = {}, 0.0, {}
     for paradigm, sets in ALLOC.items():
         for ds, hours in sets.items():
-            subs, t = pick(ds, hours)
+            subs, frac, t = pick(ds, hours)
             dp[ds] = {'dataset_path': f'datas/pretrain/{ds}', 'subject_to_use': subs, 'channels_to_use': ['all']}
+            if frac is not None:
+                dp[ds]['window_fraction'] = frac
             per[paradigm] = per.get(paradigm, 0.0) + t
             total += t
-            print(f'  {paradigm:22} {ds:20} {len(subs):3} subjects {t:6.1f} h')
+            print(f'  {paradigm:22} {ds:20} {len(subs):3} subjects {t:6.1f} h' + (f' (window_fraction {frac})' if frac else ''))
     print(f'total {total:.1f} h | ' + ', '.join(f'{p} {h / total:.0%}' for p, h in per.items()))
     cfg['dataset_params']['pretrain'] = dp
     with open(args.out, 'w') as f:
