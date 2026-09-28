@@ -10,7 +10,7 @@ Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.1
 Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the
 trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).
 
-## finetune (19 datasets, 2664.0 h compiled)
+## finetune (19 datasets, 1834.4 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -28,7 +28,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | SEED_VIG | Vigilance (PERCLOS regression) | C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | SEED_VII | Emotion (7-class) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | Siena | Seizure detection (adult) | B | 14 | 29 | 512 | none | — | 140.1 | compiled |
-| Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | — | 2458.5 | compiled |
+| Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | — | 1628.8 | compiled |
 | Things_EEG2 | Visual decoding (images) | B, C |  |  |  |  |  |  | skipped for now (2026-09-22) |
 | TUAB | Abnormal EEG (clinical) | B, C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | TUEV | Event classification (clinical) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
