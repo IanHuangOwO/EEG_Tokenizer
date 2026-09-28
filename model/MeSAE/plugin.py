@@ -213,11 +213,13 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                 continue
             for sid in sids:
                 U = P[(ds_name, sid)]; S = U @ U.T; n = len(U)
-                v = float((S.sum() - n) / (n * (n - 1)))
-                within.append(v); per_stamp.append(v); ids.append(sid)
-            # between-id pairs drawn WITHIN this dataset, between INDIVIDUAL occurrences
-            # (same footing as within — averaged columns would look falsely self-similar)
+                per_stamp.append(float((S.sum() - n) / (n * (n - 1)))); ids.append(sid)
+            # within- and between-id pairs both drawn WITHIN this dataset as pairs of INDIVIDUAL
+            # occurrences, same count, so the two histograms (and their means) are comparable
             for _ in range(4000 // max(1, len(by_ds))):
+                U = P[(ds_name, sids[rng.integers(len(sids))])]
+                i, j = rng.choice(len(U), 2, replace=False)
+                within.append(float(U[i] @ U[j]))
                 a, b = rng.choice(len(sids), 2, replace=False)
                 Ua, Ub = P[(ds_name, sids[a])], P[(ds_name, sids[b])]
                 between.append(float(Ua[rng.integers(len(Ua))] @ Ub[rng.integers(len(Ub))]))
