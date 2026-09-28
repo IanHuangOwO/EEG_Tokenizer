@@ -48,3 +48,21 @@ of A or better). Side: probe on z +3.6 / +3.8 on 004, within noise elsewhere.
 The one consistent signal is P300: routed stamp power beats raw band power on 8/8 subjects (+6.9 / +8.4),
 where static is +0.0. The MI hypothesis (routing adds class information beyond a filterbank) is not
 supported; the dead-stamp share suggests the rescue (`aux_weight` 0.03) is too weak for 60+ routed stamps.
+
+## Follow-up: where the routed gain lives (2026-09-28)
+
+The stamp coefficients are not a least-squares fit: on held-out pretrain windows 27-38% of their energy
+(A / B / C) lies in near-null directions of the selected templates (singular value < 0.1 s_max), which
+barely change the reconstruction (ridge fit: 0.3-5%, chance ~12%). Loso ridge on log stamp power from the
+finetune code (every kept stamp) as-is, with that component removed ("clean"), and from a ridge fit of the
+raw patch onto the same templates:
+
+| | 004 net / clean / ridge | 001 | 008 |
+|---|---|---|---|
+| A static (16 stamps, cond 359) | 73.8 / 73.1 / 74.9 | 33.6 / 34.0 / 33.4 | 55.2 / 54.2 / 54.3 |
+| C 64r (33 kept, 66 cols > 50, cond 1831) | 73.4 / 70.8 / 73.4 | 34.3 / 32.0 / 34.1 | **63.6** / 54.8 / 54.6 (clean < net 8/8) |
+
+Static: the invisible part is neutral; the code is a learned filterbank (a ridge fit onto its templates
+scores the same). Routed: the whole P300 gain over raw band power sits in the invisible part -- encoder
+information carried by coefficients the reconstruction does not constrain; removing it (an L2 on (a, b), or
+a ridge-fit head) would remove the gain. The probe on z still scores higher (008: 69.6).
