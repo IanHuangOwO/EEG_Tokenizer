@@ -29,3 +29,10 @@ the high-pass-only filter (commit 97c45f0; their native band ends at or below 10
 only added a no-op edge at Nyquist). `notrial_s1` and all three patch-100 seeds trained on the old caches,
 `p50_s16_s2` / `_s3` on the new ones. The difference is confined to 4 of 24 datasets (~19 of 211 h) and to
 frequencies at their Nyquist; if patch-50 seeds 2-3 differ systematically from seed 1, check this first.
+
+## Result (2026-09-29 06:43): trade-off -- patch 50 stays, patch 75 is next
+
+Patch 100 wins BNCI2014004 few-shot (+5.7, threshold 3.1) and BNCI2014001 few-shot (+3.7, threshold 1.8), loses
+BNCI2014008 loso (-1.9, threshold 1.2), ties the other three cells. The ridge probe on z agrees in direction
+(004 +3.1, 001 +2.1, 008 -2.1). The patch-50 seeds on the recompiled caches show no systematic shift.
+Full tables: docs/reports/2026-09-29-patch-length.md.

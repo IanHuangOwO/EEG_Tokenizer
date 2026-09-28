@@ -36,3 +36,4 @@ What is in the report's folder and where the raw output lives.
 |---|---|---|
 | 2026-09-26 | [Spatial encoding and masking (base, A, B, AB)](2026-09-26-spatial-and-masking.md) | AB adopted: only combination with a clear key-cell gain |
 | 2026-09-28 | [Overnight pipeline: finest skips, tiny to small, trial windows](2026-09-28-overnight.md) | graded skips stay; small corpus helps; Compass windows help MI few-shot stamp heads |
+| 2026-09-29 | [Patch length 50 vs 100](2026-09-29-patch-length.md) | trade-off: patch 100 wins MI few-shot, loses P300 loso; patch 50 stays, patch 75 next |
