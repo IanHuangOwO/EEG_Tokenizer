@@ -26,3 +26,25 @@ Written 2026-09-28, while the runs trained and before any of their metrics were 
 4. **Side:** ridge probe on z, attention range.
 
 Downstream finetunes only for a variant that passes.
+
+## Results (2026-09-28)
+
+| | A static | B 4s+60r | C 64r |
+|---|---|---|---|
+| stamp - raw, BNCI2014004 | +2.4 (4/9) | -4.2 (3/9) | +2.0 (5/9) |
+| stamp - raw, BNCI2014001 | -0.3 (6/9) | -0.8 (3/9) | +0.3 (5/9) |
+| stamp - raw, BNCI2014008 | +0.0 (5/8) | +6.9 (8/8) | +8.4 (8/8) |
+| routed usage entropy / dead share / dataset JS | -- | 0.73 / 45% / 0.038 | 0.74 / 56% / 0.019 |
+| ridge probe on z, 004 / 001 / 008 | 67.6 / 40.0 / 69.2 | 71.4 / 40.2 / 69.2 | 71.2 / 39.8 / 69.6 |
+| backbone_eval masked MSE, token_runs / time_block / random_channel | 0.405 / 0.780 / 0.318 | 0.412 / 0.761 / 0.312 | 0.392 / 0.779 / 0.313 |
+
+Raw band power on 008 uses FFTs zero-padded to 1 s (its 1 s trials leave 250 ms segments).
+
+**Verdict: neither routed variant passes.** Primary: gap over A >= 2 points on 1/3 datasets each (008 only;
+B -6.6 on 004). Routing health fails for both (entropy < 0.8, half the routed stamps dead), though dataset JS
+is above the untrained 0.009, so selection does depend on content. Guard rail passes (masked MSE within 3%
+of A or better). Side: probe on z +3.6 / +3.8 on 004, within noise elsewhere.
+
+The one consistent signal is P300: routed stamp power beats raw band power on 8/8 subjects (+6.9 / +8.4),
+where static is +0.0. The MI hypothesis (routing adds class information beyond a filterbank) is not
+supported; the dead-stamp share suggests the rescue (`aux_weight` 0.03) is too weak for 60+ routed stamps.

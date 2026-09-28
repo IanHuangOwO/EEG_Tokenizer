@@ -124,8 +124,9 @@ def stamp_vs_raw(config, checkpoint, out_path, datasets=DATASETS):
         sf = float(cfg['preprocess_params']['sample_freq'])
         xr = raw.x.float()                                                        # [T, Cv, samples]
         spans = xr.tensor_split(N_SEG, dim=-1)
-        f = torch.fft.rfftfreq(spans[0].shape[-1], 1 / sf)
-        bp = torch.stack([torch.stack([(torch.fft.rfft(sp, dim=-1).abs().pow(2)[..., (f >= lo) & (f < hi)]).mean(-1)
+        nfft = max(spans[0].shape[-1], int(sf))                                   # >= 1 Hz bins: short spans (008, 1 s trials) leave no bin in 0.5-4 Hz
+        f = torch.fft.rfftfreq(nfft, 1 / sf)
+        bp = torch.stack([torch.stack([(torch.fft.rfft(sp, n=nfft, dim=-1).abs().pow(2)[..., (f >= lo) & (f < hi)]).mean(-1)
                                        for lo, hi in BANDS_HZ], -1) for sp in spans], 1)   # [T, seg, Cv, bands]
         X_raw = (bp + 1e-6).log().reshape(len(y), -1).numpy()
         st, rw = _loso_ridge(X_stamp, y, subj, keep, subs), _loso_ridge(X_raw, y, subj, keep, subs)
