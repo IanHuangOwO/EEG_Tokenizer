@@ -109,7 +109,8 @@ partner), trained by masked reconstruction. Plugged in via `model/MeSAE/plugin.p
 ```
 datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.py's MoabbLoader
  └ cache_dataset.py    bandpass + resample each CONTINUOUS recording (BaseSubjectLoader._filter_run),
- │                     then cut epochs (event-anchored [event-1 s, event+4 s), or fixed windows); drops
+ │                     then cut epochs (event-anchored [event-1 s, event+4 s) for pretraining; the reported finetune
+ │                     sets use EEG-FM-Compass post-event windows via metadata moabb.onset_window/window, or fixed windows); drops
  │                     flat-line dropout windows -> datas/<split>/<Name>/cache/*.npz. BETA_3s/4s ship
  │                     pre-epoched and are filtered per epoch.
  └ IO/dataset.py       EEGDataset maps channels onto the canonical montage (missing -> zero padding,
