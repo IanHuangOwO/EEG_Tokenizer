@@ -10,16 +10,16 @@ Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.1
 Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the
 trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).
 
-## finetune (19 datasets, 61.7 h compiled)
+## finetune (19 datasets, 2664.0 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| BNCI2014001 | Motor imagery (4-class) | B, C | 9 | 22 | 250 | 4 | 1 s | 7.2 | compiled (MOABB) |
-| BNCI2014004 | Motor imagery (L/R hand) | C | 9 | 3 | 250 | 2 | 1 s | 9.1 | compiled (MOABB) |
-| BNCI2014008 | P300 speller (ALS) | C | 8 | 8 | 256 | 2 | 0.2 s | 9.3 | compiled (MOABB) |
+| BNCI2014001 | Motor imagery (4-class) | B, C | 9 | 22 | 250 | 4 | 0 s | 5.8 | compiled (MOABB) |
+| BNCI2014004 | Motor imagery (L/R hand) | C | 9 | 3 | 250 | 2 | 0 s | 8.2 | compiled (MOABB) |
+| BNCI2014008 | P300 speller (ALS) | C | 8 | 8 | 256 | 2 | 0 s | 9.3 | compiled (MOABB) |
 | BNCI2014009 | P300 speller | C | 10 | 16 | 256 | 2 | 0.2 s | 4.8 | compiled (MOABB) |
 | BNCI2015001 | Motor imagery (hand/feet) | C | 12 | 13 | 512 | 2 | 1 s | 7.8 | compiled (MOABB) |
-| CHB_MIT | Seizure detection (pediatric) | C | 4 | 16 | 256 | 2 | — |  | not compiled |
+| CHB_MIT | Seizure detection (pediatric) | C | 24 | 16 | 256 | 2 | — | 6.1 | compiled |
 | EEGMAT | Mental workload (arithmetic) | B, C | 36 | 19 | 500 | 2 | — | 0.6 | compiled |
 | Nakanishi2015 | SSVEP (12-class) | C | 9 | 8 | 256 | 12 | 0 s | 1.8 | compiled (MOABB) |
 | PhysionetMI | Motor imagery (5-class) | B | 109 | 64 | 160 | 5 | 0 s | 21.1 | compiled (MOABB) |
@@ -27,8 +27,8 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | SEED_V | Emotion (5-class) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | SEED_VIG | Vigilance (PERCLOS regression) | C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | SEED_VII | Emotion (7-class) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
-| Siena | Seizure detection (adult) | B | 14 | 29 | 512 | none | — |  | not compiled |
-| Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | — |  | not compiled |
+| Siena | Seizure detection (adult) | B | 14 | 29 | 512 | none | — | 140.1 | compiled |
+| Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | — | 2458.5 | compiled |
 | Things_EEG2 | Visual decoding (images) | B, C |  |  |  |  |  |  | skipped for now (2026-09-22) |
 | TUAB | Abnormal EEG (clinical) | B, C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | TUEV | Event classification (clinical) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
@@ -37,7 +37,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 | ADFTD | Clinical: Alzheimer's / FTD | B |  |  |  |  |  |  | open (OpenNeuro ds004504), not fetched |
 
-## pretrain (24 datasets, 438.0 h compiled)
+## pretrain (24 datasets, 437.9 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -60,7 +60,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 110.5 | compiled |
 | Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s | 18.7 | compiled (MOABB) |
 | SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0 s | 0.8 | compiled |
-| SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.1 | partial (110/111) |
+| SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.0 | partial (110/111) |
 | STEW | Mental workload (multitasking) |  | 48 | 14 | 128 | 2 | — | 4.0 | compiled |
 | UCSD_PD | Clinical: Parkinson's (rest) |  | 31 | 32 | 512 | 3 | — | 2.5 | compiled |
 | Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s | 11.3 | compiled (MOABB) |
