@@ -23,3 +23,9 @@ the finetune is the primary measure).
 3. **Secondary:** closed-form ridge probe on z (`ridge_probe`), mean +- SE over seeds. Masked reconstruction
    (`backbone_eval`) reported, not judged: its test masks are defined in patches, so patch 100 hides twice
    the seconds.
+
+**Deviation (2026-09-29 02:27):** STEW, Weibo2014, Inria_Train and Inria_Test were recompiled mid-run with
+the high-pass-only filter (commit 97c45f0; their native band ends at or below 100 Hz, so the old band-pass
+only added a no-op edge at Nyquist). `notrial_s1` and all three patch-100 seeds trained on the old caches,
+`p50_s16_s2` / `_s3` on the new ones. The difference is confined to 4 of 24 datasets (~19 of 211 h) and to
+frequencies at their Nyquist; if patch-50 seeds 2-3 differ systematically from seed 1, check this first.
