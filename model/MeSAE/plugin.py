@@ -17,17 +17,20 @@ from tools.viz.extract import extract_flat_stamp_psd_by_patch, extract_flat_stam
 from tools.viz.stamp_plots import plot_event_stamp_dynamics
 from tools.viz.codebook import (plot_stamp_similarity, plot_patch_position_consistency,
                            plot_stamp_identity_consistency, plot_fingerprint_similarity,
-                           plot_pool_energy_share, plot_stamp_energy_rank,
-                           plot_stamp_phase_consistency, plot_topography_distance,
-                           plot_pool_ablation)
+                           plot_stamp_phase_consistency, plot_topography_distance)
 from tools.analysis import event_onset_patch, lookup_event_onset_sample
 from IO.preprocessing import slice_patches
 
 
 def build_model(bp, num_channels):
-    """bp: config['model_params']['MeSAE']['pretrain']."""
+    """bp: config['model_params']['MeSAE']['pretrain']. stamp_bank: n_stamps, hidden_width (a static
+    checkpoint's build_config from before docs/adr/0022 names them n_shared_stamps /
+    stamp_shared_hidden_width, with n_routed_stamps 0 -- still read)."""
     sb = bp.get('stamp_bank', {})
     moe_ffn = bp.get('moe_ffn', {})
+    if sb.get('n_routed_stamps', 0):
+        raise ValueError("routed stamps were removed (docs/adr/0022): use the `routed-stamps` branch, "
+                         "or set stamp_bank to {n_stamps, hidden_width}")
 
     return MeSAEPretrain(
         embed_dim=bp.get('embed_dim', 100),
@@ -39,24 +42,13 @@ def build_model(bp, num_channels):
         blocks_per_stage=bp.get('blocks_per_stage', 2),
         num_channels=num_channels,
         spatial_embedding=bp.get('spatial_embedding', True),
-        n_routed_stamps=sb.get('n_routed_stamps', 60),
-        n_shared_stamps=sb.get('n_shared_stamps', 4),
-        stamp_top_k=sb.get('stamp_top_k', 32),
-        stamp_hidden_width=sb.get('stamp_hidden_width', 8),
-        stamp_shared_hidden_width=sb.get('stamp_shared_hidden_width', 16),
-        dead_threshold_frac=sb.get('dead_threshold_frac', 0.1),
-        stamp_ema_decay=sb.get('sae_ema_decay', 0.999),
+        n_stamps=sb.get('n_stamps', sb.get('n_shared_stamps', 16)),
+        stamp_hidden_width=sb.get('hidden_width', sb.get('stamp_shared_hidden_width', 16)),
         # Both None (the default) = fully continuous (a, b), exactly as before
         # quantization existed. See StampBank._quantize_amp_phase.
         stamp_amp_levels=sb.get('amp_levels'),
         stamp_phase_levels=sb.get('phase_levels'),
         stamp_amp_log2_range=tuple(sb.get('amp_log2_range', (-6.0, 3.0))),
-        # 'topk' (original) or 'gain' -- see StampBank.__init__.
-        stamp_selection_mode=sb.get('selection_mode', 'topk'),
-        # None = rescue every dead atom (default). A value bounds the aux
-        # block's memory; selection among dead atoms is starvation-first,
-        # never score-first -- see StampBank.__init__.
-        stamp_aux_k_cap_frac=sb.get('aux_k_cap_frac'),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
@@ -75,16 +67,14 @@ def build_model(bp, num_channels):
 class MeSAETrainer(BaseTrainer):
     def compute_loss(self, model, x, out, mp, **hparams):
         removed = {'hierarchical_mse_weight': '0011', 'mse_trial_weight': '0021', 'stft_weight': '0019',
-                   'stft_sizes': '0019', 'nested_sizes': '0018', 'nested_weights': '0018'}
+                   'stft_sizes': '0019', 'nested_sizes': '0018', 'nested_weights': '0018', 'aux_weight': '0022'}
         stale = sorted(k for k in hparams if k in removed and hparams[k])
         if stale:   # a removed loss term: fail loudly rather than train a silently different loss
             raise ValueError(f"loss keys {stale} were removed (docs/adr/{', '.join(sorted({removed[k] for k in stale}))}); "
                              "drop them from the config")
-        aux_weight = hparams.get('aux_weight', 0.03)
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         mp_weight = hparams.get('mp_weight', 0.0)
-        return model.get_loss(x, out.recon, out.aux_loss, bool_masked_pos=mp,
-                               aux_weight=aux_weight,
+        return model.get_loss(x, out.recon, bool_masked_pos=mp,
                                mse_patch_weight=hparams.get('mse_patch_weight', 1.0),
                                unmasked_weight=hparams.get('unmasked_weight', 1.0),
                                ffn_lb_loss=out.ffn_lb_loss, ffn_lb_weight=ffn_lb_weight,
@@ -92,7 +82,6 @@ class MeSAETrainer(BaseTrainer):
                                mp_loss=out.mp_loss, mp_weight=mp_weight, mp_map=out.mp_map)
 
     def update_diagnostics(self, model, out):
-        model.update_stamp_router_metrics(out.dense_routed)
         model.update_ffn_router_metrics(out.ffn_router_entropy, out.ffn_router_load_std, out.ffn_gate_entropy)
 
     def epoch_metrics(self, model, out):
@@ -100,9 +89,7 @@ class MeSAETrainer(BaseTrainer):
         # train_pretrain.py (train_one_epoch/validate_one_epoch), not added here — this
         # function only ever sees the last batch's out, which would make them a
         # last-batch snapshot instead of an epoch average like every other loss stat.
-        metrics = model.get_metrics(out.dense_routed.detach())
-        metrics['aux'] = out.aux_loss.item() if hasattr(out.aux_loss, 'item') else float(out.aux_loss)
-        metrics['k_eff'] = out.k_eff.item() if hasattr(out.k_eff, 'item') else float(out.k_eff)
+        metrics = model.get_metrics()
         metrics['ffn_lb_loss'] = out.ffn_lb_loss.item() if hasattr(out.ffn_lb_loss, 'item') else float(out.ffn_lb_loss)
         return metrics
 
@@ -118,21 +105,10 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
     @torch.no_grad()
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
-        """[N, n_stamps] dense usage, one row per PATCH POSITION — routed axis real
-        selection strength (zeros at unselected), shared axis each shared stamp's real
-        post-rms amp magnitude (see StampBank.forward's h; see docs/adr/0009's
-        Monitoring impact section).
-
-        StampBank selects per patch position (group selection, see its class
-        docstring), so out.dense_routed is already [G=N, n_routed] for a B=1 trial.
-        Shared stamps sit at fixed positions top_k: in out.h (idx's routed-then-shared
-        layout, see StampBank.forward), so no need for the model to expose idx
-        separately here."""
-        B, C, N, L = x_in.shape
+        """[N, n_stamps] usage, one row per PATCH POSITION: each stamp's post-rms amp magnitude
+        (StampBank.forward's h; G = N for a B=1 trial)."""
         out = model(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
-        shared = out.h[:, model.stamps.top_k:]                       # [N, n_shared]
-        dense_full = torch.cat([out.dense_routed, shared], dim=-1)  # [N, n_stamps] (G = N, B=1)
-        return dense_full.detach().cpu().numpy()
+        return out.h.detach().cpu().numpy()
 
     def decoder_fingerprint_matrix(self, model):
         """Per-stamp [patch_len] waveform template D_i (see StampBank.fingerprint —
@@ -146,120 +122,12 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         return flat @ flat.T
 
     def rank_ceiling(self, model):
-        return min(model.stamps.top_k, model.head_dim)
+        return min(model.n_stamps, model.head_dim)
 
     def _render_fingerprint_similarity(self, viz_dir, model):
         plot_fingerprint_similarity(
             os.path.join(viz_dir, 'stamp_fingerprint_similarity.png'),
-            self.decoder_fingerprint_matrix(model), unit_label=self.unit_label,
-            n_routed=model.n_routed_stamps)
-
-    def _render_pool_energy_share(self, usage_by_dataset, viz_dir, model):
-        """"Where does context live" -- direct answer: what fraction of total h^2
-        (real reconstruction energy) each dataset draws from the Shared pool. usage's
-        [n_routed:] columns are already the Shared pool's post-rms magnitude (see
-        extract_usage), [:n_routed] the Routed pool's selection strength (zero where
-        unselected) -- both are the same h units, so summing h^2 on either side of the
-        n_routed boundary is a real energy split, not an apples-to-oranges comparison.
-
-        cv_routed/cv_shared: coefficient of variation, across datasets, of each pool's
-        own per-stamp MEAN usage -- see plot_pool_energy_share's docstring for why this
-        is the complementary "is Shared actually generic" read."""
-        n_routed = model.n_routed_stamps
-        share_by_dataset = {}
-        per_ds_mean = {}  # ds -> [n_stamps] mean usage, for the CV computation below
-        for ds_name, usage in usage_by_dataset.items():
-            energy = usage.astype(np.float64) ** 2                      # [M, n_stamps]
-            routed_e = energy[:, :n_routed].sum()
-            shared_e = energy[:, n_routed:].sum()
-            share_by_dataset[ds_name] = float(shared_e / max(routed_e + shared_e, 1e-12))
-            per_ds_mean[ds_name] = usage.mean(axis=0)                   # [n_stamps]
-
-        stacked = np.stack(list(per_ds_mean.values()), axis=0)          # [D, n_stamps]
-        mean_ = stacked.mean(axis=0)
-        std_ = stacked.std(axis=0)
-        cv = np.divide(std_, mean_, out=np.full_like(mean_, np.nan), where=mean_ > 1e-8)
-        cv_routed = float(np.nanmean(cv[:n_routed]))
-        cv_shared = float(np.nanmean(cv[n_routed:]))
-
-        plot_pool_energy_share(
-            os.path.join(viz_dir, 'pool_energy_share.png'), share_by_dataset,
-            cv_routed, cv_shared, unit_label=self.unit_label)
-
-    def _render_stamp_energy_and_rank(self, usage_by_dataset, viz_dir, model):
-        """Per-unit mean firing strength (loudness) and, for Routed units only, mean
-        rank-when-selected -- see plot_stamp_energy_rank's docstring. Rank is recovered
-        from usage alone (no fresh forward pass, no StampBank changes needed): each
-        patch's routed usage row has exactly stamp_top_k nonzero entries (the routed
-        winners for that patch, see StampBank.forward); ranking those descending by
-        value reproduces mp_loss's own by-h ordering (docs/adr/0011) without needing
-        StampBank to expose it separately."""
-        n_routed = model.n_routed_stamps
-        usage = np.concatenate(list(usage_by_dataset.values()), axis=0)  # [M_total, n_stamps]
-        n_stamps = usage.shape[1]
-        mean_h = usage.mean(axis=0)                                      # [n_stamps], zeros count
-
-        routed = usage[:, :n_routed]
-        order = np.argsort(-routed, axis=1)                               # [M, n_routed]
-        ranks = np.empty_like(order)
-        rows = np.arange(routed.shape[0])[:, None]
-        ranks[rows, order] = np.arange(n_routed)[None, :]                 # inverse permutation -> rank per column
-        fired = routed > 0
-        rank_sum = np.where(fired, ranks, 0).sum(axis=0).astype(np.float64)
-        fire_count = fired.sum(axis=0)
-        mean_rank = np.full(n_routed, np.nan)
-        nz = fire_count > 0
-        mean_rank[nz] = rank_sum[nz] / fire_count[nz]
-
-        plot_stamp_energy_rank(
-            os.path.join(viz_dir, 'stamp_energy_rank.png'), mean_h, mean_rank, n_routed,
-            unit_label=self.unit_label)
-
-    @torch.no_grad()
-    def _render_pool_ablation(self, trial_records, viz_dir, model, device, seed, max_trials=60):
-        """Causal necessity check -- see plot_pool_ablation's docstring for why the
-        correlational usage/energy panels above aren't enough on their own. Re-decodes
-        with one pool's amp zeroed via StampBank.decode_selected (public, already used by
-        extract_stamp_content) -- no StampBank.forward change needed, selection/idx stay
-        exactly what training produced, only the summed contribution changes."""
-        needing = [t for t in trial_records if 'raw' in t]
-        if not needing:
-            return
-        rng = random.Random(seed)
-        sample = needing if len(needing) <= max_trials else rng.sample(needing, max_trials)
-
-        top_k = model.stamps.top_k
-        sums = {}  # ds -> [sq_err_baseline, sq_err_no_shared, sq_err_no_routed, n_valid_elems]
-        for t in sample:
-            x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
-            B, C, N, L = x_in.shape
-            z, _ = model.stage_features(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
-            z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
-            x_g = x_in.permute(0, 2, 1, 3).reshape(B * N, C, L)
-            rms = x_g.pow(2).mean(-1, keepdim=True).sqrt()
-            vg = vc_in.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
-            out = model.stamps(z_g, x_target=None, rms=rms, valid_channels=vg)
-
-            def _mse(amp):
-                contrib = model.stamps.decode_selected(out.idx, amp).sum(dim=2)  # [G, C, L]
-                err = (contrib - x_g).pow(2)
-                return (err * vg.unsqueeze(-1)).sum().item(), vg.sum().item() * L
-
-            amp_no_shared = out.amp.clone(); amp_no_shared[:, :, top_k:, :] = 0
-            amp_no_routed = out.amp.clone(); amp_no_routed[:, :, :top_k, :] = 0
-            se_base, n_base = _mse(out.amp)
-            se_ns, _ = _mse(amp_no_shared)
-            se_nr, _ = _mse(amp_no_routed)
-
-            acc = sums.setdefault(t['dataset'], [0.0, 0.0, 0.0, 0.0])
-            acc[0] += se_base; acc[1] += se_ns; acc[2] += se_nr; acc[3] += n_base
-
-        baseline = {ds: v[0] / max(v[3], 1e-8) for ds, v in sums.items()}
-        no_shared = {ds: v[1] / max(v[3], 1e-8) for ds, v in sums.items()}
-        no_routed = {ds: v[2] / max(v[3], 1e-8) for ds, v in sums.items()}
-        plot_pool_ablation(
-            os.path.join(viz_dir, 'pool_ablation.png'), baseline, no_shared, no_routed,
-            unit_label=self.unit_label)
+            self.decoder_fingerprint_matrix(model), unit_label=self.unit_label)
 
     @torch.no_grad()
     def extract_stamp_content(self, model, x_in, c_in, t_in, vc_in):
@@ -377,7 +245,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             circ_var[sid] = 1.0 - np.abs(np.exp(1j * ph).mean())
         plot_stamp_phase_consistency(
             os.path.join(viz_dir, 'stamp_phase_consistency.png'), circ_var, fire_count,
-            model.n_routed_stamps, unit_label=self.unit_label)
+            unit_label=self.unit_label)
 
         def prep(a):
             # center across channels then unit-norm: raw magnitude columns are
@@ -568,8 +436,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
 class MeSAEPlotter(BasePlotter):
     def plot_pretrain(self, filename='training_dashboard.png'):
-        # Grouped: loss/reconstruction -> SAE health -> routing (Stamp/FFN side by side,
-        # directly comparable) -> architecture diagnostics. Order is the only grouping lever
+        # Grouped: loss/reconstruction -> FFN routing -> architecture diagnostics. Order is the only grouping lever
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
         # group may still straddle a row edge.
         recon = ('masked', 'crimson'), ('unmasked', 'steelblue'), ('mse_patch', 'darkorchid')
@@ -586,35 +453,12 @@ class MeSAEPlotter(BasePlotter):
         if self.has_signal('mse_mp'):   # the per-stamp anti-duplicate term, when trained
             loss_panels[1]['series'].append(dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss'))
 
-        stamp_health_panels = [
-            dict(title='Stamp Aux-K Loss (dead-atom revival)\n[train only, 0 in eval by design]',
-                 ylabel='Aux loss', series=[dict(key='aux', color='darkorange', train_only=True)]),
-            dict(title='Dead Feature Rate (left) + Effective Atoms per Token (right)\n'
-                       '(k_eff = (sum|a|)^2 / sum(a^2) — 1 = one atom carries all, top_k = all equal)',
-                 ylabel='Dead fraction',
-                 series=[dict(key='dead_feature_rate', color='crimson')],
-                 twin=dict(ylabel='k_eff', series=[dict(key='k_eff', color='darkorchid')])),
-        ]
-
-        # Stamp Router Health — see MeSAE.update_stamp_router_metrics for what each number
-        # means. Same panel shape as MeFSQ's, via router_health_series. No shared-stamp
-        # series here — shared stamps have no on/off dynamics (constant weight), so a
-        # separate line would just be flat (see docs/adr/0009's Monitoring impact section).
-        stamp_router_series, stamp_twin_series = self.router_health_series(
-            'stamp', entropy_label='Router entropy (load balance)')
-
-        # FFN Router Health — same 3 metrics as the Stamp router above, but for the MoEFFN
-        # routers inside every TSABlock (averaged across blocks), see
-        # MeSAE.update_ffn_router_metrics / docs/adr/0008-moe-ffn-for-mesae.md. A distinct
-        # MoE from the Stamp router — kept as its own panel rather than merged, so either
-        # one collapsing is visible without the other's curves crowding it out.
+        # FFN Router Health — the MoEFFN routers inside every TSABlock (averaged across blocks),
+        # see MeSAE.update_ffn_router_metrics / docs/adr/0008-moe-ffn-for-mesae.md.
         ffn_router_series, ffn_twin_series = self.router_health_series(
             'ffn', entropy_label='Router entropy (load balance)')
 
         routing_panels = [
-            dict(title='Stamp Router Health\n(entropy rising = healthy spread; falling = collapse)',
-                 ylabel='Entropy (higher=balanced)', series=stamp_router_series,
-                 twin=dict(ylabel='Load std / LB loss', series=stamp_twin_series) if stamp_twin_series else None),
             dict(title='FFN Router Health\n(entropy rising = healthy spread; falling = collapse)',
                  ylabel='Entropy (higher=balanced)', series=ffn_router_series,
                  twin=dict(ylabel='Load std / LB loss', series=ffn_twin_series) if ffn_twin_series else None),
@@ -628,13 +472,7 @@ class MeSAEPlotter(BasePlotter):
                  ylabel='Mean |delta| per block', series=self.indexed_series('block_norm_', cmap_name='viridis')),
         ]
 
-        # Stamp-side panels only when they carry data: aux is 0 with aux_weight 0, and dead rate /
-        # k_eff / stamp router are empty with no routed stamps (the all-shared recipe).
-        keep = [self.has_signal('aux'), self.has_signal('dead_feature_rate', 'k_eff')]
-        stamp_health_panels = [p for p, k in zip(stamp_health_panels, keep) if k]
-        if not self.has_signal('stamp_router_entropy', 'stamp_router_load_std', 'stamp_gate_entropy'):
-            routing_panels = routing_panels[1:]
-        panels = loss_panels + stamp_health_panels + routing_panels + architecture_panels
+        panels = loss_panels + routing_panels + architecture_panels
         self.render(panels, filename, suptitle='Tokenizer (Stamp) Training Dashboard', ncols=4)
 
     def plot_finetune(self, filename='training_dashboard.png', freeze_backbone=False):

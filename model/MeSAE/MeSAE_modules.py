@@ -670,334 +670,79 @@ class TSAEncoder(nn.Module):
 
 class StampBank(nn.Module):
     """
-    Sparse source dictionary over CHANNEL-GROUPED tokens: input is [G, C, D] where each
-    group g is one patch POSITION (G = B*N) carrying all C channels' embeddings for
-    that moment. Selection runs once per group (shared by every channel); amplitude is
-    read per channel. This is the instantaneous-mixing ICA picture made structural:
-    x_c(t) = sum_s A[c, s] * source_s(t) — D_hat_i is source_s's waveform, and the
-    [C] vector of per-channel amps for a selected stamp IS that source's mixing
+    Static stamp dictionary over CHANNEL-GROUPED tokens: input is [G, C, D] where each group g is one
+    patch POSITION (G = B*N) carrying all C channels' embeddings for that moment. Every stamp is
+    active at every position (no selection); amplitude is read per channel. This is the
+    instantaneous-mixing ICA picture made structural: x_c(t) = sum_s A[c, s] * source_s(t) -- D_hat_s
+    is source s's waveform, and the [C] vector of per-channel amps of a stamp IS that source's mixing
     column (its topomap at that patch time), dense across channels by construction.
 
-    Group selection binds one source to ONE stamp across the whole scalp.
+    Routed stamps (top-k selection, dead-stamp rescue, 'gain' selection) were removed (docs/adr/0022):
+    at 64 routed stamps half the pool stayed dead at patch_len 50 and 100 alike, and neither
+    reconstruction nor the z probe beat this static dictionary. The routed code lives on the
+    `routed-stamps` branch. Parameter names keep their `_shared` suffix so static checkpoints load.
 
-    The bank is n_routed (compete via score + top-k) plus n_shared (always
-    included, every group, no top-k). No fixed down-weight on the shared pool's
-    recon contribution: a scalar multiplier on amp is not a real regularizer here —
-    amp is a free, unconstrained linear gain, so the optimizer just inflates it to
-    cancel any fixed scale back out at convergence. Whatever separates shared from
-    routed has to come from a real structural difference (always-on vs. gated,
-    wider bottleneck) — see shared_hidden_width — not a multiplier gradient descent
-    can undo for free.
+    phi_s(z_c) = rms_c * (a_s(z_c) * D_hat_s + b_s(z_c) * Hilbert(D_hat_s)): a fixed per-stamp waveform
+    TEMPLATE D_s (nn.Parameter [patch_len], no z dependence, used UNIT-L2-NORMALIZED everywhere --
+    with a free-norm D, amp*D has a scale degeneracy) plus its DERIVED Hilbert quadrature partner
+    (never a free parameter, see _quadrature), combined by a per-CHANNEL, per-stamp gain pair (a, b)
+    from the stamp's own small MLP on z -- amplitude sqrt(a^2+b^2), phase atan2(b, a): the stamp can
+    present its source at any arrival phase without shape freedom -- times that channel's raw-input
+    RMS (the LayerNorm stack erases amplitude from z, so the gain multiplies it back in explicitly).
+    Deliberately NOT a generator that can bend its own shape per token: shape is a pure parameter
+    and amplitude/phase the only z-dependent knobs, so "same waveform, different amplitude across
+    channels" is structural (docs/adr/0009 discusses the trade-off: no per-token shape warping).
 
-    Selection is TopK-SAE style, aggregated over channels: per-atom group score =
-    mean over VALID channels of amp_i(z_c)^2 (matched-filter energy summed over the
-    scalp — an atom strong on a few channels or moderate on many both rank fairly),
-    one top-k per group. The coefficient IS the score: amp is trained by recon MSE at
-    every channel, so ranking directly off it gives every atom a real, continuously
-    updated selection signal. h (both h_routed and h_shared) is the post-rms amp
-    magnitude sqrt(a^2+b^2) averaged over channels — diagnostics/viz-ranking only,
-    never touches recon.
-
-    No load-balance loss: the routing score IS the reconstruction coefficient, so
-    pushing the load distribution toward uniform is pushing reconstruction amplitudes
-    toward uniform — unlike MoEFFN, whose gate is a free parameter with no other job,
-    where uniformity costs only routing preference. A plain LB term here would be
-    another auxiliary loss whose optimum ("every atom contributes equal energy on
-    every patch") recon cannot veto. It would also fight legitimate power-law usage: measured
-    load entropy on healthy runs is 0.73-0.81 of its maximum (alive 0.54-0.97) —
-    deliberately non-uniform, as a content-addressed dictionary should be, since real
-    source prevalence is unequal (alpha everywhere, a rare artifact rarely). Collapse
-    is instead guarded by fire_ema/dead_threshold/aux_loss below, which are curative
-    and content-AWARE (a revived atom is aimed at the residual, i.e. at content
-    nothing else covers) where LB would be preventive and content-blind. If prevention
-    is ever genuinely needed, the safe shape is a HINGED entropy FLOOR (relu(0.70 -
-    H/log(n_routed)), inactive across the healthy band, fires only on a real
-    collapse), not a push toward uniform. That fraction is logged as
-    stamp_router_entropy_frac.
-
-    phi_i(z_c) = rms_c * (a_i(z_c) * D_hat_i + b_i(z_c) * Hilbert(D_hat_i)): a fixed
-    per-atom waveform TEMPLATE D_i (nn.Parameter [patch_len], no z dependence, used
-    UNIT-L2-NORMALIZED everywhere — see the D_routed init comment for the amp/norm
-    degeneracy this kills) plus its DERIVED Hilbert quadrature partner (never a free
-    parameter, see _quadrature), combined by a per-CHANNEL, per-atom gain pair
-    (a, b) from the atom's own narrow hidden_i bottleneck — amplitude
-    sqrt(a^2+b^2), phase atan2(b, a): the stamp can present its source at any
-    arrival phase without shape freedom (see the w_amp init comment) — times that
-    channel's raw-input RMS (the LayerNorm stack erases amplitude from z, so the
-    gain multiplies it back in explicitly — see forward()).
-    Deliberately NOT a generator that can bend its own shape per token (that was the
-    prior design: hidden_i @ W_out_i + b_out_i, a full per-atom linear map from the
-    bottleneck to [patch_len]) — replaced because the target signal this is meant to
-    capture (a shared source, e.g. line noise, arriving at every channel as the SAME
-    waveform at a channel-specific amplitude/polarity, near-zero phase lag) is
-    structurally amplitude-varying, not shape-varying. Forcing shape to be a pure
-    parameter and amplitude to be the only z-dependent knob makes "same waveform,
-    different amplitude across channels" a structural guarantee instead of something
-    training has to discover on its own, and is provably phase-safe: scalar-multiplying
-    a real time-domain vector scales every frequency bin's magnitude by the same
-    factor and leaves phase untouched (amp<0 is a clean 180-degree flip, not
-    distortion) — unlike scaling a waveform's real/imag FFT components independently,
-    which does distort phase (that failure mode doesn't apply here since there's no
-    real/imag split anywhere in this module, only a real time-domain vector, see
-    dense_probe's docstring for the earlier scalar-weighting attempts that got
-    entangled with the ROUTING scalar h instead of using a free one).
-
-    Cost trade against the old per-atom W_out design: loses the ability for an atom to
-    warp its own shape per token (e.g. a genuine conduction-delay phase difference
-    across channels, or an amplitude-dependent shape change like a spike broadening as
-    it grows — see docs/adr/0009's discussion of this exact tradeoff). Also a real
-    fingerprint simplification: D_i now IS each atom's shape, unconditionally — no more
-    fabricated-probe fingerprint() vs real-data dense_probe() split to work around a
-    generator whose shape depended on its input (see both methods below).
-
-    A free [patch_len]-length D_i's implicit frequency content is bound to the
-    patch_len-length FFT grid (Df = fs/patch_len). Parametric oscillator atoms once
-    carved out shared slots to escape that grid for line noise; withdrawn after
-    measurement — see docs/adr/0010-oscillator-atoms-withdrawn.md.
+    A free [patch_len]-length D_s's frequency content is bound to the patch_len-length FFT grid
+    (Df = fs/patch_len); parametric oscillator atoms were tried and withdrawn (docs/adr/0010).
     """
-    def __init__(self, dim, patch_len, n_routed_stamps=796, n_shared_stamps=4,
-                 top_k=32, hidden_width=8, shared_hidden_width=16,
-                 dead_threshold_frac=0.1, ema_decay=0.999,
-                 amp_levels=None, phase_levels=None, amp_log2_range=(-6.0, 3.0),
-                 selection_mode='topk', aux_k_cap_frac=None):
+    def __init__(self, dim, patch_len, n_stamps=16, hidden_width=16,
+                 amp_levels=None, phase_levels=None, amp_log2_range=(-6.0, 3.0)):
         super().__init__()
-        # Pool sizes are declared separately, not a total minus a slice: n_stamps is
-        # the derived sum. Every internal use below wants the total, so it stays.
-        self.n_routed = n_routed_stamps
-        self.n_shared = n_shared_stamps
-        self.n_stamps = n_routed_stamps + n_shared_stamps
-        self.top_k = min(top_k, self.n_routed)
-        # Normalizes z before it's used for anything (scoring, the bottleneck's
-        # generator input, z_h) — z inherits whatever scale the encoder currently
-        # drifts to (documented block_norm growth across blocks/epochs elsewhere in this
-        # codebase).
+        self.n_stamps = n_stamps
+        # Normalizes z before it's used (z inherits whatever scale the encoder drifts to).
         self.input_norm = nn.LayerNorm(dim)
         self.dim = dim
-        # Bottleneck width over the D-dim z input. Shared stamps get a wider
-        # bottleneck than routed (16 vs 8 by default): they're always-on across every
-        # patch/dataset (never gated out), so they need more room to represent structure
-        # common across all data types rather than specializing narrowly like a routed
-        # stamp can afford to.
         self.hidden_width = hidden_width
-        self.shared_hidden_width = shared_hidden_width
 
-        # No selection scorer params — selection is |amp_i(z)| directly (see class
-        # docstring and forward()): amp is trained by recon MSE, so scoring off the
-        # atom's own bottleneck output IS what the atom would contribute.
-
-        # phi: bottleneck generator, per-atom W_down/b_down (down-project + GELU) decoding
-        # through a per-ATOM W_out/b_out straight to [patch_len] — every atom gets its own
-        # full down+up map now, no group-shared decode table. Routed and shared use
-        # separate W_down/b_down/W_out/b_out tables (different hidden widths).
-        self.W_down_routed = nn.Parameter(torch.empty(self.n_routed, dim, hidden_width))
-        self.b_down_routed = nn.Parameter(torch.zeros(self.n_routed, hidden_width))
-        self.W_down_shared = nn.Parameter(torch.empty(self.n_shared, dim, shared_hidden_width))
-        self.b_down_shared = nn.Parameter(torch.zeros(self.n_shared, shared_hidden_width))
-        nn.init.kaiming_uniform_(self.W_down_routed, a=math.sqrt(5))
+        # amp_s(z): per-stamp MLP z -> hidden (GELU) -> QUADRATURE PAIR of gains (a, b); contribution =
+        # a*D_hat + b*Hilbert(D_hat), so the pair encodes amplitude A=sqrt(a^2+b^2) and phase
+        # phi=atan2(b, a) of the template with the generator staying linear in (a, b). Because the
+        # partner is derived from the SAME template, (a, b) can only re-phase and scale the shape,
+        # never morph it. Free/unbounded/signed, no clamp.
+        self.W_down_shared = nn.Parameter(torch.empty(n_stamps, dim, hidden_width))
+        self.b_down_shared = nn.Parameter(torch.zeros(n_stamps, hidden_width))
         nn.init.kaiming_uniform_(self.W_down_shared, a=math.sqrt(5))
-
-        # amp_i(z): QUADRATURE PAIR of gains (a, b) read off the atom's own hidden_i
-        # bottleneck — contribution = a*D_hat + b*Hilbert(D_hat), so the pair encodes
-        # amplitude A=sqrt(a^2+b^2) and phase phi=atan2(b, a) of the template with the
-        # generator staying fully linear (phase is the ANGLE of a learned 2-vector,
-        # never a raw scalar rotated through trig — no sin/cos optimization basins).
-        # Because the partner is the Hilbert transform of the SAME template (derived,
-        # not free — see _quadrature), (a, b) can only re-phase and scale the shape,
-        # never morph it: that tie is what separates this from the rejected
-        # "independently scale real/imag" design, which warps the waveform. Doubles as
-        # the selection score via a^2+b^2 (phase-invariant matched-filter energy — an
-        # atom now matches its source at ANY arrival phase, killing the need for
-        # phase-shifted template copies in the pool). Free/unbounded/signed, no clamp.
-        self.w_amp_routed = nn.Parameter(torch.empty(self.n_routed, hidden_width, 2))
-        self.b_amp_routed = nn.Parameter(torch.zeros(self.n_routed, 2))
-        self.w_amp_shared = nn.Parameter(torch.empty(self.n_shared, shared_hidden_width, 2))
-        self.b_amp_shared = nn.Parameter(torch.zeros(self.n_shared, 2))
-        nn.init.kaiming_uniform_(self.w_amp_routed, a=math.sqrt(5))
+        self.w_amp_shared = nn.Parameter(torch.empty(n_stamps, hidden_width, 2))
+        self.b_amp_shared = nn.Parameter(torch.zeros(n_stamps, 2))
         nn.init.kaiming_uniform_(self.w_amp_shared, a=math.sqrt(5))
 
-        # D_i: the atom's own waveform template, a plain parameter with NO z dependence.
-        # Used UNIT-L2-NORMALIZED at every consumption site (F.normalize in
-        # _generate_routed/decode_selected/dense_probe/fingerprint), never raw: with a
-        # free-norm D, amp*D has a scale degeneracy — the model can shrink amp and grow
-        # ||D|| with recon unchanged, which (a) games sparsity_loss's L1-on-amp down to
-        # nothing without any real sparsification (classic sparse-coding pitfall, fixed
-        # the standard way: unit-norm dictionary atoms), and (b) makes amp values
-        # incomparable across atoms — with unit D, amp is the one true coefficient
-        # (actual per-channel source amplitude, the thing a topomap of one stamp across
-        # channels is supposed to read). The raw parameter keeps whatever norm it drifts
-        # to; only its direction ever matters.
-        # Normal-init at a modest std (not kaiming, there's no fan-in/fan-out here: this
-        # is a direct [patch_len] output vector, not a weight matrix).
-        self.D_routed = nn.Parameter(torch.randn(self.n_routed, patch_len) * 0.02)
-        self.D_shared = nn.Parameter(torch.randn(self.n_shared, patch_len) * 0.02)
+        # D_s: the stamp's own waveform template, no z dependence, used unit-normalized at every
+        # consumption site; the raw parameter's norm is irrelevant. Normal-init at a modest std.
+        self.D_shared = nn.Parameter(torch.randn(n_stamps, patch_len) * 0.02)
 
-        # n_routed=0 (all-shared/static dictionary): no routed pool to go dead, dead_threshold
-        # is never read against anything (fire_ema is also size 0) -- 0.0 keeps it well-defined.
-        self.dead_threshold = 0.0 if self.n_routed == 0 else dead_threshold_frac * (self.top_k / self.n_routed)
-        self.ema_decay = ema_decay
-        self.register_buffer('fire_ema', torch.zeros(self.n_routed))
-
-        # Bound on how many dead atoms the aux rescue processes per step. None = all of
-        # them (the default; correct and cheap for a small dead pool).
-        #
-        # This exists for COST, not for training dynamics: the rescue block materializes
-        # four [G, C, aux_k, patch_len] tensors (contrib_aux, cum_excl_aux, resid_aux,
-        # diff2_aux). At a typical G = B*N = 624, C = 64, patch_len = 50 that is ~96 MB
-        # each per 12 rescued atoms, so a large pool mid-collapse is expensive:
-        # n_routed=120 sitting at dead 0.55 (~66 atoms, as v8 did for several epochs)
-        # is ~2 GB of transient aux tensors plus autograd graph.
-        #
-        # An earlier version of this cap picked WHICH atoms to rescue with
-        # dead_score.topk(aux_k_cap) -- highest-scoring dead atoms first. That is a
-        # permanent lockout, not a bound: dead_score derives from the same group_score
-        # that governs main selection, and an atom's score only improves if it receives
-        # gradient, which only happens if it is picked. Measured on mesae_tokenizer_v5:
-        # 23 of 60 atoms sat at literal float-zero fire_ema, never rescued once in a
-        # whole run, while dead_mask.sum() ran ~25 against a cap of 12.
-        #
-        # So the cap is kept but the RULE is starvation-first (see forward): among dead
-        # atoms, rescue the ones rescued least often so far. Bounded cost per step AND
-        # every dead atom is reached within ceil(n_dead / aux_k_cap) steps, regardless of
-        # its score. Same fix shape as SAE neuron-resampling schedules, which also rotate
-        # rather than always re-picking the same candidates.
-        self.aux_k_cap = None if aux_k_cap_frac is None else max(1, int(aux_k_cap_frac * self.n_routed))
-        # persistent=False: a pure scheduling counter, not learned state. Keeping it out
-        # of the state dict means enabling/disabling the cap is not a checkpoint schema
-        # change, and a reload just restarts the rotation (harmless).
-        self.register_buffer('rescue_count', torch.zeros(self.n_routed, dtype=torch.long),
-                              persistent=False)
-
-        # How the routed top_k is chosen. Measured on trained v5: of 39 atoms below
-        # dead_threshold, 28 are INERT (won 0 of ~1560 patch positions) and 11 are merely
-        # MARGINAL (win 0.7-18% of patches) -- one metric, two populations. The inert 28
-        # get gradient ONLY from the aux rescue, which trains them against the RESIDUAL,
-        # while 'topk' ranks on mean_c(a^2+b^2) over the FULL signal: median dead
-        # group_score 1.3e-3 vs median cutoff 1.5e-1, ~115x short, the right order for
-        # residual/signal RMS (0.197 -> ~26x squared). Uncapping the rescue (which was a
-        # real and separate bug) gave them gradient but not one that can win selection.
-        #   'topk'       - one-shot mean_c(a^2+b^2), the original.
-        #   'gain'       - rank by residual REDUCTION instead of raw amplitude, see
-        #                  _select_gain. A loud atom duplicating explained content scores
-        #                  low; a quiet atom hitting unexplained content scores high.
-        #
-        # A/B on a 4-dataset/18-subject set, 12 epochs, identical seeds:
-        #                dead_rate  mse_patch  inert/60  atoms>1% use
-        #   topk            0.700     0.0565      37          18
-        #   gain            0.433     0.0439      31          26
-        # 'gain' improves BOTH coverage and reconstruction -- no tradeoff, because picking
-        # atoms that fit the residual IS the better reconstruction strategy.
-        # A third mode, 'normalized' (rank group_score / amp_ema^beta, i.e. relative
-        # excitation), was tried and REMOVED: dead_feature_rate hit 0.000 only because
-        # selection went near-uniform (median win rate 0.110 ~ the 12/60 uniform share),
-        # so every atom cleared fire_ema while the dictionary stopped discriminating and
-        # mse nearly doubled (0.1026 vs 0.0565). Pure Goodhart. Do not reintroduce it in
-        # that form.
-        #
-        # 'gain' deployment caveat: it reads x_target, so the masked stage falls back to
-        # 'topk' (see allow_residual_selection in forward). Measured on identical weights,
-        # that mismatch costs most of the recon advantage but stays >= baseline:
-        #   gain-trained + gain-selected  0.01883
-        #   gain-trained + topk-selected  0.02314   (selection overlap 0.69)
-        #   topk-trained + topk-selected  0.02401
-        # The DICTIONARY benefit (more atoms alive) is selector-independent and does
-        # carry over. To reclaim the rest, gain needs a residual reference that is not
-        # ground truth -- e.g. a first topk pass's own reconstruction -- which would work
-        # under masking and make the selector consistent across both stages.
-        self.selection_mode = selection_mode
-
-        # Optional amp/phase quantization of the (a, b) pair (see _quantize_amp_phase).
-        # BOTH must be set to enable it; either left None keeps the fully continuous
-        # path, bit-identical to before this existed. Off by default so an existing
-        # config/checkpoint behaves exactly as it did.
+        # Optional amp/phase quantization of the (a, b) pair (see _quantize_amp_phase). BOTH must be
+        # set to enable it; either left None keeps the fully continuous path.
         self.amp_levels = amp_levels
         self.phase_levels = phase_levels
         self.quantized = amp_levels is not None and phase_levels is not None
         if self.quantized:
             lo, hi = amp_log2_range
-            # Geometric (log2-spaced) amp grid. Log spacing, not linear: EEG amplitude is
-            # multiplicative, so linear levels would waste resolution on loud values and
-            # starve quiet ones. Quantization itself happens in the log domain (nearest in
-            # log2, not nearest in linear) — see _quantize_amp_phase.
+            # Geometric (log2-spaced) amp grid: EEG amplitude is multiplicative.
             self.amp_log2_lo, self.amp_log2_hi = float(lo), float(hi)
             self.amp_log2_step = (self.amp_log2_hi - self.amp_log2_lo) / max(1, amp_levels - 1)
-            # persistent=False: derived from config, never a learned value — keeping it out
-            # of the state dict means turning quantization on/off is not a checkpoint
-            # schema change.
+            # persistent=False: derived from config, not a checkpoint schema change.
             self.register_buffer(
                 'amp_grid',
                 torch.pow(2.0, torch.linspace(self.amp_log2_lo, self.amp_log2_hi, amp_levels)),
                 persistent=False)
 
     def _amp_dense(self, z):
-        """z: [G, C, D] ALREADY input_norm'd channel-grouped tokens -> per-channel,
-        per-atom QUADRATURE gain pairs (a, b), dense over both pools:
-        (amp_routed [G, C, n_routed, 2], amp_shared [G, C, n_shared, 2]) — NO rms applied
-        (callers multiply it in where the real contribution scale is needed; the group
-        selection score deliberately skips it, see forward()). Same "compute-all"
-        convention MoEFFN uses (see its ponytail note): with amp needed dense for group
-        scoring anyway, there is no sparse decode path left to save — the old
-        per-selected-atom gather einsums (_decode_atoms/_generate_routed) collapsed
-        into this one dense computation plus a cheap gather in forward().
-
-        GELU sits between W_down and w_amp: without it, hidden is affine-in-affine (two
-        linear maps back to back), which collapses algebraically into one linear map
-        z -> amp of rank <= min(hidden_width, 2) — since amp is only 2-dim, hidden_width
-        past 2 bought zero extra capacity, just wasted params. The GELU makes hidden_width
-        a real nonlinear bottleneck (an actual per-atom small MLP) instead of a disguised
-        linear readout."""
-        hidden_r = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down_routed) + self.b_down_routed)
-        amp_r = torch.einsum('gchk,hkp->gchp', hidden_r, self.w_amp_routed) + self.b_amp_routed
-        hidden_s = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down_shared) + self.b_down_shared)
-        amp_s = torch.einsum('gchk,hkp->gchp', hidden_s, self.w_amp_shared) + self.b_amp_shared
-        return amp_r, amp_s
-
-    def _select_gain(self, amp_r_dense, residual, rms, usable_channels):
-        """Rank routed atoms by how much of `residual` each would actually REMOVE, rather
-        than by its own amplitude. amp_r_dense [G,C,n_routed,2], residual [G,C,patch_len]
-        (what the always-on shared pool left behind) -> score [G, n_routed].
-
-        With unit-norm D and its exact quadrature partner H (see _quadrature, <D,H> = 0),
-        an atom's contribution c_i = a_i*D_i + b_i*H_i has ||c_i||^2 = a_i^2 + b_i^2, so
-        the residual reduction has a closed form needing no [G,C,n_routed,L] tensor:
-
-            ||r||^2 - ||r - c_i||^2 = 2<r, c_i> - ||c_i||^2
-                                    = 2(a_i<r,D_i> + b_i<r,H_i>) - (a_i^2 + b_i^2)
-
-        Two einsums, no sequential loop, no materialized contributions.
-
-        Why this and not 'topk': ranking on a_i^2+b_i^2 asks "which atom is loudest",
-        which a dead atom trained against the residual can never win (measured ~115x
-        short). Ranking on gain asks "which atom explains what is still missing" -- a loud
-        atom duplicating already-explained content scores LOW (the -||c||^2 term dominates
-        once <r,c> is small), a quiet atom sitting on unexplained content scores HIGH.
-        That is the same question the aux rescue already trains dead atoms to answer, so
-        for the first time selection and rescue optimize the same thing.
-
-        rms is applied here (unlike 'topk', which deliberately skips it to avoid letting
-        loud channels dominate the ranking): gain is measured against a real residual in
-        real units, so the amps have to be in those units too for the comparison to mean
-        anything.
-
-        usable_channels [G, C] bool restricts which channels' residual may be read. In the
-        masked stage that is (valid AND NOT masked): an unmasked channel's content is the
-        model's own input, so scoring with it leaks nothing, while a masked channel's
-        content is the answer. Selection is per patch POSITION but averaged over channels,
-        so a position stays scoreable as long as ANY of its channels is unmasked -- which
-        at mask ratios 0.1-0.5 is nearly all of them. Returns (score [G, n_routed],
-        scoreable [G] bool); callers must fall back to 'topk' where scoreable is False."""
-        a, b = amp_r_dense[..., 0], amp_r_dense[..., 1]          # [G, C, n_routed]
-        if rms is not None:
-            a, b = a * rms, b * rms
-        D_r = F.normalize(self.D_routed, dim=-1)                  # [n_routed, L]
-        H_r = self._quadrature(D_r)
-        rD = torch.einsum('gcl,ml->gcm', residual, D_r)
-        rH = torch.einsum('gcl,ml->gcm', residual, H_r)
-        gain = 2.0 * (a * rD + b * rH) - (a.pow(2) + b.pow(2))    # [G, C, n_routed]
-        if usable_channels is None:
-            return gain.mean(dim=1), torch.ones(gain.shape[0], dtype=torch.bool, device=gain.device)
-        uc = usable_channels.unsqueeze(-1).to(gain.dtype)         # [G, C, 1]
-        denom = uc.sum(dim=1)                                     # [G, 1]
-        return (gain * uc).sum(dim=1) / denom.clamp(min=1.0), denom.squeeze(-1) > 0
+        """z: [G, C, D] ALREADY input_norm'd tokens -> per-channel, per-stamp quadrature gain pairs
+        amp [G, C, n_stamps, 2], NO rms applied. GELU between W_down and w_amp: without it the two
+        linear maps collapse into one of rank <= 2 and hidden_width buys nothing."""
+        hidden = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down_shared) + self.b_down_shared)
+        return torch.einsum('gchk,hkp->gchp', hidden, self.w_amp_shared) + self.b_amp_shared
 
     def _quantize_amp_phase(self, amp):
         """amp: [..., 2] continuous quadrature pairs (a, b) -> (amp_q [..., 2],
@@ -1102,390 +847,122 @@ class StampBank(nn.Module):
         return F.normalize(H, dim=-1).to(D.dtype)
 
     def _template_tables(self):
-        """(D_all, H_all): unit templates in GLOBAL layout (routed then shared) and
-        their quadrature partners, each [n_stamps, patch_len]."""
-        D_all = F.normalize(torch.cat([self.D_routed, self.D_shared], dim=0), dim=-1)
+        """(D_all, H_all): unit templates and their quadrature partners, each [n_stamps, patch_len]."""
+        D_all = F.normalize(self.D_shared, dim=-1)
         return D_all, self._quadrature(D_all)
 
     def decode_selected(self, idx, amp):
-        """idx: [G, top_k+n_shared] GLOBAL indices (routed then shared, forward()'s
-        layout), amp: [G, C, top_k+n_shared, 2] per-channel quadrature gain pairs WITH
-        rms already in (forward()'s out.amp) -> contribution [G, C, top_k+n_shared, patch_len] = a*D_hat + b*H_hat
-        per slot, each slot's own raw decoded output per channel (unsummed — viz reads
-        this to show per-stamp per-channel content; a stamp's [C] magnitude column
-        sqrt(a^2+b^2) at one slot is its phase-invariant topomap at that patch time).
-        Pure re-expansion of forward()'s already-computed quantities — no model
-        re-evaluation, so callers can't accidentally decode with different
-        selection/scale than training produced."""
+        """idx: [G, K] stamp ids (forward()'s out.idx), amp: [G, C, K, 2] per-channel quadrature gain
+        pairs WITH rms already in (forward()'s out.amp) -> contribution [G, C, K, patch_len] =
+        a*D_hat + b*H_hat per slot, unsummed (viz reads per-stamp per-channel content). Pure
+        re-expansion of forward()'s quantities, no model re-evaluation."""
         D_all, H_all = self._template_tables()
         D_sel, H_sel = D_all[idx], H_all[idx]
         return (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
                 + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))
 
-    # Redundant/degenerate atoms are handled two ways: mp_loss (below) denies them
-    # reward for re-explaining a higher-ranked atom's content, and interchangeable
-    # atoms that still slip through die naturally (amp shrinks at zero recon cost ->
-    # group score fades -> dead -> aux rescue re-aims them at uncovered residual).
-    # k_eff and stamp_router_entropy_frac stay logged as the collapse tripwire.
-
     @torch.no_grad()
     def fingerprint(self):
-        """Every stamp's raw waveform template, routed then shared. Free-vector atoms
-        have NO z dependence at all — D_i IS the shape, unconditionally. Shown at one
-        arbitrary reference phase (t=0, see _template_tables), since only their
-        frequency is a stable identity; arrival phase isn't. amp_i(z) never touches
-        shape for either kind, only overall scale/sign — see class docstring — so this
-        alone is the complete, correct answer to "what does this atom look like".
-        Returned unit-normalized, matching what the decode path actually uses. Dense
-        over all n_stamps. Returns [n_stamps, patch_len]."""
+        """Every stamp's unit waveform template [n_stamps, patch_len], at one arbitrary reference
+        phase: amp_s(z) never touches shape, so this is the complete answer to "what does this
+        stamp look like"."""
         return self._template_tables()[0]
 
     @torch.no_grad()
     def dense_amp(self, z, rms=None):
-        """z: [G, C, D] channel-grouped embeddings (same input StampBank.forward takes)
-        -> amp [G, C, n_stamps, 2], dense over EVERY atom (routed+shared, no top-k),
-        input_norm'd and rms-scaled the same way forward() is. Every atom's own
-        matched-filter response to real content, whether or not it would win the top-k
-        race — used where a stable, always-populated per-stamp axis matters more than
-        reconstruction sparsity (MeSAEPretrain.encode_post_stamp_expert's per-stamp
-        channel pool). Shared by dense_probe below, which decodes this further into
-        waveform space."""
-        z = self.input_norm(z)
-        amp_r, amp_s = self._amp_dense(z)  # [G, C, n_routed, 2], [G, C, n_shared, 2]
-        amp = torch.cat([amp_r, amp_s], dim=2)  # [G, C, n_stamps, 2]
+        """z: [G, C, D] channel-grouped embeddings (same input forward() takes) -> amp
+        [G, C, n_stamps, 2], input_norm'd and rms-scaled the same way forward() is (unquantized)."""
+        amp = self._amp_dense(self.input_norm(z))
         if rms is not None:
             amp = amp * rms.unsqueeze(-1)
         return amp
 
     def dense_probe(self, z, rms=None):
-        """The real per-channel, per-atom CONTRIBUTION each stamp would produce if it
-        had fired — amp_i(z_c) * rms_c * D_hat_i, dense over all n_stamps
-        (diagnostic-only, not the training path, which only decodes the selected
-        top_k+n_shared). Distinct from fingerprint() (the atom's own shape, no z at
-        all): this shows the SCALED contribution a real token would get, fingerprint()
-        the unscaled template underneath it.
-        z: [G, C, D] channel-grouped embeddings (same input StampBank.forward takes),
-        rms: [G, C, 1] or None -> contribution [G, C, n_stamps, patch_len].
-        """
-        amp = self.dense_amp(z, rms=rms)  # [G, C, n_stamps, 2]
-        D_all, H_all = self._template_tables()  # each [n_stamps, L]
+        """Per-channel, per-stamp contribution amp_s(z_c) * rms_c * D_hat_s: z [G, C, D], rms
+        [G, C, 1] or None -> [G, C, n_stamps, patch_len]. Diagnostic only."""
+        amp = self.dense_amp(z, rms=rms)
+        D_all, H_all = self._template_tables()
         return (amp[..., 0].unsqueeze(-1) * D_all.view(1, 1, self.n_stamps, -1)
                 + amp[..., 1].unsqueeze(-1) * H_all.view(1, 1, self.n_stamps, -1))
 
-    def forward(self, z, x_target=None, rms=None, valid_channels=None,
-                target_visible=None):
+    def forward(self, z, x_target=None, rms=None, valid_channels=None):
         """
-        z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions, all C
-        channels of one patch time per group — see class docstring), x_target:
-        [G, C, patch_len] the real patch content (needed for the dead-atom aux rescue,
-        training only, and for selection_mode='gain'), rms: [G, C, 1] per-channel raw-input RMS or None —
-        multiplied into every amp; callers running the real pipeline should always
-        pass it.
-        valid_channels: [G, C] bool, True = real (not zero-padded) channel,
-        or None — used ONLY for the group selection score (a zero-padded channel's amp
-        is encoder-bias noise that shouldn't vote on which sources this patch
-        contains); padded channels still decode/reconstruct like any other, and the
-        loss-side exclusion stays get_loss's job.
-        target_visible: [G, C] bool or None -- which channels' x_target may be read by
-        selection_mode='gain'. None means all (the Tokenizer stage, no masking). In the
-        masked stage MeSAE.forward passes ~bool_masked_pos: an UNMASKED channel's content
-        is the model's own input so scoring with it leaks nothing, while a MASKED
-        channel's content is exactly what the model is being asked to predict. Selection
-        is per patch position but averages over channels, so a position stays scoreable
-        while any of its channels is visible; the rest fall back to 'topk' per position.
+        z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions), x_target:
+        [G, C, patch_len] the real patch content (for mp_loss; None skips it), rms: [G, C, 1]
+        per-channel raw-input RMS or None -- multiplied into every amp; callers running the real
+        pipeline should always pass it. valid_channels: [G, C] bool (True = real channel) or None --
+        excludes zero-padded channels from h and mp_loss; padded channels still decode.
 
-        Returns recon [G, C, patch_len], idx [G, top_k+n_shared] (GLOBAL stamp ids,
-        routed then shared — ONE selection per patch position, shared by all C
-        channels), amp [G, C, top_k+n_shared, 2] (per-channel quadrature gain pairs
-        (a, b), rms included — a slot's [C] magnitude column sqrt(a^2+b^2) is that
-        stamp's phase-invariant mixing/topomap vector at this patch time, atan2(b, a)
-        its per-channel phase), h [G, top_k+n_shared] (that slot's post-rms amp
-        magnitude averaged over channels — real reconstruction-energy importance,
-        diagnostics/viz-ranking only, still never touches recon),
-        dense_routed [G, n_routed] (zeros at unselected — the diagnostic object
-        MeSAETrainer/MeSAECodebookChecker read for router-health/usage
-        panels, at patch-position granularity), aux_loss, k_eff (diagnostic only).
-
-        No load-balance loss — see class docstring. Dead-atom collapse is handled by
-        fire_ema/dead_threshold/aux_loss below ("fired" now means "selected for a
-        patch position", not "for a (channel, patch) token").
+        Returns recon [G, C, patch_len], idx [G, n_stamps] (stamp ids; every stamp at every
+        position), amp [G, C, n_stamps, 2] (per-channel (a, b), rms included -- a stamp's [C]
+        magnitude column is its phase-invariant topomap at this patch time), h [G, n_stamps]
+        (post-rms amp magnitude averaged over valid channels: reconstruction-energy importance,
+        orders mp_loss, never touches recon), mp_loss / mp_map, and the quantization outputs.
         """
         G, C, D = z.shape
-        z = self.input_norm(z)  # stabilize scale before scoring/generation, see __init__
+        z = self.input_norm(z)
+        amp = self._amp_dense(z)                                            # [G, C, n_stamps, 2]
+        idx = torch.arange(self.n_stamps, device=z.device).unsqueeze(0).expand(G, -1)
 
-        amp_r_dense, amp_s_dense = self._amp_dense(z)  # [G, C, n_routed, 2], [G, C, n_shared, 2]
-
-        # Group selection score: mean over VALID channels of a^2+b^2 (the pair's energy
-        # — PHASE-INVARIANT matched filtering: an atom matches its source at any
-        # arrival phase, see the w_amp init comment) — matched-filter
-        # energy of each atom totaled over the scalp (see class docstring). rms
-        # deliberately NOT applied: unlike the per-token case (where it was a single
-        # scalar and ranking-invariant), per-channel rms WOULD reweight the ranking
-        # toward loud channels — but amp already carries each channel's learned gain;
-        # double-weighting by raw loudness would let one hot channel drown out a
-        # source spread moderately over many, exactly the topomap-binarizing failure
-        # group selection exists to fix.
-        a2 = amp_r_dense.pow(2).sum(dim=-1)                         # [G, C, n_routed] — a^2+b^2
-        if valid_channels is not None:
-            vc = valid_channels.unsqueeze(-1).to(a2.dtype)          # [G, C, 1]
-            group_score = (a2 * vc).sum(dim=1) / vc.sum(dim=1).clamp(min=1.0)  # [G, n_routed]
-        else:
-            group_score = a2.mean(dim=1)                            # [G, n_routed]
-
-        # selection_mode reshapes WHAT is ranked (see __init__). 'topk' keeps group_score
-        # exactly as computed above; the other two answer a different question, for the
-        # measured reason that ranking on raw amplitude is unwinnable for an atom whose
-        # only gradient source (the aux rescue) trains it against the residual.
-        sel_score = group_score
-        if self.selection_mode == 'gain' and x_target is not None:
-            # Residual the always-on shared pool leaves behind -- routed atoms are then
-            # ranked on what is actually still missing. Detached: this picks WHICH atoms
-            # compete, it must not backprop a selection preference into the shared pool.
-            usable = valid_channels
-            if target_visible is not None:
-                usable = target_visible if valid_channels is None else (valid_channels & target_visible)
-            with torch.no_grad():
-                D_s = F.normalize(self.D_shared, dim=-1)
-                H_s = self._quadrature(D_s)
-                amp_s = amp_s_dense * rms.unsqueeze(-1) if rms is not None else amp_s_dense
-                shared_recon = (torch.einsum('gck,kl->gcl', amp_s[..., 0], D_s)
-                                + torch.einsum('gck,kl->gcl', amp_s[..., 1], H_s))
-                gain_score, scoreable = self._select_gain(
-                    amp_r_dense.detach(), (x_target - shared_recon), rms, usable)
-            # Per-POSITION fallback, not all-or-nothing: a position with no visible
-            # channel left has no leak-free residual to score against, so it reverts to
-            # group_score. Safe to mix scales across rows because topk(dim=-1) ranks each
-            # row independently -- gain and group_score are never compared to each other.
-            sel_score = torch.where(scoreable.unsqueeze(-1), gain_score, group_score)
-
-        _, topk_idx = sel_score.topk(self.top_k, dim=-1)   # [G, top_k]
-
-        shared_idx = torch.arange(self.n_routed, self.n_stamps, device=z.device)
-        shared_idx = shared_idx.unsqueeze(0).expand(G, -1)               # [G, n_shared]
-
-        idx = torch.cat([topk_idx, shared_idx], dim=-1)   # [G, top_k+n_shared]
-
-        # Per-channel gains for the group's selected set: every channel decodes the
-        # SAME stamps with its OWN amp — the [C] column per slot is the mixing vector.
-        amp_sel_r = amp_r_dense.gather(
-            2, topk_idx.view(G, 1, self.top_k, 1).expand(G, C, self.top_k, 2))
-        amp = torch.cat([amp_sel_r, amp_s_dense], dim=2)  # [G, C, top_k+n_shared, 2]
-
-        # Quantize the SELECTED slots' gains, before rms (see _quantize_amp_phase for
-        # why pre-rms) and after selection (deliberately: group_score above stays
-        # continuous — quantizing the selection score would collapse many atoms onto
-        # one level, turning top-k into arbitrary tie-breaking and flattening the
-        # dead_score ranking the aux rescue depends on). Only what actually lands in
-        # recon is discretized.
+        # Quantize before rms (see _quantize_amp_phase for why pre-rms).
         levels, quant_clip_frac, quant_off_frac = None, None, None
         if self.quantized:
             amp, levels, quant_clip_frac, quant_off_frac = self._quantize_amp_phase(amp)
 
         if rms is not None:
-            amp = amp * rms.unsqueeze(-1)  # [G, C, 1, 1] broadcast — restores raw amplitude
+            amp = amp * rms.unsqueeze(-1)  # [G, C, 1, 1] broadcast -- restores raw amplitude
 
-        # h = post-rms amp magnitude sqrt(a^2+b^2) averaged over (valid) channels —
-        # the real reconstruction-energy importance of each selected slot, replacing
-        # the old within-group softmax (see class docstring for why: that value never
-        # fed recon/loss/dead-atom detection, and gave every shared stamp the same
-        # flat constant regardless of its real contribution).
-        slot_energy = amp.pow(2).sum(dim=-1)                             # [G, C, K]
+        slot_energy = amp.pow(2).sum(dim=-1)                                # [G, C, K]
         if valid_channels is not None:
-            vc = valid_channels.unsqueeze(-1).to(slot_energy.dtype)      # [G, C, 1]
+            vc = valid_channels.unsqueeze(-1).to(slot_energy.dtype)         # [G, C, 1]
             slot_mag = (slot_energy * vc).sum(dim=1) / vc.sum(dim=1).clamp(min=1.0)
         else:
-            slot_mag = slot_energy.mean(dim=1)                           # [G, K]
-        h = slot_mag.clamp(min=0).sqrt()                                 # [G, K]
-        dense_routed = torch.zeros_like(group_score).scatter_(-1, topk_idx, h[:, :self.top_k])  # [G, n_routed]
+            slot_mag = slot_energy.mean(dim=1)                              # [G, K]
+        h = slot_mag.clamp(min=0).sqrt()                                    # [G, K]
 
         D_all, H_all = self._template_tables()
-        D_sel, H_sel = D_all[idx], H_all[idx]  # each [G, top_k+n_shared, patch_len]
-        # a*D_hat + b*Hilbert(D_hat) summed over slots — no [G,C,K,L] materialized
+        D_sel, H_sel = D_all[idx], H_all[idx]  # each [G, n_stamps, patch_len]
+        # a*D_hat + b*Hilbert(D_hat) summed over stamps -- no [G,C,K,L] materialized
         recon = (torch.einsum('gck,gkl->gcl', amp[..., 0], D_sel)
                  + torch.einsum('gck,gkl->gcl', amp[..., 1], H_sel))
 
-        # Matching-Pursuit-style residual loss (see class docstring's Sequential
-        # residual fit section below) — routed slots ONLY (shared stamps are an
-        # always-on baseline, not competing for content, so residual-ordering them
-        # doesn't apply). One-shot top-k-by-energy selection has NO mechanism against
-        # two correlated/near-duplicate atoms co-scoring high on the SAME target and
-        # getting selected together every time (unlike Matching Pursuit/OMP, which
-        # explicitly re-scores against the RESIDUAL after each pick, so a near-
-        # duplicate of an already-picked atom scores ~0 on what's left). This term
-        # doesn't change selection or recon (both stay exactly as above) — it only
-        # reshapes each routed slot's TRAINING TARGET: rank the top_k routed slots
-        # by h (descending, real reconstruction-energy order, not the fixed idx
-        # order), then grade slot rank m against x_target MINUS what ranks 0..m-1
-        # already explained (detached, so gradient only ever pushes a slot toward
-        # what's genuinely still unexplained, never perturbs the residual itself).
-        # A true duplicate of a higher-ranked atom sees a near-zero residual and gets
-        # no reward for repeating it — sidesteps the narrowband-collapse risk a blunt
-        # pairwise spectral-overlap penalty would have (see session discussion): nothing
-        # here penalizes two atoms sharing content, only rewards atoms for covering
-        # content NO ONE ELSE at a higher rank already covered.
+        # Matching-Pursuit-style residual loss: rank the stamps per position by h (strength), then
+        # grade rank m against x_target MINUS what ranks 0..m-1 already explained (detached, so
+        # gradient only pushes a stamp toward what is genuinely still unexplained). A duplicate of a
+        # higher-ranked stamp sees a near-zero residual and gets no reward for repeating it. Doesn't
+        # change recon; only reshapes each stamp's training target (docs/adr/0011). Ranked per patch,
+        # not by stamp index, which would impose one fixed global hierarchy (stamp 0 first
+        # everywhere) instead of deduplicating.
         mp_loss = amp.new_zeros(())
         mp_map = None  # [G, C] per-position mp error (mean over ranks and samples)
         if x_target is not None:
             L = D_sel.shape[-1]
             contrib_all = (amp[..., 0].unsqueeze(-1) * D_sel.unsqueeze(1)
                            + amp[..., 1].unsqueeze(-1) * H_sel.unsqueeze(1))   # [G, C, K, L]
-            # Shared slots pinned ahead of routed, always. They are always-on, so every
-            # patch's reconstruction contains them whether or not anything asked for them;
-            # grading a routed atom against a residual that still holds that baseline
-            # rewards it for re-explaining content already covered. Not a knob — the
-            # alternative is simply wrong. Measured: real 50Hz shared-pool share 0.336 ->
-            # 0.163, single routed owner 0.414 -> 0.661, mse_patch 0.0295 -> 0.0232.
-            # Within the shared block, ranked per patch by h (strength) like the routed
-            # block -- not by stamp index, which would impose one fixed global hierarchy
-            # on always-on stamps (stamp 0 first in every patch) instead of deduplicating.
-            order_shared = h[:, self.top_k:].argsort(dim=-1, descending=True) + self.top_k
-            # Routed slots ranked by how much of the residual left after the shared block each
-            # explains on its own (2<c, r> - |c|^2, summed over real channels): matching pursuit's
-            # "best match to what is still unexplained", not raw gate strength.
-            with torch.no_grad():
-                vm = 1.0 if valid_channels is None else valid_channels.unsqueeze(-1).to(contrib_all.dtype)
-                resid = (x_target - contrib_all[:, :, self.top_k:].sum(2)) * vm         # [G, C, L]
-                c_r = contrib_all[:, :, :self.top_k] * vm.unsqueeze(2) if valid_channels is not None \
-                    else contrib_all[:, :, :self.top_k]
-                gain = (2 * (c_r * resid.unsqueeze(2)).sum(-1) - c_r.pow(2).sum(-1)).sum(1)  # [G, top_k]
-            order_routed = gain.argsort(dim=-1, descending=True)                          # [G, top_k]
-            order = torch.cat([order_shared, order_routed], dim=1)
+            order = h.argsort(dim=-1, descending=True)                          # [G, K]
             n_rank = order.shape[1]
             order_c = order.unsqueeze(1).unsqueeze(-1).expand(G, C, n_rank, L)
             contrib_ranked = contrib_all.gather(2, order_c)             # rank 0 = first claim
-
-            vmask = None
-            if valid_channels is not None:
-                vmask = valid_channels.unsqueeze(-1).to(contrib_ranked.dtype)  # [G, C, 1]
-
-            # Vectorized over rank (was a Python for-loop over n_rank, every training
-            # step): rank m's residual is x_target minus every STRICTLY-higher-ranked
-            # slot's (detached) contribution, i.e. an EXCLUSIVE cumsum over the rank axis
-            # of the detached contributions. cumsum of detached == detach of cumsum, so
-            # this is exactly the sequential loop's math, just computed for every rank at
-            # once instead of one at a time (verified numerically equal, incl. gradients,
-            # against the loop form before this rewrite).
+            # Exclusive cumsum over rank of the detached contributions = the sequential loop's
+            # residuals for every rank at once.
             cum_excl = contrib_ranked.detach().cumsum(dim=2) - contrib_ranked.detach()  # [G,C,n_rank,L]
             resid_all = x_target.unsqueeze(2) - cum_excl
             diff2_all = (contrib_ranked - resid_all).pow(2)                 # [G, C, n_rank, L]
-            # Unreduced per position, so get_loss can apply the same masked/unmasked
-            # position weights as the recon MSE. mp_loss below is its valid-channel mean.
+            # Unreduced per position, so get_loss can apply the same masked/unmasked position
+            # weights as the recon MSE. mp_loss below is its valid-channel mean.
             mp_map = diff2_all.mean(dim=(2, 3))
-            if vmask is not None:
+            if valid_channels is not None:
+                vmask = valid_channels.unsqueeze(-1).to(contrib_ranked.dtype)  # [G, C, 1]
                 per_rank = (diff2_all * vmask.unsqueeze(2)).sum(dim=(0, 1, 3)) \
                     / vmask.sum().clamp(min=1.0) / L
             else:
                 per_rank = diff2_all.mean(dim=(0, 1, 3))
             mp_loss = per_rank.mean()
 
-        # Magnitude sqrt(a^2+b^2) per selected routed slot — the phase-invariant
-        # amplitude, what sparsity/k_eff should see (penalize/count loudness, never
-        # phase).
-        amp_routed_sel = amp[:, :, :self.top_k, :]
-        amp_mag_routed = amp_routed_sel.pow(2).sum(dim=-1).clamp(min=1e-12).sqrt()
-
-        # Scale-invariant parsimony diagnostic: effective atom count per token,
-        # k_eff = (sum|a|)^2 / sum(a^2) — 1.0 when one atom carries everything,
-        # top_k when all selected atoms contribute equally. Unlike the sparsity loss
-        # value (whose optimum depends on how many real sources a patch contains),
-        # this reads directly as "how many atoms genuinely carry the reconstruction"
-        # with no data-loudness floor. Diagnostic only (no_grad), token-averaged over
-        # valid channels.
-        with torch.no_grad():
-            a = amp_mag_routed
-            keff = a.sum(dim=-1).pow(2) / (a.pow(2).sum(dim=-1) + 1e-8)  # [G, C]
-            if valid_channels is not None and valid_channels.any():
-                k_eff = keff[valid_channels].mean()
-            else:
-                k_eff = keff.mean()
-
-        aux_loss = recon.new_zeros(())
-        if self.training:
-            with torch.no_grad():
-                fired = dense_routed.detach().gt(0).float().mean(dim=0)
-                self.fire_ema.mul_(self.ema_decay).add_(fired, alpha=1 - self.ema_decay)
-                dead_mask = self.fire_ema < self.dead_threshold  # [n_routed]
-
-            if dead_mask.any() and x_target is not None:
-                # Which dead atoms to rescue this step. Uncapped -> all of them.
-                # Capped -> STARVATION-FIRST (fewest rescues so far), never
-                # highest-score-first: see the aux_k_cap note in __init__ for why
-                # score-ranking here is a permanent lockout rather than a bound. The
-                # chosen subset is global (same atoms for every patch position), so the
-                # rotation is coherent across the batch; per-position ORDERING within
-                # the subset is still by dead_score below, which is what the MP-aware
-                # exclusive-residual grading needs.
-                rescue_mask = dead_mask
-                if self.aux_k_cap is not None and int(dead_mask.sum().item()) > self.aux_k_cap:
-                    dead_idx = dead_mask.nonzero().flatten()
-                    starved = torch.argsort(self.rescue_count[dead_idx])[:self.aux_k_cap]
-                    rescue_mask = torch.zeros_like(dead_mask)
-                    rescue_mask[dead_idx[starved]] = True
-                with torch.no_grad():
-                    self.rescue_count[rescue_mask] += 1
-
-                dead_score = group_score.masked_fill(~rescue_mask.unsqueeze(0), float('-inf'))
-                # Uncapped: rescue EVERY dead atom every step, not just the top
-                # aux_k_cap-by-score among them. A fixed cap here is a self-reinforcing
-                # lockout -- an atom's decoder direction only gets gradient when its
-                # group_score wins a rescue slot, but group_score is computed FROM that
-                # same never-updated direction, so an atom that loses the top-k cut once
-                # (unlucky init, decoder direction never close to any real residual) has
-                # no path to ever winning it later either. Measured on mesae_tokenizer_v5
-                # (aux_k_cap_frac=0.2, cap=12): fire_ema had 23/60 atoms pinned at literal
-                # float-zero (never fired even once, not just rare) plus 2 more near-zero,
-                # while dead_mask.sum() ran ~23-25 -- the cap was starving over half the
-                # dead pool every single step, permanently. The MP-aware exclusive-residual
-                # grading below (added for exactly this reason) already prevents a large
-                # rescue group from collapsing into duplicate atoms, so uncapping no longer
-                # trades starvation for redundancy the way it would have before that fix.
-                aux_k = int(rescue_mask.sum().item())
-                aux_val, aux_idx = dead_score.topk(aux_k, dim=-1)  # [G, aux_k], sorted descending by
-                                                                     # topk (highest dead_score = rank 0)
-                # rescue only ever draws from the routed pool (dead atoms are a routed-only
-                # concept, shared stamps are always "alive" by construction). Training a
-                # rescued atom's amp toward the residual raises exactly the quantity that
-                # gets it selected (group_score is amp^2-based) — the rescue revives atoms
-                # for real, per channel, at group granularity.
-                amp_aux = amp_r_dense.gather(
-                    2, aux_idx.view(G, 1, aux_k, 1).expand(G, C, aux_k, 2))
-                if rms is not None:
-                    amp_aux = amp_aux * rms.unsqueeze(-1)
-                D_r_hat = F.normalize(self.D_routed, dim=-1)
-                D_aux = D_r_hat[aux_idx]                       # [G, aux_k, patch_len]
-                H_aux = self._quadrature(D_r_hat)[aux_idx]
-                residual = (x_target - recon).detach()
-
-                # MP-aware rescue: grade each rescued atom against the residual MINUS what
-                # every higher-dead_score-ranked rescued atom in this same group already
-                # claimed, instead of jointly fitting all aux_k atoms to one shared target.
-                # A joint fit (the old recon_aux = sum-then-MSE) has no mechanism against two
-                # rescued atoms converging on the same shape — the sum only needs to match
-                # the residual, so nothing stops them splitting credit on identical content.
-                # Same exclusive-cumsum trick as StampBank.forward's mp_loss block above
-                # (see its comment) applied to the rescue group: aux_idx/aux_val are already
-                # in descending dead_score order (torch.topk's default sorted=True), so no
-                # separate argsort is needed here the way mp_loss needed one for its
-                # fixed-idx-order routed slots.
-                contrib_aux = (amp_aux[..., 0].unsqueeze(-1) * D_aux.unsqueeze(1)
-                               + amp_aux[..., 1].unsqueeze(-1) * H_aux.unsqueeze(1))  # [G,C,aux_k,L]
-                cum_excl_aux = contrib_aux.detach().cumsum(dim=2) - contrib_aux.detach()
-                resid_aux = residual.unsqueeze(2) - cum_excl_aux                       # [G,C,aux_k,L]
-                diff2_aux = (contrib_aux - resid_aux).pow(2)
-                if valid_channels is not None:
-                    vmask_aux = valid_channels.unsqueeze(-1).unsqueeze(2).to(diff2_aux.dtype)  # [G,C,1,1]
-                    per_rank_aux = (diff2_aux * vmask_aux).sum(dim=(0, 1, 3)) \
-                        / vmask_aux.sum().clamp(min=1.0) / diff2_aux.shape[-1]
-                else:
-                    per_rank_aux = diff2_aux.mean(dim=(0, 1, 3))
-                aux_loss = per_rank_aux.mean() / (residual.pow(2).mean() + 1e-8)
-
         return SimpleNamespace(
-            recon=recon, idx=idx, amp=amp, h=h, dense_routed=dense_routed,
-            aux_loss=aux_loss, k_eff=k_eff, mp_loss=mp_loss, mp_map=mp_map,
-            # None unless quantization is configured. levels [G, C, K, 2] int64
-            # (amp_idx, phase_idx) is the discrete code — with idx [G, K] it forms the
-            # full (stamp_id, amp_level, phase_level) symbol per (channel, patch, slot).
+            recon=recon, idx=idx, amp=amp, h=h, mp_loss=mp_loss, mp_map=mp_map,
+            # None unless quantization is configured. levels [G, C, K, 2] int64 (amp_idx, phase_idx)
+            # is the discrete code: with idx it forms the (stamp_id, amp_level, phase_level) symbol.
             levels=levels, quant_clip_frac=quant_clip_frac, quant_off_frac=quant_off_frac,
         )
 
@@ -1494,7 +971,7 @@ class StampBank(nn.Module):
 # FINETUNE HEAD MODULES (ADR 0016)
 # Everything above this line is the pretrain side.
 # Shapes: a, b are the spatially mixed code amplitudes [B, N', K, S] (B trials, N' patches,
-# K spatial filters, S alive stamps); power = a^2 + b^2. Parameter names (p, q) and init match
+# K spatial filters, S stamps); power = a^2 + b^2. Parameter names (p, q) and init match
 # the ADR 0014 MeSAEFeatureHead so saved checkpoints load unchanged.
 # ==========================================
 
@@ -1613,7 +1090,7 @@ _HEAD_DEFAULTS = dict(features=[{'type': 'stamp_power'}], spatial_k=8, time_pool
 
 
 def make_head_checkpoint(head, head_cfg, channel_idx, keep, backbone_checkpoint):
-    """Head-only checkpoint: state, resolved config (plus the real channels and alive stamps it was
+    """Head-only checkpoint: state, resolved config (plus the real channels and stamps it was
     built for) and the frozen backbone it belongs to. Loaded by FinetuneModel.from_checkpoint."""
     return {'model_state_dict': head.state_dict(),
             'head_config': dict(head_cfg, channel_idx=list(channel_idx), keep=None if keep is None else list(keep)),
@@ -1706,14 +1183,12 @@ def feature_dim(cfg):
 
 
 class StampExtractor(nn.Module):
-    """Everything that needs the frozen backbone: stamp code (a, b) per patch, channel and alive
+    """Everything that needs the frozen backbone: stamp code (a, b) per patch, channel and
     stamp, scaled by patch RMS. Output [B, N', C_valid, S, 2] float32, padded channels dropped."""
     def __init__(self, backbone, channel_idx):
         super().__init__()
         self.backbone = backbone
-        st = backbone.stamps
-        alive = (st.fire_ema >= st.dead_threshold).nonzero().flatten()
-        self.register_buffer('keep', torch.cat([alive, torch.arange(st.n_routed, st.n_stamps, device=alive.device)]))
+        self.register_buffer('keep', torch.arange(backbone.stamps.n_stamps))
         self.register_buffer('channel_idx', torch.as_tensor(channel_idx, dtype=torch.long))
 
     @torch.no_grad()

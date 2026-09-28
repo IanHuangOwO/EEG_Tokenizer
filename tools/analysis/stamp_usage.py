@@ -9,9 +9,6 @@ Per stamp:
   remove_cost rise in reconstruction MSE when only this stamp is dropped, / the model's MSE
               (~0 = redundant: another stamp covers it, e.g. a near-duplicate)
 Summary: stamps ranked first in >= 5% of patches, redundant stamps (remove_cost < 1%).
-Routing (routed stamps only): usage entropy / log(#routed), dead share (used in < 0.1% of patch
-selections), and dataset dependence = mean Jensen-Shannon divergence between each dataset's routed
-usage and the pooled usage (0 = the same stamps everywhere; higher = content-dependent selection).
 
 Panel: `python analysis_pretrain.py --run <backbone> --panel stamp_usage` writes
 output/<backbone>/pretrain/analysis/stamp_usage.json.
@@ -32,10 +29,7 @@ def stamp_usage(model, config, out_path, max_windows=256):
     ds, idx = eval_windows(config, max_windows)
     first, ranks = np.zeros(S), np.zeros((S, S))
     energy, cost, base = np.zeros(S), np.zeros(S), 0.0
-    n_routed, top_k = st.n_routed, st.top_k
-    routed_use = {}                                                          # dataset -> [n_routed] counts
-    names = ds.base_dataset.dataset_names
-    for wids, x, coords, t, valid in batches(ds, idx):
+    for _, x, coords, t, valid in batches(ds, idx):
         B, C, N, L = x.shape
         out = model(x, coords, t, valid_channels=valid)
         G = B * N
@@ -52,11 +46,6 @@ def stamp_usage(model, config, out_path, max_windows=256):
         order = h.argsort(-1, descending=True)
         ranked_ids = ids.gather(1, order)                                     # [G', K], rank 0 = strongest
         np.add.at(first, ranked_ids[:, 0].numpy(), 1)
-        if top_k > 0:                                                         # routed selections per patch
-            for g in torch.nonzero(real_g).flatten().tolist():
-                name = names[wids[g // N]]
-                cnt = routed_use.setdefault(name, np.zeros(n_routed))
-                np.add.at(cnt, out.idx[g, :top_k].numpy(), 1)
         for r in range(ranked_ids.shape[1]):
             np.add.at(ranks[:, r], ranked_ids[:, r].numpy(), 1)
         for k in range(contrib.shape[2]):
@@ -74,16 +63,6 @@ def stamp_usage(model, config, out_path, max_windows=256):
                          for s in range(S)]}
     res['stamps_first_ge_5pct'] = int(sum(d['first'] >= 0.05 for d in res['per_stamp']))
     res['redundant_stamps'] = [d['stamp'] for d in res['per_stamp'] if d['remove_cost'] < 0.01]
-    if routed_use:
-        tot = sum(routed_use.values())
-        pz = tot / tot.sum()
-        ent = float(-(pz * np.log(pz + 1e-12)).sum() / np.log(n_routed))
-        def js(p, q):
-            mm = (p + q) / 2
-            kl = lambda a, b: float((a * np.log((a + 1e-12) / (b + 1e-12))).sum())
-            return (kl(p, mm) + kl(q, mm)) / 2
-        res['routing'] = {'usage_entropy': ent, 'dead_share': float((pz < 1e-3).mean()),
-                          'dataset_js': float(np.mean([js(c / c.sum(), pz) for c in routed_use.values()]))}
     json.dump(res, open(out_path, 'w'), indent=2)
 
     print(f'  {"stamp":>5} {"first%":>7} {"rank_ent":>8} {"energy%":>8} {"remove_cost":>11}')
@@ -92,7 +71,4 @@ def stamp_usage(model, config, out_path, max_windows=256):
               f'{d["remove_cost"]*100:10.1f}%')
     print(f'  stamps ranked first in >= 5% of patches: {res["stamps_first_ge_5pct"]}/{S} | '
           f'redundant (remove_cost < 1%): {res["redundant_stamps"]}')
-    if 'routing' in res:
-        print(f'  routed usage entropy {res["routing"]["usage_entropy"]:.2f}, dead share {res["routing"]["dead_share"]:.2f},'
-              f' dataset JS {res["routing"]["dataset_js"]:.3f}')
     return res

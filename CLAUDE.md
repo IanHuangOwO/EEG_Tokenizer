@@ -101,9 +101,11 @@ Key fields (templates show defaults):
 
 ## Architecture
 
-**MeSAE**: an EEG tokenizer. A TSA encoder feeds a stamp dictionary (StampBank: routed top-k + always-on
-shared stamps; each active stamp reconstructs a patch as `a*D + b*H`, D a template and H its quadrature
-partner), trained by masked reconstruction. Plugged in via `model/MeSAE/plugin.py` (`model/factory.py`
+**MeSAE**: an EEG tokenizer. A TSA encoder feeds a static stamp dictionary (StampBank: every stamp active at
+every patch; each reconstructs a patch as `a*D + b*H`, D a template and H its quadrature partner), trained by
+masked reconstruction. Routed (top-k) stamps were removed (docs/adr/0022; code on the `routed-stamps`
+branch). Downstream heads read the encoder output z (`latent_signed`), the stamps being the reconstruction
+objective and an interpretable filterbank view. Plugged in via `model/MeSAE/plugin.py` (`model/factory.py`
 `MODEL_REGISTRY`, docs/adr/0004).
 
 ```
@@ -135,7 +137,7 @@ datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.
   channels (std < 0.10 x median, dead electrodes / the recording reference) are treated as padding.
 
 **Sparsity budget, a hard ceiling:** each active stamp gives two free scalars per channel, so keep
-`2 * (stamp_top_k + n_shared_stamps) < patch_len` with margin. Past it, the active slots fit any patch
+`2 * n_stamps < patch_len` with margin. Past it, the active slots fit any patch
 regardless of the templates and it stops being sparse coding (measured at DOF 56 > 50: recon MSE ~0 on every
 dataset, kurtosis 6.7 -> 1.2). docs/adr/0011.
 

@@ -47,9 +47,9 @@ class PsdResult:
 @dataclass
 class PatchGridResult:
     """Real per-patch stamp selection/content — no cross-patch averaging or trial-wide
-    dedup (unlike PsdResult/_used_stamps): a stamp firing on many sampled patches shows up
+    dedup (unlike PsdResult): a stamp firing on many sampled patches shows up
     once per patch it fired at, with that patch's own real decoded content, instead of
-    being blurred into one trial-averaged row. See extract_filter_psd_by_patch.
+    being blurred into one trial-averaged row. See extract_flat_stamp_psd_by_patch.
     patch_ids: [P] sampled patch indices (every patch_stride-th patch).
     stamp_ids: [P, K] GLOBAL stamp id selected at each sampled patch's each of K=top_k+
       n_shared slots (same layout StampBank.forward's `idx` uses, routed then shared).
@@ -221,148 +221,16 @@ def extract_head_spectra(model, x: torch.Tensor, coords: torch.Tensor,
     return SpectraResult(psd, freqs, routing_score)
 
 
-def _used_stamps(model, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
-    """(used_ids [Qu] LongTensor, importance [Qu] np.ndarray, fp [Qu, C, patch_len]) —
-    stamps actually selected somewhere in this trial (union across all patches), capped at
-    max_stamps, ranked by accumulated selection strength (see MeSAEPretrain.used_stamp_ids
-    — shared stamps always included first, remaining budget filled by highest-usage routed
-    stamps). Replaces a dense all-n_stamps view: at n_stamps=800 with hard top-k selection,
-    most stamps never fire in a given trial at all, and showing all 800 regardless swamps
-    the panels.
-
-    fp is built from StampBank.dense_probe — each stamp's REAL pooled_i (its actual
-    channel-weighted view of these real patches), not fingerprint()'s fabricated zero
-    vector. The zero probe collapses the tied bottleneck's `pre = probe@W_down + b_down`
-    down to just `b_down` (zero-init, slow to grow), so it mostly reflects shared
-    near-zero bias behavior rather than each atom's actual (possibly already quite
-    different) weight-driven response to content — systematically understating diversity,
-    especially early in training. fp here is dense_probe's [C, patch_len] contribution
-    averaged over patches (dense_probe decodes straight to [C, patch_len] now — no outer
-    product needed here, W_out dropped the rank-1 factorization, see StampBank.__init__'s
-    W_out comment). Shared helper for extract_filter_psd/extract_filter_spectra below."""
-    z, _ = model.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)
-    z_bnc, valid_mask = model._pool_channels(z, valid_channels)
-    out = model.stamps(z_bnc, valid_mask=valid_mask)  # eval-mode call, aux/dead-atom path never runs
-    used_ids = model.used_stamp_ids(out, max_stamps=max_stamps)  # [Qu]
-
-    # Shared slots have no fixed down-weight (see StampBank.__init__ docstring) — use their
-    # real per-group energy (out.h's last n_shared columns) instead of a constant fill.
-    shared = out.h[:, -model.n_shared_stamps:]
-    dense_full = torch.cat([out.dense_routed, shared], dim=-1)  # [M, n_stamps]
-    importance = dense_full[:, used_ids].sum(dim=0).cpu().numpy()  # [Qu]
-
-    contribution, _attn = model.stamps.dense_probe(z_bnc, valid_mask=valid_mask)  # [M,n_stamps,C,patch_len]
-    fp = contribution[:, used_ids, :, :].mean(dim=0)  # [Qu, C, patch_len]
-
-    return used_ids, importance, fp
-
-
-@torch.no_grad()
-def extract_filter_psd(model, x: torch.Tensor, coords: torch.Tensor,
-                       time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None) -> PsdResult:
-    """
-    MeSAEPretrain analog of extract_head_psd, adapted for StampBank (see
-    docs/adr/0009-spatiotemporal-stamp-dictionary-for-mesae.md's Monitoring impact
-    section). A stamp's rank-1 pattern here is built from its REAL response to this
-    trial's actual patches (StampBank.dense_probe, mean over patches — see
-    `_used_stamps`), not a content-independent fingerprint.
-
-    psd_ch_x — [C, Qu] per-stamp per-channel real-response norm, restricted to stamps used
-      this trial (Qu = len(used_ids) <= 100).
-    norms — [Qu] norm of each used stamp's flattened real-response pattern.
-    affinity — [Qu, Qu] cosine similarity between used stamps' real-response patterns —
-      same matrix MeSAECodebookChecker.decoder_fingerprint_matrix computes (that one still
-      uses the zero-probe fingerprint, dictionary-wide with no trial data available),
-      duplicated/restricted here rather than cross-imported (same per-file-ownership
-      convention as this module's docstring already states for MeFSQ/MeSAE).
-    importance — [Qu] accumulated selection strength (sum over patches) per used stamp.
-    """
-    used_ids, stamp_importance, fp = _used_stamps(model, x, coords, time_idx=time_idx,
-                                                   valid_channels=valid_channels, max_stamps=100)
-    flat = fp.reshape(fp.shape[0], -1)
-
-    stamp_norms = flat.norm(dim=-1).cpu().numpy()  # [Qu]
-    stamp_affinity = _cosine_affinity(flat)
-
-    psd_ch_q = fp.norm(dim=-1).permute(1, 0).cpu().numpy()  # [C, Qu]
-
-    return PsdResult(psd_ch_q, stamp_norms, stamp_affinity, stamp_importance)
-
-
-@torch.no_grad()
-def extract_filter_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
-                                 time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
-                                 fs: float = None, freq_resolution: float = None,
-                                 patch_stride: int = 3) -> PatchGridResult:
-    """
-    Per-patch counterpart to extract_filter_psd/_used_stamps: instead of deduplicating a
-    stamp across the whole trial and averaging its content over every patch it fired at
-    (hiding whether it fired once or on every patch), this keeps every sampled patch's own
-    real top_k+n_shared selection and decodes each slot's content AT that specific patch
-    only (StampBank.decode_selected, the same per-slot contribution forward() sums into
-    `recon` — nothing new computed, just not summed away here). patch_stride subsamples
-    patches (not config-exposed — a caller-side rendering-cost knob, not a modeling
-    choice) since a full (top_k+n_shared)*N_patches grid is impractically large to render
-    (e.g. 20 slots * 40 patches = 800 topo+PSD columns).
-    """
-    z, _ = model.stage_features(x, coords, time_idx=time_idx, valid_channels=valid_channels)
-    z_bnc, valid_mask = model._pool_channels(z, valid_channels)  # [M, C, D], M = N (B=1)
-    out = model.stamps(z_bnc, valid_mask=valid_mask)  # eval-mode call, aux/dead-atom path never runs
-
-    contribution, _z_h = model.stamps.decode_selected(out.idx, out.h, out.pooled)  # [M, K, C, L]
-
-    M = contribution.shape[0]
-    sel = list(range(0, M, patch_stride))
-    contribution_sel = contribution[sel]  # [P, K, C, L]
-    L = contribution_sel.shape[-1]
-
-    n_fft = L
-    if fs and freq_resolution:
-        n_fft = max(L, int(round(fs / freq_resolution)))
-    fft_c = _demean_hann_rfft(contribution_sel.float(), n_fft)  # [P, K, C, F]
-    psd = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
-    freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
-
-    topo = contribution_sel.norm(dim=-1).cpu().numpy()  # [P, K, C]
-
-    # Real per-patch full reconstruction (sum of all K slots' contributions, same sum
-    # StampBank.forward's `recon` computes) — its own topo/psd, not derived from the
-    # per-slot ones above (norm/FFT aren't linear, see PatchGridResult docstring).
-    recon_sel = contribution_sel.sum(dim=1)  # [P, C, L]
-    fft_recon = _demean_hann_rfft(recon_sel.float(), n_fft)  # [P, C, F]
-    recon_psd = (fft_recon.real.pow(2) + fft_recon.imag.pow(2)).cpu().numpy()
-    recon_topo = recon_sel.norm(dim=-1).cpu().numpy()  # [P, C]
-
-    # Real per-patch raw input (model's own x at that patch, B=1) — same n_fft as recon
-    # above so raw/recon/slot rows share one freq axis.
-    raw_sel = x[0, :, sel, :].permute(1, 0, 2)  # [P, C, L]
-    fft_raw = _demean_hann_rfft(raw_sel.float(), n_fft)  # [P, C, F]
-    raw_psd = (fft_raw.real.pow(2) + fft_raw.imag.pow(2)).cpu().numpy()
-    raw_topo = raw_sel.norm(dim=-1).cpu().numpy()  # [P, C]
-
-    return PatchGridResult(
-        patch_ids=np.array(sel), stamp_ids=out.idx[sel].cpu().numpy(),
-        topo=topo, psd=psd, h=out.h[sel].cpu().numpy(),
-        recon_topo=recon_topo, recon_psd=recon_psd,
-        raw_topo=raw_topo, raw_psd=raw_psd, freqs=freqs,
-    )
-
-
 # ==========================================
-# MeSAE (flat per-(channel,patch) StampBank) — no channel-attention pool exists to
-# read a "real response" from (see MeSAE_modules.StampBank class docstring), so these
-# decode every (channel, patch) token directly and ZERO-FILL (channel, {patch|stamp})
-# combinations that were never actually selected, instead of reading a pooled view —
-# separate functions from extract_filter_psd/extract_filter_psd_by_patch above (which stay
-# untouched, still used by regular pooled-channel MeSAE) since the two architectures need
-# genuinely different extraction logic, not a shared code path.
+# MeSAE StampBank: decode every (channel, patch) token directly and ZERO-FILL (channel,
+# {patch|stamp}) combinations that carry no stamp (see MeSAE_modules.StampBank).
 # ==========================================
 
 @torch.no_grad()
 def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
     """(used_ids [Qu], importance [Qu], fp [Qu, C, patch_len], amp_topo [Qu, C] SIGNED
     trial-mean per-channel amp — the mixing/topomap column, phase_topo [Qu, C] RAW
-    per-channel phase in radians) — grouped-StampBank analog of _used_stamps.
+    per-channel phase in radians).
     Selection is per PATCH POSITION now (shared by all C channels, see
     MeSAE_modules.StampBank class docstring), so importance is the accumulated
     post-rms amp magnitude h (sqrt(a^2+b^2) averaged over channels, see
@@ -396,7 +264,7 @@ def _used_flat_stamps(model, x, coords, time_idx=None, valid_channels=None, max_
 
     dense_imp = h.new_zeros(n_stamps)
     dense_imp.scatter_add_(0, idx.reshape(-1), h.reshape(-1))
-    used_ids = model.used_stamp_ids(out, max_stamps=max_stamps)
+    used_ids = torch.arange(min(n_stamps, max_stamps), device=idx.device)   # every stamp is active (static dictionary)
     importance = dense_imp[used_ids].cpu().numpy()
 
     contribution = model.stamps.decode_selected(idx, out.amp)  # [N, C, K, patch_len]

@@ -71,7 +71,7 @@ def train_one_epoch(model, trainer, data_loader, optimizer, scaler, device, epoc
     for batch_idx, batch in enumerate(pbar):
         x, coords, time_idx, bool_masked_pos, valid_channels = _unpack_batch(batch, device)
         # Tokenizer phase: the dataset still generates masks, they're just not used. Must be
-        # None, not all-False — get_loss's None branch is what keeps aux_loss on.
+        # None, not all-False — get_loss's None branch is what keeps mp_loss on.
         if not masked:
             bool_masked_pos = None
         optimizer.zero_grad()
@@ -332,7 +332,7 @@ def main():
             model.enter_masked_phase(freeze_stamps=freeze_stamps)
             best_val_loss = float('inf')
             logger.info(f"  [Masked phase] epoch {epoch}: all blocks, spatial attention + coord embedding on, "
-                        f"StampBank {'frozen' if freeze_stamps else 'TRAINING (aux/mp losses stay on)'}")
+                        f"StampBank {'frozen' if freeze_stamps else 'TRAINING (mp loss stays on)'}")
         # Curriculum counts from the first masked epoch; masks are redrawn every masked epoch.
         # Tokenizer-phase epochs ignore the dataset's masks.
         mask_strategy.set_epoch(max(1, epoch - tokenizer_epochs))

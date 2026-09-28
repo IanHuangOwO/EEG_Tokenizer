@@ -1,5 +1,8 @@
 # Model analysis checklist
 
+> Historical: written for routed + shared stamps. Routed stamps and the routed/shared panels were removed
+> (docs/adr/0022); items about pools, `n_routed` or `dense_routed` describe the `routed-stamps` branch.
+
 Running list of questions we want answered about a trained model, what
 `check_model.py`/`viz/*` already answers today, and what's still a gap. Scope:
 MeSAE (`unit_label='Stamp'`) first, since that's the active model — MeFSQ

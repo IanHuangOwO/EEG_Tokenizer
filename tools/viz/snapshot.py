@@ -99,7 +99,7 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
         psd_ch_x_g, psd_x_g, gal_freqs, gal_importance, cmap=cmap,
         phase_ch_x=phase_ch_x_g, waveforms=waveforms_g,
         subject_id=bundle.subject_id, trial_idx=bundle.trial_idx, epoch_tag=tagged_epoch_tag,
-        unit_label='Stamp', unit_ids=used_ids, n_routed=model.n_routed_stamps,
+        unit_label='Stamp', unit_ids=used_ids,
         iclabel_probs=iclabel_probs,
     )
     print(f"  [snapshot] -> {out_path}")
@@ -150,7 +150,7 @@ def render_stamp_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
     plot_stamp_by_patch(
         out_path, pos2d, grid, cmap=cmap,
         subject_id=bundle.subject_id, trial_idx=bundle.trial_idx, epoch_tag=tagged_epoch_tag,
-        unit_label='Stamp', n_routed=model.n_routed_stamps,
+        unit_label='Stamp',
         signed_stamps=True,  # grid.topo is signed amp (mixing columns)
         onset_col=onset_col,
     )

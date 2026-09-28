@@ -52,7 +52,7 @@ def nonfinite_step_report(l_total, model, out=None):
     bad_bufs = [n for n, b in model.named_buffers()
                 if b.is_floating_point() and not torch.isfinite(b).all()]
     bad_out = []
-    for name in ('recon', 'aux_loss', 'ffn_lb_loss', 'h', 'dense_routed', 'k_eff'):
+    for name in ('recon', 'ffn_lb_loss', 'h', 'mp_loss'):
         t = getattr(out, name, None) if out is not None else None
         if torch.is_tensor(t) and t.is_floating_point() and not torch.isfinite(t).all():
             bad_out.append(name)

@@ -934,21 +934,13 @@
           "top_k": 2
         },
         "stamp_bank": {
-          "n_routed_stamps": 0,
-          "n_shared_stamps": 16,
-          "stamp_top_k": 0,
-          "stamp_hidden_width": 6,
-          "stamp_shared_hidden_width": 8,
-          "dead_threshold_frac": 0.1,
-          "aux_k_cap_frac": null,
-          "sae_ema_decay": 0.99,
-          "selection_mode": "topk"
+          "n_stamps": 16,
+          "hidden_width": 8
         },
         "loss": {
           "mse_patch_weight": 1.0,
           "unmasked_weight": 0.1,
           "ffn_lb_weight": 0.01,
-          "aux_weight": 0.0,
           "mp_weight": 1.0
         },
         "spatial_embedding": true,

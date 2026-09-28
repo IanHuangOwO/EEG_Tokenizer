@@ -24,6 +24,22 @@ def _ema_update(buf, val, decay=0.99):
         buf.mul_(decay).add_(val, alpha=1 - decay)
 
 
+_ROUTED_STATE = ('stamps.W_down_routed', 'stamps.b_down_routed', 'stamps.w_amp_routed', 'stamps.b_amp_routed',
+                 'stamps.D_routed', 'stamps.fire_ema', 'ema_stamp_router_entropy', 'ema_stamp_router_load_std',
+                 'ema_stamp_gate_entropy')
+
+
+def _drop_routed_state(state_dict, prefix, *args):
+    """load_state_dict pre-hook: a static checkpoint trained before the routed stamps were removed
+    (docs/adr/0022) carries empty routed tensors and routing EMAs -- drop them. A checkpoint with
+    routed stamps cannot be rebuilt here: it needs the `routed-stamps` branch."""
+    for k in _ROUTED_STATE:
+        v = state_dict.pop(prefix + k, None)
+        if v is not None and k.startswith('stamps.') and v.numel() > 0:
+            raise ValueError("checkpoint has routed stamps, removed in docs/adr/0022: "
+                             "load it from the `routed-stamps` branch")
+
+
 def _restore_phase(module, incompatible_keys):
     """load_state_dict post-hook: re-apply the checkpoint's phase flags (plain
     attributes, not state). Does not freeze anything."""
@@ -45,8 +61,7 @@ class MeSAEPretrain(nn.Module):
     presented at a per-channel, per-atom amplitude/phase read off that atom's own
     bottleneck) -> reconstruction, summed directly in patch space (no separate decoder
     stage). See docs/adr/0009-spatiotemporal-stamp-dictionary-for-mesae.md for the full
-    derivation and docs/adr/0007-routed-filter-gating-for-mesae.md for the routed/shared
-    split.
+    derivation; the dictionary is static (every stamp active everywhere, docs/adr/0022).
 
     Trains in two phases of one run (train_pretrain.py; docs/adr/0013, CONTEXT.md:
     Tokenizer stage / Masked stage):
@@ -69,18 +84,11 @@ class MeSAEPretrain(nn.Module):
         blocks_per_stage=2,
         num_channels=1,
         spatial_embedding=True,
-        n_routed_stamps=796,
-        n_shared_stamps=4,
-        stamp_top_k=32,
-        stamp_hidden_width=8,
-        stamp_shared_hidden_width=16,
-        dead_threshold_frac=0.1,
-        stamp_ema_decay=0.999,
+        n_stamps=16,
+        stamp_hidden_width=16,
         stamp_amp_levels=None,
         stamp_phase_levels=None,
         stamp_amp_log2_range=(-6.0, 3.0),
-        stamp_selection_mode='topk',
-        stamp_aux_k_cap_frac=None,
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
@@ -114,34 +122,19 @@ class MeSAEPretrain(nn.Module):
         self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_embedding else None
 
         self.stamps = StampBank(
-            embed_dim, patch_len,
-            n_routed_stamps=n_routed_stamps, n_shared_stamps=n_shared_stamps, top_k=stamp_top_k,
-            hidden_width=stamp_hidden_width, shared_hidden_width=stamp_shared_hidden_width,
-            dead_threshold_frac=dead_threshold_frac, ema_decay=stamp_ema_decay,
+            embed_dim, patch_len, n_stamps=n_stamps, hidden_width=stamp_hidden_width,
             amp_levels=stamp_amp_levels, phase_levels=stamp_phase_levels,
             amp_log2_range=stamp_amp_log2_range,
-            selection_mode=stamp_selection_mode,
-            aux_k_cap_frac=stamp_aux_k_cap_frac,
         )
-        # convenience aliases — viz/checker code reads these off the model directly
-        # (e.g. base_checker.py compute_unit_colors).
+        # convenience alias — viz/checker code reads it off the model directly
         self.n_stamps = self.stamps.n_stamps
-        self.n_routed_stamps = self.stamps.n_routed
-        self.n_shared_stamps = self.stamps.n_shared
         self.stamps_frozen = False
         self.register_buffer('masked_phase', torch.tensor(False))
+        self._register_load_state_dict_pre_hook(_drop_routed_state)
         self.register_load_state_dict_post_hook(_restore_phase)
 
-        # EMA router-health buffers — same 3 metrics as MeFSQ's Router
-        # (ema_stamp_router_entropy/ema_stamp_router_load_std/ema_stamp_gate_entropy), see
-        # update_stamp_router_metrics below for what each number means.
-        self.register_buffer('ema_stamp_router_entropy',  torch.tensor(0.0))
-        self.register_buffer('ema_stamp_router_load_std', torch.tensor(0.0))
-        self.register_buffer('ema_stamp_gate_entropy',    torch.tensor(0.0))
-
-        # Same 3 EMA metrics, but for the FFN MoE routers (MoEFFN/FFNRouter, one per
-        # TSABlock, averaged across blocks by TSAEncoder.forward) — a distinct MoE from the
-        # stamp router above, see docs/adr/0008-moe-ffn-for-mesae.md and
+        # EMA health of the FFN MoE routers (MoEFFN/FFNRouter, one per TSABlock, averaged
+        # across blocks by TSAEncoder.forward), see docs/adr/0008-moe-ffn-for-mesae.md and
         # update_ffn_router_metrics below.
         self.register_buffer('ema_ffn_router_entropy',  torch.tensor(0.0))
         self.register_buffer('ema_ffn_router_load_std', torch.tensor(0.0))
@@ -178,7 +171,7 @@ class MeSAEPretrain(nn.Module):
     def enter_masked_phase(self, freeze_stamps=True):
         """Freeze before enable_spatial: a frozen dictionary never sees mixed z. With
         freeze_stamps=False it trains on mixed z, so per-stamp amp is no longer a
-        source topomap (aux_loss/mp_loss stay on — get_loss gates them on stamps_frozen)."""
+        source topomap (mp_loss stays on — get_loss gates it on stamps_frozen)."""
         self.masked_phase.fill_(True)
         if freeze_stamps:
             self.freeze_stamps()
@@ -188,9 +181,8 @@ class MeSAEPretrain(nn.Module):
     def freeze_stamps(self):
         """
         End of Tokenizer stage: lock StampBank so the Masked stage's frozen reconstruction
-        target stops moving. aux_loss (dead-atom rescue) must be dropped from the
-        Masked-stage loss entirely once this is called — rescuing a frozen dictionary's dead
-        atoms is meaningless, see get_loss. Mirrors MeFSQ's freeze_vq_and_decoder(), but
+        target stops moving (mp_loss is dropped from the Masked-stage loss once this is
+        called, see get_loss). Mirrors MeFSQ's freeze_vq_and_decoder(), but
         two-stage/sequential rather than joint-warmup-then-freeze (see
         docs/adr/0003-mesae-two-stage-masked-training.md).
         """
@@ -199,50 +191,8 @@ class MeSAEPretrain(nn.Module):
         self.stamps_frozen = True
 
     @torch.no_grad()
-    def update_stamp_router_metrics(self, h_routed_dense):
-        """
-        EMA router-health monitoring, called once per step (see
-        MeSAETrainer.update_diagnostics) — logic ported from MeFSQ's
-        MeFSQ.update_head_metrics, adapted for StampBank's raw selection strengths:
-        post-rms amp magnitude, not a softmax (see StampBank.forward). h_routed_dense:
-        [M, n_routed_stamps] (StampBank's `dense_routed`, zeros at unselected).
-
-        stamp_router_entropy: entropy of the routed pool's LOAD distribution (how evenly,
-        across this batch's patches, selection is spread over the n_routed_stamps routed
-        stamps) — 0 = every patch always picks the same stamp (total collapse),
-        log(n_routed_stamps) = perfectly uniform load. Rising over training = healthy
-        (stamps differentiating and each still getting used); falling toward 0 = router
-        collapse (a couple of stamps absorbing everything, see docs/adr/0007).
-
-        stamp_gate_entropy: entropy of the WITHIN-patch selection strengths (not across
-        patches). `h_routed_dense` is raw and unbounded — not a probability distribution
-        — so it's renormalized per-row (`/ sum`) here purely for this diagnostic, never
-        touching the actual reconstruction path. 0 = one selected stamp dominates that
-        patch's strength (confident/peaked selection), log(top_k) = the k selected
-        stamps split strength near-uniformly.
-
-        stamp_router_load_std: std of the load distribution across routed stamps —
-        companion to stamp_router_entropy in raw (non-normalized) units; rising = load
-        spreading out unevenly (some stamps starved), reacts faster than the log-scaled
-        entropy number.
-        """
-        selected = (h_routed_dense.detach() > 0).float()
-        load = selected.mean(dim=0)
-        load_p = load / (load.sum() + 1e-8)
-        stamp_router_entropy = -(load_p * torch.log(load_p + 1e-10)).sum()
-
-        gm = h_routed_dense.detach().float().clamp(min=0)
-        gm = gm / (gm.sum(dim=-1, keepdim=True) + 1e-8)  # diagnostic-only renormalization
-        stamp_gate_entropy = -(gm * torch.log(gm + 1e-10)).sum(dim=-1).mean()
-
-        _ema_update(self.ema_stamp_router_load_std, load.std())
-        _ema_update(self.ema_stamp_router_entropy, stamp_router_entropy)
-        _ema_update(self.ema_stamp_gate_entropy, stamp_gate_entropy)
-
-    @torch.no_grad()
     def update_ffn_router_metrics(self, ffn_router_entropy, ffn_router_load_std, ffn_gate_entropy):
-        """Same EMA smoothing as update_head_metrics, for the FFN MoE routers instead of the
-        SAE Filter router — see TSAEncoder.forward (MeSAE_modules.py) for where these three
+        """EMA smoothing of the FFN MoE router health — see TSAEncoder.forward (MeSAE_modules.py) for where these three
         already-averaged-across-blocks values come from. Called from
         MeSAETrainer.update_diagnostics with out.ffn_router_entropy/out.ffn_router_load_std/
         out.ffn_gate_entropy, same call site as update_head_metrics."""
@@ -252,8 +202,7 @@ class MeSAEPretrain(nn.Module):
 
     def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """Returns (z [B, C, N, D], ffn_lb_loss scalar) — ffn_lb_loss is the summed
-        load-balance loss of every TSABlock's MoEFFN (see MeSAE_modules.TSAEncoder),
-        distinct from the router (SAE Filter) load-balance loss produced in forward()."""
+        load-balance loss of every TSABlock's MoEFFN (see MeSAE_modules.TSAEncoder)."""
         z = self.embed(x, coords=coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos,
                        mask_token=self.mask_token)  # [B, C, N, D]
         bias = self.spatial_bias(coords) if self.spatial_bias is not None and coords is not None else None
@@ -274,12 +223,6 @@ class MeSAEPretrain(nn.Module):
         quantity already (a stamp's mixing/topomap column) rather than something a
         classifier head would have to learn from scratch and risk overfitting on (see
         docs/agents/ / CONTEXT.md finetune val-chance bug).
-
-        Uses dense_amp (every atom, no top-k) rather than the reconstruction path's
-        selected top_k+n_shared: reconstruction sparsity optimizes what's needed to
-        rebuild the signal, not what's discriminative for classification, and a dense
-        axis gives every stamp a stable identity across patches for free (no
-        zero-dilution bookkeeping needed).
 
         Returns z_per_head [B, N, n_stamps, D] (the per-stamp view a finetune head consumes),
         plus chan_attn [B, N, n_stamps, C] (the pooling weights, i.e. each stamp's
@@ -312,30 +255,6 @@ class MeSAEPretrain(nn.Module):
             return z_per_head, chan_attn
         return z_per_head
 
-    def used_stamp_ids(self, out, max_stamps=100):
-        """Global stamp ids actually selected SOMEWHERE across this batch (a batch built
-        from one trial's patches, in practice — see check_pretrain/check_finetune), capped
-        at max_stamps, ranked by accumulated selection strength. `out` needs `dense_routed`
-        (from this model's own `forward`/`stamps(...)` output — any SimpleNamespace with
-        that field works). Shared stamps always included first (constant weight, always
-        selected every patch, so cheap to guarantee) — remaining budget filled by the
-        highest-usage routed stamps, dropping ones that never fired at all this batch. This
-        exists because hard top-k selection means `forward()`'s per-patch idx/dense_routed
-        axis has NO stable cross-patch identity (patch A's slot 0 and patch B's slot 0 can
-        be different physical stamps) — a trial-wide view needs a fixed, shared set of
-        global ids instead. (Finetune's encode_used_stamps solves the same display-size
-        problem a different way — see its docstring — since it has no top-k axis to
-        begin with.)
-        """
-        device = out.dense_routed.device
-        shared_ids = torch.arange(self.n_routed_stamps, self.n_stamps, device=device)
-        routed_usage = out.dense_routed.detach().sum(dim=0)  # [n_routed_stamps]
-        routed_ids = torch.nonzero(routed_usage > 0, as_tuple=True)[0]
-        order = torch.argsort(routed_usage[routed_ids], descending=True)
-        routed_ids = routed_ids[order]
-        budget = max(0, max_stamps - shared_ids.numel())
-        return torch.cat([shared_ids, routed_ids[:budget]])
-
     def encode_used_stamps(self, x, coords, time_idx=None, valid_channels=None, max_stamps=100):
         """Viz-only convenience over encode_post_stamp_expert: same z_per_head/chan_attn,
         capped to the max_stamps stamps with the largest trial-summed View magnitude —
@@ -357,20 +276,14 @@ class MeSAEPretrain(nn.Module):
         bool_masked_pos: [B, C, N] bool — None during the Tokenizer stage (no masking);
         pass real masks only in the Masked stage, once temporal/spatial mixing are enabled
         and the stamps are frozen (see enable_temporal/enable_spatial/freeze_stamps).
-        valid_channels: [B, C] bool, True=real (not zero-padded) channel, or None. Used
-        two ways now: (1) passed into StampBank so a padded channel's encoder-bias amp
-        noise doesn't vote in the per-patch group selection score (see
-        StampBank.forward), and (2) carried through on the returned SimpleNamespace so
-        get_loss/_recon_loss can exclude padded channels from the loss (see get_loss) —
-        a zero-padded channel's "reconstruction" is meaningless signal, not a real
-        target. Padded channels still decode/reconstruct like any other.
-        returns SimpleNamespace(recon [B,C,N,L], h [G,Q] selection confidences,
-        dense_routed [G,n_routed_stamps] (diagnostic selection-frequency source, G =
-        B*N patch positions — group-level selection, see StampBank), aux_loss scalar,
-        ffn_lb_loss scalar (TSABlock MoEFFN routers,
-        summed across blocks — StampBank has no load-balance loss of its own, see
-        StampBank.forward). No `attn` anymore — there is no cross-channel pool left to
-        produce a channel-attention map from.
+        valid_channels: [B, C] bool, True=real (not zero-padded) channel, or None. Passed into
+        StampBank (padded channels stay out of h and mp_loss) and carried through on the returned
+        SimpleNamespace so get_loss/_recon_loss can exclude padded channels from the loss — a
+        zero-padded channel's "reconstruction" is meaningless signal, not a real target. Padded
+        channels still decode/reconstruct like any other.
+        returns SimpleNamespace(recon [B,C,N,L], h [G, n_stamps] stamp strengths (G = B*N patch
+        positions), idx/amp (StampBank.decode_selected), mp_loss/mp_map, ffn_lb_loss scalar
+        (TSABlock MoEFFN routers, summed across blocks), FFN router health, quantization outputs.
         """
         B, C, N, L = x.shape
 
@@ -383,7 +296,7 @@ class MeSAEPretrain(nn.Module):
         # unit StampBank selects stamps for (see its class docstring).
         G = B * N
         z_g = z.permute(0, 2, 1, 3).reshape(G, C, -1)          # [G, C, D]
-        x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)           # [G, C, L] — aux-rescue target
+        x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)           # [G, C, L] — mp_loss target
 
         # Per-channel raw-input RMS — the amplitude signal the LayerNorm stack erased
         # from z (embed.norm -> per-block norm_out -> stamps.input_norm), multiplied back
@@ -395,8 +308,7 @@ class MeSAEPretrain(nn.Module):
 
         vc_g = None
         if valid_channels is not None:
-            # [B, C] -> broadcast over N -> [G, C]; group score should only count real
-            # channels' amp energy (see StampBank.forward's valid_channels docstring).
+            # [B, C] -> broadcast over N -> [G, C]: real channels only in h / mp_loss.
             vc_g = valid_channels.unsqueeze(1).expand(B, N, C).reshape(G, C)
 
         if bool_masked_pos is not None:
@@ -405,23 +317,12 @@ class MeSAEPretrain(nn.Module):
             # valid_channels), so a padded channel's patch can land inside the mask —
             # gate the override on valid-AND-masked, not masked alone, or a padded
             # channel's rms gets force-set to 1.0 here, fabricating a nonzero amp/recon
-            # for a channel that's always exactly 0. get_loss already excludes padded
-            # channels from the main loss, but the dead-atom aux rescue
-            # (StampBank.forward's aux_loss) has no valid_channels masking at all, so
-            # that fabricated signal would otherwise leak straight into a revived
-            # atom's decoder weights — shared across every channel, real ones included.
+            # for a channel that's always exactly 0.
             if vc_g is not None:
                 mask_g = mask_g & vc_g.unsqueeze(-1)
             rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        # target_visible: which channels' x_target selection_mode='gain' may read. An
-        # UNMASKED channel's content is the model's own input (no leak); a MASKED one is
-        # the answer. Per (position, channel), not all-or-nothing -- see StampBank.forward.
-        target_visible = None
-        if bool_masked_pos is not None:
-            target_visible = (~bool_masked_pos).permute(0, 2, 1).reshape(G, C)
-        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g,
-                           target_visible=target_visible)
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 
@@ -429,8 +330,6 @@ class MeSAEPretrain(nn.Module):
             recon=recon,
             h=out.h,
             idx=out.idx, amp=out.amp,   # [G, K] slot -> stamp id, [G, C, K, 2] (G = B*N), for StampBank.decode_selected
-            dense_routed=out.dense_routed,
-            aux_loss=out.aux_loss,
             mp_loss=out.mp_loss,
             # [B, C, N], same layout as bool_masked_pos (G = B*N rows were b*N + n)
             mp_map=None if out.mp_map is None else out.mp_map.reshape(B, N, C).permute(0, 2, 1),
@@ -438,7 +337,6 @@ class MeSAEPretrain(nn.Module):
             ffn_router_entropy=self.encoder.last_ffn_router_entropy,
             ffn_router_load_std=self.encoder.last_ffn_router_load_std,
             ffn_gate_entropy=self.encoder.last_ffn_gate_entropy,
-            k_eff=out.k_eff,
             valid_channels=valid_channels,
             # None unless stamp quantization is configured. Carried up from StampBank
             # rather than left at its boundary: quant_clip_frac/quant_off_frac are the
@@ -512,7 +410,7 @@ class MeSAEPretrain(nn.Module):
         self._last_pyramid_levels = {'patch': plain_patch.item()}
         return total, l_masked, l_unmasked
 
-    def get_loss(self, x, recon, aux_loss, bool_masked_pos=None, aux_weight=0.03,
+    def get_loss(self, x, recon, bool_masked_pos=None,
                  mse_patch_weight=1.0, unmasked_weight=1.0,
                  ffn_lb_loss=None, ffn_lb_weight=0.01, valid_channels=None,
                  mp_loss=None, mp_weight=0.0, mp_map=None):
@@ -528,20 +426,12 @@ class MeSAEPretrain(nn.Module):
         mse_patch_weight / unmasked_weight).
 
         Tokenizer stage (bool_masked_pos=None): plain full reconstruction, l_masked=1.0
-        placeholder (nothing masked yet), aux_loss included so StampBank's dead-atom
-        rescue can still train.
+        placeholder (nothing masked yet).
 
-        Masked stage (bool_masked_pos given, self.stamps_frozen True by then): aux_loss is
-        dropped from the total regardless of the aux_weight argument once the stamps are
-        frozen — rescuing a frozen dictionary's dead atoms can't do anything, see
-        freeze_stamps().
-
-        Dictionary shaping is mp_loss's job (see StampBank.forward): top_k is the
-        sparsity budget, aux_loss the anti-collapse mechanism, and mp_loss the
-        residual-ordered term that stops atoms being rewarded for re-explaining what a
-        higher-ranked atom already covered. Earlier attempts at this — spectral
-        whitening, then activation decorrelation/negentropy — were measured and
-        dropped; see docs/adr/0011. StampBank has no load-balance loss of its own.
+        Dictionary shaping is mp_loss's job (see StampBank.forward): the residual-ordered term
+        that stops stamps being rewarded for re-explaining what a higher-ranked stamp already
+        covered. Earlier attempts at this — spectral whitening, then activation
+        decorrelation/negentropy — were measured and dropped; see docs/adr/0011.
 
         ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
         docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
@@ -552,13 +442,10 @@ class MeSAEPretrain(nn.Module):
             recon, x, bool_masked_pos, valid_channels=valid_channels,
             mse_patch_weight=mse_patch_weight, unmasked_weight=unmasked_weight)
 
-        if bool_masked_pos is None or not self.stamps_frozen:
-            total = total + aux_weight * aux_loss
         if ffn_lb_loss is not None:
             total = total + ffn_lb_weight * ffn_lb_loss
 
-        # Gated on stamps_frozen exactly like aux_loss above, same reasoning: mp_loss
-        # exists to shape WHICH atom owns which content (see StampBank.forward's
+        # Gated on stamps_frozen: mp_loss exists to shape WHICH atom owns which content (see StampBank.forward's
         # mp_loss section), and a frozen dictionary's atoms can't be reshaped. Gradient
         # would still reach the (never-frozen) encoder through amp=f(z), but pushing the
         # encoder to make greedy residual decomposition easier is not the Masked stage's
@@ -579,18 +466,8 @@ class MeSAEPretrain(nn.Module):
             self._last_pyramid_levels['mp'] = mp_loss.detach().item()
         return total, l_masked, l_unmasked
 
-    def get_metrics(self, dense_routed=None):
-        # dense_routed param is currently unused here (kept for call-site symmetry with
-        # MeFSQ's get_metrics) — its old rationale doesn't apply anymore either: it used
-        # to be h_i=softmax(topk router logits), pinned to sum to 1 within each patch's
-        # top_k picks (so a batch-wide mean-of-selected was mathematically stuck at
-        # 1/top_k, not a real diagnostic). h is now raw post-rms amp magnitude (see
-        # StampBank.forward) with no such constraint, so a real mean/std would be
-        # meaningful again if this ever gets wired up. Selection-sharpness is covered
-        # properly by stamp_gate_entropy below regardless (entropy of the distribution
-        # shape, not its mean).
+    def get_metrics(self):
         metrics = {}
-        metrics['dead_feature_rate'] = (self.stamps.fire_ema < self.stamps.dead_threshold).float().mean().item()
 
         # U-Net skip gate(s) on the encoder's residual-add path: sigmoid(g) in [0,1],
         # 0 = drop skip, 1 = plain add (same convention as MeFSQ.get_metrics).
@@ -624,26 +501,8 @@ class MeSAEPretrain(nn.Module):
         if branch_max is not None:
             metrics['branch_max'] = branch_max.item()
 
-        # Stamp router health — see update_stamp_router_metrics above for what each number
-        # means.
-        metrics['stamp_router_entropy']  = self.ema_stamp_router_entropy.item()
-        # Same number as a FRACTION OF ITS OWN MAXIMUM, log(n_routed_stamps). The raw
-        # entropy above is in nats and its ceiling moves with the pool size (4.79 at 120
-        # routed vs 5.70 at 298), so raw values are not comparable across runs — 4.53 and
-        # 3.32 look far apart but are 0.80 and 0.81 of max, i.e. equally healthy.
-        # Measured reference band from real runs: 0.73-0.81 is healthy (v4/v5/v6, alive
-        # 0.54-0.97), while v8's pool collapse read 0.53 (alive 0.19). A hinged entropy
-        # FLOOR at ~0.70 is the documented safe shape if prevention is ever needed
-        # (see StampBank's note on why plain load-balancing is not: since |amp|
-        # self-selection the score IS the reconstruction coefficient, so pushing the
-        # load uniform pushes reconstruction amplitudes uniform).
-        metrics['stamp_router_entropy_frac'] = (
-            self.ema_stamp_router_entropy.item() / math.log(max(self.n_routed_stamps, 2)))
-        metrics['stamp_router_load_std'] = self.ema_stamp_router_load_std.item()
-        metrics['stamp_gate_entropy']    = self.ema_stamp_gate_entropy.item()
-
-        # FFN router health — see update_ffn_router_metrics above; same 3 metrics, distinct
-        # MoE (per-TSABlock MoEFFN routers, averaged across blocks, not the StampBank router).
+        # FFN router health — see update_ffn_router_metrics above (per-TSABlock MoEFFN routers,
+        # averaged across blocks).
         metrics['ffn_router_entropy']  = self.ema_ffn_router_entropy.item()
         metrics['ffn_router_load_std'] = self.ema_ffn_router_load_std.item()
         metrics['ffn_gate_entropy']    = self.ema_ffn_gate_entropy.item()
@@ -666,7 +525,7 @@ class FinetuneModel(nn.Module):
         stamp = needs_stamp(head_cfg)
         self.extractor = StampExtractor(backbone, channel_idx) if stamp else None
         if stamp:
-            assert head_cfg['num_stamps'] == len(self.extractor.keep), "num_stamps must equal the alive stamp count"
+            assert head_cfg['num_stamps'] == len(self.extractor.keep), "num_stamps must equal the stamp count"
         self.head = FeatureHead(head_cfg)
         if 'stamp_band' in feature_names(head_cfg):
             E_D, E_H = self.extractor.band_tables(head_cfg['sample_freq'])
@@ -675,7 +534,7 @@ class FinetuneModel(nn.Module):
 
     def train(self, mode=True):
         super().train(mode)
-        self.backbone.eval()   # frozen: no dropout noise, stable top-k
+        self.backbone.eval()   # frozen: no dropout noise
         return self
 
     def forward(self, x, coords, time_idx=None, valid_channels=None, pad_mask=None):
@@ -700,7 +559,7 @@ class FinetuneModel(nn.Module):
         channel_idx, keep = cfg.pop('channel_idx'), cfg.pop('keep')
         model = cls(backbone, cfg, channel_idx)
         if keep is not None and model.extractor.keep.tolist() != keep:
-            raise ValueError("backbone's alive stamps differ from the checkpoint's head_config['keep']")
+            raise ValueError("backbone's stamps differ from the checkpoint's head_config['keep']")
         model.head.load_state_dict(ckpt['model_state_dict'])
         return model
 
@@ -711,8 +570,7 @@ def build_finetune(backbone, num_channels, num_classes, channel_idx=None, num_pa
     channel_idx = list(range(num_channels)) if channel_idx is None else list(channel_idx)
     num_stamps = 0
     if needs_stamp(ft_params):
-        st = backbone.stamps
-        num_stamps = int((st.fire_ema >= st.dead_threshold).sum()) + (st.n_stamps - st.n_routed)
+        num_stamps = backbone.stamps.n_stamps
     cfg = resolve_head_config(ft_params, num_classes=num_classes, num_patches=num_patches,
                               num_channels=len(channel_idx), num_stamps=num_stamps,
                               patch_len=backbone.patch_len, patch_stride=backbone.patch_stride,

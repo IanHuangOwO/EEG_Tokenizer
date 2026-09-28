@@ -39,17 +39,15 @@ phase `atan2(b, a)`, the shape unchanged at any phase.
 phase-invariant power (induced activity, e.g. motor-imagery ERD); signed `(a, b)` keeps phase-locked
 content (evoked responses, P300).
 
-**Routed / shared stamps**: the StampBank's two pools. Routed stamps compete (the `stamp_top_k` highest per
-patch decode); shared stamps fire on every patch. **Group selection**: one stamp set per patch position,
-shared by all channels, each channel with its own gains -- so a stamp's per-channel gains form a
-**mixing column** (an ICA-style topography).
+**Static dictionary**: every stamp is active at every patch position, shared by all channels, each channel
+with its own gains -- so a stamp's per-channel gains form a **mixing column** (an ICA-style topography).
+Routed (top-k selected) stamps were removed (docs/adr/0022; `routed-stamps` branch).
 
-**Sparsity budget**: `2 * (stamp_top_k + n_shared_stamps)` free scalars per channel must stay well below
+**Sparsity budget**: `2 * n_stamps` free scalars per channel must stay well below
 `patch_len` (50), or the active slots fit any patch and it stops being sparse coding (docs/adr/0011).
 
 **Residual ordering** (`mp_loss`): matching-pursuit grading -- slots ranked by amplitude, each graded against
-the residual the higher ranks leave (detached), so duplicate atoms earn nothing. **Dead-atom rescue**
-(`aux_loss`): revives routed atoms that stopped firing. Both only while stamps train.
+the residual the higher ranks leave (detached), so duplicate atoms earn nothing. Only while stamps train.
 
 **Stage**: a group of `blocks_per_stage` (2) encoder blocks at one temporal resolution; the patch axis is
 pooled by 2 between stages (centred, no time shift) and upsampled back through gated skips.
@@ -102,7 +100,7 @@ What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
 |---|---|---|
 | `SpatialTemporalEmbeddings` | 0.51M | patch 50 -> 100, learnable time position embedding, Fourier coordinate MLP |
 | `TSAEncoder` | 1.74M | 8 blocks = 4 stages x 2 (39 -> 20 -> 10 -> 5 patches); block = temporal attention -> spatial attention (+ relative spatial bias) -> MoE FFN (4 routed + 1 shared, top-2), LayerScale |
-| `StampBank` | 0.01M | 16 shared stamps, no routed (sparsity budget 32 < 50) |
+| `StampBank` | 0.01M | 16 stamps (sparsity budget 32 < 50) |
 
 Loss: patch MSE + per-stamp `mp` (weight 1; stamps ranked per patch by strength) + `ffn_lb` (0.01);
 visible samples weighted 0.1 in the masked phase. Removed: trial MSE (ADR 0021), STFT (0019), nested (0018). 50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2,

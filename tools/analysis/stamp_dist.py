@@ -19,7 +19,7 @@ def accumulate_stamp_ab(model, pretrain_dataset, trial_indices, device, max_stam
     Returns {stamp_id: (a [n], b [n])} np.ndarray pairs, for the max_stamps stamps with
     the most firings across trial_indices -- a dataset/subject can have hundreds of
     stamps, most barely used; capping keeps the violin plot readable the same way
-    used_stamp_ids/encode_used_stamps cap the gallery panels.
+    encode_used_stamps caps the gallery panels.
     """
     was_training = model.training
     model.eval()
@@ -65,26 +65,20 @@ def accumulate_stamp_ab(model, pretrain_dataset, trial_indices, device, max_stam
 
 
 def stamp_templates(model):
-    """-> D, H ([n_stamps, patch_len] numpy), ids (shared stamps first, then alive routed ones by firing
-    rate; dead routed stamps left out), n_routed."""
-    stamps = model.stamps
-    D, H = (t.detach().cpu().numpy() for t in stamps._template_tables())
-    fire = stamps.fire_ema.detach().cpu().numpy()
-    alive = np.flatnonzero(fire >= stamps.dead_threshold)
-    ids = np.concatenate([np.arange(stamps.n_routed, D.shape[0]), alive[np.argsort(-fire[alive])]])
-    return D, H, ids, stamps.n_routed
+    """-> D, H ([n_stamps, patch_len] numpy), ids (every stamp)."""
+    D, H = (t.detach().cpu().numpy() for t in model.stamps._template_tables())
+    return D, H, np.arange(D.shape[0])
 
 
 def stamp_similarity(model):
     """Phase-invariant template similarity: a stamp presents a*D + b*H, so stamp j can show stamp i's
     waveform at any phase; sim(i, j) = sqrt(<D_i,D_j>^2 + <D_i,H_j>^2) in [0, 1] (1 = the same atom at
-    some phase), symmetrised by max, diagonal NaN. -> (sim over the alive stamps, their labels,
-    '<id>' routed / '<id>s' shared)."""
-    D, H, ids, n_routed = stamp_templates(model)
+    some phase), symmetrised by max, diagonal NaN. -> (sim over the stamps, their labels)."""
+    D, H, ids = stamp_templates(model)
     sim = np.sqrt((D[ids] @ D[ids].T) ** 2 + (D[ids] @ H[ids].T) ** 2)
     sim = np.maximum(sim, sim.T)
     np.fill_diagonal(sim, np.nan)
-    return sim, [f"{i}{'s' if i >= n_routed else ''}" for i in ids]
+    return sim, [str(i) for i in ids]
 
 
 def time_pool_weights(head_pth):

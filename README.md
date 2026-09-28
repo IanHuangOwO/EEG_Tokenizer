@@ -32,9 +32,10 @@ raw dataset files
   on the finest skip), so the deeper stages have to carry patch detail too.
 - **Stamps.** A stamp is a unit-norm temporal template `D` plus its quadrature partner `H`. Each
   stamp adds `a·D + b·H` to a channel, which gives an amplitude and a phase per channel; the
-  per-channel gains of one stamp form a topography. The current recipe uses 16 shared (always-on)
-  stamps and no routed ones.
-- **Sparsity budget (a hard limit).** Keep `2·(stamp_top_k + n_shared_stamps) < patch_len` with
+  per-channel gains of one stamp form a topography. The dictionary is static: 16 stamps, all active
+  on every patch (routed top-k stamps were removed, `docs/adr/0022`). Downstream heads read the
+  encoder output z; the stamps are the reconstruction objective and an interpretable view.
+- **Sparsity budget (a hard limit).** Keep `2·n_stamps < patch_len` with
   margin. Past that line the active stamps can fit any patch exactly and the model stops doing
   sparse coding (`docs/adr/0011`). The current budget is 2·16 = 32 against a `patch_len` of 50.
 - **Two-phase pretraining** (`docs/adr/0013`). In the *tokenizer phase* every block runs with

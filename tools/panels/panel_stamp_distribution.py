@@ -27,5 +27,5 @@ def run(ctx):
         ab = accumulate_stamp_ab(ctx.model, ds, trials, ctx.device, max_stamps=ctx.model.n_stamps)
         out = os.path.join(out_dir, f'{name}.png')
         plot_stamp_ab_violin(out, ab, title=f'Stamp a/b/amp/phase: {name} ({len(subjects)} subjects, '
-                             f'{len(trials)} windows)', n_routed=ctx.model.n_routed_stamps)
+                             f'{len(trials)} windows)')
         print(f"  -> {out}")

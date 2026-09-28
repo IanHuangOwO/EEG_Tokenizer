@@ -31,7 +31,6 @@ def _log_signed(x):
 
 def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
                             trial_idx=None, epoch_tag='', unit_label='Stamp',
-                            n_routed=None, shared_color='crimson',
                             raw_power=None, recon_power=None, psd_raw=None, psd_recon=None,
                             signed_stamps=False, onset_col=None):
     """
@@ -56,10 +55,7 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
     compresses that range while keeping "exactly 0" (unselected) mapped to exactly 0, so
     the zero-anchored vmin below still means the same thing.
 
-    grid: PatchGridResult. n_routed: global stamp id threshold — ids >= n_routed are
-    shared stamps (same routed-then-shared layout StampBank.forward's idx uses, see
-    PatchGridResult docstring), titled in shared_color instead of black. None disables
-    the shared/routed title-color split.
+    grid: PatchGridResult.
 
     signed_stamps: True when grid.topo carries SIGNED per-channel amps (MeSAE's
     grouped StampBank — the mixing/topomap column, see _cell's signed branch); False
@@ -165,7 +161,7 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
                 axes[krow, pi * 2].axis('off')
                 axes[krow, pi * 2 + 1].axis('off')
                 continue
-            color = shared_color if n_routed is not None and sid >= n_routed else 'black'
+            color = 'black'
             label = f'P{patch_ids[pi]} {unit_label[0]}{sid} (h={h[pi, ki]:.2f})'
             _cell(krow, pi, topo[pi, ki], psd[pi, ki], label, color, signed=signed_stamps)
         _blank_rest(krow, P)
@@ -197,8 +193,8 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
                         psd_ch_x, psd_x, freqs, importance, cmap='YlOrRd',
                         phase_ch_x=None, waveforms=None,
                         subject_id=None, trial_idx=None, epoch_tag='',
-                        unit_label='Stamp', unit_colors=None, unit_ids=None, n_routed=None,
-                        shared_color='crimson', n_per_row=5, iclabel_probs=None):
+                        unit_label='Stamp', unit_colors=None, unit_ids=None,
+                        n_per_row=5, iclabel_probs=None):
     """
     Standalone whole-trial panel — split out of plot_stamp_by_patch's old header row
     (see that function's docstring) so the trial-wide Raw/Full-Recon view and every stamp
@@ -351,7 +347,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     def _stamp_color(q):
         if unit_colors:
             return unit_colors[q]
-        return shared_color if n_routed is not None and int(display_ids[q]) >= n_routed else 'black'
+        return 'black'
 
     def _waveform_cell(row, block_col, sig, color, label):
         # Real decoded time-domain content at ONE pinned channel (the channel with the
@@ -432,12 +428,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     if Q > 0:
         ax_bar = fig.add_subplot(gs[header_rows:, n_cols])
         bar_labels = [f'{unit_label[0]}{int(display_ids[q])}' for q in order]
-        # Bars default steelblue (routed) / shared_color (shared) — same n_routed split as
-        # the grid titles above, so a shared stamp reads the same way in both places
-        # instead of only being distinguishable in the topo/PSD grid.
-        bar_colors = [(shared_color if (n_routed is not None and int(display_ids[q]) >= n_routed)
-                       else 'steelblue') for q in order]
-        bars = ax_bar.barh(range(Q), importance[order], color=bar_colors)
+        bars = ax_bar.barh(range(Q), importance[order], color='steelblue')
         ax_bar.set_yticks(range(Q))
         ax_bar.set_yticklabels(bar_labels, fontsize=6)
         ax_bar.invert_yaxis()
@@ -538,13 +529,11 @@ def plot_event_stamp_dynamics(out_path, t_sec, sel_rate, amp_mean, pow_mean, pow
     plt.close(fig)
 
 
-def plot_stamp_ab_violin(out_path, stamp_ab, title='', n_routed=None, shared_color='crimson'):
+def plot_stamp_ab_violin(out_path, stamp_ab, title=''):
     """4-row violin grid (a, b, amp=sqrt(a^2+b^2), phase=atan2(b,a)) -- one violin per
     stamp id, x-axis ordered by firing count (tools/analysis/stamp_dist.py's
     accumulate_stamp_ab already ranks/caps stamp_ab that way). stamp_ab: {stamp_id: (a
-    [n], b [n])} np.ndarray pairs. n_routed: global id threshold for shared_color
-    (ids >= n_routed are always-on shared stamps, same convention as
-    plot_stamp_by_patch/plot_stamp_gallery's n_routed)."""
+    [n], b [n])} np.ndarray pairs."""
     ids = list(stamp_ab.keys())
     a_list = [stamp_ab[i][0] for i in ids]
     b_list = [stamp_ab[i][1] for i in ids]
@@ -552,7 +541,7 @@ def plot_stamp_ab_violin(out_path, stamp_ab, title='', n_routed=None, shared_col
     phase_list = [np.arctan2(b, a) for a, b in zip(a_list, b_list)]
 
     positions = np.arange(1, len(ids) + 1)
-    colors = ['black' if n_routed is None or i < n_routed else shared_color for i in ids]
+    colors = ['black'] * len(ids)
 
     fig, axes = plt.subplots(4, 1, figsize=(max(8, 0.35 * len(ids)), 11), sharex=True)
     rows = [('a', a_list), ('b', b_list), ('amp', amp_list), ('phase (rad)', phase_list)]
@@ -574,9 +563,8 @@ def plot_stamp_ab_violin(out_path, stamp_ab, title='', n_routed=None, shared_col
     plt.close(fig)
 
 
-def plot_stamp_templates(out_path, D, H, ids, n_routed):
-    """Grid of stamp templates: D solid, its quadrature partner H dashed; shared stamps (id >= n_routed)
-    labelled as such."""
+def plot_stamp_templates(out_path, D, H, ids):
+    """Grid of stamp templates: D solid, its quadrature partner H dashed."""
     ncols = 8
     nrows = (len(ids) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(2.2 * ncols, 1.6 * nrows), squeeze=False)
@@ -586,7 +574,7 @@ def plot_stamp_templates(out_path, D, H, ids, n_routed):
         ax.plot(t, H[sid], color='crimson', lw=1.0, ls='--', label='H')
         ax.axhline(0, color='gray', lw=0.4)
         ax.set_xticks([]); ax.set_yticks([])
-        ax.set_title(f'#{sid} ({"shared" if sid >= n_routed else "routed"})', fontsize=7)
+        ax.set_title(f'#{sid}', fontsize=7)
     for ax in axes.flat[len(ids):]:
         ax.axis('off')
     axes[0][0].legend(fontsize=6, loc='upper right')
