@@ -21,5 +21,5 @@ write_moabb_metadata(
     },
     target_labels={'NonTarget': 'non-target', 'Target': 'target'},
     kwargs={},
-    window=[-0.2, 0.8],
+    window=[0.0, 1.0],   # EEG-FM-Compass: flash -> +1.0 s (MOABB P300 interval)
 )

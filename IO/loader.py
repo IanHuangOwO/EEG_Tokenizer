@@ -248,7 +248,9 @@ class MoabbLoader(BaseSubjectLoader):
     post_event_seconds] (post falls back to the interval length when unset). A dataset
     whose trials don't fit the global pre/post (P300 flashes, back-to-back PhysionetMI
     trials) sets metadata moabb.window = [t0, t1]: seconds relative to the raw event,
-    used instead. moabb.continuous = true (pretrain-only datasets whose trials overlap,
+    used instead. moabb.onset_window = [t0, t1] is the same relative to the MOABB onset
+    (event + interval[0], e.g. the MI cue), for datasets whose raw event is a trial start
+    (EEG-FM-Compass cuts BNCI2014001 / 004 as [cue, cue + 4 / 4.5 s]). moabb.continuous = true (pretrain-only datasets whose trials overlap,
     e.g. P300 flashes ~0.1 s apart) ignores events and cuts every run into non-overlapping
     window_size_seconds windows with label 0. Channels are picked by name (metadata
     'original_label'); labels come from metadata targets' 'moabb_event'.
@@ -263,6 +265,7 @@ class MoabbLoader(BaseSubjectLoader):
         t = self.data_metadata['targets']
         self.event_to_label = {t[k]['moabb_event']: int(k) for k in t if k.isdigit()}
         self.window = m.get('window')
+        self.onset_window = m.get('onset_window')
         self.continuous = m.get('continuous', False)
 
     def _load_data(self):
@@ -292,6 +295,9 @@ class MoabbLoader(BaseSubjectLoader):
                 continue
             if self.window:
                 shift, pre, post = 0, int(round(-self.window[0] * sf)), int(round(self.window[1] * sf))
+            elif self.onset_window:
+                shift = int(round(lo * sf))
+                pre, post = int(round(-self.onset_window[0] * sf)), int(round(self.onset_window[1] * sf))
             else:
                 shift = int(round(lo * sf))
                 pre = int(round(self.pre_event_seconds * sf))
@@ -322,7 +328,8 @@ class MoabbLoader(BaseSubjectLoader):
 
 def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Dict,
                          target_labels: Dict[str, str], kwargs: Dict = None,
-                         window: List[float] = None, continuous_seconds: float = None) -> Dict:
+                         window: List[float] = None, continuous_seconds: float = None,
+                         onset_window: List[float] = None) -> Dict:
     """
     Writes <root>/metadata.json from MOABB: EEG channel names and sample rate from the
     first subject's first run (downloads it if needed), subjects from ds.subject_list,
@@ -341,11 +348,12 @@ def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Di
     # read by tools.analysis.lookup_event_onset_sample for the event line on time-axis
     # plots. window=[t0, t1] is relative to the raw event (-> -t0); the default window is
     # centred on event + interval[0] (the MI/stimulus onset MOABB defines) with the global
-    # pre_event_seconds before it; continuous windows have no event.
+    # pre_event_seconds before it; onset_window=[t0, t1] is relative to that onset (-> -t0);
+    # continuous windows have no event.
     if continuous_seconds:
         onset = None
-    elif window:
-        onset = 0.0 - window[0]  # 0.0 - x, not -x: no '-0.0' in metadata
+    elif window or onset_window:
+        onset = 0.0 - (window or onset_window)[0]  # 0.0 - x, not -x: no '-0.0' in metadata
     else:
         with open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                'configs', 'compile.json')) as f:
@@ -357,10 +365,11 @@ def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Di
             **({"event_onset_seconds": onset} if onset is not None else {}),
             "moabb": {"class": class_name, "kwargs": kwargs, "code": ds.code,
                       **({"window": window} if window else {}),
+                      **({"onset_window": onset_window} if onset_window else {}),
                       **({"continuous": True} if continuous_seconds else {})},
             "acquisition": {
                 "sample_frequency": raw.info['sfreq'],
-                "window_size_seconds": continuous_seconds or ((window[1] - window[0]) if window else hi - lo),
+                "window_size_seconds": continuous_seconds or ((w := window or onset_window)[1] - w[0] if (window or onset_window) else hi - lo),
                 "num_subjects": len(ds.subject_list),
             },
             "targets": {"count": 1, "type": "pretrain_dummy",

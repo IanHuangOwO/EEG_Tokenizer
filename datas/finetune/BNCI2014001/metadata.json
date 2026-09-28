@@ -6,15 +6,19 @@
             "file_format": "via MOABB",
             "description": "BCI Competition IV 2a: 9 subjects, 2 sessions (T and E, both labelled via MOABB) x 6 runs x 48 trials, 4-class MI, 22 EEG (+3 EOG dropped) at 250 Hz. Window: global pre/post around the MI onset (cue, MOABB interval [2, 6])."
         },
-        "event_onset_seconds": 1.0,
+        "event_onset_seconds": 0.0,
         "moabb": {
             "class": "BNCI2014_001",
             "kwargs": {},
-            "code": "BNCI2014-001"
+            "code": "BNCI2014-001",
+            "onset_window": [
+                0.0,
+                4.0
+            ]
         },
         "acquisition": {
             "sample_frequency": 250.0,
-            "window_size_seconds": 4,
+            "window_size_seconds": 4.0,
             "num_subjects": 9
         },
         "targets": {

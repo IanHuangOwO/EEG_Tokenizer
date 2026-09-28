@@ -6,14 +6,14 @@
             "file_format": "via MOABB",
             "description": "P300 speller (ALS patients): 8 subjects, 1 session, 8 EEG at 256 Hz. Window [-0.2, 0.8] s around each flash (overrides global pre/post; flashes are ~0.25 s apart)."
         },
-        "event_onset_seconds": 0.2,
+        "event_onset_seconds": 0.0,
         "moabb": {
             "class": "BNCI2014_008",
             "kwargs": {},
             "code": "BNCI2014-008",
             "window": [
-                -0.2,
-                0.8
+                0.0,
+                1.0
             ]
         },
         "acquisition": {

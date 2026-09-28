@@ -22,4 +22,5 @@ write_moabb_metadata(
     target_labels={'left_hand': 'Left hand', 'right_hand': 'Right hand', 'feet': 'Feet', 'tongue': 'Tongue'},
     kwargs={},
     window=None,
+    onset_window=[0.0, 4.0],   # EEG-FM-Compass: cue -> +4 s (MOABB MotorImagery interval)
 )

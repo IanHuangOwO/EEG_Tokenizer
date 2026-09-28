@@ -6,11 +6,15 @@
             "file_format": "via MOABB",
             "description": "BCI Competition IV 2b: 9 subjects, 5 sessions (3 T + 2 E, all labelled via MOABB), 2-class MI, bipolar C3/Cz/C4 (+3 EOG dropped) at 250 Hz. Window: global pre/post around the MI onset (MOABB interval [3, 7.5])."
         },
-        "event_onset_seconds": 1.0,
+        "event_onset_seconds": 0.0,
         "moabb": {
             "class": "BNCI2014_004",
             "kwargs": {},
-            "code": "BNCI2014-004"
+            "code": "BNCI2014-004",
+            "onset_window": [
+                0.0,
+                4.5
+            ]
         },
         "acquisition": {
             "sample_frequency": 250.0,
