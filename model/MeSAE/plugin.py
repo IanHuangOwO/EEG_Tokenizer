@@ -13,7 +13,7 @@ from model.base_trainer import BaseTrainer
 from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
-from tools.viz.extract import extract_stamp_psd_by_patch, extract_stamp_gallery
+from tools.viz.extract import extract_stamp_psd_by_patch
 from tools.viz.stamp_plots import plot_event_stamp_dynamics
 from tools.viz.codebook import (plot_stamp_identity_consistency, plot_fingerprint_similarity,
                            plot_stamp_phase_consistency, plot_topography_distance)
@@ -128,14 +128,13 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         the two biases it has to avoid)."""
         from collections import defaultdict
         from tools.viz.codebook import plot_stamp_identity_consistency
-        from tools.viz.iclabel import ICLABEL_CLASSES
 
         # Keyed by (dataset, stamp id): channel-validity differs per dataset (e.g. Nakanishi2015
         # maps 8 of 64 channels, BETA_4s 58), so mixing columns from different datasets
         # have different lengths AND live in different channel subspaces — comparing
         # them would be meaningless even if the shapes matched. Statistics are computed
         # within each dataset and pooled.
-        cols, labels = defaultdict(list), defaultdict(list)
+        cols = defaultdict(list)
         # ab_cols: same (dataset, id) keying, but the raw signed (a, b) pair per valid
         # channel per occurrence (not just magnitude) — feeds _render_topography_distance's
         # coherent per-channel average below. phase_cols: dataset-agnostic (a scalar, not
@@ -157,13 +156,6 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                     cols[(ds_name, sid)].append(mag[g, :, sid].numpy())
                     ab_cols[(ds_name, sid)].append(amp[g, :, sid].numpy())
                     phase_cols[sid].append(float(phase[g, sid]))
-            gal = extract_stamp_gallery(model, x_in, c_in, time_idx=t_in,
-                                              valid_channels=vc_in, fs=200, freq_resolution=0.2)
-            uids, probs = gal[0], gal[-1]
-            if probs is not None:
-                for qi, sid in enumerate(uids.tolist()):
-                    if np.all(np.isfinite(probs[qi])):
-                        labels[int(sid)].append(int(probs[qi].argmax()))  # class is dataset-agnostic
 
         n_stamps = model.n_stamps
         circ_var = np.full(n_stamps, np.nan)
@@ -229,12 +221,10 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                 a, b = rng.choice(len(sids), 2, replace=False)
                 Ua, Ub = P[(ds_name, sids[a])], P[(ds_name, sids[b])]
                 between.append(float(Ua[rng.integers(len(Ua))] @ Ub[rng.integers(len(Ub))]))
-        agree = {s_: float(np.bincount(ls).max() / len(ls))
-                 for s_, ls in labels.items() if len(ls) >= 3}
         plot_stamp_identity_consistency(
             os.path.join(viz_dir, 'stamp_identity_consistency.png'),
             np.asarray(within), np.asarray(between), ids, per_stamp,
-            label_agree=agree or None, unit_label=self.unit_label)
+            unit_label=self.unit_label)
 
     @torch.no_grad()
     def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):

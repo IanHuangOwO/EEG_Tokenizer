@@ -81,10 +81,9 @@ def extract_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     Everything the whole-trial stamp gallery (tools/viz/stamp_plots.plot_stamp_gallery) needs, from
     one _stamp_summary call. Returns (ids [S], importance [S], psd_ch_x [C, S] SIGNED trial-mean amp
     per channel (the mixing column, rendered as a diverging topo), psd_x [S, C, F], freqs [F],
-    phase_ch_x [C, S] raw per-channel phase (radians), waveforms: S arrays of the real trial length
+    phase_ch_x [C, S] raw per-channel phase (radians), and waveforms: S arrays of the real trial length
     T = (N-1)*patch_stride + patch_len -- stamp s's decoded content at ONE pinned channel (the channel
-    with the most total energy for that stamp), overlapping patches averaged -- and iclabel_probs
-    [S, 7] or None (viz/iclabel.py; None when mne-icalabel is unavailable or fails).
+    with the most total energy for that stamp), overlapping patches averaged.
     """
     importance, fp, amp_topo, phase_topo, out = _stamp_summary(
         model, x, coords, time_idx=time_idx, valid_channels=valid_channels)
@@ -94,15 +93,14 @@ def extract_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     psd_x = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
 
-    # --- whole-trial waveform per stamp, and ICLabel pseudo-IC classification (viz/iclabel.py) ---
-    from tools.viz.iclabel import stamp_iclabel_probs
+    # --- whole-trial waveform per stamp ---
     D, H = model.stamps.templates()                                       # [S, L]
     N = out.amp.shape[0]
     stride = getattr(model, 'patch_stride', None) or L
     T = (N - 1) * stride + L
     vc = valid_channels[0].bool() if valid_channels is not None else torch.ones(C, dtype=torch.bool, device=x.device)
     energy = out.amp.pow(2).sum(-1).masked_fill(~vc.view(1, C, 1), 0.0).sum(0)   # [C, S]
-    waveforms, acts = [], []
+    waveforms = []
     for s in range(S):
         c = int(energy[:, s].argmax())    # ONE pinned channel for the whole waveform
         seg = (out.amp[:, c, s, 0, None] * D[s] + out.amp[:, c, s, 1, None] * H[s]).cpu().numpy()   # [N, L]
@@ -110,15 +108,10 @@ def extract_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
         for n in range(N):
             acc[n * stride:n * stride + L] += seg[n]
             wsum[n * stride:n * stride + L] += 1.0
-        sig = acc / np.maximum(wsum, 1.0)
-        waveforms.append(sig)
-        # ICLabel's feature needs at least ~fs samples: tile the real content up to N*L
-        acts.append(np.tile(sig, int(np.ceil(N * L / T)))[:N * L])
-    mixing = amp_topo[:, vc].transpose(0, 1).cpu().numpy()               # [Cv, S] signed
-    iclabel_probs = stamp_iclabel_probs(coords[0, vc].cpu().numpy(), fs or 1.0, mixing, acts)
+        waveforms.append(acc / np.maximum(wsum, 1.0))
 
     return (np.arange(S), importance, amp_topo.transpose(0, 1).cpu().numpy(), psd_x, freqs,
-            phase_topo.transpose(0, 1).cpu().numpy(), waveforms, iclabel_probs)
+            phase_topo.transpose(0, 1).cpu().numpy(), waveforms)
 
 
 @torch.no_grad()

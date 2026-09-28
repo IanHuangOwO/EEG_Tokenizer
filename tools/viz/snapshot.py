@@ -82,7 +82,7 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
     recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
 
     (_, gal_importance, psd_ch_x_g, psd_x_g, gal_freqs, phase_ch_x_g,
-     waveforms_g, iclabel_probs) = extract_stamp_gallery(
+     waveforms_g) = extract_stamp_gallery(
         model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
         fs=fs, freq_resolution=fft_resolution)
 
@@ -100,7 +100,6 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
         phase_ch_x=phase_ch_x_g, waveforms=waveforms_g,
         subject_id=bundle.subject_id, trial_idx=bundle.trial_idx, epoch_tag=tagged_epoch_tag,
         unit_label='Stamp',
-        iclabel_probs=iclabel_probs,
     )
     print(f"  [snapshot] -> {out_path}")
 

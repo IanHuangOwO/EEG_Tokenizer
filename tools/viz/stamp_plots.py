@@ -169,7 +169,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
                         psd_ch_x, psd_x, freqs, importance, cmap='YlOrRd',
                         phase_ch_x=None, waveforms=None,
                         subject_id=None, trial_idx=None, epoch_tag='',
-                        unit_label='Stamp', n_per_row=5, iclabel_probs=None):
+                        unit_label='Stamp', n_per_row=5):
     """
     Whole-trial panel: the trial-wide Raw/Full-Recon view and every stamp's trial summary.
 
@@ -195,17 +195,8 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
 
     waveforms: optional list of Q 1-D arrays of the real trial length (see
     viz.extract.extract_stamp_gallery): the stamp's decoded content at ONE pinned channel over
-    the whole trial. Rendered as an extra full-block-width row right above the ICLabel row (or
-    the last row if iclabel_probs is None), so "how it appeared" reads next to "what ICLabel
-    decided it is".
+    the whole trial, rendered as an extra full-block-width row under each stamp's PSD/phase pair.
 
-    iclabel_probs: optional [Q, 7] ICLabel class distribution per stamp
-    (viz.iclabel.ICLABEL_CLASSES order) — when given, each stamp block grows a row
-    (spanning the full block width) under its PSD/phase pair (and under the waveform
-    row, if that's also given): a small bar chart of the 7 class probabilities, best
-    class named in the bar row's title (see viz/iclabel.py, including the caveat that
-    these are interpretability hints, not calibrated probabilities). Both None keeps
-    the old two-row layout.
     """
     Q = psd_ch_x.shape[1]
     order = np.argsort(-importance)
@@ -222,11 +213,9 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     topo_w, right_w, bar_w = 2.6, 2.6, 3.5
     psd_h, phase_h = 1.4, 1.3
     wave_h = 0.8   # waveform row height (only present when waveforms given)
-    icl_h = 0.9    # ICLabel bar row height (only present when iclabel_probs given)
     has_wave = waveforms is not None
-    has_icl = iclabel_probs is not None
-    rows_per_block = 2 + (1 if has_wave else 0) + (1 if has_icl else 0)
-    block_h = psd_h + phase_h + (wave_h if has_wave else 0) + (icl_h if has_icl else 0)
+    rows_per_block = 2 + (1 if has_wave else 0)
+    block_h = psd_h + phase_h + (wave_h if has_wave else 0)
     n_per_row = max(2, n_per_row)  # header needs 2 blocks (Raw, Full Recon) side by side
     n_stamp_rows = math.ceil(Q / n_per_row) if Q else 0
     n_cols = n_per_row * 2
@@ -235,8 +224,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     suptitle_in, margin_in = 1.6, 0.15
     fig_w = (topo_w + right_w) * n_per_row + bar_w
     fig_h = (psd_h + phase_h) + block_h * n_stamp_rows + suptitle_in + margin_in
-    block_ratios = ([psd_h, phase_h] + ([wave_h] if has_wave else [])
-                     + ([icl_h] if has_icl else []))
+    block_ratios = [psd_h, phase_h] + ([wave_h] if has_wave else [])
     fig = plt.figure(figsize=(fig_w, fig_h))
     gs = fig.add_gridspec(total_rows, n_cols + 1,
                            height_ratios=[psd_h, phase_h] + block_ratios * n_stamp_rows,
@@ -324,30 +312,6 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         ax.set_title(f'{label} Waveform (pinned channel, whole trial)',
                      fontsize=7, fontweight='bold', color=color)
 
-    def _iclabel_cell(row, block_col, probs_q):
-        # 7-class ICLabel distribution bar (see viz/iclabel.py, incl. its caveat) —
-        # best class named in the title, its bar highlighted. Spans the block's full
-        # width (both the topo and psd/phase sub-columns).
-        from tools.viz.iclabel import ICLABEL_CLASSES
-        topo_col = block_col * 2
-        ax = fig.add_subplot(gs[row, topo_col:topo_col + 2])
-        if probs_q is None or not np.all(np.isfinite(probs_q)):
-            # degenerate (e.g. near-zero) activity gives NaN features: label it instead of argmaxing garbage
-            ax.axis('off')
-            ax.set_title('ICLabel: n/a', fontsize=7, color='gray')
-            return
-        best = int(np.argmax(probs_q))
-        colors = ['dimgray'] * len(ICLABEL_CLASSES)
-        colors[best] = 'seagreen' if ICLABEL_CLASSES[best] == 'Brain' else 'darkorange'
-        ax.bar(range(len(ICLABEL_CLASSES)), probs_q, color=colors)
-        ax.set_ylim(0, 1)
-        ax.set_xticks(range(len(ICLABEL_CLASSES)))
-        ax.set_xticklabels(ICLABEL_CLASSES, fontsize=5, rotation=45)
-        ax.set_yticks([0, 1])
-        ax.tick_params(axis='y', labelsize=5)
-        ax.set_title(f'ICLabel: {ICLABEL_CLASSES[best]} {probs_q[best]:.2f}',
-                     fontsize=7, fontweight='bold')
-
     for i, q in enumerate(order):
         block_row, block_col = divmod(i, n_per_row)
         topo_row = header_rows + block_row * rows_per_block
@@ -358,9 +322,6 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         next_row = topo_row + 2
         if has_wave:
             _waveform_cell(next_row, block_col, waveforms[q], color, label)
-            next_row += 1
-        if has_icl:
-            _iclabel_cell(next_row, block_col, iclabel_probs[q])
 
     for i in range(Q, n_stamp_rows * n_per_row):
         block_row, block_col = divmod(i, n_per_row)
@@ -371,9 +332,6 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         fig.add_subplot(gs[topo_row + 1, right_col]).axis('off')
         next_row = topo_row + 2
         if has_wave:
-            fig.add_subplot(gs[next_row, topo_col:topo_col + 2]).axis('off')
-            next_row += 1
-        if has_icl:
             fig.add_subplot(gs[next_row, topo_col:topo_col + 2]).axis('off')
 
     if Q > 0:

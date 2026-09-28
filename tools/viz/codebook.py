@@ -302,7 +302,7 @@ def plot_dataset_relation(out_path, usage_by_dataset, unit_label='Stamp'):
 
 
 def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, per_stamp_within,
-                                     label_agree=None, unit_label='Stamp'):
+                                     unit_label='Stamp'):
     """Does a stamp id mean the same thing at every occurrence?
 
     The waveform half of that question is trivially yes — a stamp's template D_i is a
@@ -322,11 +322,9 @@ def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, pe
     topography, i.e. the stamp is a waveform type rather than a source.
 
     per_stamp_ids/per_stamp_within: per-id mean within-consistency, for the bar panel.
-    label_agree: optional dict id -> modal-ICLabel-class agreement across trials.
     """
     import numpy as np
-    ncol = 3 if label_agree else 2
-    fig, axes = plt.subplots(1, ncol, figsize=(5.4 * ncol, 4.2), squeeze=False)
+    fig, axes = plt.subplots(1, 2, figsize=(10.8, 4.2), squeeze=False)
     ax = axes[0, 0]
     bins = np.linspace(-1, 1, 60)
     ax.hist(between, bins=bins, alpha=0.6, label=f'different {unit_label.lower()}s', color='gray', density=True)
@@ -348,16 +346,6 @@ def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, pe
                  'topographic meaning)', fontsize=10, fontweight='bold')
     ax.set_xlabel(f'{unit_label} id'); ax.set_ylabel('mean within-id cosine'); ax.legend(fontsize=8)
 
-    if label_agree:
-        ax = axes[0, 2]
-        vals = np.asarray(list(label_agree.values()))
-        ax.hist(vals, bins=np.linspace(0, 1, 21), color='darkorange')
-        ax.axvline(vals.mean(), color='k', ls='--', lw=1)
-        ax.set_title(f'ICLabel class stability per {unit_label.lower()}\n'
-                     f'mean modal agreement {vals.mean():.2f}, always-same '
-                     f'{np.mean(vals == 1.0):.2f}', fontsize=10, fontweight='bold')
-        ax.set_xlabel('modal-class agreement across trials'); ax.set_ylabel(f'# {unit_label.lower()}s')
-
     fig.suptitle(f'{unit_label} Identity Consistency — does one id mean one thing?',
                  fontsize=13, fontweight='bold')
     fig.tight_layout()
@@ -365,8 +353,7 @@ def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, pe
     plt.close(fig)
     print(f"  [codebook] -> {out_path}")
     print(f"    within-id {np.mean(within):.3f} | between-id {np.mean(between):.3f} | "
-          f"separation {sep:+.3f}"
-          + (f" | ICLabel modal agreement {np.mean(list(label_agree.values())):.3f}" if label_agree else ""))
+          f"separation {sep:+.3f}")
 
 
 def plot_fingerprint_similarity(out_path, matrix, unit_label='Stamp'):
