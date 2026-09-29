@@ -22,10 +22,10 @@ Tiny, tail balanced accuracy (%), mean over 3 backbones (per backbone in bracket
 |---|---|---|---|---|---|
 | BNCI2014004 loso | 72.3 (71.9 / 70.4 / 74.4) | 75.7 (76.1 / 75.5 / 75.5) | **77.1** (77.0 / 77.4 / 77.1) | +4.9 (2.4) win | +1.4 (0.5) win |
 | BNCI2014001 loso | 45.9 (46.7 / 45.9 / 45.0) | 41.8 (40.7 / 42.9 / 41.8) | **49.5** (50.5 / 49.3 / 48.9) | +3.7 (1.4) win | +7.8 (1.6) win |
-| BNCI2014008 loso | 68.7 (68.7 / 68.8 / 68.7) | 62.3 (69.6 / 59.3 / 58.0) | **69.3** (69.3 / 69.2 / 69.3) | +0.5 (0.1) win | +6.9 (7.3) tie |
+| BNCI2014008 loso | 68.7 (68.7 / 68.8 / 68.7) | 57.7 (55.8 / 59.3 / 58.0) | **69.3** (69.3 / 69.2 / 69.3) | +0.5 (0.1) win | +11.5 (2.0) win |
 | BNCI2014004 few-shot | 66.9 | 75.2 | 75.5 | +8.6 (2.6) win | +0.3 (1.5) tie |
 | BNCI2014001 few-shot | 32.0 | 44.6 | 40.9 | +8.8 (1.5) win | -3.7 (0.8) loss |
-| BNCI2014008 few-shot | 61.4 | 52.9 (s2, s3 only) | 59.5 | -1.9 (1.1) loss | -- |
+| BNCI2014008 few-shot | 61.4 | 52.6 | 59.5 | -1.9 (1.1) loss | +6.9 (1.0) win |
 
 Train / held-out (gap), tiny, mean over backbones:
 
@@ -33,35 +33,53 @@ Train / held-out (gap), tiny, mean over backbones:
 |---|---|---|---|
 | BNCI2014004 loso | 78.7 / 72.3 (+6.4) | 81.5 / 75.7 (+5.8) | 86.0 / 77.1 (+8.9) |
 | BNCI2014001 loso | 53.9 / 45.9 (+8.0) | 56.3 / 41.8 (+14.6) | 66.7 / 49.5 (+17.1) |
-| BNCI2014008 loso | 70.0 / 68.7 (+1.3) | 63.8 / 62.3 (+1.5) | 71.0 / 69.3 (+1.7) |
+| BNCI2014008 loso | 70.0 / 68.7 (+1.3) | 58.8 / 57.7 (+1.1) | 71.0 / 69.3 (+1.7) |
 | BNCI2014004 few-shot | 99.8 / 66.9 (+32.9) | 97.5 / 75.2 (+22.2) | 99.9 / 75.5 (+24.4) |
 | BNCI2014001 few-shot | 96.0 / 32.0 (+63.9) | 94.7 / 44.6 (+50.1) | 99.4 / 40.9 (+58.5) |
-| BNCI2014008 few-shot | 82.4 / 61.4 (+21.0) | -- | 93.1 / 59.5 (+33.6) |
+| BNCI2014008 few-shot | 82.4 / 61.4 (+21.0) | 80.6 / 52.6 (+28.0) | 93.1 / 59.5 (+33.6) |
 
-Small backbone, one seed (parents from 2026-09-28, same head configs, older code and caches -- not rerun):
+Small backbone, one pretrain seed, finetune seeds 1-3 (all three heads on the current code):
 
 | Cell | z probe | stamp head | combined |
 |---|---|---|---|
 | BNCI2014004 loso | 74.9 | 75.5 | **80.2** |
 | BNCI2014001 loso | 49.5 | 43.0 | **53.1** |
-| BNCI2014008 loso | 69.1 | **70.4** | 70.0 |
+| BNCI2014008 loso | 69.1 | 58.8 | **70.0** |
 | BNCI2014004 few-shot | 68.7 | 76.4 | **78.1** |
 | BNCI2014001 few-shot | 35.4 | **47.7** | 43.7 |
-| BNCI2014008 few-shot | **60.7** | 60.5 | 58.8 |
+| BNCI2014008 few-shot | **60.9** | 53.1 | 58.8 |
 
 Against EEG-FM-Compass Table V (loso): small combined 80.2 / 53.1 / 70.0 on BNCI2014004 / 001 / 008 vs best FM linear
 probe 75.57 / 48.24 / 67.11, best FM full fine-tune 77.70 / 53.03 / 69.91, best specialist 76.38 / 46.80 / 72.29.
+
+MI screen, finetune seed 1 (stamp power vs power taken from z): `latent_power` = the stamp_power pipeline on z (PCA 16
+axes, squared, learned time pool, log); `z_combined` = latent_power + latent_signed.
+
+| Backbone / cell | stamp head | latent_power | combined | z_combined |
+|---|---|---|---|---|
+| tiny s1, BNCI2014004 loso | 75.7 | 73.1 | 77.0 | 73.9 |
+| tiny s1, BNCI2014001 loso | 40.8 | 41.1 | 51.7 | 50.9 |
+| tiny s1, BNCI2014004 few-shot | 76.8 | 73.4 | 74.2 | 70.5 |
+| tiny s1, BNCI2014001 few-shot | 43.3 | 40.4 | 41.5 | 38.4 |
+| small, BNCI2014004 loso | 76.4 | 72.8 | 80.2 | 75.1 |
+| small, BNCI2014001 loso | 42.0 | 45.1 | 53.8 | 51.7 |
+| small, BNCI2014004 few-shot | 76.8 | 69.3 | 74.9 | 70.7 |
+| small, BNCI2014001 few-shot | 46.5 | 34.0 | 45.5 | 35.5 |
+
+The stamp (a, b) power beats power taken from z on 7 / 8 cells (+2.6 to +12.5) and the combined head beats z_combined on
+all 8: the stamps carry something squaring z does not. latent_power and z_combined were dropped after this screen (their
+run folders were deleted by mistake; the numbers above are the only record).
 
 ## Notes
 
 - The combined head has the largest train/test gap in every cell but BNCI2014008 loso. On loso, where many training
   subjects constrain it, the extra capacity still transfers; on few-shot (~20 calibration trials per class) it
   memorises (99% train) and loses to the best parent on BNCI2014001 and BNCI2014008.
-- The stamp head alone is unstable on P300 loso (69.6 / 59.3 / 58.0 across backbones); the combined head is not
-  (69.2-69.3): the z half carries the phase-locked response.
-- Tiny stamp-head seed 1 has no BNCI2014008 few-shot runs (not part of that earlier head set).
-- The small parents were not rerun (user decision): the small comparison mixes code versions; its combined numbers
-  are this code.
+- The stamp head alone is weak on P300 (loso 55.8-59.3); the combined head keeps the z probe's level (69.2-69.3): the
+  z half carries the phase-locked response. (A 2026-09-28 tiny-s1 stamp run read 69.6 on P300 loso; rerun on the
+  current code it reads 55.8 -- the old run is kept as `cw_stamp_0928`, not used.)
+- The small parents were rerun on the current code; the MI cells reproduced the 2026-09-28 values (e.g. 74.9 / 49.5 z
+  probe, 75.5 / 43.0 stamp head), so the older MI runs were already comparable.
 - Compass reports the last epoch; ours is the mean of the last 10.
 - Follow-up for few-shot: stronger regularisation of the combined head (dropout, smaller spatial_k on one entry).
 

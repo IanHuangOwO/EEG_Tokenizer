@@ -40,10 +40,10 @@ for c in CELLS:
         tr, te = per_bb(HEADS[k], c, train).mean(), per_bb(HEADS[k], c).mean()
         row.append(f'{tr:.1f} / {te:.1f} ({tr - te:+.1f})')
     print(f'| {c} | ' + ' | '.join(row) + ' |')
-print('\n| Cell (small, 1 seed) | z probe (09-28) | stamp head (09-28) | combined | combined train / test (gap) |\n|---|---|---|---|---|')
+print('\n| Cell (small, 1 seed) | z probe | stamp head | combined | combined train / test (gap) |\n|---|---|---|---|---|')
 sm = 'mesae_small_p50_s16_s1'
 for c in CELLS:
     v = lambda h: np.mean([test(d) for d in runs(sm, h, c)])
     cd = runs(sm, 'combined', c)
     tr, te = np.mean([train(d) for d in cd]), np.mean([test(d) for d in cd])
-    print(f"| {c} | {v('cw_probe'):.1f} | {v('cw_stamp_0928'):.1f} | {te:.1f} | {tr:.1f} / {te:.1f} ({tr - te:+.1f}) |")
+    print(f"| {c} | {v('patch_probe'):.1f} | {v('cw_stamp'):.1f} | {te:.1f} | {tr:.1f} / {te:.1f} ({tr - te:+.1f}) |")
