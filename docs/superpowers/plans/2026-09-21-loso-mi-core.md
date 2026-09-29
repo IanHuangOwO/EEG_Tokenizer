@@ -166,8 +166,8 @@ e.g. `fix: LOSO fold tags compatible with ft_summary, add final-epoch aggregate`
 `epochs 30`, `model_name` `mesae_loso_<dataset>_<head>` where `<head>` ∈ {`c1`, `raw`}, and for
 the raw runs `model_params.MeSAE.finetune` = raw control head. Datasets: `BNCI2014001`,
 `BNCI2014004`, `BCICIV1_Train`. Verify each config against the within-subject run it mirrors
-(`output/archive/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json`,
-`output/archive/experiment_c/mesae_finetune_raw_control_cv/artifacts/config.json`): only dataset, split_mode,
+(`output/archive/2026-09-19_finetune_head_experiments/experiment_c/mesae_finetune_c1_learned2/artifacts/config.json`,
+`output/archive/2026-09-19_finetune_head_experiments/experiment_c/mesae_finetune_raw_control_cv/artifacts/config.json`): only dataset, split_mode,
 epochs, model_name (and cv_folds/train_val_split irrelevance) may differ; report the check.
 
 - [ ] **Step 2: Run sequentially** (single GPU; never in parallel):

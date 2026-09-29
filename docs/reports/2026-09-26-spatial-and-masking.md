@@ -3,7 +3,7 @@
 - **Date:** 2026-09-26
 - **Question:** do the mixture masking curriculum (A) and the spatial encoding (B) improve the backbone and
   downstream accuracy, alone and together?
-- **Runs** (tiny corpus, static 16 stamps, archived in `output/archive/`):
+- **Runs** (tiny corpus, static 16 stamps, archived in `output/archive/2026-09-26_spatial_and_masking/`):
   - base `mesae_tiny_static16_base_s1`: `random_to_complementary` masking, no coordinate encoding
   - A `mesae_tiny_static16_groupA_s1`: `mixture` masking (channel_cluster 0.35 / random_channel 0.35 /
     time_block 0.30, ramp 10 epochs) plus channel subsampling to sparse montages (prob 0.2)

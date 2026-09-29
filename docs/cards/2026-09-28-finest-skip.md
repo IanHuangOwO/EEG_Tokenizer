@@ -33,7 +33,7 @@ Full report: docs/reports/2026-09-28-overnight.md.
 
 ## Recorded numbers (runs archived 2026-09-29)
 
-From each run's `pretrain/analysis/` (now `output/archive/<run>/`): backbone_eval masked MSE and log-spectral
+From each run's `pretrain/analysis/` (now `output/archive/<topic>/<run>/`): backbone_eval masked MSE and log-spectral
 distance per test mask, seam disagreement, masked MSE under an ablation as a multiple of the baseline,
 attention_range block means, stamp_usage, ridge probes. The graded run (notrial) stays live.
 

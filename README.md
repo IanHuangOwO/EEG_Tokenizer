@@ -120,7 +120,7 @@ output/<backbone>/
   finetune/<head>/<dataset>_<split>/
     artifacts/group_eval.json     # per-subject balanced accuracy (tail = mean of the last 10 epochs)
 output/reports/                   # generated comparison reports (curated write-ups: docs/reports/)
-output/archive/                   # superseded experiments
+output/archive/<date>_<topic>/     # superseded experiments, grouped by topic
 ```
 
 ## Repository layout

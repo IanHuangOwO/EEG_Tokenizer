@@ -69,7 +69,7 @@ a ridge-fit head) would remove the gain. The probe on z still scores higher (008
 
 ## Recorded numbers (runs archived 2026-09-29)
 
-From each run's `pretrain/analysis/` (now `output/archive/<run>/`): backbone_eval masked MSE and log-spectral
+From each run's `pretrain/analysis/` (now `output/archive/<topic>/<run>/`): backbone_eval masked MSE and log-spectral
 distance per test mask, seam disagreement, masked MSE under an ablation as a multiple of the baseline,
 attention_range block means, stamp_usage, ridge probes. A and rankfix stay live as references.
 

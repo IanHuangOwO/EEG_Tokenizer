@@ -149,7 +149,7 @@ onto an easy epoch of the mask curriculum; `artifacts/config.json`; `visualizati
 `feature_cache/` -- regenerable, keyed by checkpoint, build_config, code hash and data fingerprint) and
 `output/<backbone>/finetune/<head>/<cell>/` (`artifacts/group_eval.json`: per-subject `tail` = mean of the last
 10 epochs' balanced accuracy, `last`, kappa). `output/reports/` holds generated comparison reports,
-`output/queue/` queue state, `output/archive/` superseded experiments. Once a result is final, write it up
+`output/queue/` queue state, `output/archive/<date>_<topic>/` superseded experiments. Once a result is final, write it up
 in `docs/reports/` (fixed format and index in `docs/reports/README.md`; copy the figures, tables and
 pipeline scripts it cites) and delete the generated report and queue folders.
 
