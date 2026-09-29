@@ -23,3 +23,12 @@ waveform but not the spatial mixing of sources).
 3. **Promising if:** the K4 stamp head beats the p50_s2 stamp head by more than the patch-50 seed spread on >= 1 MI
    loso cell and loses none beyond it; or the K4 stamp head closes the gap to the z probe on MI loso. Then 2 more
    seeds (and a sparsity prior / K sweep) follow as a full card. Otherwise the factorization is recorded and shelved.
+
+## Result (2026-09-29 18:16): not promising, shelved
+
+K4 stamp head vs the p50_s2 stamp head (loso): BNCI2014004 -1.6, BNCI2014001 -9.0, BNCI2014008 -0.2 (finetune-seed sd
+0.2-0.8): no MI win, a large 001 loss. The z probe moves within seed spread (004 +1.7, 001 -2.5, 008 -0.3). Masked MSE:
+token runs 0.369 (patch-50 seeds 0.397-0.407), channel masks and time block 2-4% worse. The learned topographies are
+rim-heavy, montage-wide gradients, not focal sources: reconstruction spends the rank on high-variance scalp-wide
+content, and a fixed rank 4 per stamp cannot hold the 22-channel motor detail 001 needs (004 has 3 channels, below K).
+Report: docs/reports/2026-09-29-source-stamps.md.
