@@ -28,3 +28,11 @@ Written 2026-09-29, before any number was computed.
   beyond z.
 - Otherwise the per-stamp hidden idea is dropped; M1 / M2 record why (high free share, R^2 near 1 = copy of z).
 - Few-shot cells are reported, not judged (loso-first rule on tiny corpora).
+
+## Result (2026-09-29 15:00): dropped
+
+`u` wins no loso cell and loses two (BNCI2014001 -3.3, threshold 2.1; BNCI2014008 -3.1, threshold 1.2; BNCI2014004
+-3.4, threshold 3.8, tie); few-shot at or below z everywhere. Mechanism: ~60% of each stamp's hidden is never read
+(random 75%), z -> u R^2 0.86-0.88, rank just under z's, stamp pairs overlap (canonical corr 0.63). The small backbone
+is more of a copy (R^2 0.98, rank 2.4 vs 8.5, pair cc 0.83) and loses more (001 loso -8.1). Per-stamp hidden features
+are a lossy re-expression of z; no architecture card follows. Report: docs/reports/2026-09-29-stamp-hidden.md.

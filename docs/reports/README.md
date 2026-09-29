@@ -44,3 +44,4 @@ Reports and cards keep the name a run had when they were written. Renamed 2026-0
 | 2026-09-29 | [Patch length 50 vs 100](2026-09-29-patch-length.md) | trade-off: patch 100 wins MI few-shot, loses P300 loso; patch 50 stays, patch 75 next |
 | 2026-09-29 | [Patch length 75, and ranking against Compass](2026-09-29-patch-75.md) | patch 50 stays (P300); all lengths rank 2nd / 2nd / 1st-2nd among Compass frozen linear probes |
 | 2026-09-29 | [Test A: latent token pooling vs patch 100](2026-09-29-test-a-token-pooling.md) | pooling recovers ~half the MI few-shot gain, no loso gain, same P300 cost; patch 50 stays |
+| 2026-09-29 | [Stamp hidden vectors vs z](2026-09-29-stamp-hidden.md) | u is a lossy low-rank copy of z, loses 2 / 3 loso cells; idea dropped |
