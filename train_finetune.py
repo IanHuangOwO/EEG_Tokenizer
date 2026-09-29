@@ -309,11 +309,26 @@ def make_source(config, ds_name, pool, device):
         latent = ft_cfg.get('latent_source', 'output')
         if latent not in ('output', 'bottleneck'):
             raise ValueError(f"latent_source must be output|bottleneck, got {latent!r}")
+    k = int(config['training_params']['finetune'].get('latent_pool', 1))
+    if k > 1:   # experiment (2026-09-29): average k adjacent z tokens, for a head that reads only z
+        if not all(n.startswith('latent_') for n in feature_names(ft_cfg)):
+            raise ValueError("training_params.finetune.latent_pool needs a head with only latent_* entries")
+        src = StampSource(config, ds_name, pool, device, latent)
+        src.z = pool_tokens(src.z, k)
+        src.num_patches = src.z.shape[1]
+        return src
     if want_stamp and want_raw:
         return CombinedSource(StampSource(config, ds_name, pool, device, latent), RawSource(config, ds_name, pool))
     if want_stamp:
         return StampSource(config, ds_name, pool, device, latent)
     return RawSource(config, ds_name, pool)
+
+
+def pool_tokens(z, k):
+    """z [T, N, ...] -> [T, N // k, ...]: mean of k adjacent tokens (a trailing N % k is dropped). Splits only the
+    token axis, so the reshape is safe (docs/agents/reshape-pitfalls.md)."""
+    n = z.shape[1] // k * k
+    return z[:, :n].reshape(z.shape[0], n // k, k, *z.shape[2:]).float().mean(2).to(z.dtype)
 
 
 def iter_batches(source, idx, batch_size, device, shuffle, gen=None):

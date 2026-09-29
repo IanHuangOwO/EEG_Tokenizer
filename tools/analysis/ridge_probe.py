@@ -38,7 +38,9 @@ def _pca_axes(tokens, n):
     return mu, vecs[:, -n:].flip(1).to(tokens.dtype)
 
 
-def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS):
+def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1):
+    """pool > 1: average `pool` adjacent z tokens first (train_finetune.pool_tokens)."""
+    from train_finetune import pool_tokens
     res = {}
     for ds, proto in datasets:
         ds_args = {'dataset_path': f'datas/finetune/{ds}', 'subject_to_use': ['all'], 'channels_to_use': ['all']}
@@ -52,6 +54,8 @@ def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS):
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
         data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
         z, y = data.z.float(), data.labels.numpy()                                 # [T, N', Cv, D]
+        if pool > 1:
+            z = pool_tokens(z, pool)
         subj = data.subject_data.numpy()
         keep = np.ones(len(y), bool)
         if sessions is not None:
