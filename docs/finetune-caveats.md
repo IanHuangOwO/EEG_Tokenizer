@@ -26,3 +26,9 @@ not a best-epoch pick on the test set.
    imagery-related ERD typically builds over 0.5-4 s. Part of an MI score -- and of differences between
    backbones, e.g. patch 100's few-shot gain -- may be the visual cue-evoked response. Not tested; the check
    would be the same finetune on a window starting at cue + 0.5 s (accuracy holding = the probe reads imagery).
+8. **Few-shot heads overfit heavily; read loso first.** Few-shot trains one head per subject on ~21
+   calibration trials per class (BNCI2014001: ~86 trials, ~750 head parameters). Seed-1 patch-50 z probe,
+   last-10-epoch mean over the 9 subjects: 001 few-shot train 0.955 vs held-out 0.317, 004 few-shot 0.998 vs
+   0.670 (001 loso: 0.545 vs 0.456). A smaller head (spatial_k 2) did not help: 001 held-out 0.309, 004
+   0.605 (pilot 2026-09-29, output/mesae_tiny_notrial_s1/finetune/patch_probe_k2/), so spatial_k stays 8.
+   Few-shot differences between backbones partly measure how a head copes with tiny calibration sets.
