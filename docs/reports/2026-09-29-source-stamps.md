@@ -45,3 +45,4 @@ channel cluster 0.355 (0.339-0.346), time block 0.794 (0.778-0.780).
 
 `2026-09-29-source-stamps/`: `topographies.png` and `scripts/` (`run.sh` driver, `ft_plan.py`, `topo.py`, `run.log`).
 Code: `stamp_bank.spatial_rank` in `model/MeSAE/MeSAE_modules.py` (StampBank._factorize), default 0.
+Run output archived in `output/archive/2026-09-29_source_stamps/mesae_tiny_p50_s16_k4_s2/`.
