@@ -17,3 +17,10 @@ won / lost when |diff| > 2 x sqrt(SE_a^2 + SE_b^2). Loso cells decide; few-shot 
 - **Default head** if on every loso cell the combined head is not beaten by the better parent and it beats the worse
   parent on >= 1 loso cell.
 - Otherwise: paradigm-specific heads (stamp power for MI, z probe for P300), recorded.
+
+## Result (2026-09-29 23:38): adopted
+
+Loso, combined vs the better parent: BNCI2014004 +1.4 vs stamp (threshold 0.5), BNCI2014001 +3.7 vs z (1.4),
+BNCI2014008 +0.5 vs z (0.1) -- wins all three, beats the worse parent too. Few-shot (reported): tie on BNCI2014004,
+-3.7 vs stamp on BNCI2014001, -1.9 vs z on BNCI2014008 (larger train/test gap). Small backbone, one seed: 80.2 / 53.1 /
+70.0 loso. Report: docs/reports/2026-09-29-combined-head.md.
