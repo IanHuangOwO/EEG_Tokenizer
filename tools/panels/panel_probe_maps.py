@@ -19,11 +19,30 @@ from tools.viz.probe_plots import plot_probe_maps
 STAGES = frozenset({'finetune'})
 
 
+def _time_axis(cfg, n_patch, override):
+    """-> (patch-centre times in seconds from the event (or from the window start without one), title note),
+    from the run's own patch length / stride."""
+    ds = next(iter(cfg['dataset_params']['finetune']))
+    pp = cfg['preprocess_params']
+    L, stride, sf = pp.get('patch_length', 50), pp.get('patch_stride', 50), float(pp['sample_freq'])
+    meta = json.load(open(f"{cfg['dataset_params']['finetune'][ds]['dataset_path']}/metadata.json"))['data_metadata']
+    n_expected = int((meta['acquisition']['window_size_seconds'] * sf - L) // stride + 1)
+    onset, note = lookup_event_onset_sample(cfg, ds), ''
+    if ds in override:                                   # the run's own window, given explicitly
+        onset, note = float(override[ds]) * sf, f' (event at {override[ds]} s in the run\'s window, given)'
+    elif onset is not None and n_expected != n_patch:    # the run predates the dataset's current trial window
+        onset, note = None, ' (event line omitted: run predates the current trial window; pass --event-onset)'
+    elif onset is None:
+        note = ' (event line omitted: no event)'
+    return (np.arange(n_patch) * stride + L / 2 - (onset or 0)) / sf, note
+
+
 def run(ctx):
     cells = sorted({re.sub(r'_seed\d+$', '', os.path.basename(d)) for bb in ctx.groups.values()
                     for d in glob.glob(f'output/{bb}/finetune/{ctx.head}/*')})
+    override = dict(e.split('=', 1) for e in getattr(ctx.args, 'event_onset', []))
     for cell in cells:
-        maps, cfg, n_patch = {}, None, None
+        maps, cfg, notes, has_event = {}, None, set(), False
         for g, bb in ctx.groups.items():
             dirs = sorted(glob.glob(f'output/{bb}/finetune/{ctx.head}/{cell}')
                           + glob.glob(f'output/{bb}/finetune/{ctx.head}/{cell}_seed*'))
@@ -34,30 +53,19 @@ def run(ctx):
                 imp, sp, n = summarise(heads)
             except KeyError:
                 continue                                    # not a latent_signed head
-            maps[f'{g} ({n} heads)'] = (imp.numpy(), sp.numpy())
-            n_patch = imp.shape[1]
-            if cfg is None:
-                cfg = json.load(open(f'{dirs[0]}/artifacts/config.json'))
+            gcfg = json.load(open(f'{dirs[0]}/artifacts/config.json'))
+            cfg = cfg or gcfg
+            t, note = _time_axis(gcfg, imp.shape[1], override)   # this group's own patch grid
+            notes.add(note); has_event |= not note.startswith(' (event line omitted')
+            maps[f'{g} ({n} heads)'] = (imp.numpy(), sp.numpy(), t)
         if not maps:
             continue
-        ds = next(iter(cfg['dataset_params']['finetune']))
-        pp = cfg['preprocess_params']
-        L, stride, sf = pp.get('patch_length', 50), pp.get('patch_stride', 50), float(pp['sample_freq'])
-        meta = json.load(open(f"{cfg['dataset_params']['finetune'][ds]['dataset_path']}/metadata.json"))['data_metadata']
-        n_expected = int((meta['acquisition']['window_size_seconds'] * sf - L) // stride + 1)
-        onset = lookup_event_onset_sample(cfg, ds)
-        note = ''
-        override = dict(e.split('=', 1) for e in getattr(ctx.args, 'event_onset', []))
-        if ds in override:                                   # the run's own window, given explicitly
-            onset, note = float(override[ds]) * sf, f' (event at {override[ds]} s in the run\'s window, given)'
-        elif onset is not None and n_expected != n_patch:    # the run predates the dataset's current trial window
-            onset, note = None, ' (event line omitted: run predates the current trial window; pass --event-onset)'
-        t = (np.arange(n_patch) * stride + L / 2 - (onset or 0)) / sf
-        chans = resolve_canonical_channels(pp['canonical_channels'])
+        note = ''.join(sorted(n for n in notes if n))
+        chans = resolve_canonical_channels(cfg['preprocess_params']['canonical_channels'])
         hc = torch.load(glob.glob(f'output/{next(iter(ctx.groups.values()))}/finetune/{ctx.head}/{cell}*/finetune/run_*/head.pth')[0],
                         map_location='cpu', weights_only=False)['head_config']
         names = [chans[i] for i in hc['channel_idx']]
         out = os.path.join(ctx.out_dir, f'probe_maps_{cell}.png')
-        plot_probe_maps(out, maps, names, f'{cell}: linear probe ({ctx.head}){note}', t,
-                        event_s=0.0 if onset is not None else None)
+        plot_probe_maps(out, maps, names, f'{cell}: linear probe ({ctx.head}){note}',
+                        event_s=0.0 if has_event else None)
         print(f"  -> {out}")
