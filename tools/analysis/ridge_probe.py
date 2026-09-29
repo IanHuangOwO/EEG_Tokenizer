@@ -143,3 +143,60 @@ def stamp_vs_raw(config, checkpoint, out_path, datasets=DATASETS):
               f'{res[ds]["raw_band"] * 100:5.1f} | stamp - raw {d.mean() * 100:+.1f} ({(d > 0).sum()}/{len(subs)} subjects)')
     json.dump(res, open(out_path, 'w'), indent=2)
     return res
+
+
+# ---------- few-shot closed-form probe: shrinkage chosen inside the calibration trials ----------
+
+FEWSHOT = (('BNCI2014004', 'mi_fewshot'), ('BNCI2014001', 'mi_fewshot'), ('BNCI2014008', 'p300_fewshot'))
+
+
+def _segment_means(t, n_seg):
+    """t [T, N', ...] -> [T, n_seg * ...]: mean over n_seg consecutive stretches of the token axis, flattened."""
+    return torch.stack([c.mean(1) for c in t.tensor_split(min(n_seg, t.shape[1]), dim=1)], 1).reshape(len(t), -1)
+
+
+def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSHOT):
+    """Within-subject few-shot (the protocol's chronological calibration split, per subject) with a closed-form
+    probe instead of a trained head: RidgeClassifierCV, its shrinkage picked by efficient leave-one-out on the
+    subject's calibration trials only. Two compact fixed feature sets per trial: 'z' = z tokens projected on
+    n_pca principal axes (fit on the calibration tokens), averaged over n_seg time segments; 'z_power' = log mean
+    square of the same projections per segment (power, what MI carries); 'stamp' = log stamp
+    power (a^2 + b^2) averaged over the same segments. -> {dataset: {feature: {mean, per_subject}}}."""
+    from sklearn.linear_model import RidgeClassifierCV
+    from train_finetune import make_runs
+    res = {}
+    for ds, proto in datasets:
+        ds_args = {'dataset_path': f'datas/finetune/{ds}', 'subject_to_use': ['all'], 'channels_to_use': ['all']}
+        cfg = copy.deepcopy(config)
+        cfg['dataset_params']['finetune'] = {ds: ds_args}
+        cfg['training_params']['finetune'] = {'pretrained_checkpoint': checkpoint, 'protocol': proto,
+                                              'split': {'type': 'fewshot', 'train_fraction': 0.3}}
+        cfg['model_params'].setdefault('MeSAE', {}).setdefault('finetune', {})
+        cfg = apply_protocol(cfg)
+        split = cfg['training_params']['finetune']['split']
+        subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
+        data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
+        z, y, subj = data.z.float(), data.labels.numpy(), data.subject_data.numpy()
+        stamp = _segment_means((data.amp.float().pow(2).sum(-1) + 1e-6).log(), n_seg).numpy()
+        runs = make_runs(split, subs, subj, y, _load_sessions(cfg, ds_args, subs, subj))
+        scores = {'z': {}, 'z_power': {}, 'stamp': {}}
+        for run in runs:
+            tr = run['train']
+            (s, te), = run['eval']['heldout'].items()
+            mu, W = _pca_axes(z[torch.from_numpy(tr)].reshape(-1, z.shape[-1]), n_pca)
+            proj = (z[np.concatenate([tr, te])] - mu) @ W                              # [T, N', Cv, n_pca]
+            feats = {'z': _segment_means(proj, n_seg).numpy(),
+                     'z_power': _segment_means(proj.pow(2), n_seg).add(1e-6).log().numpy(),
+                     'stamp': stamp[np.concatenate([tr, te])]}
+            for k, f in feats.items():
+                ftr, fte = f[:len(tr)], f[len(tr):]
+                m, sd = ftr.mean(0), ftr.std(0) + 1e-6
+                clf = RidgeClassifierCV(alphas=ALPHAS, class_weight='balanced').fit((ftr - m) / sd, y[tr])
+                scores[k][s] = float(balanced_accuracy_score(y[te], clf.predict((fte - m) / sd)))
+        res[ds] = {k: {'mean': float(np.mean(list(v.values()))), 'per_subject': v} for k, v in scores.items()}
+        res[ds]['split'] = split
+        print(f"  {ds:12s} few-shot closed-form ridge: z {res[ds]['z']['mean'] * 100:5.1f} | z log-power "
+              f"{res[ds]['z_power']['mean'] * 100:5.1f} | stamp power {res[ds]['stamp']['mean'] * 100:5.1f}"
+              f"  (train_fraction {split.get('train_fraction')})")
+    json.dump(res, open(out_path, 'w'), indent=2)
+    return res

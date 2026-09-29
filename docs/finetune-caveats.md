@@ -32,3 +32,9 @@ not a best-epoch pick on the test set.
    0.670 (001 loso: 0.545 vs 0.456). A smaller head (spatial_k 2) did not help: 001 held-out 0.309, 004
    0.605 (pilot 2026-09-29, output/mesae_tiny_notrial_s1/finetune/patch_probe_k2/), so spatial_k stays 8.
    Few-shot differences between backbones partly measure how a head copes with tiny calibration sets.
+9. **MI few-shot is limited by feature form, not regularization.** A closed-form ridge with its shrinkage
+   picked inside each subject's calibration trials (tools/analysis/ridge_probe.fewshot_ridge) does not beat the
+   trained z head: seed-1 patch 50, 001 few-shot z 26.7 / z log-power 27.7 / stamp log-power 32.3 vs head 31.7,
+   all near chance; 004 stamp log-power 72.5 vs head 67.0 is the one gain. Compass's CSP + shrinkage LDA reaches
+   60.6 on 001 few-shot: it contrasts variance ACROSS channels (spatial filters before log-power), which
+   per-channel features cannot form. A few-shot MI head would need a channel-mixing step before power.
