@@ -45,6 +45,10 @@ twice the seconds): patch 100 is higher on every mask (token_runs 0.464 vs 0.403
 - Deviation: four small pretrain datasets were recompiled mid-run (see the card); patch-50 seeds 2-3 used the
   new caches. No systematic shift: their cells straddle seed 1 (e.g. 004 loso 70.4 / 74.4 vs 71.9).
 - Patch 100 pretrains in about half the time (40-55 vs 75-80 min on the tiny corpus).
+- Probe maps (seed 1): both patch lengths weight the first 0-1 s after the MI cue most, patch 100 more
+  smoothly; P300 at patch 50 reads a sharp 0.19-0.31 s peak, at patch 100 a 0.375-0.625 s patch. The MI gain
+  may partly be a smoother read of the cue-evoked response rather than better rhythm tokens (not tested;
+  docs/finetune-caveats.md item 7).
 
 ## Files
 

@@ -20,3 +20,9 @@ not a best-epoch pick on the test set.
    overlap-sensitive); it is not in the current corpus. BNCI2014001/004/008/009, BNCI2015001 and
    Nakanishi2015 never were.
 6. **DEV sets** (BNCI2015001, BNCI2014009) tuned the frozen protocols: never report them.
+7. **MI accuracy may partly read the cue response, not motor imagery.** On the EEG-FM-Compass windows (which
+   start at the cue), the z probe for BNCI2014004 / 001 puts most of its weight in the first 0-1 s after the
+   cue, with parieto-occipital spatial filters in places (probe maps 2026-09-28 and 2026-09-29), while
+   imagery-related ERD typically builds over 0.5-4 s. Part of an MI score -- and of differences between
+   backbones, e.g. patch 100's few-shot gain -- may be the visual cue-evoked response. Not tested; the check
+   would be the same finetune on a window starting at cue + 0.5 s (accuracy holding = the probe reads imagery).
