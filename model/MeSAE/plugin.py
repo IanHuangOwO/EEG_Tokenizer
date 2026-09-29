@@ -43,6 +43,7 @@ def build_model(bp, num_channels):
         spatial_embedding=bp.get('spatial_embedding', True),
         n_stamps=sb.get('n_stamps', sb.get('n_shared_stamps', 16)),
         stamp_hidden_width=sb.get('hidden_width', sb.get('stamp_shared_hidden_width', 16)),
+        stamp_spatial_rank=sb.get('spatial_rank', 0),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),

@@ -89,6 +89,7 @@ class MeSAEPretrain(nn.Module):
         spatial_embedding=True,
         n_stamps=16,
         stamp_hidden_width=16,
+        stamp_spatial_rank=0,
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
@@ -121,7 +122,8 @@ class MeSAEPretrain(nn.Module):
         # every block's spatial attention (RelativeSpatialBias), on or off together (the ablation).
         self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_embedding else None
 
-        self.stamps = StampBank(embed_dim, patch_len, n_stamps=n_stamps, hidden_width=stamp_hidden_width)
+        self.stamps = StampBank(embed_dim, patch_len, n_stamps=n_stamps, hidden_width=stamp_hidden_width,
+                                spatial_rank=stamp_spatial_rank)
         # convenience alias — viz/checker code reads it off the model directly
         self.n_stamps = self.stamps.n_stamps
         self.stamps_frozen = False
@@ -215,7 +217,8 @@ class MeSAEPretrain(nn.Module):
         z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
         rms = x.permute(0, 2, 1, 3).reshape(B * N, C, L).pow(2).mean(dim=-1, keepdim=True).sqrt()
         vc_g = None if valid_channels is None else valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
-        return self.stamps(z_g, rms=rms, valid_channels=vc_g)
+        c_g = None if coords is None else coords.unsqueeze(1).expand(B, N, C, 3).reshape(B * N, C, 3)
+        return self.stamps(z_g, rms=rms, valid_channels=vc_g, coords=c_g)
 
     def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """
@@ -269,7 +272,8 @@ class MeSAEPretrain(nn.Module):
                 mask_g = mask_g & vc_g.unsqueeze(-1)
             rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
+        c_g = None if coords is None else coords.unsqueeze(1).expand(B, N, C, 3).reshape(G, C, 3)   # [G, C, 3]
+        out = self.stamps(z_g, x_target=x_g, rms=rms, valid_channels=vc_g, coords=c_g)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 
@@ -277,6 +281,7 @@ class MeSAEPretrain(nn.Module):
             recon=recon,
             h=out.h,
             amp=out.amp,   # [G, C, n_stamps, 2] (G = B*N), for StampBank.decode
+            src=out.src,   # [G, n_stamps, K, 2] source activations, or None (spatial_rank 0)
             mp_loss=out.mp_loss,
             # [B, C, N], same layout as bool_masked_pos (G = B*N rows were b*N + n)
             mp_map=None if out.mp_map is None else out.mp_map.reshape(B, N, C).permute(0, 2, 1),

@@ -686,9 +686,16 @@ class StampBank(nn.Module):
     (docs/adr/0009: no per-token shape warping). A free [patch_len] template's frequency content is
     bound to the patch_len FFT grid (Df = fs/patch_len); oscillator atoms were withdrawn (0010).
     """
-    def __init__(self, dim, patch_len, n_stamps=16, hidden_width=16):
+    def __init__(self, dim, patch_len, n_stamps=16, hidden_width=16, spatial_rank=0):
         super().__init__()
         self.n_stamps = n_stamps
+        # spatial_rank K > 0: source-factorized gains (docs/cards/2026-09-29-source-stamps.md). Each stamp's
+        # [C] gain column is forced to rank K: src_sk = mean_c W_s[c, k] * g_cs (unmixing), g_cs <- sum_k
+        # A_s[c, k] * src_sk (mixing). W and A are functions of the electrode position only (fixed scalp
+        # fields, any montage); A_s[:, k] is source (s, k)'s topography, src_sk its (a, b) activation.
+        self.spatial_rank = spatial_rank
+        if spatial_rank:
+            self.topo = nn.Sequential(nn.Linear(FOURIER_DIM, 64), nn.GELU(), nn.Linear(64, 2 * n_stamps * spatial_rank))
         # Normalizes z before it's used (z inherits whatever scale the encoder drifts to).
         self.input_norm = nn.LayerNorm(dim)
         # amp_s(z): per-stamp MLP z -> hidden (GELU) -> quadrature gain pair (a, b). Because H is derived
@@ -735,14 +742,25 @@ class StampBank(nn.Module):
         D, H = self.templates()
         return amp[..., 0, None] * D + amp[..., 1, None] * H
 
-    @torch.no_grad()
-    def dense_amp(self, z, rms=None):
-        """z: [G, C, D] channel-grouped embeddings (same input forward() takes) -> amp [G, C, n_stamps, 2],
-        input_norm'd and rms-scaled the same way forward() is."""
-        amp = self._amp(self.input_norm(z))
-        return amp if rms is None else amp * rms.unsqueeze(-1)
+    def _factorize(self, amp, coords, valid_channels):
+        """amp [G, C, S, 2] per-channel gains (rms included), coords [G, C, 3] -> (amp with every stamp's
+        column rank-K across channels [G, C, S, 2], src [G, S, K, 2] source activations). Unmixing is a mean
+        over valid channels, so the scale doesn't depend on the montage size."""
+        G, C, S, _ = amp.shape
+        W, A = self.topo(fourier_features(coords.float())).view(G, C, 2, S, self.spatial_rank).to(amp.dtype).unbind(2)
+        m = amp.new_ones(G, C) if valid_channels is None else valid_channels.to(amp.dtype)
+        src = torch.einsum('gcsk,gcsp->gskp', W * m[..., None, None], amp) / m.sum(1).clamp(min=1)[:, None, None, None]
+        return torch.einsum('gcsk,gskp->gcsp', A, src), src
 
-    def forward(self, z, x_target=None, rms=None, valid_channels=None):
+    @torch.no_grad()
+    def dense_amp(self, z, rms=None, coords=None, valid_channels=None):
+        """z: [G, C, D] channel-grouped embeddings (same input forward() takes) -> amp [G, C, n_stamps, 2],
+        input_norm'd, rms-scaled and (spatial_rank > 0) factorized the same way forward() is."""
+        amp = self._amp(self.input_norm(z))
+        amp = amp if rms is None else amp * rms.unsqueeze(-1)
+        return self._factorize(amp, coords, valid_channels)[0] if self.spatial_rank else amp
+
+    def forward(self, z, x_target=None, rms=None, valid_channels=None, coords=None):
         """
         z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions), x_target: [G, C, patch_len]
         the real patch content (for mp_loss; None skips it), rms: [G, C, 1] per-channel raw-input RMS or
@@ -760,6 +778,9 @@ class StampBank(nn.Module):
         amp = self._amp(self.input_norm(z))                                 # [G, C, S, 2]
         if rms is not None:
             amp = amp * rms.unsqueeze(-1)                                   # restores raw amplitude
+        src = None
+        if self.spatial_rank:
+            amp, src = self._factorize(amp, coords, valid_channels)
 
         energy = amp.pow(2).sum(dim=-1)                                     # [G, C, S]
         if valid_channels is not None:
@@ -791,7 +812,7 @@ class StampBank(nn.Module):
             else:
                 mp_loss = mp_map.mean()
 
-        return SimpleNamespace(recon=recon, amp=amp, h=h, mp_loss=mp_loss, mp_map=mp_map)
+        return SimpleNamespace(recon=recon, amp=amp, h=h, mp_loss=mp_loss, mp_map=mp_map, src=src)
 
 
 # ==========================================
@@ -1044,7 +1065,9 @@ class StampExtractor(nn.Module):
                                             valid_channels=vmask)                       # [B, C, N, D]
         zg = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
         rg = rms.permute(0, 2, 1).reshape(B * N, C, 1)
-        amp = self.backbone.stamps.dense_amp(zg, rms=rg)
+        cg = coords.unsqueeze(1).expand(B, N, C, 3).reshape(B * N, C, 3)
+        vg = vmask.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
+        amp = self.backbone.stamps.dense_amp(zg, rms=rg, coords=cg, valid_channels=vg)
         amp = amp.reshape(B, N, C, -1, 2).float() * vmask.float()[:, None, :, None, None]
         amp = amp[:, :, self.channel_idx]                                                 # [B, N, Cv, S, 2]
         if return_z:   # z for the latent_* head entries: [B, N, Cv, D]
