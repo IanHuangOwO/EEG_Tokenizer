@@ -19,6 +19,7 @@ import json
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from sklearn.linear_model import RidgeClassifier
 from sklearn.model_selection import GridSearchCV, LeaveOneGroupOut
 from sklearn.metrics import balanced_accuracy_score
@@ -38,8 +39,34 @@ def _pca_axes(tokens, n):
     return mu, vecs[:, -n:].flip(1).to(tokens.dtype)
 
 
-def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1):
-    """pool > 1: average `pool` adjacent z tokens first (train_finetune.pool_tokens)."""
+def _stamp_bank(checkpoint):
+    """The trained StampBank of a pretrain checkpoint (rebuilt from its build_config, legacy names mapped)."""
+    from model.factory import build_from_checkpoint
+    return build_from_checkpoint(torch.load(checkpoint, map_location='cpu', weights_only=False)).stamps.eval()
+
+
+@torch.no_grad()
+def stamp_hidden(z, bank, chunk=256):
+    """z [T, N', Cv, D] (the cached encoder output the stamps read) -> stamp hidden u [T, N', Cv, S * K]:
+    every stamp's MLP hidden GELU(LN(z) W_down_s + b_down_s), stamps concatenated (StampBank._amp's first map)."""
+    out = []
+    for c in z.split(chunk):
+        u = F.gelu(torch.einsum('tncd,sdk->tncsk', bank.input_norm(c.float()), bank.W_down) + bank.b_down)
+        out.append(u.flatten(-2))
+    return torch.cat(out)
+
+
+def _features(feature, z, checkpoint):
+    """The token features a probe reads: 'z' (as cached) or 'stamp_hidden'."""
+    if feature == 'z':
+        return z
+    assert feature == 'stamp_hidden', feature
+    return stamp_hidden(z, _stamp_bank(checkpoint))
+
+
+def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1, feature='z'):
+    """pool > 1: average `pool` adjacent z tokens first (train_finetune.pool_tokens). feature: 'z' or
+    'stamp_hidden' (the probe reads every stamp's MLP hidden instead of z; same PCA pipeline)."""
     from train_finetune import pool_tokens
     res = {}
     for ds, proto in datasets:
@@ -53,7 +80,7 @@ def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1
         sessions = cfg['training_params']['finetune']['split'].get('sessions')
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
         data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
-        z, y = data.z.float(), data.labels.numpy()                                 # [T, N', Cv, D]
+        z, y = _features(feature, data.z.float(), checkpoint), data.labels.numpy()   # [T, N', Cv, D]
         if pool > 1:
             z = pool_tokens(z, pool)
         subj = data.subject_data.numpy()
@@ -155,7 +182,7 @@ def _segment_means(t, n_seg):
     return torch.stack([c.mean(1) for c in t.tensor_split(min(n_seg, t.shape[1]), dim=1)], 1).reshape(len(t), -1)
 
 
-def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSHOT):
+def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSHOT, feature='z'):
     """Within-subject few-shot (the protocol's chronological calibration split, per subject) with a closed-form
     probe instead of a trained head: RidgeClassifierCV, its shrinkage picked by efficient leave-one-out on the
     subject's calibration trials only. Two compact fixed feature sets per trial: 'z' = z tokens projected on
@@ -176,7 +203,7 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
         split = cfg['training_params']['finetune']['split']
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
         data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
-        z, y, subj = data.z.float(), data.labels.numpy(), data.subject_data.numpy()
+        z, y, subj = _features(feature, data.z.float(), checkpoint), data.labels.numpy(), data.subject_data.numpy()
         stamp = _segment_means((data.amp.float().pow(2).sum(-1) + 1e-6).log(), n_seg).numpy()
         runs = make_runs(split, subs, subj, y, _load_sessions(cfg, ds_args, subs, subj))
         scores = {'z': {}, 'z_power': {}, 'stamp': {}}
@@ -198,5 +225,64 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
         print(f"  {ds:12s} few-shot closed-form ridge: z {res[ds]['z']['mean'] * 100:5.1f} | z log-power "
               f"{res[ds]['z_power']['mean'] * 100:5.1f} | stamp power {res[ds]['stamp']['mean'] * 100:5.1f}"
               f"  (train_fraction {split.get('train_fraction')})")
+    json.dump(res, open(out_path, 'w'), indent=2)
+    return res
+
+
+# ---------- stamp hidden: does each stamp's MLP hidden carry more than z? (docs/cards/2026-09-29-stamp-hidden.md) ----------
+
+@torch.no_grad()
+def stamp_hidden_stats(config, checkpoint, out_path, datasets=DATASETS, n_tokens=20000, seed=0):
+    """Per dataset, on n_tokens random (trial, patch, channel) tokens of the cached z:
+    check -- the cached amp is u w_amp + b_amp times one per-token scalar (the rms), i.e. u is what the StampBank
+    computed (relative residual, fp16-level expected);
+    free_share -- per stamp, share of centred u_s variance outside the column space of w_amp_s (never read by the
+    reconstruction; random directions: 1 - 2 / hidden_width);
+    copy_r2 -- held-out R^2 of a least-squares map [z, 1] -> u (1 = a linear copy of z);
+    rank -- participation-ratio effective rank of u and of z;
+    pair_cc -- mean over stamp pairs of the top canonical correlation between u_s and u_t (1 = same subspace)."""
+    bank = _stamp_bank(checkpoint)
+    S, K = bank.W_down.shape[0], bank.W_down.shape[2]
+    g = torch.Generator().manual_seed(seed)
+    res = {}
+    for ds, proto in datasets:
+        ds_args = {'dataset_path': f'datas/finetune/{ds}', 'subject_to_use': ['all'], 'channels_to_use': ['all']}
+        cfg = copy.deepcopy(config)
+        cfg['dataset_params']['finetune'] = {ds: ds_args}
+        cfg['training_params']['finetune'] = {'pretrained_checkpoint': checkpoint, 'protocol': proto,
+                                              'split': {'type': 'loso'}}
+        cfg['model_params'].setdefault('MeSAE', {}).setdefault('finetune', {})
+        cfg = apply_protocol(cfg)
+        subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
+        data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
+        z = data.z.float().flatten(0, 2)                                         # [T*N'*Cv, D]
+        amp = data.amp.float().flatten(0, 2)                                     # [T*N'*Cv, S, 2]
+        idx = torch.randperm(len(z), generator=g)[:n_tokens]
+        z, amp = z[idx], amp[idx]
+        u = stamp_hidden(z[:, None, None], bank)[:, 0, 0].view(-1, S, K)        # [M, S, K]
+        r = torch.einsum('msk,skp->msp', u, bank.w_amp) + bank.b_amp             # [M, S, 2], no rms
+        a, r = amp.flatten(1), r.flatten(1)
+        rms = (a * r).sum(1, keepdim=True) / r.pow(2).sum(1, keepdim=True).clamp(min=1e-12)
+        check = float(((a - rms * r).norm(dim=1) / a.norm(dim=1).clamp(min=1e-12)).median())
+        uc = u - u.mean(0)
+        free = []
+        for s in range(S):
+            Q, _ = torch.linalg.qr(bank.w_amp[s])                               # [K, 2] readout column space
+            free.append(float(1 - (uc[:, s] @ Q).pow(2).sum() / uc[:, s].pow(2).sum().clamp(min=1e-12)))
+        U, h = uc.flatten(1), len(z) // 2
+        X = torch.cat([z, torch.ones(len(z), 1)], 1).double()
+        B = torch.linalg.lstsq(X[:h], U[:h].double()).solution
+        copy_r2 = float(1 - (U[h:].double() - X[h:] @ B).pow(2).sum() / (U[h:] - U[h:].mean(0)).double().pow(2).sum())
+        pr = lambda m: float((lambda ev: ev.sum() ** 2 / ev.pow(2).sum())(torch.linalg.eigvalsh(torch.cov(m.T.double()))))
+        Qs = [torch.linalg.qr(uc[:, s].double())[0] for s in range(S)]
+        cc = [float(torch.linalg.svdvals(Qs[s].T @ Qs[t])[0]) for s in range(S) for t in range(s + 1, S)]
+        res[ds] = {'check_rel_residual': check, 'free_share': {'mean': float(np.mean(free)), 'min': min(free),
+                   'max': max(free), 'per_stamp': free, 'random': 1 - 2 / K}, 'copy_r2': copy_r2,
+                   'rank_u': pr(U), 'rank_z': pr(z), 'dim_u': S * K, 'dim_z': z.shape[1],
+                   'pair_cc': float(np.mean(cc)), 'n_tokens': len(z)}
+        print(f"  {ds:12s} stamp hidden: check {check:.1e} | free share {np.mean(free):.2f} ({min(free):.2f}-{max(free):.2f}, "
+              f"random {1 - 2 / K:.2f}) | z->u R^2 {copy_r2:.3f} | rank u {res[ds]['rank_u']:.1f}/{S * K} vs z "
+              f"{res[ds]['rank_z']:.1f}/{z.shape[1]} | pair cc {np.mean(cc):.2f}")
+        assert check < 0.02, f'{ds}: cached amp is not u w_amp + b_amp times rms (rel residual {check:.3g})'
     json.dump(res, open(out_path, 'w'), indent=2)
     return res
