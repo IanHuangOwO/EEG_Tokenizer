@@ -15,6 +15,7 @@ import glob
 import hashlib
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -23,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 RETRIES = 8
 WORKERS = 8
+socket.setdefaulttimeout(300)  # urlretrieve has no timeout of its own: a dead connection hung NMT_Clinical for hours
 
 
 def _status(dest, **kw):
