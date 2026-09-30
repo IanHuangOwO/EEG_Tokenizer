@@ -1,4 +1,5 @@
-"""stamp_maps: where the stamp_power half of a head reads from, per cell and group: each stamp's learned time weights
+"""stamp_maps: where a head with a stamp_power entry reads from, per cell and group (a latent_signed entry of the
+same head, if any, is drawn on top: virtual channel x time and spatial filters, as probe_maps): each stamp's learned time weights
 (stamps ranked by decision importance, labelled with their template's peak frequency) and, for the most important
 stamps, which electrodes' power the decision uses (tools/analysis/probe_maps.py stamp_head_maps), over every fold and
 finetune seed of the cell -> stamp_maps_<cell>_<group>.png. Run it with --head <a label whose head has stamp_power>,
@@ -14,7 +15,7 @@ import torch
 from IO.dataset import resolve_canonical_channels
 from IO.loader import get_standard_coords
 from model.factory import build_from_checkpoint
-from tools.analysis.probe_maps import summarise_stamps
+from tools.analysis.probe_maps import summarise, summarise_stamps
 from tools.panels.panel_probe_maps import _time_axis
 from tools.viz.probe_plots import plot_stamp_maps
 
@@ -44,6 +45,11 @@ def run(ctx):
                 tw, imp, chan, n = summarise_stamps(heads)
             except KeyError:
                 continue                                    # no stamp_power entry in this head
+            try:
+                z_imp, z_sp, _ = summarise(heads)             # the same head's latent_signed half, if it has one
+                z_maps = (z_imp.numpy(), z_sp.numpy())
+            except KeyError:
+                z_maps = None
             cfg = json.load(open(f'{dirs[0]}/artifacts/config.json'))
             t, note = _time_axis(cfg, tw.shape[1], override)
             h0 = torch.load(heads[0], map_location='cpu', weights_only=False)
@@ -53,6 +59,6 @@ def run(ctx):
             labels = _stamp_labels(h0['backbone_checkpoint'], float(cfg['preprocess_params']['sample_freq']))
             out = os.path.join(ctx.out_dir, f'stamp_maps_{cell}_{g}.png')
             plot_stamp_maps(out, tw.numpy(), imp.numpy(), chan.numpy(), t, labels, xy, names,
-                            f'{cell}, {g} ({bb}): stamp_power half of {ctx.head}, {n} heads{note}',
-                            event_s=None if note.startswith(' (event line omitted') else 0.0)
+                            f'{cell}, {g} ({bb}): {ctx.head}, {n} heads{note}',
+                            event_s=None if note.startswith(' (event line omitted') else 0.0, z_maps=z_maps)
             print(f"  -> {out}")

@@ -41,27 +41,49 @@ def plot_probe_maps(out_path, maps, channel_names, title, event_s=None):
     plt.close(fig)
 
 
-def plot_stamp_maps(out_path, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, title, event_s=None, top=8):
+def plot_stamp_maps(out_path, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, title, event_s=None, top=8,
+                    z_maps=None):
     """Stamp-power half of a head. Left: per-stamp time weights (rows = stamps ranked by importance, label = stamp,
-    template peak and importance share); right: channel map of the `top` most important stamps on the scalp."""
+    template peak and importance share); right: channel map of the `top` most important stamps on the scalp.
+    z_maps: optional (importance [K, N], spatial [K, C]) of the same head's latent_signed entry, drawn as a top row
+    (virtual channel x time, spatial filters) on the same time axis."""
     tw, imp, chan, t_axis, xy = (np.asarray(v) for v in (tw, imp, chan, t_axis, xy))
     order = np.argsort(-imp)
     share = imp / imp.sum()
     ncol = 4
-    fig = plt.figure(figsize=(16, 6))
-    gs = fig.add_gridspec(2, 1 + ncol, width_ratios=[2.2] + [1] * ncol)
-    ax = fig.add_subplot(gs[:, 0])
+    z0 = 0 if z_maps is None else 1
+    fig = plt.figure(figsize=(16, 6 + 2.6 * z0))
+    gs = fig.add_gridspec(2 + z0, 1 + ncol, width_ratios=[2.2] + [1] * ncol, height_ratios=[1.1] * z0 + [1, 1])
     dt = (t_axis[1] - t_axis[0]) if len(t_axis) > 1 else 1.0
+    ax = fig.add_subplot(gs[z0:, 0])
+    if z_maps is not None:
+        zi, zs = (np.asarray(v) for v in z_maps)
+        K = zi.shape[0]
+        az = fig.add_subplot(gs[0, 0], sharex=ax)
+        imz = az.imshow(zi, aspect='auto', cmap='viridis', origin='lower',
+                        extent=[t_axis[0] - dt / 2, t_axis[-1] + dt / 2, -0.5, K - 0.5])
+        az.set_yticks(range(K), [f'v{k + 1}' for k in range(K)], fontsize=7)
+        az.set_title('z half (latent_signed): decision weight per virtual channel', fontsize=9)
+        if event_s is not None:
+            az.axvline(0.0, color='crimson', ls='--', lw=1.5)
+        fig.colorbar(imz, ax=az, fraction=0.03)
+        asp = fig.add_subplot(gs[0, 1:])
+        lim = np.abs(zs).max() or 1.0
+        ims = asp.imshow(zs, aspect='auto', cmap='RdBu_r', vmin=-lim, vmax=lim, origin='lower')
+        asp.set_xticks(range(len(channel_names)), channel_names, rotation=90, fontsize=6)
+        asp.set_yticks(range(K), [f'v{k + 1}' for k in range(K)], fontsize=7)
+        asp.set_title('z half: spatial filter per virtual channel (sign-aligned)', fontsize=9)
+        fig.colorbar(ims, ax=asp, fraction=0.03)
     im = ax.imshow(tw[order], aspect='auto', cmap='viridis', origin='upper',
                    extent=[t_axis[0] - dt / 2, t_axis[-1] + dt / 2, len(order) - 0.5, -0.5])
     ax.set_yticks(range(len(order)), [f'{stamp_labels[s]} ({share[s]:.0%})' for s in order], fontsize=7)
     if event_s is not None:
         ax.axvline(0.0, color='crimson', ls='--', lw=1.5)
     ax.set_xlabel('time from event (s)' if event_s is not None else 'time in window (s)')
-    ax.set_title('time weight per stamp (ranked by decision importance)', fontsize=9)
+    ax.set_title('stamp half (stamp_power): time weight per stamp, ranked by importance', fontsize=9)
     fig.colorbar(im, ax=ax, fraction=0.03)
     for i, s in enumerate(order[:min(top, 2 * ncol)]):
-        a = fig.add_subplot(gs[i // ncol, 1 + i % ncol])
+        a = fig.add_subplot(gs[z0 + i // ncol, 1 + i % ncol])
         a.scatter(xy[:, 0], xy[:, 1], c=chan[s], cmap='Reds', vmin=0, vmax=max(chan[s].max(), 1e-12), s=90,
                   edgecolors='k', linewidths=0.3)
         if len(channel_names) <= 8:
