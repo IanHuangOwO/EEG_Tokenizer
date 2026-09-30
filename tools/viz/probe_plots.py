@@ -39,3 +39,39 @@ def plot_probe_maps(out_path, maps, channel_names, title, event_s=None):
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
+
+
+def plot_stamp_maps(out_path, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, title, event_s=None, top=8):
+    """Stamp-power half of a head. Left: per-stamp time weights (rows = stamps ranked by importance, label = stamp,
+    template peak and importance share); right: channel map of the `top` most important stamps on the scalp."""
+    tw, imp, chan, t_axis, xy = (np.asarray(v) for v in (tw, imp, chan, t_axis, xy))
+    order = np.argsort(-imp)
+    share = imp / imp.sum()
+    ncol = 4
+    fig = plt.figure(figsize=(16, 6))
+    gs = fig.add_gridspec(2, 1 + ncol, width_ratios=[2.2] + [1] * ncol)
+    ax = fig.add_subplot(gs[:, 0])
+    dt = (t_axis[1] - t_axis[0]) if len(t_axis) > 1 else 1.0
+    im = ax.imshow(tw[order], aspect='auto', cmap='viridis', origin='upper',
+                   extent=[t_axis[0] - dt / 2, t_axis[-1] + dt / 2, len(order) - 0.5, -0.5])
+    ax.set_yticks(range(len(order)), [f'{stamp_labels[s]} ({share[s]:.0%})' for s in order], fontsize=7)
+    if event_s is not None:
+        ax.axvline(0.0, color='crimson', ls='--', lw=1.5)
+    ax.set_xlabel('time from event (s)' if event_s is not None else 'time in window (s)')
+    ax.set_title('time weight per stamp (ranked by decision importance)', fontsize=9)
+    fig.colorbar(im, ax=ax, fraction=0.03)
+    for i, s in enumerate(order[:min(top, 2 * ncol)]):
+        a = fig.add_subplot(gs[i // ncol, 1 + i % ncol])
+        a.scatter(xy[:, 0], xy[:, 1], c=chan[s], cmap='Reds', vmin=0, vmax=max(chan[s].max(), 1e-12), s=90,
+                  edgecolors='k', linewidths=0.3)
+        if len(channel_names) <= 8:
+            for (x, y), n in zip(xy, channel_names):
+                a.annotate(n, (x, y), fontsize=6, ha='center', va='bottom', xytext=(0, 5), textcoords='offset points')
+        a.set_aspect('equal'); a.set_xticks([]); a.set_yticks([])
+        pad = 0.02
+        a.set_xlim(xy[:, 0].min() - pad, xy[:, 0].max() + pad); a.set_ylim(xy[:, 1].min() - pad, xy[:, 1].max() + pad)
+        a.set_title(f'{stamp_labels[s]} ({share[s]:.0%})', fontsize=8)
+    fig.suptitle(title, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=110)
+    plt.close(fig)

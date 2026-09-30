@@ -15,16 +15,29 @@ is sign-aligned to the first head's before averaging.
 """
 import torch
 
+from model.MeSAE.MeSAE_modules import _entry_dim, feature_names
+
+
+def readout(ckpt, entry):
+    """Readout weight of one entry's feature block, BatchNorm scale folded in -> [classes, entry features]. The head
+    concatenates its entries in features order (FeatureHead), so the block starts after the earlier entries' widths."""
+    sd, hc = ckpt['model_state_dict'], ckpt['head_config']
+    names = feature_names(hc)
+    lo = sum(_entry_dim(hc, n) for n in names[:names.index(entry)])
+    hi = lo + _entry_dim(hc, entry)
+    scale = sd['cls.0.weight'] / (sd['cls.0.running_var'] + 1e-5).sqrt()      # BatchNorm at eval
+    return (sd['cls.2.weight'] * scale)[:, lo:hi].float()
+
 
 def head_maps(head_pth, entry='latent_signed'):
     """-> (importance [K, N], spatial [K, C]) for one head, virtual channels ranked by importance."""
-    sd = torch.load(head_pth, map_location='cpu', weights_only=False)['model_state_dict']
+    ckpt = torch.load(head_pth, map_location='cpu', weights_only=False)
+    sd = ckpt['model_state_dict']
     q = sd[f'entries.{entry}.q'].float()                                     # [R, N]
     S = sd[f'spatials.{entry}.weight'].float()                               # [K, C]
     M = sd[f'entries.{entry}.proj.weight'].shape[0]
     K, R = S.shape[0], q.shape[0]
-    scale = sd['cls.0.weight'] / (sd['cls.0.running_var'] + 1e-5).sqrt()      # BatchNorm at eval
-    w = (sd['cls.2.weight'] * scale).view(-1, K, M, R)                       # [classes, K, M, R]
+    w = readout(ckpt, entry).view(-1, K, M, R)                               # [classes, K, M, R]
     E = torch.einsum('ckmr,rn->cknm', w, q)
     E = E - E.mean(0, keepdim=True)                                          # class-centred
     imp = E.pow(2).sum((0, 3)).sqrt()                                        # [K, N]
@@ -43,3 +56,29 @@ def summarise(head_paths, entry='latent_signed'):
         imps.append(imp)
         sps.append(sp)
     return torch.stack(imps).mean(0), torch.stack(sps).mean(0), len(imps)
+
+
+def stamp_head_maps(head_pth, entry='stamp_power'):
+    """A stamp_power entry: features f[k, s] = log(sum_n w[s, n] (S a)^2 + (S b)^2) with S the spatial filter [K, C] and
+    w the learned per-stamp softmax time weights. -> (time weights [S, N], importance [K, S] = class-centred readout norm,
+    channel map [S, C] = sum_k importance[k, s] * S[k, c]^2 / sum_k importance[k, s]: which electrodes' power the
+    decision on stamp s reads, invariant to the order and sign of the virtual channels)."""
+    ckpt = torch.load(head_pth, map_location='cpu', weights_only=False)
+    sd = ckpt['model_state_dict']
+    p, q = sd[f'entries.{entry}.time.p'].float(), sd[f'entries.{entry}.time.q'].float()
+    tw = torch.softmax(torch.einsum('rs,rn->sn', p, q), dim=-1)            # [S, N]
+    S = sd[f'spatials.{entry}.weight'].float()                               # [K, C]
+    w = readout(ckpt, entry).view(-1, S.shape[0], p.shape[1])                # [classes, K, S]
+    imp = (w - w.mean(0, keepdim=True)).norm(dim=0)                          # [K, S]
+    chan = torch.einsum('ks,kc->sc', imp, S.pow(2)) / imp.sum(0)[:, None].clamp(min=1e-12)
+    return tw, imp, chan
+
+
+def summarise_stamps(head_paths, entry='stamp_power'):
+    """Mean over heads of one backbone (stamps are that backbone's own dictionary): time weights [S, N], per-stamp
+    importance [S] (summed over virtual channels), channel map [S, C] (each head's rows scaled to max 1 first)."""
+    tws, imps, chans = [], [], []
+    for h in head_paths:
+        tw, imp, chan = stamp_head_maps(h, entry)
+        tws.append(tw); imps.append(imp.sum(0)); chans.append(chan / chan.amax(1, keepdim=True).clamp(min=1e-12))
+    return torch.stack(tws).mean(0), torch.stack(imps).mean(0), torch.stack(chans).mean(0), len(tws)
