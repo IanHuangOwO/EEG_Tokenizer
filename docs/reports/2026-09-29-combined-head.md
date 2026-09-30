@@ -9,7 +9,8 @@
 - **Protocol:** BNCI2014004 / 001 / 008 x loso / few-shot (Compass), finetune seeds 1-3, tail balanced accuracy; per
   backbone the mean over finetune seeds, mean +- SE over the 3 tiny backbones; won when |diff| > 2 x sqrt(SE_a^2 + SE_b^2).
   Loso decides. Overfitting: train balanced accuracy (last 10 epochs of each fold, dropout on) vs held-out.
-- **Verdict:** adopted, confirmed on 3 small-corpus seeds. On every loso cell the combined head beats the better parent (BNCI2014004 +1.4 vs stamp,
+- **Verdict:** adopted, confirmed on 3 small-corpus seeds. Against Compass incl. MIRepNet (appendix tables): level with
+  the best on BNCI2014004 loso, above every linear probe on BNCI2014001 loso, behind on all few-shot cells. On every loso cell the combined head beats the better parent (BNCI2014004 +1.4 vs stamp,
   BNCI2014001 +3.7 vs z, BNCI2014008 +0.5 vs z). It overfits more; on few-shot that costs BNCI2014001 (-3.7 vs stamp)
   and BNCI2014008 (-1.9 vs z). On the small backbone it reaches 80.2 / 53.1 / 70.0 loso.
 - **Cards / ADRs:** [combined-head card](../cards/2026-09-29-combined-head.md); ADR 0016 (head modules), 0020.
@@ -64,13 +65,23 @@ changed), same rule:
 The verdict carries to the 4x corpus: the combined head wins every loso cell against both parents, and gains over the
 tiny corpus on every loso cell (77.1 -> 79.1, 49.5 -> 53.3, 69.3 -> 69.6).
 
-Against EEG-FM-Compass (Tables V-VI), small corpus, 3 pretrain seeds (mean +- SE): full tables in
-`2026-09-29-combined-head/compass_small_table.md`, chart `compass_small.png`. Loso: combined 79.1 / 53.3 / 69.6 on
-BNCI2014004 / 001 / 008 vs best FM linear probe 75.57 / 48.24 / 67.11, best FM full fine-tune 77.70 / 53.03 / 69.91,
-best specialist 76.38 / 46.80 / 72.29. Few-shot: 78.0 / 44.0 / 59.8 vs 76.69 / 49.82 / 61.45, 77.39 / 50.34 / 61.61,
-80.17 / 60.62 / 70.91.
+Against EEG-FM-Compass, small corpus, 3 pretrain seeds (mean +- SE): full tables in
+`2026-09-29-combined-head/accuracy_small_table.md` (balanced accuracy) and `kappa_small_table.md` (Cohen's kappa), charts
+`accuracy_small.png` and `kappa_small.png`. For BNCI2014001 / 004 the reference values come from Compass's per-dataset
+appendix tables (XV-XVIII, parsed by `scripts/compass_appendix.py` into `compass_appendix.json`), which include
+**MIRepNet**, an MI-specific foundation model left out of the Table V-VI summary our earlier comparisons used.
 
-![combined head vs Compass](2026-09-29-combined-head/compass_small.png)
+- Loso, balanced accuracy: BNCI2014004 79.1 vs MIRepNet 79.40 (linear probe) / 78.41 (full fine-tune): level with the
+  best, above every specialist (76.38). BNCI2014001 53.3: above the best linear probe (MIRepNet 50.48) and every
+  specialist (46.80), below MIRepNet full fine-tune (54.21). BNCI2014008 69.6: above the best linear probe (67.11),
+  just under the best full fine-tune (69.91), below EEGNet (72.29).
+- Loso, kappa (%): BNCI2014004 58.2 vs MIRepNet 58.80 / 56.82; BNCI2014001 37.8 vs MIRepNet 33.97 / 38.48 -- same
+  picture. BNCI2014008 has no Compass kappa.
+- Few-shot: behind the best on all three (BNCI2014004 78.0 vs 81.10, BNCI2014001 44.0 vs 63.27, BNCI2014008 59.8 vs 70.91).
+- The MI reference values were first taken from Table V-VI, without MIRepNet; they are now updated where they are
+  stored (docs/papers/2601.17883_EEG-FM-Compass.md, the patch-75 report, the tiny-to-small card).
+
+![balanced accuracy, small corpus](2026-09-29-combined-head/accuracy_small.png)
 
 MI screen, finetune seed 1 (stamp power vs power taken from z): `latent_power` = the stamp_power pipeline on z (PCA 16
 axes, squared, learned time pool, log); `z_combined` = latent_power + latent_signed.

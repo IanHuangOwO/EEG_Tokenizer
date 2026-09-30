@@ -55,6 +55,7 @@ Tiny `mesae_tiny_notrial_s1` -> small `mesae_small_graded_s1` (graded recipe).
   p 0.008), 001 loso 46.2 -> 49.6 (p 0.012), 001 few-shot 30.0 -> 34.5 (9/9, p 0.004); stamp head 001
   loso 40.4 -> 43.8 (p 0.008), 008 loso 70.2 -> 70.8 (7/8, p 0.016). Only the 004 stamp head dips
   (-0.8 / -1.0, n.s.).
-- vs Compass best frozen FM (loso): 004 75.5 probe / 76.0 stamp vs 75.57; 001 49.6 vs 48.24; 008 69.6 /
-  70.8 vs 67.11. MI few-shot still behind (004 71.2 stamp vs 76.69; 001 45.1 stamp vs 49.82).
+- vs Compass best frozen FM (loso; MI values incl. MIRepNet, updated 2026-09-30): 004 75.5 probe / 76.0 stamp vs
+  79.40; 001 49.6 vs 50.48; 008 69.6 / 70.8 vs 67.11. MI few-shot still behind (004 71.2 stamp vs 76.82; 001 45.1 stamp
+  vs 49.82).
 Full report: docs/reports/2026-09-28-overnight.md.
