@@ -85,6 +85,13 @@ The stamp (a, b) power beats power taken from z on 7 / 8 cells (+2.6 to +12.5) a
 all 8: the stamps carry something squaring z does not. latent_power and z_combined were dropped after this screen (their
 run folders were deleted by mistake; the numbers above are the only record).
 
+Per-stamp spatial filters (2026-09-30, tiny s1, MI cells, finetune seeds 1-3): the stamp half with its own K = 2 filters
+per stamp (`spatial_per_stamp`, filter-bank-CSP style) instead of one shared K = 8 filter, z half unchanged. Worse on
+every cell: BNCI2014004 loso 74.6 vs 77.0 (-2.4), BNCI2014001 loso 48.8 vs 50.5 (-1.7), BNCI2014004 few-shot 72.0 vs
+75.4 (-3.3), BNCI2014001 few-shot 38.3 vs 41.3 (-3.0); the train/test gap did not shrink. A shared filter pools the
+spatial evidence of all stamps (mu and beta ERD share their lateral motor topography); per-stamp filters must each be
+learned from the same few trials. Not pursued; the option stays in the code (default off).
+
 ## Notes
 
 - The combined head has the largest train/test gap in every cell but BNCI2014008 loso. On loso, where many training
