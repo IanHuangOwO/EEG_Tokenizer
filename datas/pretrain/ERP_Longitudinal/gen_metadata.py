@@ -117,6 +117,18 @@ def build_data_structure(raw_dir):
     return structure
 
 
+def locs_coordinates():
+    """raw/ChannelPosition.locs (figshare 27201003 file 49724517, fetched 2026-10-01): index, polar angle, polar
+    radius, label with trailing dots; idealised 10-20 (Cz 0, Fz / C3 0.203, T7 / Oz equator 0.406)."""
+    table = {}
+    for line in open(os.path.join(ROOT, "raw", "ChannelPosition.locs")):
+        f = line.split()
+        if len(f) >= 4:
+            table[f[3].rstrip(".").upper()] = (float(f[1]), float(f[2]))
+    return {k: {**v, "coordinates": {"polar_angle_deg": table[v["label"].upper()][0],
+                                     "polar_radius": table[v["label"].upper()][1]}} for k, v in CHANNELS.items()}
+
+
 def main():
     raw_dir = os.path.join(ROOT, "raw")
     structure = build_data_structure(raw_dir)
@@ -131,7 +143,9 @@ def main():
                 "num_subjects": len(structure),
             },
             "targets": TARGETS,
-            "channels": {"count": len(CHANNELS), "system": "10-20 International System (10-10)", **CHANNELS},
+            "channels": {"count": len(CHANNELS), "system": "10-20 International System (10-10)",
+                         "coordinates_source": "raw/ChannelPosition.locs (figshare 27201003)",
+                         "polar_equator_radius": 0.406, **locs_coordinates()},
         },
         "data_structure": structure,
     }

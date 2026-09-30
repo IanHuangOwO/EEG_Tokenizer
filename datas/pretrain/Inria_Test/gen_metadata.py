@@ -100,6 +100,9 @@ def main():
             "channels": {
                 "count": len(channels),
                 "system": "10-20/10-10 International System",
+                # raw/ChannelsLocation.csv (shipped with the Kaggle data): idealised 10-20, equator ring at radius 0.36
+                "coordinates_source": "raw/ChannelsLocation.csv",
+                "polar_equator_radius": 0.36,
                 **channels,
             },
             "event_onset_sample": 200,

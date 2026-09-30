@@ -189,260 +189,518 @@
             "count": 64,
             "1": {
                 "label": "Fp1",
-                "original_label": "Fp1"
+                "original_label": "Fp1",
+                "coordinates": {
+                    "polar_angle_deg": -18.0,
+                    "polar_radius": 0.51111
+                }
             },
             "2": {
                 "label": "Fpz",
-                "original_label": "Fpz"
+                "original_label": "Fpz",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.51111
+                }
             },
             "3": {
                 "label": "Fp2",
-                "original_label": "Fp2"
+                "original_label": "Fp2",
+                "coordinates": {
+                    "polar_angle_deg": 18.0,
+                    "polar_radius": 0.51111
+                }
             },
             "4": {
                 "label": "AF3",
-                "original_label": "AF3"
+                "original_label": "AF3",
+                "coordinates": {
+                    "polar_angle_deg": -23.0,
+                    "polar_radius": 0.41111
+                }
             },
             "5": {
                 "label": "AF4",
-                "original_label": "AF4"
+                "original_label": "AF4",
+                "coordinates": {
+                    "polar_angle_deg": 23.0,
+                    "polar_radius": 0.41111
+                }
             },
             "6": {
                 "label": "F7",
-                "original_label": "F7"
+                "original_label": "F7",
+                "coordinates": {
+                    "polar_angle_deg": -54.0,
+                    "polar_radius": 0.51111
+                }
             },
             "7": {
                 "label": "F5",
-                "original_label": "F5"
+                "original_label": "F5",
+                "coordinates": {
+                    "polar_angle_deg": -49.0,
+                    "polar_radius": 0.41667
+                }
             },
             "8": {
                 "label": "F3",
-                "original_label": "F3"
+                "original_label": "F3",
+                "coordinates": {
+                    "polar_angle_deg": -39.0,
+                    "polar_radius": 0.33333
+                }
             },
             "9": {
                 "label": "F1",
-                "original_label": "F1"
+                "original_label": "F1",
+                "coordinates": {
+                    "polar_angle_deg": -22.0,
+                    "polar_radius": 0.27778
+                }
             },
             "10": {
                 "label": "Fz",
-                "original_label": "Fz"
+                "original_label": "Fz",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.25556
+                }
             },
             "11": {
                 "label": "F2",
-                "original_label": "F2"
+                "original_label": "F2",
+                "coordinates": {
+                    "polar_angle_deg": 22.0,
+                    "polar_radius": 0.27778
+                }
             },
             "12": {
                 "label": "F4",
-                "original_label": "F4"
+                "original_label": "F4",
+                "coordinates": {
+                    "polar_angle_deg": 39.0,
+                    "polar_radius": 0.33333
+                }
             },
             "13": {
                 "label": "F6",
-                "original_label": "F6"
+                "original_label": "F6",
+                "coordinates": {
+                    "polar_angle_deg": 49.0,
+                    "polar_radius": 0.41667
+                }
             },
             "14": {
                 "label": "F8",
-                "original_label": "F8"
+                "original_label": "F8",
+                "coordinates": {
+                    "polar_angle_deg": 54.0,
+                    "polar_radius": 0.51111
+                }
             },
             "15": {
                 "label": "FT7",
-                "original_label": "FT7"
+                "original_label": "FT7",
+                "coordinates": {
+                    "polar_angle_deg": -72.0,
+                    "polar_radius": 0.51111
+                }
             },
             "16": {
                 "label": "FC5",
-                "original_label": "FC5"
+                "original_label": "FC5",
+                "coordinates": {
+                    "polar_angle_deg": -69.0,
+                    "polar_radius": 0.39444
+                }
             },
             "17": {
                 "label": "FC3",
-                "original_label": "FC3"
+                "original_label": "FC3",
+                "coordinates": {
+                    "polar_angle_deg": -62.0,
+                    "polar_radius": 0.27778
+                }
             },
             "18": {
                 "label": "FC1",
-                "original_label": "FC1"
+                "original_label": "FC1",
+                "coordinates": {
+                    "polar_angle_deg": -45.0,
+                    "polar_radius": 0.17778
+                }
             },
             "19": {
                 "label": "FCz",
-                "original_label": "FCz"
+                "original_label": "FCz",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.12778
+                }
             },
             "20": {
                 "label": "FC2",
-                "original_label": "FC2"
+                "original_label": "FC2",
+                "coordinates": {
+                    "polar_angle_deg": 45.0,
+                    "polar_radius": 0.17778
+                }
             },
             "21": {
                 "label": "FC4",
-                "original_label": "FC4"
+                "original_label": "FC4",
+                "coordinates": {
+                    "polar_angle_deg": 62.0,
+                    "polar_radius": 0.27778
+                }
             },
             "22": {
                 "label": "FC6",
-                "original_label": "FC6"
+                "original_label": "FC6",
+                "coordinates": {
+                    "polar_angle_deg": 69.0,
+                    "polar_radius": 0.39444
+                }
             },
             "23": {
                 "label": "FT8",
-                "original_label": "FT8"
+                "original_label": "FT8",
+                "coordinates": {
+                    "polar_angle_deg": 72.0,
+                    "polar_radius": 0.51111
+                }
             },
             "24": {
                 "label": "T7",
-                "original_label": "T7"
+                "original_label": "T7",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.51111
+                }
             },
             "25": {
                 "label": "C5",
-                "original_label": "C5"
+                "original_label": "C5",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.38333
+                }
             },
             "26": {
                 "label": "C3",
-                "original_label": "C3"
+                "original_label": "C3",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.25556
+                }
             },
             "27": {
                 "label": "C1",
-                "original_label": "C1"
+                "original_label": "C1",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.12778
+                }
             },
             "28": {
                 "label": "Cz",
-                "original_label": "Cz"
+                "original_label": "Cz",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.0
+                }
             },
             "29": {
                 "label": "C2",
-                "original_label": "C2"
+                "original_label": "C2",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.12778
+                }
             },
             "30": {
                 "label": "C4",
-                "original_label": "C4"
+                "original_label": "C4",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.25556
+                }
             },
             "31": {
                 "label": "C6",
-                "original_label": "C6"
+                "original_label": "C6",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.38333
+                }
             },
             "32": {
                 "label": "T8",
-                "original_label": "T8"
+                "original_label": "T8",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.51111
+                }
             },
             "33": {
                 "label": "M1",
-                "original_label": "M1"
+                "original_label": "M1",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.71111
+                }
             },
             "34": {
                 "label": "TP7",
-                "original_label": "TP7"
+                "original_label": "TP7",
+                "coordinates": {
+                    "polar_angle_deg": -108.0,
+                    "polar_radius": 0.51111
+                }
             },
             "35": {
                 "label": "CP5",
-                "original_label": "CP5"
+                "original_label": "CP5",
+                "coordinates": {
+                    "polar_angle_deg": -111.0,
+                    "polar_radius": 0.39444
+                }
             },
             "36": {
                 "label": "CP3",
-                "original_label": "CP3"
+                "original_label": "CP3",
+                "coordinates": {
+                    "polar_angle_deg": -118.0,
+                    "polar_radius": 0.27778
+                }
             },
             "37": {
                 "label": "CP1",
-                "original_label": "CP1"
+                "original_label": "CP1",
+                "coordinates": {
+                    "polar_angle_deg": -135.0,
+                    "polar_radius": 0.17778
+                }
             },
             "38": {
                 "label": "CPz",
-                "original_label": "CPz"
+                "original_label": "CPz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.12778
+                }
             },
             "39": {
                 "label": "CP2",
-                "original_label": "CP2"
+                "original_label": "CP2",
+                "coordinates": {
+                    "polar_angle_deg": 135.0,
+                    "polar_radius": 0.17778
+                }
             },
             "40": {
                 "label": "CP4",
-                "original_label": "CP4"
+                "original_label": "CP4",
+                "coordinates": {
+                    "polar_angle_deg": 118.0,
+                    "polar_radius": 0.27778
+                }
             },
             "41": {
                 "label": "CP6",
-                "original_label": "CP6"
+                "original_label": "CP6",
+                "coordinates": {
+                    "polar_angle_deg": 111.0,
+                    "polar_radius": 0.39444
+                }
             },
             "42": {
                 "label": "TP8",
-                "original_label": "TP8"
+                "original_label": "TP8",
+                "coordinates": {
+                    "polar_angle_deg": 108.0,
+                    "polar_radius": 0.51111
+                }
             },
             "43": {
                 "label": "M2",
-                "original_label": "M2"
+                "original_label": "M2",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.71111
+                }
             },
             "44": {
                 "label": "P7",
-                "original_label": "P7"
+                "original_label": "P7",
+                "coordinates": {
+                    "polar_angle_deg": -126.0,
+                    "polar_radius": 0.51111
+                }
             },
             "45": {
                 "label": "P5",
-                "original_label": "P5"
+                "original_label": "P5",
+                "coordinates": {
+                    "polar_angle_deg": -131.0,
+                    "polar_radius": 0.41667
+                }
             },
             "46": {
                 "label": "P3",
-                "original_label": "P3"
+                "original_label": "P3",
+                "coordinates": {
+                    "polar_angle_deg": -141.0,
+                    "polar_radius": 0.33333
+                }
             },
             "47": {
                 "label": "P1",
-                "original_label": "P1"
+                "original_label": "P1",
+                "coordinates": {
+                    "polar_angle_deg": -158.0,
+                    "polar_radius": 0.27778
+                }
             },
             "48": {
                 "label": "Pz",
-                "original_label": "Pz"
+                "original_label": "Pz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.25556
+                }
             },
             "49": {
                 "label": "P2",
-                "original_label": "P2"
+                "original_label": "P2",
+                "coordinates": {
+                    "polar_angle_deg": 158.0,
+                    "polar_radius": 0.27778
+                }
             },
             "50": {
                 "label": "P4",
-                "original_label": "P4"
+                "original_label": "P4",
+                "coordinates": {
+                    "polar_angle_deg": 141.0,
+                    "polar_radius": 0.33333
+                }
             },
             "51": {
                 "label": "P6",
-                "original_label": "P6"
+                "original_label": "P6",
+                "coordinates": {
+                    "polar_angle_deg": 131.0,
+                    "polar_radius": 0.41667
+                }
             },
             "52": {
                 "label": "P8",
-                "original_label": "P8"
+                "original_label": "P8",
+                "coordinates": {
+                    "polar_angle_deg": 126.0,
+                    "polar_radius": 0.51111
+                }
             },
             "53": {
                 "label": "PO7",
-                "original_label": "PO7"
+                "original_label": "PO7",
+                "coordinates": {
+                    "polar_angle_deg": -144.0,
+                    "polar_radius": 0.51111
+                }
             },
             "54": {
                 "label": "PO5",
-                "original_label": "PO5"
+                "original_label": "PO5",
+                "coordinates": {
+                    "polar_angle_deg": -144.0,
+                    "polar_radius": 0.44722
+                }
             },
             "55": {
                 "label": "PO3",
-                "original_label": "PO3"
+                "original_label": "PO3",
+                "coordinates": {
+                    "polar_angle_deg": -157.0,
+                    "polar_radius": 0.41111
+                }
             },
             "56": {
                 "label": "POz",
-                "original_label": "POz"
+                "original_label": "POz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.38333
+                }
             },
             "57": {
                 "label": "PO4",
-                "original_label": "PO4"
+                "original_label": "PO4",
+                "coordinates": {
+                    "polar_angle_deg": 157.0,
+                    "polar_radius": 0.41111
+                }
             },
             "58": {
                 "label": "PO6",
-                "original_label": "PO6"
+                "original_label": "PO6",
+                "coordinates": {
+                    "polar_angle_deg": 144.0,
+                    "polar_radius": 0.44722
+                }
             },
             "59": {
                 "label": "PO8",
-                "original_label": "PO8"
+                "original_label": "PO8",
+                "coordinates": {
+                    "polar_angle_deg": 144.0,
+                    "polar_radius": 0.51111
+                }
             },
             "60": {
                 "label": "CB1",
-                "original_label": "CB1"
+                "original_label": "CB1",
+                "coordinates": {
+                    "polar_angle_deg": -135.0,
+                    "polar_radius": 0.72222
+                }
             },
             "61": {
                 "label": "O1",
-                "original_label": "O1"
+                "original_label": "O1",
+                "coordinates": {
+                    "polar_angle_deg": -162.0,
+                    "polar_radius": 0.51111
+                }
             },
             "62": {
                 "label": "Oz",
-                "original_label": "Oz"
+                "original_label": "Oz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.51111
+                }
             },
             "63": {
                 "label": "O2",
-                "original_label": "O2"
+                "original_label": "O2",
+                "coordinates": {
+                    "polar_angle_deg": 162.0,
+                    "polar_radius": 0.51111
+                }
             },
             "64": {
                 "label": "CB2",
-                "original_label": "CB2"
-            }
+                "original_label": "CB2",
+                "coordinates": {
+                    "polar_angle_deg": 135.0,
+                    "polar_radius": 0.72222
+                }
+            },
+            "coordinates_source": "raw/64-channels.loc (Tsinghua benchmark)",
+            "polar_equator_radius": 0.5
         }
     },
     "data_structure": {

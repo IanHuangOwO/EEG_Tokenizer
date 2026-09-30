@@ -93,6 +93,18 @@ def build_data_structure(raw_dir):
     return structure
 
 
+def besa_xyz():
+    """raw/Pre-SART EEG/biosemi_64_besa_sph.besa (shipped with the data): BESA spherical theta/phi of the BioSemi
+    64 cap, read by MNE (as .elp) onto its 95 mm sphere in the head frame, metres."""
+    import shutil, tempfile
+    import mne
+    with tempfile.TemporaryDirectory() as tmp:
+        f = os.path.join(tmp, "spis.elp")
+        shutil.copy(os.path.join(ROOT, "raw", "Pre-SART EEG", "biosemi_64_besa_sph.besa"), f)
+        pos = {k.upper(): v for k, v in mne.channels.read_custom_montage(f).get_positions()["ch_pos"].items()}
+    return {k: {**v, "xyz": [round(float(c), 6) for c in pos[v["label"].upper()]]} for k, v in CHANNELS.items()}
+
+
 def main():
     raw_dir = os.path.join(ROOT, "raw", "Pre-SART EEG")
     structure = build_data_structure(raw_dir)
@@ -107,7 +119,8 @@ def main():
                 "num_subjects": len(structure),
             },
             "targets": TARGETS,
-            "channels": {"count": len(CHANNELS), "system": "10-20 International System (10-10)", **CHANNELS},
+            "channels": {"count": len(CHANNELS), "system": "10-20 International System (10-10)",
+                         "coordinates_source": "raw/Pre-SART EEG/biosemi_64_besa_sph.besa", **besa_xyz()},
             "event_onset_sample": 0,
             "event_onset_sample_note": "Resting-state EC/EO .mat, fixed-window chopping, no event structure at all -- no real onset to mark.",
         },

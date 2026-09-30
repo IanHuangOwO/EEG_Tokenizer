@@ -24,176 +24,406 @@
         "channels": {
             "count": 57,
             "system": "10-20 International System (10-10)",
+            "coordinates_source": "raw/ChannelPosition.locs (figshare 27201003)",
+            "polar_equator_radius": 0.406,
             "1": {
-                "label": "Fpz"
+                "label": "Fpz",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.406
+                }
             },
             "2": {
-                "label": "Fp1"
+                "label": "Fp1",
+                "coordinates": {
+                    "polar_angle_deg": -18.0,
+                    "polar_radius": 0.406
+                }
             },
             "3": {
-                "label": "Fp2"
+                "label": "Fp2",
+                "coordinates": {
+                    "polar_angle_deg": 18.0,
+                    "polar_radius": 0.406
+                }
             },
             "4": {
-                "label": "AF3"
+                "label": "AF3",
+                "coordinates": {
+                    "polar_angle_deg": -23.0,
+                    "polar_radius": 0.343
+                }
             },
             "5": {
-                "label": "AF4"
+                "label": "AF4",
+                "coordinates": {
+                    "polar_angle_deg": 23.0,
+                    "polar_radius": 0.343
+                }
             },
             "6": {
-                "label": "AF7"
+                "label": "AF7",
+                "coordinates": {
+                    "polar_angle_deg": -36.0,
+                    "polar_radius": 0.406
+                }
             },
             "7": {
-                "label": "AF8"
+                "label": "AF8",
+                "coordinates": {
+                    "polar_angle_deg": 36.0,
+                    "polar_radius": 0.406
+                }
             },
             "8": {
-                "label": "Fz"
+                "label": "Fz",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.203
+                }
             },
             "9": {
-                "label": "F1"
+                "label": "F1",
+                "coordinates": {
+                    "polar_angle_deg": -21.0,
+                    "polar_radius": 0.219
+                }
             },
             "10": {
-                "label": "F2"
+                "label": "F2",
+                "coordinates": {
+                    "polar_angle_deg": 21.0,
+                    "polar_radius": 0.219
+                }
             },
             "11": {
-                "label": "F3"
+                "label": "F3",
+                "coordinates": {
+                    "polar_angle_deg": -35.0,
+                    "polar_radius": 0.275
+                }
             },
             "12": {
-                "label": "F4"
+                "label": "F4",
+                "coordinates": {
+                    "polar_angle_deg": 35.0,
+                    "polar_radius": 0.275
+                }
             },
             "13": {
-                "label": "F5"
+                "label": "F5",
+                "coordinates": {
+                    "polar_angle_deg": -46.0,
+                    "polar_radius": 0.363
+                }
             },
             "14": {
-                "label": "F6"
+                "label": "F6",
+                "coordinates": {
+                    "polar_angle_deg": 46.0,
+                    "polar_radius": 0.363
+                }
             },
             "15": {
-                "label": "F7"
+                "label": "F7",
+                "coordinates": {
+                    "polar_angle_deg": -54.0,
+                    "polar_radius": 0.406
+                }
             },
             "16": {
-                "label": "F8"
+                "label": "F8",
+                "coordinates": {
+                    "polar_angle_deg": 54.0,
+                    "polar_radius": 0.406
+                }
             },
             "17": {
-                "label": "FCz"
+                "label": "FCz",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.101
+                }
             },
             "18": {
-                "label": "FC1"
+                "label": "FC1",
+                "coordinates": {
+                    "polar_angle_deg": -42.0,
+                    "polar_radius": 0.14
+                }
             },
             "19": {
-                "label": "FC2"
+                "label": "FC2",
+                "coordinates": {
+                    "polar_angle_deg": 42.0,
+                    "polar_radius": 0.14
+                }
             },
             "20": {
-                "label": "FC3"
+                "label": "FC3",
+                "coordinates": {
+                    "polar_angle_deg": -60.0,
+                    "polar_radius": 0.219
+                }
             },
             "21": {
-                "label": "FC4"
+                "label": "FC4",
+                "coordinates": {
+                    "polar_angle_deg": 60.0,
+                    "polar_radius": 0.219
+                }
             },
             "22": {
-                "label": "FC5"
+                "label": "FC5",
+                "coordinates": {
+                    "polar_angle_deg": -68.0,
+                    "polar_radius": 0.3
+                }
             },
             "23": {
-                "label": "FC6"
+                "label": "FC6",
+                "coordinates": {
+                    "polar_angle_deg": 68.0,
+                    "polar_radius": 0.3
+                }
             },
             "24": {
-                "label": "FT7"
+                "label": "FT7",
+                "coordinates": {
+                    "polar_angle_deg": -72.0,
+                    "polar_radius": 0.406
+                }
             },
             "25": {
-                "label": "FT8"
+                "label": "FT8",
+                "coordinates": {
+                    "polar_angle_deg": 72.0,
+                    "polar_radius": 0.406
+                }
             },
             "26": {
-                "label": "Cz"
+                "label": "Cz",
+                "coordinates": {
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.0
+                }
             },
             "27": {
-                "label": "C1"
+                "label": "C1",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.101
+                }
             },
             "28": {
-                "label": "C2"
+                "label": "C2",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.101
+                }
             },
             "29": {
-                "label": "C3"
+                "label": "C3",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.203
+                }
             },
             "30": {
-                "label": "C4"
+                "label": "C4",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.203
+                }
             },
             "31": {
-                "label": "C5"
+                "label": "C5",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.304
+                }
             },
             "32": {
-                "label": "C6"
+                "label": "C6",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.304
+                }
             },
             "33": {
-                "label": "T7"
+                "label": "T7",
+                "coordinates": {
+                    "polar_angle_deg": -90.0,
+                    "polar_radius": 0.406
+                }
             },
             "34": {
-                "label": "T8"
+                "label": "T8",
+                "coordinates": {
+                    "polar_angle_deg": 90.0,
+                    "polar_radius": 0.406
+                }
             },
             "35": {
-                "label": "CP1"
+                "label": "CP1",
+                "coordinates": {
+                    "polar_angle_deg": -138.0,
+                    "polar_radius": 0.14
+                }
             },
             "36": {
-                "label": "CP2"
+                "label": "CP2",
+                "coordinates": {
+                    "polar_angle_deg": 138.0,
+                    "polar_radius": 0.14
+                }
             },
             "37": {
-                "label": "CP3"
+                "label": "CP3",
+                "coordinates": {
+                    "polar_angle_deg": -120.0,
+                    "polar_radius": 0.219
+                }
             },
             "38": {
-                "label": "CP4"
+                "label": "CP4",
+                "coordinates": {
+                    "polar_angle_deg": 120.0,
+                    "polar_radius": 0.219
+                }
             },
             "39": {
-                "label": "CP5"
+                "label": "CP5",
+                "coordinates": {
+                    "polar_angle_deg": -112.0,
+                    "polar_radius": 0.3
+                }
             },
             "40": {
-                "label": "CP6"
+                "label": "CP6",
+                "coordinates": {
+                    "polar_angle_deg": 112.0,
+                    "polar_radius": 0.3
+                }
             },
             "41": {
-                "label": "TP7"
+                "label": "TP7",
+                "coordinates": {
+                    "polar_angle_deg": -108.0,
+                    "polar_radius": 0.406
+                }
             },
             "42": {
-                "label": "TP8"
+                "label": "TP8",
+                "coordinates": {
+                    "polar_angle_deg": 108.0,
+                    "polar_radius": 0.406
+                }
             },
             "43": {
-                "label": "Pz"
+                "label": "Pz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.181
+                }
             },
             "44": {
-                "label": "P3"
+                "label": "P3",
+                "coordinates": {
+                    "polar_angle_deg": -145.0,
+                    "polar_radius": 0.275
+                }
             },
             "45": {
-                "label": "P4"
+                "label": "P4",
+                "coordinates": {
+                    "polar_angle_deg": 145.0,
+                    "polar_radius": 0.275
+                }
             },
             "46": {
-                "label": "P5"
+                "label": "P5",
+                "coordinates": {
+                    "polar_angle_deg": -134.0,
+                    "polar_radius": 0.343
+                }
             },
             "47": {
-                "label": "P6"
+                "label": "P6",
+                "coordinates": {
+                    "polar_angle_deg": 134.0,
+                    "polar_radius": 0.343
+                }
             },
             "48": {
-                "label": "P7"
+                "label": "P7",
+                "coordinates": {
+                    "polar_angle_deg": -126.0,
+                    "polar_radius": 0.406
+                }
             },
             "49": {
-                "label": "P8"
+                "label": "P8",
+                "coordinates": {
+                    "polar_angle_deg": 126.0,
+                    "polar_radius": 0.406
+                }
             },
             "50": {
-                "label": "POz"
+                "label": "POz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.304
+                }
             },
             "51": {
-                "label": "PO3"
+                "label": "PO3",
+                "coordinates": {
+                    "polar_angle_deg": -157.0,
+                    "polar_radius": 0.343
+                }
             },
             "52": {
-                "label": "PO4"
+                "label": "PO4",
+                "coordinates": {
+                    "polar_angle_deg": 157.0,
+                    "polar_radius": 0.343
+                }
             },
             "53": {
-                "label": "PO7"
+                "label": "PO7",
+                "coordinates": {
+                    "polar_angle_deg": -144.0,
+                    "polar_radius": 0.406
+                }
             },
             "54": {
-                "label": "PO8"
+                "label": "PO8",
+                "coordinates": {
+                    "polar_angle_deg": 144.0,
+                    "polar_radius": 0.406
+                }
             },
             "55": {
-                "label": "Oz"
+                "label": "Oz",
+                "coordinates": {
+                    "polar_angle_deg": 180.0,
+                    "polar_radius": 0.406
+                }
             },
             "56": {
-                "label": "O1"
+                "label": "O1",
+                "coordinates": {
+                    "polar_angle_deg": -162.0,
+                    "polar_radius": 0.406
+                }
             },
             "57": {
-                "label": "O2"
+                "label": "O2",
+                "coordinates": {
+                    "polar_angle_deg": 162.0,
+                    "polar_radius": 0.406
+                }
             }
         }
     },

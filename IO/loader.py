@@ -329,13 +329,14 @@ class MoabbLoader(BaseSubjectLoader):
 def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Dict,
                          target_labels: Dict[str, str], kwargs: Dict = None,
                          window: List[float] = None, continuous_seconds: float = None,
-                         onset_window: List[float] = None, cohort: str = None) -> Dict:
+                         onset_window: List[float] = None, cohort: str = None, postprocess=None) -> Dict:
     """
     Writes <root>/metadata.json from MOABB: EEG channel names and sample rate from the
     first subject's first run (downloads it if needed), subjects from ds.subject_list,
     targets = MOABB event names. target_labels maps event name -> readable label; its key
     order sets the label indices (so a migrated dataset can keep its old label order),
-    events it leaves out follow in sorted order.
+    events it leaves out follow in sorted order. postprocess(meta) may add to the dict before
+    it is written (e.g. the dataset's own electrode coordinates).
     """
     import mne
     kwargs = kwargs or {}
@@ -383,6 +384,8 @@ def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Di
         },
         "data_structure": {str(s): {"moabb_subject": s} for s in ds.subject_list},
     }
+    if postprocess:
+        postprocess(meta)
     with open(os.path.join(root, "metadata.json"), "w") as f:
         json.dump(meta, f, indent=4)
         f.write("\n")

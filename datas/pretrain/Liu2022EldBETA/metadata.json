@@ -65,260 +65,581 @@
             "count": 64,
             "1": {
                 "label": "FP1",
-                "original_label": "FP1"
+                "original_label": "FP1",
+                "xyz": [
+                    0.0807957,
+                    0.0260963,
+                    -0.004004
+                ]
             },
             "2": {
                 "label": "FPZ",
-                "original_label": "FPZ"
+                "original_label": "FPZ",
+                "xyz": [
+                    0.0849814,
+                    0.0,
+                    -0.0017801
+                ]
             },
             "3": {
                 "label": "FP2",
-                "original_label": "FP2"
+                "original_label": "FP2",
+                "xyz": [
+                    0.0807957,
+                    -0.0260963,
+                    -0.004004
+                ]
             },
             "4": {
                 "label": "AF3",
-                "original_label": "AF3"
+                "original_label": "AF3",
+                "xyz": [
+                    0.0761303,
+                    0.0315342,
+                    0.0208511
+                ]
             },
             "5": {
                 "label": "AF4",
-                "original_label": "AF4"
+                "original_label": "AF4",
+                "xyz": [
+                    0.0761303,
+                    -0.0315342,
+                    0.0208511
+                ]
             },
             "6": {
                 "label": "F7",
-                "original_label": "F7"
+                "original_label": "F7",
+                "xyz": [
+                    0.0498865,
+                    0.0684115,
+                    -0.0074969
+                ]
             },
             "7": {
                 "label": "F5",
-                "original_label": "F5"
+                "original_label": "F5",
+                "xyz": [
+                    0.0540461,
+                    0.0630566,
+                    0.0181076
+                ]
             },
             "8": {
                 "label": "F3",
-                "original_label": "F3"
+                "original_label": "F3",
+                "xyz": [
+                    0.0575762,
+                    0.0481411,
+                    0.0399051
+                ]
             },
             "9": {
                 "label": "F1",
-                "original_label": "F1"
+                "original_label": "F1",
+                "xyz": [
+                    0.0598878,
+                    0.0260399,
+                    0.0544093
+                ]
             },
             "10": {
                 "label": "FZ",
-                "original_label": "FZ"
+                "original_label": "FZ",
+                "xyz": [
+                    0.0607302,
+                    0.0,
+                    0.0594714
+                ]
             },
             "11": {
                 "label": "F2",
-                "original_label": "F2"
+                "original_label": "F2",
+                "xyz": [
+                    0.0598878,
+                    -0.0260399,
+                    0.0544093
+                ]
             },
             "12": {
                 "label": "F4",
-                "original_label": "F4"
+                "original_label": "F4",
+                "xyz": [
+                    0.0575762,
+                    -0.0481411,
+                    0.0399051
+                ]
             },
             "13": {
                 "label": "F6",
-                "original_label": "F6"
+                "original_label": "F6",
+                "xyz": [
+                    0.0540254,
+                    -0.0630325,
+                    0.0182525
+                ]
             },
             "14": {
                 "label": "F8",
-                "original_label": "F8"
+                "original_label": "F8",
+                "xyz": [
+                    0.0498873,
+                    -0.0684125,
+                    -0.0074821
+                ]
             },
             "15": {
                 "label": "FT7",
-                "original_label": "FT7"
+                "original_label": "FT7",
+                "xyz": [
+                    0.0262746,
+                    0.0803873,
+                    -0.008516
+                ]
             },
             "16": {
                 "label": "FC5",
-                "original_label": "FC5"
+                "original_label": "FC5",
+                "xyz": [
+                    0.0288081,
+                    0.0762384,
+                    0.0241413
+                ]
             },
             "17": {
                 "label": "FC3",
-                "original_label": "FC3"
+                "original_label": "FC3",
+                "xyz": [
+                    0.0309896,
+                    0.0592777,
+                    0.052448
+                ]
             },
             "18": {
                 "label": "FC1",
-                "original_label": "FC1"
+                "original_label": "FC1",
+                "xyz": [
+                    0.0324388,
+                    0.0323258,
+                    0.0716085
+                ]
             },
             "19": {
                 "label": "FCZ",
-                "original_label": "FCZ"
+                "original_label": "FCZ",
+                "xyz": [
+                    0.0329388,
+                    0.0,
+                    0.0783584
+                ]
             },
             "20": {
                 "label": "FC2",
-                "original_label": "FC2"
+                "original_label": "FC2",
+                "xyz": [
+                    0.0324388,
+                    -0.0323258,
+                    0.0716085
+                ]
             },
             "21": {
                 "label": "FC4",
-                "original_label": "FC4"
+                "original_label": "FC4",
+                "xyz": [
+                    0.0309896,
+                    -0.0592777,
+                    0.052448
+                ]
             },
             "22": {
                 "label": "FC6",
-                "original_label": "FC6"
+                "original_label": "FC6",
+                "xyz": [
+                    0.0288081,
+                    -0.0762384,
+                    0.0241413
+                ]
             },
             "23": {
                 "label": "FT8",
-                "original_label": "FT8"
+                "original_label": "FT8",
+                "xyz": [
+                    0.0262746,
+                    -0.0803873,
+                    -0.008516
+                ]
             },
             "24": {
                 "label": "T7",
-                "original_label": "T7"
+                "original_label": "T7",
+                "xyz": [
+                    0.0,
+                    0.084539,
+                    -0.0088407
+                ]
             },
             "25": {
                 "label": "C5",
-                "original_label": "C5"
+                "original_label": "C5",
+                "xyz": [
+                    0.0,
+                    0.0808398,
+                    0.0262664
+                ]
             },
             "26": {
                 "label": "C3",
-                "original_label": "C3"
+                "original_label": "C3",
+                "xyz": [
+                    0.0,
+                    0.0631673,
+                    0.0568761
+                ]
             },
             "27": {
                 "label": "C1",
-                "original_label": "C1"
+                "original_label": "C1",
+                "xyz": [
+                    0.0,
+                    0.0345726,
+                    0.0776514
+                ]
             },
             "28": {
                 "label": "Cz",
-                "original_label": "Cz"
+                "original_label": "Cz",
+                "xyz": [
+                    0.0,
+                    0.0,
+                    0.085
+                ]
             },
             "29": {
                 "label": "C2",
-                "original_label": "C2"
+                "original_label": "C2",
+                "xyz": [
+                    0.0,
+                    -0.0345726,
+                    0.0776514
+                ]
             },
             "30": {
                 "label": "C4",
-                "original_label": "C4"
+                "original_label": "C4",
+                "xyz": [
+                    0.0,
+                    -0.0631673,
+                    0.0568761
+                ]
             },
             "31": {
                 "label": "C6",
-                "original_label": "C6"
+                "original_label": "C6",
+                "xyz": [
+                    0.0,
+                    -0.0808398,
+                    0.0262664
+                ]
             },
             "32": {
                 "label": "T8",
-                "original_label": "T8"
+                "original_label": "T8",
+                "xyz": [
+                    0.0,
+                    -0.084539,
+                    -0.0088407
+                ]
             },
             "33": {
                 "label": "M1",
-                "original_label": "M1"
+                "original_label": "M1",
+                "xyz": [
+                    -0.0105276,
+                    0.0597052,
+                    -0.0595773
+                ]
             },
             "34": {
                 "label": "TP7",
-                "original_label": "TP7"
+                "original_label": "TP7",
+                "xyz": [
+                    -0.0261343,
+                    0.0804331,
+                    -0.008516
+                ]
             },
             "35": {
                 "label": "CP5",
-                "original_label": "CP5"
+                "original_label": "CP5",
+                "xyz": [
+                    -0.0292069,
+                    0.0760865,
+                    0.0241413
+                ]
             },
             "36": {
                 "label": "CP3",
-                "original_label": "CP3"
+                "original_label": "CP3",
+                "xyz": [
+                    -0.0314027,
+                    0.0590599,
+                    0.052448
+                ]
             },
             "37": {
                 "label": "CP1",
-                "original_label": "CP1"
+                "original_label": "CP1",
+                "xyz": [
+                    -0.0323823,
+                    0.0323823,
+                    0.0716085
+                ]
             },
             "38": {
                 "label": "CPz",
-                "original_label": "CPz"
+                "original_label": "CPz",
+                "xyz": [
+                    -0.0329388,
+                    -0.0,
+                    0.0783584
+                ]
             },
             "39": {
                 "label": "CP2",
-                "original_label": "CP2"
+                "original_label": "CP2",
+                "xyz": [
+                    -0.0323823,
+                    -0.0323823,
+                    0.0716085
+                ]
             },
             "40": {
                 "label": "CP4",
-                "original_label": "CP4"
+                "original_label": "CP4",
+                "xyz": [
+                    -0.0314027,
+                    -0.0590599,
+                    0.052448
+                ]
             },
             "41": {
                 "label": "CP6",
-                "original_label": "CP6"
+                "original_label": "CP6",
+                "xyz": [
+                    -0.0292069,
+                    -0.0760865,
+                    0.0241413
+                ]
             },
             "42": {
                 "label": "TP8",
-                "original_label": "TP8"
+                "original_label": "TP8",
+                "xyz": [
+                    -0.0261347,
+                    -0.0804345,
+                    -0.0085012
+                ]
             },
             "43": {
                 "label": "M2",
-                "original_label": "M2"
+                "original_label": "M2",
+                "xyz": [
+                    -0.0105276,
+                    -0.0597052,
+                    -0.0595773
+                ]
             },
             "44": {
                 "label": "P7",
-                "original_label": "P7"
+                "original_label": "P7",
+                "xyz": [
+                    -0.049767,
+                    0.0684985,
+                    -0.0074969
+                ]
             },
             "45": {
                 "label": "P5",
-                "original_label": "P5"
+                "original_label": "P5",
+                "xyz": [
+                    -0.054485,
+                    0.0626778,
+                    0.0181076
+                ]
             },
             "46": {
                 "label": "P3",
-                "original_label": "P3"
+                "original_label": "P3",
+                "xyz": [
+                    -0.0574921,
+                    0.0482416,
+                    0.0399051
+                ]
             },
             "47": {
                 "label": "P1",
-                "original_label": "P1"
+                "original_label": "P1",
+                "xyz": [
+                    -0.0601127,
+                    0.0255163,
+                    0.0544093
+                ]
             },
             "48": {
                 "label": "Pz",
-                "original_label": "Pz"
+                "original_label": "Pz",
+                "xyz": [
+                    -0.0607302,
+                    -0.0,
+                    0.0594714
+                ]
             },
             "49": {
                 "label": "P2",
-                "original_label": "P2"
+                "original_label": "P2",
+                "xyz": [
+                    -0.0601127,
+                    -0.0255163,
+                    0.0544093
+                ]
             },
             "50": {
                 "label": "P4",
-                "original_label": "P4"
+                "original_label": "P4",
+                "xyz": [
+                    -0.0574921,
+                    -0.0482416,
+                    0.0399051
+                ]
             },
             "51": {
                 "label": "P6",
-                "original_label": "P6"
+                "original_label": "P6",
+                "xyz": [
+                    -0.0544641,
+                    -0.0626538,
+                    0.0182525
+                ]
             },
             "52": {
                 "label": "P8",
-                "original_label": "P8"
+                "original_label": "P8",
+                "xyz": [
+                    -0.0497678,
+                    -0.0684995,
+                    -0.0074821
+                ]
             },
             "53": {
                 "label": "PO7",
-                "original_label": "PO7"
+                "original_label": "PO7",
+                "xyz": [
+                    -0.0685973,
+                    0.0498388,
+                    -0.0059589
+                ]
             },
             "54": {
                 "label": "PO5",
-                "original_label": "PO5"
+                "original_label": "PO5",
+                "xyz": [
+                    -0.0724561,
+                    0.043536,
+                    0.0089292
+                ]
             },
             "55": {
                 "label": "PO3",
-                "original_label": "PO3"
+                "original_label": "PO3",
+                "xyz": [
+                    -0.0764026,
+                    0.0308687,
+                    0.0208511
+                ]
             },
             "56": {
                 "label": "POz",
-                "original_label": "POz"
+                "original_label": "POz",
+                "xyz": [
+                    -0.079031,
+                    -0.0,
+                    0.0312906
+                ]
             },
             "57": {
                 "label": "PO4",
-                "original_label": "PO4"
+                "original_label": "PO4",
+                "xyz": [
+                    -0.0764026,
+                    -0.0308687,
+                    0.0208511
+                ]
             },
             "58": {
                 "label": "PO6",
-                "original_label": "PO6"
+                "original_label": "PO6",
+                "xyz": [
+                    -0.0724561,
+                    -0.043536,
+                    0.0089292
+                ]
             },
             "59": {
                 "label": "PO8",
-                "original_label": "PO8"
+                "original_label": "PO8",
+                "xyz": [
+                    -0.0685973,
+                    -0.0498388,
+                    -0.0059589
+                ]
             },
             "60": {
                 "label": "CB1",
-                "original_label": "CB1"
+                "original_label": "CB1",
+                "xyz": [
+                    -0.0839049,
+                    0.0132892,
+                    -0.0028923
+                ]
             },
             "61": {
                 "label": "O1",
-                "original_label": "O1"
+                "original_label": "O1",
+                "xyz": [
+                    -0.0807501,
+                    0.0262373,
+                    -0.004004
+                ]
             },
             "62": {
                 "label": "Oz",
-                "original_label": "Oz"
+                "original_label": "Oz",
+                "xyz": [
+                    -0.0849814,
+                    -0.0,
+                    -0.0017801
+                ]
             },
             "63": {
                 "label": "O2",
-                "original_label": "O2"
+                "original_label": "O2",
+                "xyz": [
+                    -0.0807501,
+                    -0.0262373,
+                    -0.004004
+                ]
             },
             "64": {
                 "label": "CB2",
-                "original_label": "CB2"
-            }
+                "original_label": "CB2",
+                "xyz": [
+                    -0.0839049,
+                    -0.0132892,
+                    -0.0028923
+                ]
+            },
+            "coordinates_source": "raw/electrodes.tsv (BIDS, from the dataset archives; own frame, metres)"
         }
     },
     "data_structure": {

@@ -184,6 +184,8 @@
         "channels": {
             "count": 64,
             "system": "10-20 International System",
+            "coordinates_source": "data.suppl_info.chan of every .mat (the authors' table)",
+            "polar_equator_radius": 0.5,
             "1": {
                 "label": "FP1",
                 "coordinates": {
@@ -376,8 +378,8 @@
             "28": {
                 "label": "Cz",
                 "coordinates": {
-                    "polar_angle_deg": 177.496,
-                    "polar_radius": 0.00918
+                    "polar_angle_deg": 0.0,
+                    "polar_radius": 0.0
                 }
             },
             "29": {
@@ -598,11 +600,7 @@
                 }
             },
             "60": {
-                "label": "CB1",
-                "coordinates": {
-                    "polar_angle_deg": -170.0,
-                    "polar_radius": 0.52
-                }
+                "label": "CB1"
             },
             "61": {
                 "label": "O1",
@@ -626,11 +624,7 @@
                 }
             },
             "64": {
-                "label": "CB2",
-                "coordinates": {
-                    "polar_angle_deg": 170.0,
-                    "polar_radius": 0.52
-                }
+                "label": "CB2"
             }
         },
         "event_onset_sample": 100,

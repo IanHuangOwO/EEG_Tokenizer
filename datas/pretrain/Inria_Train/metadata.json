@@ -29,6 +29,8 @@
         "channels": {
             "count": 57,
             "system": "10-20/10-10 International System",
+            "coordinates_source": "raw/ChannelsLocation.csv",
+            "polar_equator_radius": 0.36,
             "1": {
                 "label": "Fp1",
                 "coordinates": {

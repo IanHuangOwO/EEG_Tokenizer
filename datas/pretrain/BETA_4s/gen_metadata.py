@@ -110,6 +110,24 @@ CHANNELS = {
 }
 
 
+def source_coordinates(signals_dir):
+    """Every BETA .mat carries the authors' channel table, data.suppl_info.chan (index, polar angle, polar radius,
+    label; EEGLAB .loc convention, radius 0.5 = the equator), identical across subjects (checked 2026-10-01 on 8
+    subjects of BETA_4s / BETA_3s). It replaces the hand-copied CHANNELS values: they matched except Cz (source 0 / 0).
+    CB1 / CB2 are 0 / 0 in the source (the vertex -- a placeholder, they are cerebellar sites): no position."""
+    import scipy.io as sio
+    first = sorted(f for f in os.listdir(signals_dir) if f.endswith(".mat"))[0]
+    chan = sio.loadmat(os.path.join(signals_dir, first), squeeze_me=True, struct_as_record=False)["data"].suppl_info.chan
+    table = {str(r[3]).strip().upper(): (float(r[1]), float(r[2])) for r in chan}
+    out = {}
+    for k, v in CHANNELS.items():
+        ang, rad = table[v["label"].upper()]
+        placeholder = rad == 0.0 and v["label"].upper() != "CZ"
+        out[k] = {"label": v["label"]} if placeholder else {
+            "label": v["label"], "coordinates": {"polar_angle_deg": ang, "polar_radius": rad}}
+    return out
+
+
 def build_targets():
     targets = {"count": 40, "type": "ssvep"}
     for i, f in enumerate(_FREQS):
@@ -137,6 +155,7 @@ def build_metadata(dataset_name, window_seconds, signals_dir):
     info = {k: (v.format(w=window_seconds) if isinstance(v, str) and "{w" in v else v)
             for k, v in DATASET_INFO_TEMPLATE.items()}
     structure = build_data_structure(signals_dir)
+    channels = source_coordinates(signals_dir)
     return {
         "data_metadata": {
             "dataset_name": dataset_name,
@@ -148,7 +167,9 @@ def build_metadata(dataset_name, window_seconds, signals_dir):
                 "num_runs_per_subject": 4,
             },
             "targets": build_targets(),
-            "channels": {"count": len(CHANNELS), "system": "10-20 International System", **CHANNELS},
+            "channels": {"count": len(channels), "system": "10-20 International System",
+                         "coordinates_source": "data.suppl_info.chan of every .mat (the authors' table)",
+                         "polar_equator_radius": 0.5, **channels},
             # 0.5 s pre-stimulus is baked into the released epochs (native 250 Hz) -> 100 samples at 200 Hz
             "event_onset_sample": 100,
             "event_onset_sample_note": ONSET_NOTE[dataset_name],
