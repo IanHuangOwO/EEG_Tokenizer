@@ -76,9 +76,15 @@ def stamp_head_maps(head_pth, entry='stamp_power'):
 
 def summarise_stamps(head_paths, entry='stamp_power'):
     """Mean over heads of one backbone (stamps are that backbone's own dictionary): time weights [S, N], per-stamp
-    importance [S] (summed over virtual channels), channel map [S, C] (each head's rows scaled to max 1 first)."""
-    tws, imps, chans = [], [], []
+    importance [S] (summed over virtual channels), and the spatial filter [K, C] with virtual channels ranked by
+    importance (summed over stamps) and sign-aligned to the first head, as summarise() does for latent_signed."""
+    tws, imps, sps = [], [], []
     for h in head_paths:
-        tw, imp, chan = stamp_head_maps(h, entry)
-        tws.append(tw); imps.append(imp.sum(0)); chans.append(chan / chan.amax(1, keepdim=True).clamp(min=1e-12))
-    return torch.stack(tws).mean(0), torch.stack(imps).mean(0), torch.stack(chans).mean(0), len(tws)
+        tw, imp, _ = stamp_head_maps(h, entry)
+        sp = torch.load(h, map_location='cpu', weights_only=False)['model_state_dict'][f'spatials.{entry}.weight'].float()
+        sp = sp[imp.sum(1).argsort(descending=True)]
+        if sps:
+            sign = torch.sign((sp * sps[0]).sum(1, keepdim=True))
+            sp = sp * torch.where(sign == 0, torch.ones_like(sign), sign)
+        tws.append(tw); imps.append(imp.sum(0)); sps.append(sp)
+    return torch.stack(tws).mean(0), torch.stack(imps).mean(0), torch.stack(sps).mean(0), len(tws)
