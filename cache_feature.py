@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 
 import numpy as np
 import torch
@@ -69,6 +70,22 @@ def cache_key(config, dataset_name, checkpoint_path, latent=False, build_config=
     return hashlib.sha1(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
+def transform_coords(coords, kind, seed=0):
+    """Evaluation-only coordinate transforms (docs/cards/2026-10-01-coordinate-lookup.md), coords [..., C, 3] in metres:
+    'jitter_<k>mm' moves every channel by an independent Gaussian offset (sigma per axis k / sqrt(3): mean
+    displacement ~k mm) and projects it back to its distance from the head centre; 'mirror' swaps left and right
+    (x -> -x). Seeded, so a recording gets the same offsets every time."""
+    if kind == 'mirror':
+        return coords * torch.tensor([-1.0, 1.0, 1.0], dtype=coords.dtype)
+    m = re.fullmatch(r'jitter_(\d+(?:\.\d+)?)mm', kind)
+    assert m, f'unknown coords_transform {kind!r}'
+    g = torch.Generator().manual_seed(int(seed))
+    off = torch.randn(coords.shape, generator=g, dtype=torch.float64) * (float(m.group(1)) / 1000 / 3 ** 0.5)
+    r = coords.double().norm(dim=-1, keepdim=True)
+    moved = coords.double() + off
+    return (moved * r / moved.norm(dim=-1, keepdim=True).clamp_min(1e-9)).to(coords.dtype)
+
+
 def _data_path(config, dataset_name, subject):
     pp = config['preprocess_params']
     suffix = cache_suffix(pp['sample_freq'], pp['bandpass_filter'],
@@ -108,6 +125,11 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
             pos = get_standard_coords(base.channel_names[i])
             assert pos is not None, f"no standard position for {base.channel_names[i]}"
             coords[i] = torch.as_tensor(pos, dtype=coords.dtype)
+    # dataset_params.finetune.<ds>.coords_transform (evaluation only): see transform_coords; in the dataset dict,
+    # so cache_key separates it too.
+    tf = config['dataset_params']['finetune'][dataset_name].get('coords_transform')
+    if tf:
+        coords = transform_coords(coords, tf, seed=int(subject))
     channel_idx = list(range(len(valid))) if impute else torch.nonzero(valid).flatten().tolist()
     extractor = StampExtractor(backbone, channel_idx).to(device).eval()
     out, zs = [], []

@@ -16,7 +16,9 @@ schemes are compared on one task.
 2. Ablations under every test mask: coords shuffled across channels, all channels at the mean
    position, time_idx shuffled, time_idx constant, and skips_off (the encoder's UNet skips removed
    at eval: what the deep path alone reconstructs -- a small rise = the deep path carries the
-   content). Masked MSE per mask type; ablation_masked_mse keeps the token_runs row for older readers.
+   content), and coordinate jitter (2 / 5 / 10 mm per channel) and left-right mirror (cache_feature.
+   transform_coords; docs/cards/2026-10-01-coordinate-lookup.md). Masked MSE per mask type;
+   ablation_masked_mse keeps the token_runs row for older readers.
 3. Structure: coordinate-embedding similarity vs electrode closeness (Spearman, 10-10
    channels); pos_emb drift from its sinusoidal init; with a RelativeSpatialBias, per block
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
@@ -45,6 +47,7 @@ from scipy.stats import spearmanr
 
 from IO.dataset import build_dataset_from_config, load_montage_channels, split_pretrain_subjects
 from IO.loader import get_standard_coords
+from cache_feature import transform_coords
 from IO.masking import ChannelClusterMask, RandomChannelMask, TimeBlockMask, random_token_mask
 from model.MeSAE.MeSAE_modules import fourier_features, get_sinusoidal_pos, overlap_add_patches
 
@@ -191,6 +194,8 @@ def ablate(name, coords, t, valid):
             coords[b, v] = coords[b, v[torch.randperm(len(v))]]
         elif name == 'coords_mean':
             coords[b, v] = coords[b, v].mean(0)
+    if name.startswith('coords_jitter') or name == 'coords_mirror':
+        coords = torch.stack([transform_coords(c, name[len('coords_'):], seed=b) for b, c in enumerate(coords)])
     if name == 'time_shuffle':
         t = torch.stack([row[torch.randperm(len(row))] for row in t])
     elif name == 'time_const':
@@ -198,7 +203,8 @@ def ablate(name, coords, t, valid):
     return coords, t
 
 
-ABLATIONS = ['baseline', 'coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const', 'skips_off']
+ABLATIONS = ['baseline', 'coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const', 'skips_off',
+             'coords_jitter_2mm', 'coords_jitter_5mm', 'coords_jitter_10mm', 'coords_mirror']
 
 
 @torch.no_grad()
