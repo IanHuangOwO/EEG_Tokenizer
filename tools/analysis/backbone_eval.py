@@ -117,8 +117,10 @@ def batches(ds, idx, bs=32):
 
 # ---------- test masks ----------
 
-def make_mask(kind, valid_tok, coords, window_id, names_idx):
-    """valid_tok [C, N] bool -> (mask [C, N], score [C, N]); score = tokens that count."""
+def make_mask(kind, valid_tok, coords, window_id, names_idx, named=None):
+    """valid_tok [C, N] bool -> (mask [C, N], score [C, N]); score = tokens that count. named [C] bool: slots that hold
+    their canonical-name channel (EEGDataset.all_named_slots; under channel_layout 'real' other channels sit in free
+    slots) -- the name-based motor3_to_bci22 test reads only those."""
     torch.manual_seed(1_000_003 * window_id + zlib.crc32(kind.encode()) % 997)   # stable across processes
     C, N = valid_tok.shape
     if kind == 'token_runs':
@@ -130,7 +132,7 @@ def make_mask(kind, valid_tok, coords, window_id, names_idx):
     elif kind == 'time_block':
         m = TimeBlockMask().generate(valid_tok, coords, 0.3)
     elif kind == 'motor3_to_bci22':
-        real = valid_tok.any(1)
+        real = valid_tok.any(1) & (named if named is not None else True)
         motor = torch.zeros(C, dtype=torch.bool); motor[names_idx['motor-3']] = True
         bci = torch.zeros(C, dtype=torch.bool); bci[names_idx['bci-22']] = True
         if int(real.sum()) < 32 or not (motor & real).sum() == 3 or int((bci & real & ~motor).sum()) < 10:
@@ -240,7 +242,8 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
         for kind in KINDS:
             masks, scores = [], []
             for b in range(B):
-                m, s = make_mask(kind, valid_tok[b], coords[b], wids[b], names_idx)
+                m, s = make_mask(kind, valid_tok[b], coords[b], wids[b], names_idx,
+                                 bd.all_named_slots[bd.trial_to_coords_idx[wids[b]]])
                 masks.append(torch.zeros(C, N, dtype=torch.bool) if m is None else m)
                 scores.append(torch.zeros(C, N, dtype=torch.bool) if s is None else s)
             mp, sc = torch.stack(masks), torch.stack(scores)

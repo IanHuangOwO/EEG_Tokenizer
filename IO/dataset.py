@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset, Sampler
 from typing import List, Dict, Optional, Tuple, Callable, Any
 
-from .loader import load_coords_from_metadata
+from .loader import load_coords_from_metadata, get_standard_coords
 from IO.preprocessing import build_normalizer_from_config, cache_suffix, slice_patches, num_patches, window_continuous_signal
 from IO.masking import MaskingStrategy, build_masking_strategy_from_config
 
@@ -21,6 +21,55 @@ NON_EEG_CHANNELS = {
     'REF', 'LREF', 'RREF',
     'STI', 'STIM', 'STATUS', 'TRIGGER',
 }
+
+HEAD_RADIUS_M = 0.095   # polar metadata coordinates are projected onto a sphere of this radius (real layout)
+
+
+def channel_xyz(ch_info: Dict) -> Optional[np.ndarray]:
+    """Real-layout coordinate of one metadata channel (docs/adr/0023): digitized 'xyz' (metres, MNE head frame),
+    else MNE's standard_1020 position for the label, else the polar topomap coordinates projected onto a head sphere
+    (radius 0.5 = the equator), else None."""
+    if isinstance(ch_info.get('xyz'), (list, tuple)):
+        return np.asarray(ch_info['xyz'], dtype=np.float64)
+    p = get_standard_coords(ch_info.get('label', ''))
+    if p is None:
+        p = _standard_1005().get(ch_info.get('label', '').strip().lower())   # 10-05 names (FFC1h, TPP9h, AFp3h, ...)
+    if p is not None:
+        return np.asarray(p, dtype=np.float64)
+    c = ch_info.get('coordinates')
+    if c:
+        th, el = np.deg2rad(c.get('polar_angle_deg', 0.0)), np.pi * c.get('polar_radius', 0.0)
+        return HEAD_RADIUS_M * np.array([np.sin(el) * np.sin(th), np.sin(el) * np.cos(th), np.cos(el)])
+    return None
+
+
+_STD1005 = None
+
+
+def _standard_1005() -> Dict[str, np.ndarray]:
+    """MNE's standard_1005 positions by lower-case label (standard_1020 lacks the 10-05 half-step sites)."""
+    global _STD1005
+    if _STD1005 is None:
+        import mne
+        _STD1005 = {k.lower(): v for k, v in mne.channels.make_standard_montage('standard_1005').get_positions()['ch_pos'].items()}
+    return _STD1005
+
+
+IDW_K = 4   # > Nc channels: a missing canonical site = inverse-distance-squared mean of its k nearest good electrodes
+
+
+def idw_matrix(pos_from: np.ndarray, pos_to: np.ndarray, k: int = IDW_K) -> np.ndarray:
+    """Inverse-distance-weighted (1/d^2) interpolation from the k nearest electrodes -> [len(pos_to), len(pos_from)].
+    Chosen over spherical splines (docs/cards/2026-09-30-real-coordinates.md check 3: on a 126-channel montage IDW had
+    the lower mean and median error, and splines blew up on a noisy electrode)."""
+    W = np.zeros((len(pos_to), len(pos_from)))
+    for r, p in enumerate(pos_to):
+        d2 = ((pos_from - p) ** 2).sum(1)
+        nn = np.argsort(d2)[:k]
+        w = 1.0 / np.maximum(d2[nn], 1e-12)
+        W[r, nn] = w / w.sum()
+    return W
+
 
 # --- Base Dataset ---
 
@@ -76,6 +125,12 @@ class EEGDataset(Dataset):
         self.config = config
         self.channel_names = desired_channels
         self.Nc = len(desired_channels)
+        # 'grid' (every channel matched to its canonical 10-10 slot by name, the rest dropped) or 'real' (every EEG
+        # channel kept with real coordinates; > Nc channels reduced to the canonical sites), docs/adr/0023.
+        self.channel_layout = config.get('preprocess_params', {}).get('channel_layout', 'grid')
+        if self.channel_layout not in ('grid', 'real'):
+            raise ValueError(f"preprocess_params.channel_layout must be grid|real, got {self.channel_layout!r}")
+        self._plans = {}
         self.assemble_trials = assemble_trials
         self.assembly_params = assembly_params or {}
 
@@ -85,6 +140,7 @@ class EEGDataset(Dataset):
         all_dataset_names: List[str] = []
         all_coords: List[torch.Tensor] = []
         all_valid_channels: List[torch.Tensor] = []  # per-task [Nc] bool, True = real (not zero-padded) channel
+        all_named_slots: List[torch.Tensor] = []     # per-task [Nc] bool, True = the slot holds its canonical-name channel
         all_valid_length: List[int] = []             # per-task original T, before cross-subject max_T padding
         all_row_valid_start: List[torch.Tensor] = []  # per-task [N_rows] real-content start, per row
         all_row_valid_end: List[torch.Tensor] = []    # per-task [N_rows] real-content end, per row
@@ -105,6 +161,7 @@ class EEGDataset(Dataset):
             all_dataset_names.extend([result['dataset_name']] * len(result['data']))
             all_coords.append(result['coords'])
             all_valid_channels.append(result['valid_channels'])
+            all_named_slots.append(result['named_slots'])
             all_valid_length.append(result['valid_length'])
             all_row_valid_start.append(result['row_valid_start'])
             all_row_valid_end.append(result['row_valid_end'])
@@ -127,6 +184,10 @@ class EEGDataset(Dataset):
         self.dataset_names = all_dataset_names
         self.all_coords = all_coords
         self.all_valid_channels = all_valid_channels
+        # Which valid slots hold the channel their canonical name says: everything valid under 'grid'; under 'real'
+        # a non-grid channel sits in a free slot. Name-based logic (channel subsampler, backbone_eval's motor-3 ->
+        # bci-22 test) reads only these.
+        self.all_named_slots = all_named_slots
         self.all_valid_length = all_valid_length
         # Per-ROW (not per-task, unlike all_valid_length above): indexed the same way
         # self.labels/self.data rows are, since real-content bounds vary WITHIN a task
@@ -155,7 +216,14 @@ class EEGDataset(Dataset):
         transform = task['transform']
         ds_config = task['dataset_config']
 
-        ds_indices, target_pos = self._map_channels(desired_channels, ds_config['data_metadata']['channels'])
+        plan = None
+        if self.channel_layout == 'real':
+            if ds_name not in self._plans:
+                self._plans[ds_name] = self._real_plan(desired_channels, ds_config)
+            plan = self._plans[ds_name]
+            ds_indices, target_pos = plan['src'], plan['slots']
+        else:
+            ds_indices, target_pos = self._map_channels(desired_channels, ds_config['data_metadata']['channels'])
 
         # Train-time read: compiled cache only (see cache_dataset.py) — dataset-specific
         # loading code (datas/<Name>/loader.py) never runs at train time. The cached
@@ -175,20 +243,29 @@ class EEGDataset(Dataset):
         data_np = npz['data'][:, ds_indices, :]
         if data_np.shape[0] == 0:
             return None
-        coords_np = load_coords_from_metadata(ds_config['data_metadata'], ds_indices)
+        coords_np = plan['coords'] if plan else load_coords_from_metadata(ds_config['data_metadata'], ds_indices)
+        src_names = plan['labels'] if plan else [desired_channels[p] for p in target_pos]
 
         raw_data = torch.from_numpy(data_np.astype(np.float32))  # (N, C, T)
         N, _, T = raw_data.shape
         # Pretrain only: a channel far flatter than the subject's others (std < FLAT_RATIO x the
         # median channel std, measured BEFORE the per-trial z-score, which would blow its noise
         # up to unit variance) is a dead electrode or the reference -- treated as padding below.
-        flat = torch.zeros(len(target_pos), dtype=torch.bool)
+        flat = torch.zeros(len(ds_indices), dtype=torch.bool)
         if self.assemble_trials:
-            ch_std = raw_data.transpose(0, 1).reshape(len(target_pos), -1).std(dim=1)
+            ch_std = raw_data.transpose(0, 1).reshape(len(ds_indices), -1).std(dim=1)
             flat = ch_std < FLAT_RATIO * ch_std.median()
             if flat.any():
                 print(f"  [{ds_name} S{subject_id}] flat channels -> padding: "
-                      f"{[desired_channels[target_pos[i]] for i in flat.nonzero().flatten().tolist()]}")
+                      f"{[src_names[i] for i in flat.nonzero().flatten().tolist()]}")
+        named = plan['named'] if plan else [True] * len(target_pos)
+        if plan and plan['interp']:
+            # > Nc channels: every canonical site, copied where the recording has it (and it is not flat),
+            # IDW-interpolated from its good electrodes where not. Dead electrodes are left out of the interpolation.
+            W, coords_np = self._interp_matrix(plan, ~flat.numpy(), desired_channels)
+            raw_data = torch.einsum('sc,nct->nst', torch.from_numpy(W).float(), raw_data)
+            target_pos, named = list(range(self.Nc)), [True] * self.Nc
+            flat = torch.zeros(self.Nc, dtype=torch.bool)
         # Per-trial real-content bounds, compiled-rate samples (see cache_dataset.py /
         # IO/loader.py's get_subject_data) -- 'valid_start'/'valid_end' absent (an older
         # cache from before this existed) means "every trial fully real", same default
@@ -254,6 +331,9 @@ class EEGDataset(Dataset):
             valid_channels[dead] = False
             padded[:, dead] = 0
             task_coords[dead] = 0
+        named_slots = torch.zeros(self.Nc, dtype=torch.bool)
+        named_slots[[p for p, n in zip(target_pos, named) if n]] = True
+        named_slots &= valid_channels
 
         return {
             'data': padded,
@@ -262,6 +342,7 @@ class EEGDataset(Dataset):
             'subject_id': subject_id,
             'coords': task_coords,
             'valid_channels': valid_channels,
+            'named_slots': named_slots,
             'valid_length': post_transform_T,
             'row_valid_start': row_valid_start,
             'row_valid_end': row_valid_end,
@@ -303,6 +384,65 @@ class EEGDataset(Dataset):
         print(f"  [channel map] matched {len(ds_indices)}/{len(desired_channels)}"
               + (f" | zero-padded: {missing}" if missing else ""))
         return ds_indices, target_pos
+
+    def _real_plan(self, desired_channels: List[str], ds_config: Dict) -> Dict:
+        """channel_layout 'real' (docs/adr/0023): which cached channels to read and where they go. A channel whose
+        label (with the 10-20 aliases) is a canonical name keeps that slot, exactly as under 'grid'; every other EEG
+        channel with a known position fills a free slot. More than Nc channels -> 'interp': all of them feed
+        _interp_matrix. -> {src, slots, labels, coords, named, interp, pos}."""
+        chans = ds_config['data_metadata']['channels']
+        include_non_eeg = ds_config['dataset_params'].get('include_non_eeg_channels', False)
+        keys = sorted((k for k in chans if isinstance(k, str) and k.isdigit()), key=int)
+        slot_of = {self._normalize_label(n): s for s, n in enumerate(desired_channels)}
+        src, labels, pos, slot, dropped = [], [], [], [], []
+        for k in keys:
+            info = chans[k]
+            label = info.get('label', '') if isinstance(info, dict) else ''
+            s = slot_of.get(self._normalize_label(label))
+            if s is not None and s in slot:
+                s = None                                       # two labels for one site (e.g. T3 and T7)
+            if s is None and not include_non_eeg and label.upper() in NON_EEG_CHANNELS:
+                continue
+            p = channel_xyz(info) if isinstance(info, dict) else None
+            if p is None:
+                dropped.append(label)
+                continue
+            src.append(int(k) - 1); labels.append(label); pos.append(p); slot.append(s)
+        if dropped:
+            print(f"  [channel map] no position, dropped: {dropped}")
+        # canonical-slot order first (as 'grid' reads them, so a canonical-only dataset normalises bit-identically:
+        # the per-trial z-score sums channels in read order), the other channels after in metadata order
+        order = sorted(range(len(src)), key=lambda j: (slot[j] is None, slot[j] if slot[j] is not None else j))
+        src, labels, pos, slot = ([v[j] for j in order] for v in (src, labels, pos, slot))
+        named = [s is not None for s in slot]
+        pos = np.array(pos)
+        interp = len(src) > self.Nc
+        if not interp:
+            free = iter(s for s in range(self.Nc) if s not in slot)
+            slot = [s if s is not None else next(free) for s in slot]
+        print(f"  [channel map real] {len(src)} EEG channels, {sum(named)} on canonical slots"
+              + (f", > {self.Nc}: interpolated to the canonical sites" if interp else ""))
+        return {'src': src, 'slots': slot, 'labels': labels, 'coords': pos.astype(np.float32), 'named': named,
+                'interp': interp, 'pos': pos}
+
+    def _interp_matrix(self, plan: Dict, good: np.ndarray, desired_channels: List[str]) -> Tuple[np.ndarray, np.ndarray]:
+        """> Nc channels -> (W [Nc, n_src] mapping the recording to the Nc canonical sites, coords [Nc, 3]). A site
+        the recording has (and whose electrode is good) is copied (one-hot row, the electrode's own position); every
+        other site is an inverse-distance-weighted row (idw_matrix) from the good electrodes, at the site's standard
+        position."""
+        n = len(plan['src'])
+        W = np.zeros((self.Nc, n))
+        coords = np.zeros((self.Nc, 3))
+        have = {s: j for j, s in enumerate(plan['slots']) if s is not None and good[j]}
+        missing = [s for s in range(self.Nc) if s not in have]
+        for s, j in have.items():
+            W[s, j], coords[s] = 1.0, plan['pos'][j]
+        if missing:
+            std = np.array([get_standard_coords(desired_channels[s]) for s in missing], dtype=np.float64)
+            gi = np.flatnonzero(good)
+            W[np.ix_(missing, gi)] = idw_matrix(plan['pos'][gi], std)
+            coords[missing] = std
+        return W, coords.astype(np.float32)
 
     def __getitem__(self, index):
         return self.data[index], self.labels[index]
@@ -477,7 +617,8 @@ class PretrainDataset(Dataset):
         for i in range(len(bd)):
             valid, keep = self._valid_masks[i], None
             if subsampler is not None:
-                keep = subsampler.sample(bd.all_valid_channels[bd.trial_to_coords_idx[i]], self._montage_idx)
+                ti = bd.trial_to_coords_idx[i]
+                keep = subsampler.sample(bd.all_valid_channels[ti] & bd.all_named_slots[ti], self._montage_idx)
                 if keep is not None:
                     valid = valid & keep.repeat_interleave(self.num_patches)
             self._keep.append(keep)
