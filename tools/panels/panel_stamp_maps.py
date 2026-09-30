@@ -1,7 +1,7 @@
 """stamp_maps: where a head with a stamp_power entry reads from, per cell and group (a latent_signed entry of the
 same head, if any, is drawn on top: virtual channel x time and spatial filters, as probe_maps): each stamp's learned time weights
-(stamps ranked by decision importance, labelled with their template's peak frequency) and the
-stamp_power spatial filter per virtual channel (ranked, sign-aligned; tools/analysis/probe_maps.py), over every fold and
+(stamps ranked by decision importance, labelled with their template's peak frequency) and, for the most important
+stamps, which electrodes' power the decision uses (tools/analysis/probe_maps.py stamp_head_maps), over every fold and
 finetune seed of the cell -> stamp_maps_<cell>_<group>.png. Run it with --head <a label whose head has stamp_power>,
 e.g. combined or cw_stamp. One figure per group: stamps are each backbone's own dictionary, not comparable across."""
 import glob
@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 from IO.dataset import resolve_canonical_channels
+from IO.loader import get_standard_coords
 from model.factory import build_from_checkpoint
 from tools.analysis.probe_maps import summarise, summarise_stamps
 from tools.panels.panel_probe_maps import _time_axis
@@ -41,7 +42,7 @@ def run(ctx):
             if not heads:
                 continue
             try:
-                tw, imp, sp, n = summarise_stamps(heads)
+                tw, imp, chan, n = summarise_stamps(heads)
             except KeyError:
                 continue                                    # no stamp_power entry in this head
             try:
@@ -54,9 +55,10 @@ def run(ctx):
             h0 = torch.load(heads[0], map_location='cpu', weights_only=False)
             chans = resolve_canonical_channels(cfg['preprocess_params']['canonical_channels'])
             names = [chans[i] for i in h0['head_config']['channel_idx']]
+            xy = np.array([get_standard_coords(c)[:2] for c in names])
             labels = _stamp_labels(h0['backbone_checkpoint'], float(cfg['preprocess_params']['sample_freq']))
             out = os.path.join(ctx.out_dir, f'stamp_maps_{cell}_{g}.png')
-            plot_stamp_maps(out, tw.numpy(), imp.numpy(), sp.numpy(), t, labels, names,
+            plot_stamp_maps(out, tw.numpy(), imp.numpy(), chan.numpy(), t, labels, xy, names,
                             f'{cell}, {g} ({bb}): {ctx.head}, {n} heads{note}',
                             event_s=None if note.startswith(' (event line omitted') else 0.0, z_maps=z_maps)
             print(f"  -> {out}")

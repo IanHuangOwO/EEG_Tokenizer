@@ -110,7 +110,7 @@ learned from the same few trials. Shelved, worth revisiting (e.g. filters fit in
 instead of by gradient); the option stays in the code (default off). Runs archived in
 `output/archive/2026-09-30_per_stamp_spatial/`.
 
-Where the combined head reads from (tiny s1, all folds and finetune seeds per cell): `2026-09-29-combined-head/head_maps_tiny_s1/stamp_maps_<cell>_s1.png` -- top row the z half (virtual channel x time, spatial filters), bottom the stamp half (per-stamp time weights, spatial filters). On MI the stamp half reads 12 / 24 Hz power over lateral central sites 0.5-4 s after the cue; the z half reads 0.1-0.5 s, on BNCI2014001 from parieto-occipital sites (likely the visual cue response, caveat 7).
+Where the combined head reads from (tiny s1, all folds and finetune seeds per cell): `2026-09-29-combined-head/head_maps_tiny_s1/stamp_maps_<cell>_s1.png` -- top row the z half (virtual channel x time, spatial filters), bottom the stamp half (per-stamp time weights, scalp map of the top stamps); virtual channels and stamps ranked by importance. On MI the stamp half reads 12 / 24 Hz power over lateral central sites 0.5-4 s after the cue; the z half reads 0.1-0.5 s, on BNCI2014001 from parieto-occipital sites (likely the visual cue response, caveat 7).
 
 Cohen's kappa (small corpus, same runs; `kappa_small_table.md`, `kappa_small.png`): loso combined 0.582 / 0.378 / 0.317
 vs z probe 0.503 / 0.331 / 0.299 and stamp head 0.497 / 0.231 / 0.146 on BNCI2014004 / 001 / 008 -- the same ranking as
