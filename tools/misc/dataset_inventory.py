@@ -63,6 +63,13 @@ MISSING = [
     ('HMC', 'Sleep staging', 'B', 'open (PhysioNet hmc-sleep-staging), not fetched'),
 ]
 
+# Pretrain candidates recorded but on hold (TB scale, 2026-09-30): (name, source, subjects / channels, size, note)
+ON_HOLD = [
+    ('HBN (Healthy Brain Network), releases 1-11', 'NEMAR on005505-on005516 (+ nm000103)', '~3000 children, 129ch EGI HydroCel',
+     '~2 TB', 'pediatric, EGI net, 5 tasks + rest; EEG Foundation Challenge 2025 data'),
+    ('PEERS', 'NEMAR on004395', '364, 125ch EGI', '9.6 TB', 'memory encoding / free recall, many sessions'),
+]
+
 # Why each datas/archive/ dataset was dropped from pretraining (2026-09-24 rebalance).
 ARCHIVED = {
     'AAD_KUL': 'Public release (Zenodo 4004271) is downsampled to 128 Hz, 0.5 Hz high-passed and '
@@ -83,8 +90,15 @@ def row(split, path, suffix):
     name = os.path.basename(path)
     notes = os.path.join(path, 'NOTES.md')
     meta_path = os.path.join(path, 'metadata.json')
+    fetch = os.path.join(path, 'FETCH_STATUS.json')
     if not os.path.exists(meta_path):
-        status = open(notes).readline().split('--', 1)[-1].strip() if os.path.exists(notes) else 'no metadata'
+        if os.path.exists(fetch):   # being fetched by tools/misc/fetch_datasets.py, not added yet
+            f = json.load(open(fetch))
+            prog = (f"{f.get('bytes_done', 0) / 1e9:.0f}/{f.get('bytes_total', 0) / 1e9:.0f} GB" if f.get('source') == 'nemar'
+                    else f"{f.get('subjects_done', 0)}/{f.get('subjects_total', '?')} subjects")
+            status = f"raw {f.get('state')} ({f.get('source')} {f.get('id')}, {prog}), not added"
+        else:
+            status = open(notes).readline().split('--', 1)[-1].strip() if os.path.exists(notes) else 'no metadata'
         return [name, split, PARADIGM.get(name, '?'), BENCH.get(name, ''), '', '', '', '', '', '', status], 0.0
     m = json.load(open(meta_path))
     d = m['data_metadata']
@@ -141,6 +155,8 @@ for split in ('finetune', 'pretrain'):
     if split == 'finetune':
         lines += [f'| {n} | {p} | {b} |  |  |  |  |  |  | {st} |' for n, p, b, st in MISSING]
     lines.append('')
+lines += ['## pretrain candidates on hold (TB scale)', '', '| Dataset | Source | Subjects / channels | Size | Note |',
+          '|---|---|---|---|---|'] + [f'| {" | ".join(r)} |' for r in ON_HOLD] + ['']
 archived = sorted(os.path.basename(p.rstrip('/')) for p in glob.glob('datas/archive/*/'))
 lines += [f'## archive ({len(archived)} datasets, not compiled into any run)', '',
           'Moved out of `datas/pretrain/` and `configs/compile.json`; loaders, metadata and cache kept.', '',

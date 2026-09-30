@@ -38,7 +38,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Mimul-11 | Motor imagery (upper limb, 3-class) | B |  |  |  |  |  |  | open (GigaDB, Jeong 2020), not fetched |
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 
-## pretrain (25 datasets, 380.1 h compiled)
+## pretrain (26 datasets, 380.1 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -60,6 +60,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s | 8.8 | compiled (MOABB) |
 | MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 110.5 | compiled |
+| NMT_Clinical | ? |  |  |  |  |  |  |  | raw downloading (nemar nm000181, 0/15 GB), not added |
 | Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s | 18.7 | compiled (MOABB) |
 | SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0 s | 0.8 | compiled |
 | SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.1 | compiled |
@@ -67,6 +68,13 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | UCSD_PD | Clinical: Parkinson's (rest) |  | 31 | 32 | 512 | 3 | — | 2.5 | compiled |
 | Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s | 11.3 | compiled (MOABB) |
 | Weibo2014 | Motor imagery (7-class) |  | 10 | 60 | 200 | 7 | 1 s | 7.7 | compiled (MOABB) |
+
+## pretrain candidates on hold (TB scale)
+
+| Dataset | Source | Subjects / channels | Size | Note |
+|---|---|---|---|---|
+| HBN (Healthy Brain Network), releases 1-11 | NEMAR on005505-on005516 (+ nm000103) | ~3000 children, 129ch EGI HydroCel | ~2 TB | pediatric, EGI net, 5 tasks + rest; EEG Foundation Challenge 2025 data |
+| PEERS | NEMAR on004395 | 364, 125ch EGI | 9.6 TB | memory encoding / free recall, many sessions |
 
 ## archive (5 datasets, not compiled into any run)
 
