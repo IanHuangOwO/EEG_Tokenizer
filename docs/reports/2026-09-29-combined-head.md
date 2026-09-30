@@ -101,6 +101,13 @@ instead of by gradient); the option stays in the code (default off). Runs archiv
 
 Where the combined head reads from (tiny s1, all folds and finetune seeds per cell): `2026-09-29-combined-head/head_maps_tiny_s1/stamp_maps_<cell>_s1.png` -- top row the z half (virtual channel x time, spatial filters), bottom the stamp half (per-stamp time weights, spatial filters). On MI the stamp half reads 12 / 24 Hz power over lateral central sites 0.5-4 s after the cue; the z half reads 0.1-0.5 s, on BNCI2014001 from parieto-occipital sites (likely the visual cue response, caveat 7).
 
+Cohen's kappa (small corpus, same runs; `kappa_small_table.md`, `kappa_small.png`): loso combined 0.582 / 0.378 / 0.317
+vs z probe 0.503 / 0.331 / 0.299 and stamp head 0.497 / 0.231 / 0.146 on BNCI2014004 / 001 / 008 -- the same ranking as
+balanced accuracy. EEG-FM-Compass reports balanced accuracy only, so kappa has no Compass reference. BNCI2014008's kappa
+is low next to its balanced accuracy because targets are 1 in 6 trials (kappa counts chance agreement on the imbalance).
+
+![kappa, small corpus](2026-09-29-combined-head/kappa_small.png)
+
 ## Notes
 
 - The combined head has the largest train/test gap in every cell but BNCI2014008 loso. On loso, where many training
