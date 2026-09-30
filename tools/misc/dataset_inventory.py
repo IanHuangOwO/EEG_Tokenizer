@@ -24,7 +24,7 @@ PARADIGM = {
     'BNCI2015001': 'Motor imagery (hand/feet)', 'CHB_MIT': 'Seizure detection (pediatric)',
     'EEGMAT': 'Mental workload (arithmetic)', 'Nakanishi2015': 'SSVEP (12-class)',
     'PhysionetMI': 'Motor imagery (5-class)', 'SEED': 'Emotion (3-class)',
-    'SEED_V': 'Emotion (5-class)', 'SEED_VII': 'Emotion (7-class)',
+    'SEED_IV': 'Emotion (4-class)', 'SEED_V': 'Emotion (5-class)', 'SEED_VII': 'Emotion (7-class)',
     'SEED_VIG': 'Vigilance (PERCLOS regression)', 'Siena': 'Seizure detection (adult)',
     'Sleep_EDFx': 'Sleep staging', 'Things_EEG2': 'Visual decoding (images)',
     'TUAB': 'Abnormal EEG (clinical)', 'TUEV': 'Event classification (clinical)',
@@ -68,6 +68,13 @@ ON_HOLD = [
     ('HBN (Healthy Brain Network), releases 1-11', 'NEMAR on005505-on005516 (+ nm000103)', '~3000 children, 129ch EGI HydroCel',
      '~2 TB', 'pediatric, EGI net, 5 tasks + rest; EEG Foundation Challenge 2025 data'),
     ('PEERS', 'NEMAR on004395', '364, 125ch EGI', '9.6 TB', 'memory encoding / free recall, many sessions'),
+    # gated SJTU BCMI sets (application form + license, bcmi.sjtu.edu.cn/home/seed/): likely the same NeuroScan 62ch
+    # cap as SEED/IV/V (more subjects, no new montage); film/driving tasks count toward the 'rest/other' share
+    ('SEED-SD', 'BCMI (gated)', '40, 62ch NeuroScan?', '?', 'emotion under sleep deprivation / recovery / normal'),
+    ('SEED-DV', 'BCMI (gated)', '20, 62ch NeuroScan?', '?', 'watching 1400 video clips (visual decoding)'),
+    ('SEED-VLA / SEED-VRW', 'BCMI (gated)', '?', '?', 'fatigue: lab-simulated and real-world driving'),
+    ('SEED-VII', 'BCMI (gated)', '?', '?', '7 emotions; may be wanted as finetune instead'),
+    ('SEED-FRA / SEED-GER', 'BCMI (gated)', '8 + 8', '?', '3 emotions, French / German subjects; small'),
 ]
 
 # Why each datas/archive/ dataset was dropped from pretraining (2026-09-24 rebalance).
@@ -155,7 +162,7 @@ for split in ('finetune', 'pretrain'):
     if split == 'finetune':
         lines += [f'| {n} | {p} | {b} |  |  |  |  |  |  | {st} |' for n, p, b, st in MISSING]
     lines.append('')
-lines += ['## pretrain candidates on hold (TB scale)', '', '| Dataset | Source | Subjects / channels | Size | Note |',
+lines += ['## pretrain candidates on hold (TB scale or gated)', '', '| Dataset | Source | Subjects / channels | Size | Note |',
           '|---|---|---|---|---|'] + [f'| {" | ".join(r)} |' for r in ON_HOLD] + ['']
 archived = sorted(os.path.basename(p.rstrip('/')) for p in glob.glob('datas/archive/*/'))
 lines += [f'## archive ({len(archived)} datasets, not compiled into any run)', '',

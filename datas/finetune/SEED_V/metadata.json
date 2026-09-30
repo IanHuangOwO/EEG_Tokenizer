@@ -1,0 +1,583 @@
+{
+    "data_metadata": {
+        "dataset_name": "SEED_V",
+        "dataset_info": {
+            "source_url": "https://bcmi.sjtu.edu.cn/home/seed/seed-v.html",
+            "file_format": "NeuroScan (.cnt)",
+            "description": "16 subjects x 3 sessions, 15 film clips per session (happy / sad / fear / disgust / neutral), 62ch NeuroScan, 1000 Hz; classify the clip's emotion.",
+            "task_type": "emotion",
+            "reference": "Liu W, Qiu J-L, Zheng W-L, Lu B-L (2022). Comparing Recognition Performance and Robustness of Multimodal Deep Learning Models for Multimodal Emotion Recognition. IEEE TCDS 14(2):715-729.",
+            "notes": "EEG_raw .cnt, M1/M2/VEO/HEO dropped. 10 s non-overlapping windows within each clip (EEG-FM-Bench). Session = stimulus set (file name), not recording order. Eye data not staged. Access is gated."
+        },
+        "acquisition": {
+            "sample_frequency": 1000,
+            "window_size_seconds": 10.0,
+            "num_subjects": 16,
+            "num_sessions_per_subject": 3
+        },
+        "targets": {
+            "count": 5,
+            "type": "emotion",
+            "0": {
+                "label": "disgust"
+            },
+            "1": {
+                "label": "fear"
+            },
+            "2": {
+                "label": "sad"
+            },
+            "3": {
+                "label": "neutral"
+            },
+            "4": {
+                "label": "happy"
+            }
+        },
+        "session_clips": [
+            [
+                [
+                    30,
+                    102,
+                    4
+                ],
+                [
+                    132,
+                    228,
+                    1
+                ],
+                [
+                    287,
+                    524,
+                    3
+                ],
+                [
+                    555,
+                    742,
+                    2
+                ],
+                [
+                    773,
+                    920,
+                    0
+                ],
+                [
+                    982,
+                    1240,
+                    4
+                ],
+                [
+                    1271,
+                    1568,
+                    1
+                ],
+                [
+                    1628,
+                    1697,
+                    3
+                ],
+                [
+                    1730,
+                    1994,
+                    2
+                ],
+                [
+                    2025,
+                    2166,
+                    0
+                ],
+                [
+                    2227,
+                    2401,
+                    4
+                ],
+                [
+                    2435,
+                    2607,
+                    1
+                ],
+                [
+                    2667,
+                    2901,
+                    3
+                ],
+                [
+                    2932,
+                    3172,
+                    2
+                ],
+                [
+                    3204,
+                    3359,
+                    0
+                ]
+            ],
+            [
+                [
+                    30,
+                    267,
+                    2
+                ],
+                [
+                    299,
+                    488,
+                    1
+                ],
+                [
+                    548,
+                    614,
+                    3
+                ],
+                [
+                    646,
+                    773,
+                    0
+                ],
+                [
+                    836,
+                    967,
+                    4
+                ],
+                [
+                    1000,
+                    1059,
+                    4
+                ],
+                [
+                    1091,
+                    1331,
+                    0
+                ],
+                [
+                    1392,
+                    1622,
+                    3
+                ],
+                [
+                    1657,
+                    1777,
+                    2
+                ],
+                [
+                    1809,
+                    1908,
+                    1
+                ],
+                [
+                    1966,
+                    2153,
+                    3
+                ],
+                [
+                    2186,
+                    2302,
+                    4
+                ],
+                [
+                    2333,
+                    2428,
+                    1
+                ],
+                [
+                    2490,
+                    2709,
+                    2
+                ],
+                [
+                    2741,
+                    2817,
+                    0
+                ]
+            ],
+            [
+                [
+                    30,
+                    321,
+                    2
+                ],
+                [
+                    353,
+                    418,
+                    1
+                ],
+                [
+                    478,
+                    643,
+                    3
+                ],
+                [
+                    674,
+                    764,
+                    0
+                ],
+                [
+                    825,
+                    877,
+                    4
+                ],
+                [
+                    908,
+                    1147,
+                    4
+                ],
+                [
+                    1200,
+                    1284,
+                    0
+                ],
+                [
+                    1346,
+                    1418,
+                    3
+                ],
+                [
+                    1451,
+                    1679,
+                    2
+                ],
+                [
+                    1711,
+                    1996,
+                    1
+                ],
+                [
+                    2055,
+                    2275,
+                    3
+                ],
+                [
+                    2307,
+                    2425,
+                    4
+                ],
+                [
+                    2457,
+                    2664,
+                    1
+                ],
+                [
+                    2726,
+                    2857,
+                    2
+                ],
+                [
+                    2888,
+                    3066,
+                    0
+                ]
+            ]
+        ],
+        "channels": {
+            "count": 62,
+            "system": "10-20 (ESI NeuroScan 62ch)",
+            "1": {
+                "label": "FP1"
+            },
+            "2": {
+                "label": "FPZ"
+            },
+            "3": {
+                "label": "FP2"
+            },
+            "4": {
+                "label": "AF3"
+            },
+            "5": {
+                "label": "AF4"
+            },
+            "6": {
+                "label": "F7"
+            },
+            "7": {
+                "label": "F5"
+            },
+            "8": {
+                "label": "F3"
+            },
+            "9": {
+                "label": "F1"
+            },
+            "10": {
+                "label": "FZ"
+            },
+            "11": {
+                "label": "F2"
+            },
+            "12": {
+                "label": "F4"
+            },
+            "13": {
+                "label": "F6"
+            },
+            "14": {
+                "label": "F8"
+            },
+            "15": {
+                "label": "FT7"
+            },
+            "16": {
+                "label": "FC5"
+            },
+            "17": {
+                "label": "FC3"
+            },
+            "18": {
+                "label": "FC1"
+            },
+            "19": {
+                "label": "FCZ"
+            },
+            "20": {
+                "label": "FC2"
+            },
+            "21": {
+                "label": "FC4"
+            },
+            "22": {
+                "label": "FC6"
+            },
+            "23": {
+                "label": "FT8"
+            },
+            "24": {
+                "label": "T7"
+            },
+            "25": {
+                "label": "C5"
+            },
+            "26": {
+                "label": "C3"
+            },
+            "27": {
+                "label": "C1"
+            },
+            "28": {
+                "label": "CZ"
+            },
+            "29": {
+                "label": "C2"
+            },
+            "30": {
+                "label": "C4"
+            },
+            "31": {
+                "label": "C6"
+            },
+            "32": {
+                "label": "T8"
+            },
+            "33": {
+                "label": "TP7"
+            },
+            "34": {
+                "label": "CP5"
+            },
+            "35": {
+                "label": "CP3"
+            },
+            "36": {
+                "label": "CP1"
+            },
+            "37": {
+                "label": "CPZ"
+            },
+            "38": {
+                "label": "CP2"
+            },
+            "39": {
+                "label": "CP4"
+            },
+            "40": {
+                "label": "CP6"
+            },
+            "41": {
+                "label": "TP8"
+            },
+            "42": {
+                "label": "P7"
+            },
+            "43": {
+                "label": "P5"
+            },
+            "44": {
+                "label": "P3"
+            },
+            "45": {
+                "label": "P1"
+            },
+            "46": {
+                "label": "PZ"
+            },
+            "47": {
+                "label": "P2"
+            },
+            "48": {
+                "label": "P4"
+            },
+            "49": {
+                "label": "P6"
+            },
+            "50": {
+                "label": "P8"
+            },
+            "51": {
+                "label": "PO7"
+            },
+            "52": {
+                "label": "PO5"
+            },
+            "53": {
+                "label": "PO3"
+            },
+            "54": {
+                "label": "POZ"
+            },
+            "55": {
+                "label": "PO4"
+            },
+            "56": {
+                "label": "PO6"
+            },
+            "57": {
+                "label": "PO8"
+            },
+            "58": {
+                "label": "CB1",
+                "coordinates": {
+                    "polar_angle_deg": -170.0,
+                    "polar_radius": 0.52
+                }
+            },
+            "59": {
+                "label": "O1"
+            },
+            "60": {
+                "label": "OZ"
+            },
+            "61": {
+                "label": "O2"
+            },
+            "62": {
+                "label": "CB2",
+                "coordinates": {
+                    "polar_angle_deg": 170.0,
+                    "polar_radius": 0.52
+                }
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "sessions": [
+                "raw/EEG_raw/1_1_20180804.cnt",
+                "raw/EEG_raw/1_2_20180810.cnt",
+                "raw/EEG_raw/1_3_20180808.cnt"
+            ]
+        },
+        "2": {
+            "sessions": [
+                "raw/EEG_raw/2_1_20180416.cnt",
+                "raw/EEG_raw/2_2_20180419.cnt",
+                "raw/EEG_raw/2_3_20180425.cnt"
+            ]
+        },
+        "3": {
+            "sessions": [
+                "raw/EEG_raw/3_1_20180414.cnt",
+                "raw/EEG_raw/3_2_20180419.cnt",
+                "raw/EEG_raw/3_3_20180424.cnt"
+            ]
+        },
+        "4": {
+            "sessions": [
+                "raw/EEG_raw/4_1_20180414.cnt",
+                "raw/EEG_raw/4_2_20180417.cnt",
+                "raw/EEG_raw/4_3_20180501.cnt"
+            ]
+        },
+        "5": {
+            "sessions": [
+                "raw/EEG_raw/5_1_20180719.cnt",
+                "raw/EEG_raw/5_2_20180728.cnt",
+                "raw/EEG_raw/5_3_20180723.cnt"
+            ]
+        },
+        "6": {
+            "sessions": [
+                "raw/EEG_raw/6_1_20180713.cnt",
+                "raw/EEG_raw/6_2_20180731.cnt",
+                "raw/EEG_raw/6_3_20180802.cnt"
+            ]
+        },
+        "7": {
+            "sessions": [
+                "raw/EEG_raw/7_1_20180411.cnt",
+                "raw/EEG_raw/7_2_20180418.cnt",
+                "raw/EEG_raw/7_3_20180422.cnt"
+            ]
+        },
+        "8": {
+            "sessions": [
+                "raw/EEG_raw/8_1_20180717.cnt",
+                "raw/EEG_raw/8_2_20180802.cnt",
+                "raw/EEG_raw/8_3_20180726.cnt"
+            ]
+        },
+        "9": {
+            "sessions": [
+                "raw/EEG_raw/9_1_20180724.cnt",
+                "raw/EEG_raw/9_2_20180804.cnt",
+                "raw/EEG_raw/9_3_20180728.cnt"
+            ]
+        },
+        "10": {
+            "sessions": [
+                "raw/EEG_raw/10_1_20180507.cnt",
+                "raw/EEG_raw/10_2_20180524.cnt",
+                "raw/EEG_raw/10_3_20180626.cnt"
+            ]
+        },
+        "11": {
+            "sessions": [
+                "raw/EEG_raw/11_1_20180510.cnt",
+                "raw/EEG_raw/11_2_20180508.cnt",
+                "raw/EEG_raw/11_3_20180522.cnt"
+            ]
+        },
+        "12": {
+            "sessions": [
+                "raw/EEG_raw/12_1_20180515.cnt",
+                "raw/EEG_raw/12_2_20180508.cnt",
+                "raw/EEG_raw/12_3_20180517.cnt"
+            ]
+        },
+        "13": {
+            "sessions": [
+                "raw/EEG_raw/13_1_20180720.cnt",
+                "raw/EEG_raw/13_2_20180806.cnt",
+                "raw/EEG_raw/13_3_20180725.cnt"
+            ]
+        },
+        "14": {
+            "sessions": [
+                "raw/EEG_raw/14_1_20180420.cnt",
+                "raw/EEG_raw/14_2_20180423.cnt",
+                "raw/EEG_raw/14_3_20180427.cnt"
+            ]
+        },
+        "15": {
+            "sessions": [
+                "raw/EEG_raw/15_1_20180724.cnt",
+                "raw/EEG_raw/15_2_20180807.cnt",
+                "raw/EEG_raw/15_3_20180730.cnt"
+            ]
+        },
+        "16": {
+            "sessions": [
+                "raw/EEG_raw/16_1_20180805.cnt",
+                "raw/EEG_raw/16_2_20180815.cnt",
+                "raw/EEG_raw/16_3_20180813.cnt"
+            ]
+        }
+    }
+}

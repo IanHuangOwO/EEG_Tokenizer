@@ -1,0 +1,354 @@
+{
+    "data_metadata": {
+        "dataset_name": "SEED",
+        "dataset_info": {
+            "source_url": "https://bcmi.sjtu.edu.cn/home/seed/seed.html",
+            "file_format": "MATLAB (.mat)",
+            "description": "15 subjects x 3 sessions, 15 film clips per session (5 positive / 5 neutral / 5 negative), 62ch NeuroScan, released at 200 Hz (0-75 Hz band-passed); classify the clip's emotion.",
+            "task_type": "emotion",
+            "reference": "Zheng W-L, Lu B-L (2015). Investigating Critical Frequency Bands and Channels for EEG-based Emotion Recognition with Deep Neural Networks. IEEE TAMD 7(3):162-175.",
+            "notes": "Preprocessed_EEG (200 Hz) is the only EEG in the download. 1 s non-overlapping windows within each clip (EEG-FM-Compass). Session = recording date order. Access is gated (license agreement)."
+        },
+        "acquisition": {
+            "sample_frequency": 200,
+            "window_size_seconds": 1.0,
+            "num_subjects": 15,
+            "num_sessions_per_subject": 3
+        },
+        "targets": {
+            "count": 3,
+            "type": "emotion",
+            "0": {
+                "label": "negative"
+            },
+            "1": {
+                "label": "neutral"
+            },
+            "2": {
+                "label": "positive"
+            }
+        },
+        "clip_labels": [
+            2,
+            1,
+            0,
+            0,
+            1,
+            2,
+            0,
+            1,
+            2,
+            2,
+            1,
+            0,
+            1,
+            2,
+            0
+        ],
+        "channels": {
+            "count": 62,
+            "system": "10-20 (ESI NeuroScan 62ch)",
+            "1": {
+                "label": "FP1"
+            },
+            "2": {
+                "label": "FPZ"
+            },
+            "3": {
+                "label": "FP2"
+            },
+            "4": {
+                "label": "AF3"
+            },
+            "5": {
+                "label": "AF4"
+            },
+            "6": {
+                "label": "F7"
+            },
+            "7": {
+                "label": "F5"
+            },
+            "8": {
+                "label": "F3"
+            },
+            "9": {
+                "label": "F1"
+            },
+            "10": {
+                "label": "FZ"
+            },
+            "11": {
+                "label": "F2"
+            },
+            "12": {
+                "label": "F4"
+            },
+            "13": {
+                "label": "F6"
+            },
+            "14": {
+                "label": "F8"
+            },
+            "15": {
+                "label": "FT7"
+            },
+            "16": {
+                "label": "FC5"
+            },
+            "17": {
+                "label": "FC3"
+            },
+            "18": {
+                "label": "FC1"
+            },
+            "19": {
+                "label": "FCZ"
+            },
+            "20": {
+                "label": "FC2"
+            },
+            "21": {
+                "label": "FC4"
+            },
+            "22": {
+                "label": "FC6"
+            },
+            "23": {
+                "label": "FT8"
+            },
+            "24": {
+                "label": "T7"
+            },
+            "25": {
+                "label": "C5"
+            },
+            "26": {
+                "label": "C3"
+            },
+            "27": {
+                "label": "C1"
+            },
+            "28": {
+                "label": "CZ"
+            },
+            "29": {
+                "label": "C2"
+            },
+            "30": {
+                "label": "C4"
+            },
+            "31": {
+                "label": "C6"
+            },
+            "32": {
+                "label": "T8"
+            },
+            "33": {
+                "label": "TP7"
+            },
+            "34": {
+                "label": "CP5"
+            },
+            "35": {
+                "label": "CP3"
+            },
+            "36": {
+                "label": "CP1"
+            },
+            "37": {
+                "label": "CPZ"
+            },
+            "38": {
+                "label": "CP2"
+            },
+            "39": {
+                "label": "CP4"
+            },
+            "40": {
+                "label": "CP6"
+            },
+            "41": {
+                "label": "TP8"
+            },
+            "42": {
+                "label": "P7"
+            },
+            "43": {
+                "label": "P5"
+            },
+            "44": {
+                "label": "P3"
+            },
+            "45": {
+                "label": "P1"
+            },
+            "46": {
+                "label": "PZ"
+            },
+            "47": {
+                "label": "P2"
+            },
+            "48": {
+                "label": "P4"
+            },
+            "49": {
+                "label": "P6"
+            },
+            "50": {
+                "label": "P8"
+            },
+            "51": {
+                "label": "PO7"
+            },
+            "52": {
+                "label": "PO5"
+            },
+            "53": {
+                "label": "PO3"
+            },
+            "54": {
+                "label": "POZ"
+            },
+            "55": {
+                "label": "PO4"
+            },
+            "56": {
+                "label": "PO6"
+            },
+            "57": {
+                "label": "PO8"
+            },
+            "58": {
+                "label": "CB1",
+                "coordinates": {
+                    "polar_angle_deg": -170.0,
+                    "polar_radius": 0.52
+                }
+            },
+            "59": {
+                "label": "O1"
+            },
+            "60": {
+                "label": "OZ"
+            },
+            "61": {
+                "label": "O2"
+            },
+            "62": {
+                "label": "CB2",
+                "coordinates": {
+                    "polar_angle_deg": 170.0,
+                    "polar_radius": 0.52
+                }
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "sessions": [
+                "raw/Preprocessed_EEG/1_20131027.mat",
+                "raw/Preprocessed_EEG/1_20131030.mat",
+                "raw/Preprocessed_EEG/1_20131107.mat"
+            ]
+        },
+        "2": {
+            "sessions": [
+                "raw/Preprocessed_EEG/2_20140404.mat",
+                "raw/Preprocessed_EEG/2_20140413.mat",
+                "raw/Preprocessed_EEG/2_20140419.mat"
+            ]
+        },
+        "3": {
+            "sessions": [
+                "raw/Preprocessed_EEG/3_20140603.mat",
+                "raw/Preprocessed_EEG/3_20140611.mat",
+                "raw/Preprocessed_EEG/3_20140629.mat"
+            ]
+        },
+        "4": {
+            "sessions": [
+                "raw/Preprocessed_EEG/4_20140621.mat",
+                "raw/Preprocessed_EEG/4_20140702.mat",
+                "raw/Preprocessed_EEG/4_20140705.mat"
+            ]
+        },
+        "5": {
+            "sessions": [
+                "raw/Preprocessed_EEG/5_20140411.mat",
+                "raw/Preprocessed_EEG/5_20140418.mat",
+                "raw/Preprocessed_EEG/5_20140506.mat"
+            ]
+        },
+        "6": {
+            "sessions": [
+                "raw/Preprocessed_EEG/6_20130712.mat",
+                "raw/Preprocessed_EEG/6_20131016.mat",
+                "raw/Preprocessed_EEG/6_20131113.mat"
+            ]
+        },
+        "7": {
+            "sessions": [
+                "raw/Preprocessed_EEG/7_20131027.mat",
+                "raw/Preprocessed_EEG/7_20131030.mat",
+                "raw/Preprocessed_EEG/7_20131106.mat"
+            ]
+        },
+        "8": {
+            "sessions": [
+                "raw/Preprocessed_EEG/8_20140511.mat",
+                "raw/Preprocessed_EEG/8_20140514.mat",
+                "raw/Preprocessed_EEG/8_20140521.mat"
+            ]
+        },
+        "9": {
+            "sessions": [
+                "raw/Preprocessed_EEG/9_20140620.mat",
+                "raw/Preprocessed_EEG/9_20140627.mat",
+                "raw/Preprocessed_EEG/9_20140704.mat"
+            ]
+        },
+        "10": {
+            "sessions": [
+                "raw/Preprocessed_EEG/10_20131130.mat",
+                "raw/Preprocessed_EEG/10_20131204.mat",
+                "raw/Preprocessed_EEG/10_20131211.mat"
+            ]
+        },
+        "11": {
+            "sessions": [
+                "raw/Preprocessed_EEG/11_20140618.mat",
+                "raw/Preprocessed_EEG/11_20140625.mat",
+                "raw/Preprocessed_EEG/11_20140630.mat"
+            ]
+        },
+        "12": {
+            "sessions": [
+                "raw/Preprocessed_EEG/12_20131127.mat",
+                "raw/Preprocessed_EEG/12_20131201.mat",
+                "raw/Preprocessed_EEG/12_20131207.mat"
+            ]
+        },
+        "13": {
+            "sessions": [
+                "raw/Preprocessed_EEG/13_20140527.mat",
+                "raw/Preprocessed_EEG/13_20140603.mat",
+                "raw/Preprocessed_EEG/13_20140610.mat"
+            ]
+        },
+        "14": {
+            "sessions": [
+                "raw/Preprocessed_EEG/14_20140601.mat",
+                "raw/Preprocessed_EEG/14_20140615.mat",
+                "raw/Preprocessed_EEG/14_20140627.mat"
+            ]
+        },
+        "15": {
+            "sessions": [
+                "raw/Preprocessed_EEG/15_20130709.mat",
+                "raw/Preprocessed_EEG/15_20131016.mat",
+                "raw/Preprocessed_EEG/15_20131105.mat"
+            ]
+        }
+    }
+}

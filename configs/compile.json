@@ -117,6 +117,15 @@
       },
       "ADFTD": {
         "dataset_path": "datas/finetune/ADFTD"
+      },
+      "SEED": {
+        "dataset_path": "datas/finetune/SEED"
+      },
+      "SEED_IV": {
+        "dataset_path": "datas/finetune/SEED_IV"
+      },
+      "SEED_V": {
+        "dataset_path": "datas/finetune/SEED_V"
       }
     }
   }

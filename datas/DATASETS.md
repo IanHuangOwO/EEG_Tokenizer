@@ -10,7 +10,7 @@ Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.1
 Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the
 trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).
 
-## finetune (21 datasets, 1911.8 h compiled)
+## finetune (22 datasets, 2027.6 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -25,9 +25,10 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Lee2019_ERP | P300 speller (continuous) |  | 54 | 62 | 1000 | none | — | 57.9 | compiled (MOABB) |
 | Nakanishi2015 | SSVEP (12-class) | C | 9 | 8 | 256 | 12 | 0 s | 1.8 | compiled (MOABB) |
 | PhysionetMI | Motor imagery (5-class) | B | 109 | 64 | 160 | 5 | 0 s | 21.1 | compiled (MOABB) |
-| SEED | Emotion (3-class) | B, C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
-| SEED_V | Emotion (5-class) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
-| SEED_VIG | Vigilance (PERCLOS regression) | C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
+| SEED | Emotion (3-class) | B, C | 15 | 62 | 200 | 3 | — | 42.4 | compiled |
+| SEED_IV | Emotion (4-class) |  | 15 | 62 | 200 | 4 | — | 41.8 | compiled |
+| SEED_V | Emotion (5-class) | B | 16 | 62 | 1000 | 5 | — | 31.7 | compiled |
+| SEED_VIG | Vigilance (PERCLOS regression) | C |  |  |  |  |  |  | raw staged, not compiled (2026-09-30) |
 | SEED_VII | Emotion (7-class) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | Siena | Seizure detection (adult) | B | 14 | 29 | 512 | none | — | 140.1 | compiled |
 | Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | — | 1628.8 | compiled |
@@ -60,7 +61,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s | 8.8 | compiled (MOABB) |
 | MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 110.5 | compiled |
-| NMT_Clinical | ? |  |  |  |  |  |  |  | raw downloading (nemar nm000181, 0/15 GB), not added |
+| NMT_Clinical | ? |  |  |  |  |  |  |  | raw downloading (nemar nm000181, 15/15 GB), not added |
 | Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s | 18.7 | compiled (MOABB) |
 | SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0 s | 0.8 | compiled |
 | SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.1 | compiled |
@@ -69,12 +70,17 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s | 11.3 | compiled (MOABB) |
 | Weibo2014 | Motor imagery (7-class) |  | 10 | 60 | 200 | 7 | 1 s | 7.7 | compiled (MOABB) |
 
-## pretrain candidates on hold (TB scale)
+## pretrain candidates on hold (TB scale or gated)
 
 | Dataset | Source | Subjects / channels | Size | Note |
 |---|---|---|---|---|
 | HBN (Healthy Brain Network), releases 1-11 | NEMAR on005505-on005516 (+ nm000103) | ~3000 children, 129ch EGI HydroCel | ~2 TB | pediatric, EGI net, 5 tasks + rest; EEG Foundation Challenge 2025 data |
 | PEERS | NEMAR on004395 | 364, 125ch EGI | 9.6 TB | memory encoding / free recall, many sessions |
+| SEED-SD | BCMI (gated) | 40, 62ch NeuroScan? | ? | emotion under sleep deprivation / recovery / normal |
+| SEED-DV | BCMI (gated) | 20, 62ch NeuroScan? | ? | watching 1400 video clips (visual decoding) |
+| SEED-VLA / SEED-VRW | BCMI (gated) | ? | ? | fatigue: lab-simulated and real-world driving |
+| SEED-VII | BCMI (gated) | ? | ? | 7 emotions; may be wanted as finetune instead |
+| SEED-FRA / SEED-GER | BCMI (gated) | 8 + 8 | ? | 3 emotions, French / German subjects; small |
 
 ## archive (5 datasets, not compiled into any run)
 
