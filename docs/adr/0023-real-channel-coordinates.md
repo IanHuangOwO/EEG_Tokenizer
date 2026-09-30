@@ -1,6 +1,7 @@
 # 0023: Real channel coordinates instead of the name-matched 10-10 grid
 
-- **Status:** accepted (user, 2026-09-30)
+- **Status:** reverted (user, 2026-09-30). The code was removed (IO/dataset.py, tools/analysis/backbone_eval.py back to
+  their state before 951e3c5); `grid` is the only layout. Why: see Outcome below.
 - **Context:** `IO/dataset.py` mapped every dataset onto the 64 slots of the canonical 10-10 montage by channel name
   (`_map_channels`): a channel whose label is not one of the 64 names (EGI `E1..E129`, BioSemi `A1..D32`, 10-05 names
   such as `FFC1h`, extra sites like `Iz`) was dropped, and every kept channel sat at its grid slot. The new pretraining
@@ -37,3 +38,17 @@ or `real`:
   to 64 sites with interpolation), so the corpus changes; datasets with only canonical names do not.
 - Finetune feature caches are keyed by `preprocess_params`, so a `real` run never reuses a `grid` cache.
 - Verified by docs/cards/2026-09-30-real-coordinates.md.
+
+## Outcome (2026-09-30, reverted)
+
+- Two tiny backbones on `real` (seeds 1, 2; combined head, 3 finetune seeds each) lost BNCI2014001 loso by 10 points
+  (39.9 vs 49.9, every held-out subject lower, head train balanced accuracy ~46% vs ~69%) and BNCI2014004 loso by 3
+  (74.2 vs 77.2); few-shot and BNCI2014008 were level (001 few-shot +4.3).
+- "Real coordinates" was a misnomer: no pretrain or finetune metadata records digitized positions, so every channel was
+  placed by MNE's template for its name under both layouts. What `real` changed was the channel set: extra non-grid
+  channels in 11 datasets and IDW-interpolated canonical sites for Schirrmeister2017. Which of the two caused the loss
+  was not tested.
+- The polar tables some metadata carries (BETA: EEGLAB .loc, equator 0.5; Inria: idealised 10-20, equator 0.36;
+  GraspAndLift: a borrowed template table, nonlinear) use different conventions and are templates too, not measurements.
+- Measured positions would come from datasets that ship them (BIDS electrodes.tsv), written into metadata as `xyz`;
+  revisit with those. Runs archived in output/archive/2026-09-30_real_layout/.
