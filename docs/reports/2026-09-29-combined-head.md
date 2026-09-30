@@ -64,8 +64,13 @@ changed), same rule:
 The verdict carries to the 4x corpus: the combined head wins every loso cell against both parents, and gains over the
 tiny corpus on every loso cell (77.1 -> 79.1, 49.5 -> 53.3, 69.3 -> 69.6).
 
-Against EEG-FM-Compass Table V (loso): small combined (3 seeds) 79.1 / 53.3 / 69.6 on BNCI2014004 / 001 / 008 vs best FM linear
-probe 75.57 / 48.24 / 67.11, best FM full fine-tune 77.70 / 53.03 / 69.91, best specialist 76.38 / 46.80 / 72.29.
+Against EEG-FM-Compass (Tables V-VI), small corpus, 3 pretrain seeds (mean +- SE): full tables in
+`2026-09-29-combined-head/compass_small_table.md`, chart `compass_small.png`. Loso: combined 79.1 / 53.3 / 69.6 on
+BNCI2014004 / 001 / 008 vs best FM linear probe 75.57 / 48.24 / 67.11, best FM full fine-tune 77.70 / 53.03 / 69.91,
+best specialist 76.38 / 46.80 / 72.29. Few-shot: 78.0 / 44.0 / 59.8 vs 76.69 / 49.82 / 61.45, 77.39 / 50.34 / 61.61,
+80.17 / 60.62 / 70.91.
+
+![combined head vs Compass](2026-09-29-combined-head/compass_small.png)
 
 MI screen, finetune seed 1 (stamp power vs power taken from z): `latent_power` = the stamp_power pipeline on z (PCA 16
 axes, squared, learned time pool, log); `z_combined` = latent_power + latent_signed.
