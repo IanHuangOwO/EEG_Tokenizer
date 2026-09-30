@@ -9,7 +9,7 @@
 - **Protocol:** BNCI2014004 / 001 / 008 x loso / few-shot (Compass), finetune seeds 1-3, tail balanced accuracy; per
   backbone the mean over finetune seeds, mean +- SE over the 3 tiny backbones; won when |diff| > 2 x sqrt(SE_a^2 + SE_b^2).
   Loso decides. Overfitting: train balanced accuracy (last 10 epochs of each fold, dropout on) vs held-out.
-- **Verdict:** adopted. On every loso cell the combined head beats the better parent (BNCI2014004 +1.4 vs stamp,
+- **Verdict:** adopted, confirmed on 3 small-corpus seeds. On every loso cell the combined head beats the better parent (BNCI2014004 +1.4 vs stamp,
   BNCI2014001 +3.7 vs z, BNCI2014008 +0.5 vs z). It overfits more; on few-shot that costs BNCI2014001 (-3.7 vs stamp)
   and BNCI2014008 (-1.9 vs z). On the small backbone it reaches 80.2 / 53.1 / 70.0 loso.
 - **Cards / ADRs:** [combined-head card](../cards/2026-09-29-combined-head.md); ADR 0016 (head modules), 0020.
@@ -49,7 +49,22 @@ Small backbone, one pretrain seed, finetune seeds 1-3 (all three heads on the cu
 | BNCI2014001 few-shot | 35.4 | **47.7** | 43.7 |
 | BNCI2014008 few-shot | **60.9** | 53.1 | 58.8 |
 
-Against EEG-FM-Compass Table V (loso): small combined 80.2 / 53.1 / 70.0 on BNCI2014004 / 001 / 008 vs best FM linear
+Small corpus, 3 pretrain seeds (`mesae_small_p50_s16_s1..3`; seeds 2-3 pretrained 2026-09-30 with s1's config, seed
+changed), same rule:
+
+| Cell | z probe | stamp head | combined | vs z (thr) | vs stamp (thr) |
+|---|---|---|---|---|---|
+| BNCI2014004 loso | 75.2 (74.9 / 74.5 / 76.1) | 74.9 (75.5 / 74.1 / 75.0) | **79.1** (80.2 / 78.2 / 78.9) | +4.0 (1.5) win | +4.2 (1.5) win |
+| BNCI2014001 loso | 49.8 (49.5 / 49.8 / 50.1) | 42.3 (43.0 / 42.5 / 41.4) | **53.3** (53.1 / 53.7 / 53.2) | +3.5 (0.6) win | +11.0 (1.0) win |
+| BNCI2014008 loso | 68.8 (69.1 / 68.4 / 68.7) | 59.1 (58.8 / 59.7 / 58.8) | **69.6** (70.0 / 69.1 / 69.6) | +0.8 (0.7) win | +10.4 (0.8) win |
+| BNCI2014004 few-shot | 70.7 | 76.1 | **78.0** | +7.3 (3.2) win | +1.9 (1.3) win |
+| BNCI2014001 few-shot | 36.1 | 47.5 | 44.0 | +7.9 (1.5) win | -3.4 (0.8) loss |
+| BNCI2014008 few-shot | 61.5 | 53.4 | 59.8 | -1.7 (1.2) loss | +6.4 (1.0) win |
+
+The verdict carries to the 4x corpus: the combined head wins every loso cell against both parents, and gains over the
+tiny corpus on every loso cell (77.1 -> 79.1, 49.5 -> 53.3, 69.3 -> 69.6).
+
+Against EEG-FM-Compass Table V (loso): small combined (3 seeds) 79.1 / 53.3 / 69.6 on BNCI2014004 / 001 / 008 vs best FM linear
 probe 75.57 / 48.24 / 67.11, best FM full fine-tune 77.70 / 53.03 / 69.91, best specialist 76.38 / 46.80 / 72.29.
 
 MI screen, finetune seed 1 (stamp power vs power taken from z): `latent_power` = the stamp_power pipeline on z (PCA 16
