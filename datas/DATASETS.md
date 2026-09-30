@@ -38,7 +38,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Mimul-11 | Motor imagery (upper limb, 3-class) | B |  |  |  |  |  |  | open (GigaDB, Jeong 2020), not fetched |
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 
-## pretrain (25 datasets, 380.0 h compiled)
+## pretrain (25 datasets, 380.1 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -62,7 +62,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 110.5 | compiled |
 | Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s | 18.7 | compiled (MOABB) |
 | SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0 s | 0.8 | compiled |
-| SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.0 | partial (110/111) |
+| SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.1 | compiled |
 | STEW | Mental workload (multitasking) |  | 48 | 14 | 128 | 2 | — | 4.0 | compiled |
 | UCSD_PD | Clinical: Parkinson's (rest) |  | 31 | 32 | 512 | 3 | — | 2.5 | compiled |
 | Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s | 11.3 | compiled (MOABB) |
