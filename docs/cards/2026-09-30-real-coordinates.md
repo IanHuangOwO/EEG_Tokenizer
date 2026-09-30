@@ -39,20 +39,18 @@ Written 2026-09-30, before the code ran. ADR 0023.
    block 0.7788 (0.7794), motor-3 -> bci-22 0.2716 (0.2580). A grid-trained backbone sees channels it never trained on
    (+0-5%); whether a `real`-trained backbone does better is the next card (new tiny backbones on `real`).
 
-## Follow-up: tiny backbones on `real` (2026-09-30), reverted
+## Follow-up: tiny backbones on `real` (2026-09-30), reverted -- comparison INVALID (corrected 2026-10-01)
 
-Combined head, mean tail balanced accuracy over 3 finetune seeds, per backbone seed:
+The first table compared `real` finetunes run with the protocols' default heads (MI loso: stamp_power only,
+spatial_k 2) against grid runs with the combined head: the cloned queue dropped the `--set` head overrides. It is
+kept for the record, not as a result.
 
-| cell | grid s1 | real s1 | grid s2 | real s2 | real - grid |
-|---|---|---|---|---|---|
-| 001 loso | 50.5 | 39.7 | 49.3 | 40.0 | -10.0 |
-| 004 loso | 77.0 | 74.9 | 77.4 | 73.5 | -3.0 |
-| 008 loso | 69.3 | 69.2 | 69.2 | - | - |
-| 001 few-shot | 41.3 | 45.7 | 40.7 | 45.0 | +4.3 |
-| 004 few-shot | 75.4 | 75.1 | 75.6 | 76.3 | +0.2 |
-| 008 few-shot | 58.9 | 58.9 | 60.2 | 59.3 | -0.5 |
+| cell | grid s1 (combined) | real s1 (default head) | grid s2 (combined) | real s2 (default head) |
+|---|---|---|---|---|
+| 001 loso | 50.5 | 39.7 | 49.3 | 40.0 |
+| 004 loso | 77.0 | 74.9 | 77.4 | 73.5 |
+| 001 few-shot | 41.3 | 45.7 | 40.7 | 45.0 |
 
-001 loso is lower for all 9 held-out subjects on both seeds, and the head's train balanced accuracy drops too (~46% vs
-~69%): the features, not generalisation. Loses two loso cells: fails the pre-set rule. Positions were MNE template
-positions under both layouts (no metadata has measured ones), so this tested the extra channels + Schirrmeister2017
-interpolation, not geometry. Reverted by the user; seed 3 pretrained but its finetunes stopped. ADR 0023 Outcome.
+Like for like: grid s1 with the same stamp-only spatial_k 2 head, 001 loso 41.4 (one run) vs real s1 39.7. Backbone
+metrics (real s1 vs grid s1): masked MSE equal or better, ridge probes on z and stamp power level or better (ADR 0023
+Outcome). No evidence that `real` hurt. Reverted anyway by the user's choice of the 10-10 grid.

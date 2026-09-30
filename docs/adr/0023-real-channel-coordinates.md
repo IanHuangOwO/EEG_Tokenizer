@@ -39,16 +39,18 @@ or `real`:
 - Finetune feature caches are keyed by `preprocess_params`, so a `real` run never reuses a `grid` cache.
 - Verified by docs/cards/2026-09-30-real-coordinates.md.
 
-## Outcome (2026-09-30, reverted)
+## Outcome (2026-09-30, reverted; corrected 2026-10-01)
 
-- Two tiny backbones on `real` (seeds 1, 2; combined head, 3 finetune seeds each) lost BNCI2014001 loso by 10 points
-  (39.9 vs 49.9, every held-out subject lower, head train balanced accuracy ~46% vs ~69%) and BNCI2014004 loso by 3
-  (74.2 vs 77.2); few-shot and BNCI2014008 were level (001 few-shot +4.3).
-- "Real coordinates" was a misnomer: no pretrain or finetune metadata records digitized positions, so every channel was
-  placed by MNE's template for its name under both layouts. What `real` changed was the channel set: extra non-grid
-  channels in 11 datasets and IDW-interpolated canonical sites for Schirrmeister2017. Which of the two caused the loss
-  was not tested.
-- The polar tables some metadata carries (BETA: EEGLAB .loc, equator 0.5; Inria: idealised 10-20, equator 0.36;
-  GraspAndLift: a borrowed template table, nonlinear) use different conventions and are templates too, not measurements.
-- Measured positions would come from datasets that ship them (BIDS electrodes.tsv), written into metadata as `xyz`;
-  revisit with those. Runs archived in output/archive/2026-09-30_real_layout/.
+- Reverted after two tiny `real` backbones (seeds 1, 2) appeared to lose BNCI2014001 loso by 10 points and 004 loso
+  by 3. **That comparison was invalid:** the `real` finetunes were queued from the cell configs without the `--set`
+  head overrides the grid combined runs used, so they ran each protocol's default head (MI loso: stamp_power only,
+  spatial_k 2; MI few-shot: stamp_power, spatial_k 8; P300: stamp_power + signed_ab) against grid's combined head.
+  Like for like, grid s1 with the same stamp-only spatial_k 2 head scores 41.4 on 001 loso vs 39.7 for real s1.
+- Backbone metrics (real s1 vs grid s1, same windows, grid code): masked MSE equal or better (token runs -4%),
+  loso ridge probe on z 38.9 / 71.6 / 70.1 vs 40.0 / 67.6 / 69.2 (001 / 004 / 008), stamp-power ridge 34.0 / 74.1 /
+  60.4 vs 33.6 / 73.8 / 55.2. No sign that `real` hurt; a fair finetune comparison was never run.
+- Schirrmeister2017 has all 64 canonical sites by name, so no site was interpolated; the extra channels `real`
+  added were mostly peripheral (TP9/10, PO9/10, FT9/10, F9/10, 10-05 temporal; Lee2019 +14).
+- "Real coordinates" was a misnomer: no metadata records measured positions, so every channel had MNE's template
+  position under both layouts. The user kept the revert: the 64-site 10-10 grid is enough (2026-10-01).
+- Runs archived in output/archive/2026-09-30_real_layout/ (real s1-s3 backbones kept, reusable for a fair rerun).

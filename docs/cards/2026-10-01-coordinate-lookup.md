@@ -70,6 +70,5 @@ Loso ridge probe (trained on normal coordinates), mean of s1 / s2:
   The backbone's output is left-right symmetric in the coordinates: laterality reaches the head only through which
   channel slot a feature sits in. Contrast: shuffling coordinates across channels (which breaks the relative geometry)
   raises channel-mask MSE ~2.4x, so the model uses the relative layout, not absolute positions.
-- Consequence for ADR 0023's loss: not a finetune-time position confusion (001's finetune input was identical, and the
-  backbone tolerates moved positions). It came from what pretraining on the real-layout corpus learned; the open
-  candidates are the IDW-interpolated Schirrmeister2017 sites and the denser 10-05 channels (easier neighbour-copying).
+- The ADR 0023 "loss" this card set out to explain turned out to be a head mismatch in the finetune comparison, not
+  a backbone effect (ADR 0023 Outcome, corrected 2026-10-01).
