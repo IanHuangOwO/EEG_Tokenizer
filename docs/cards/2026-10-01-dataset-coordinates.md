@@ -38,8 +38,23 @@ finetune sets (BNCI2014001 / 004 / 008) for a coordinate source; the finetune se
 attaches template montages) and then keep the template, exactly as the grid runs saw them.
 
 | dataset | own coordinate source | verified against source | channels with own position | alignment residual |
-|---|---|---|---|
-| (filled in Step 1) | | | | |
+|---|---|---|---|---|
+| BETA_4s / BETA_3s | `data.suppl_info.chan` in every .mat (authors' table, EEGLAB polar, equator 0.5) | yes; identical over 8 subjects. Our old copy matched except Cz (source 0 / 0). CB1 / CB2 are 0 / 0 in the source (vertex placeholder for cerebellar sites): no position, dropped | 60 of 62 EEG | 5.5 mm |
+| Wang2016 | `64-channels.loc`, the Tsinghua benchmark's file (fetched from bci.med.tsinghua.edu.cn; MOABB's copy lacks it), EEGLAB polar | yes (official file). Flag: M1 / M2 are left-right swapped in it (M1 at +90 deg); both are non-EEG and never read | 62 (incl. CB1 / CB2) | 6.4 mm |
+| Liu2022EldBETA | BIDS `electrodes.tsv` inside the dataset's own archives (mm, x nose, y left) | yes; identical over 7 sessions of sub-001 and sub-023. Symmetric to 1e-8: a cap template the authors shipped, not a per-subject digitization | 60 | 5.5 mm |
+| Inria_Train / Test | `ChannelsLocation.csv` shipped with the Kaggle data (idealised polar, equator 0.36) | yes (read from the shipped file); idealised 10-20 spacing | 56 | 7.4 mm |
+| ERP_Longitudinal | `ChannelPosition.locs` (figshare 27201003, fetched; idealised polar, equator 0.406) | yes (the authors' file) | 57 | 7.2 mm |
+| SPIS | `biosemi_64_besa_sph.besa` shipped with the data (BioSemi 64, BESA spherical, read by MNE) | yes (shipped file); a manufacturer template | 64 | 6.7 mm |
+| Cho2017 | `eeg.senloc` in each subject's .mat: that subject's digitized positions (cm) | yes; differ between subjects by 1.7-3.5 cm (real digitization) | 64 per subject, 52 subjects | median 8.3 mm, max 17.1; subjects 10 (17.1) and 33 (15.3) exceed 15 mm -> template |
+| GraspAndLift_Train / Test | none: its polar table was copied by us from a shared template (`_gen_eegmmidb_metadata.py`), not from the dataset | **unverified**, not used | 0 (template) | - |
+| Lee2019_MI / SSVEP, Schirrmeister2017, Weibo2014, Dreyer2023, SRM_RestingState, MDD_Mumtaz, Neonatal_Helsinki, UCSD_PD, BCMI_MusicEmotion, BCIC2020-3, STEW | none found (no location file or field in the download; the BIDS sets ship no electrodes.tsv) | - | 0 (template) | - |
+| BNCI2014001 / 004 / 008 (finetune) | none (MOABB attaches template montages) | - | 0 (template; loads bit-identically to grid, check 3) | - |
+
+Checks (2026-10-01, before the runs): 1. grid default bit-identical (data, coordinates, valid masks); 2. residuals above,
+montage plot `output/analysis/dcoord/montages.png` (to be copied into the report); 3. BNCI2014001 / 004 / 008 data,
+coordinates, valid masks and labels bit-identical to grid. Only the coordinate keys of the 9 regenerated metadata.json
+changed. Every finetune job's effective config equals its grid combined run's except paths, names and the two layout
+keys (checked offline for all 54).
 
 ## Runs
 
