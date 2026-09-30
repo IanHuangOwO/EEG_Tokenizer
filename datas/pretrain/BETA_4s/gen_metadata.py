@@ -127,6 +127,12 @@ def build_data_structure(signals_dir):
     return structure
 
 
+ONSET_NOTE = {
+    "BETA_4s": "0.5s pre-stimulus baked into the released .mat epoch itself, native 250Hz -> round(0.5*200)=100, same convention as BETA_3s.",
+    "BETA_3s": "0.5s pre-stimulus baked into the released .mat epoch itself (paper: window = 0.5 pre + stim + 0.5 post), native 250Hz -> round(0.5*200)=100.",
+}
+
+
 def build_metadata(dataset_name, window_seconds, signals_dir):
     info = {k: (v.format(w=window_seconds) if isinstance(v, str) and "{w" in v else v)
             for k, v in DATASET_INFO_TEMPLATE.items()}
@@ -143,6 +149,9 @@ def build_metadata(dataset_name, window_seconds, signals_dir):
             },
             "targets": build_targets(),
             "channels": {"count": len(CHANNELS), "system": "10-20 International System", **CHANNELS},
+            # 0.5 s pre-stimulus is baked into the released epochs (native 250 Hz) -> 100 samples at 200 Hz
+            "event_onset_sample": 100,
+            "event_onset_sample_note": ONSET_NOTE[dataset_name],
         },
         "data_structure": structure,
     }
@@ -157,6 +166,7 @@ def main():
         out_path = os.path.join(DATAS_ROOT, name, "metadata.json")
         with open(out_path, "w") as f:
             json.dump(meta, f, indent=4)
+            f.write("\n")
         print(f"wrote {out_path}: {len(meta['data_structure'])} subjects")
 
 

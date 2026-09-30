@@ -108,6 +108,8 @@ def main():
             },
             "targets": TARGETS,
             "channels": {"count": len(CHANNELS), "system": "10-20 International System (10-10)", **CHANNELS},
+            "event_onset_sample": 0,
+            "event_onset_sample_note": "Resting-state EC/EO .mat, fixed-window chopping, no event structure at all -- no real onset to mark.",
         },
         "data_structure": structure,
     }
@@ -115,6 +117,7 @@ def main():
     out_path = os.path.join(ROOT, "metadata.json")
     with open(out_path, "w") as f:
         json.dump(meta, f, indent=4)
+        f.write("\n")
     print(f"wrote {out_path}: {len(structure)} subjects")
 
 

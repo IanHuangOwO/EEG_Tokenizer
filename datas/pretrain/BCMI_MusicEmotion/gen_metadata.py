@@ -114,6 +114,8 @@ def main():
             },
             "targets": TARGETS,
             "channels": {"count": len(CHANNELS), "system": "10-20 International System", **CHANNELS},
+            "event_onset_sample": 0,
+            "event_onset_sample_note": "Continuous EDF runs chopped into fixed windows, no marker read -- no real onset to mark.",
         },
         "data_structure": structure,
     }
@@ -121,6 +123,7 @@ def main():
     out_path = os.path.join(ROOT, "metadata.json")
     with open(out_path, "w") as f:
         json.dump(meta, f, indent=4)
+        f.write("\n")
     n_runs = sum(len(v["files"]) for v in structure.values())
     print(f"wrote {out_path}: {len(structure)} subjects, {n_runs} runs")
 

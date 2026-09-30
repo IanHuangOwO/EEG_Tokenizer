@@ -103,6 +103,7 @@ def main():
             },
             "targets": TARGETS,
             "channels": {"count": len(CHANNELS), "system": "10-20 International System", **CHANNELS},
+            "event_onset_sample_note": "Continuous EDF chopped into fixed non-overlapping windows, no cue/trigger read at all -- no real onset to mark.",
         },
         "data_structure": structure,
     }

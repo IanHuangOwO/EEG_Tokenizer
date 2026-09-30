@@ -329,7 +329,7 @@ class MoabbLoader(BaseSubjectLoader):
 def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Dict,
                          target_labels: Dict[str, str], kwargs: Dict = None,
                          window: List[float] = None, continuous_seconds: float = None,
-                         onset_window: List[float] = None) -> Dict:
+                         onset_window: List[float] = None, cohort: str = None) -> Dict:
     """
     Writes <root>/metadata.json from MOABB: EEG channel names and sample rate from the
     first subject's first run (downloads it if needed), subjects from ds.subject_list,
@@ -379,11 +379,13 @@ def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Di
                            for i, e in enumerate(events)}},
             "channels": {"count": len(eeg), **{str(i + 1): {"label": n, "original_label": n}
                                                for i, n in enumerate(eeg)}},
+            **({"cohort": cohort} if cohort else {}),   # same people as another dataset (split_pretrain_subjects)
         },
         "data_structure": {str(s): {"moabb_subject": s} for s in ds.subject_list},
     }
     with open(os.path.join(root, "metadata.json"), "w") as f:
         json.dump(meta, f, indent=4)
+        f.write("\n")
     print(f"wrote {name}/metadata.json: {len(ds.subject_list)} subjects, {len(eeg)} EEG channels, "
           f"{raw.info['sfreq']} Hz, events {events}")
     return meta

@@ -26,4 +26,5 @@ write_moabb_metadata(
     },
     target_labels={"left_hand": "Left hand", "right_hand": "Right hand"},
     kwargs={"test_run": True},
+    cohort="OpenBMI",
 )

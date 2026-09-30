@@ -21,4 +21,5 @@ write_moabb_metadata(
     kwargs={'test_run': True},
     window=None,
     continuous_seconds=None,
+    cohort="OpenBMI",
 )

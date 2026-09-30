@@ -102,6 +102,8 @@ def main():
                 "system": "10-20/10-10 International System",
                 **channels,
             },
+            "event_onset_sample": 200,
+            "event_onset_sample_note": "Cue-onset sample at preprocess_params.sample_freq (200Hz): round(pre_event_seconds * sample_freq) = round(1.0*200) = 200 -- the cut_event_window pad point. Loader fixed to mirror its _Train counterpart (previously cut [marker:marker+len] with no pre-event buffer and dropped trials running off the recording edge instead of zero-padding).",
         },
         "data_structure": structure,
     }
@@ -109,6 +111,7 @@ def main():
     out_path = os.path.join(ROOT, "metadata.json")
     with open(out_path, "w") as f:
         json.dump(meta, f, indent=4)
+        f.write("\n")
     print(f"wrote {out_path}: {len(structure)} subjects")
 
 

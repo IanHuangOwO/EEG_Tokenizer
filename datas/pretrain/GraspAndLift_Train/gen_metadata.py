@@ -120,6 +120,7 @@ def main():
             },
             "targets": TARGETS,
             "channels": {"count": len(CHANNELS), "system": "10-20/10-10 International System", **CHANNELS},
+            "cohort": "GraspAndLift",
         },
         "data_structure": structure,
     }
