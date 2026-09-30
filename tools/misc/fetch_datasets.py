@@ -16,10 +16,13 @@ import hashlib
 import json
 import os
 import sys
+import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 RETRIES = 8
+WORKERS = 8
 
 
 def _status(dest, **kw):
@@ -59,12 +62,13 @@ def fetch_nemar(ds_id, dest, derivatives=False):
     total = sum(f['size'] for f in files)
     _status(dest, source='nemar', id=ds_id, version=info['latest'], state='downloading', files_total=len(files),
             bytes_total=total)
-    done_b, failed = 0, []
-    for i, f in enumerate(files):
+    todo = [f for f in files if not (os.path.exists(p := os.path.join(dest, 'raw', f['path']))
+                                     and os.path.getsize(p) == f['size'])]
+    done_b, failed, n_done = total - sum(f['size'] for f in todo), [], len(files) - len(todo)
+    lock = threading.Lock()
+
+    def one(f):
         out = os.path.join(dest, 'raw', f['path'])
-        if os.path.exists(out) and os.path.getsize(out) == f['size']:
-            done_b += f['size']
-            continue
         os.makedirs(os.path.dirname(out), exist_ok=True)
         for a in range(RETRIES):
             try:
@@ -79,18 +83,26 @@ def fetch_nemar(ds_id, dest, derivatives=False):
                         (f.get('checksum_algorithm') == 'sha256' and _sha256(out + '.part') != f['checksum']):
                     raise IOError('size/checksum mismatch')
                 os.replace(out + '.part', out)
-                break
+                return True
             except Exception as e:
                 print(f"  {f['path']} attempt {a + 1}: {e!r}", flush=True)
                 time.sleep(15 * (a + 1))
-        else:
-            failed.append(f['path'])
-            continue
-        done_b += f['size']
-        if i % 25 == 0 or i == len(files) - 1:
-            _status(dest, files_done=i + 1 - len(failed), bytes_done=done_b, failed=len(failed))
-            print(f'  {ds_id}: {i + 1}/{len(files)} files, {done_b / 1e9:.1f}/{total / 1e9:.1f} GB', flush=True)
-    _status(dest, files_done=len(files) - len(failed), bytes_done=done_b, failed=len(failed),
+        return False
+
+    # ponytail: NEMAR's S3 gives ~0.35 MB/s per connection, ~2.2 MB/s over 8; datasets stay sequential (the queue),
+    # files within one dataset go 8 at a time.
+    with ThreadPoolExecutor(WORKERS) as ex:
+        for f, ok in zip(todo, ex.map(one, todo)):
+            with lock:
+                if ok:
+                    done_b += f['size']
+                    n_done += 1
+                else:
+                    failed.append(f['path'])
+                if (n_done + len(failed)) % 50 == 0:
+                    _status(dest, files_done=n_done, bytes_done=done_b, failed=len(failed))
+                    print(f'  {ds_id}: {n_done}/{len(files)} files, {done_b / 1e9:.1f}/{total / 1e9:.1f} GB', flush=True)
+    _status(dest, files_done=n_done, bytes_done=done_b, failed=len(failed),
             failed_files=failed[:50], state='failed' if failed else 'complete')
     return not failed
 
