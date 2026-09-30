@@ -5,7 +5,7 @@ the finetune runs of every group's backbone under one head label (output/<backbo
     python analysis_finetune.py --group AB=mesae_tiny_ab --panel class_snapshots \\
         --checkpoint output/mesae_tiny_ab/finetune/frozen_learned/BNCI2014001_loso/finetune/run_fold0/head.pth
 
-Output: --out, default output/reports/<group names joined by _>/. Presets: tools/panels PRESETS.
+Output: --out, default output/analysis/<group names joined by _>/. Presets: tools/panels PRESETS.
 """
 import argparse
 import os
@@ -25,7 +25,7 @@ def main():
     ap.add_argument('--preset', default='standard', choices=sorted(PRESETS['finetune']))
     ap.add_argument('--panel', action='append', default=[],
                     help=f'run these panels instead of the preset: {discover_panel_names("finetune")}')
-    ap.add_argument('--out', help='output dir (default output/reports/<group names>/)')
+    ap.add_argument('--out', help='output dir (default output/analysis/<group names>/)')
     ap.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
     ap.add_argument('--metric', default='tail', choices=['tail', 'last', 'kappa_tail', 'kappa_last'],
                     help='summary/seed_equivalence: score')
@@ -41,7 +41,7 @@ def main():
     if args.ref and args.ref not in groups:
         ap.error(f'--ref {args.ref!r} is not a group name ({list(groups)})')
     names = resolve_panels('finetune', args.preset, args.panel)
-    out_dir = args.out or os.path.join('output', 'reports', '_'.join(groups))
+    out_dir = args.out or os.path.join('output', 'analysis', '_'.join(groups))
     os.makedirs(out_dir, exist_ok=True)
 
     ctx = PanelContext(stage='finetune', config={}, out_dir=out_dir, args=args, device=torch.device(args.device),

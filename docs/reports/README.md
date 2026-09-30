@@ -2,7 +2,7 @@
 
 Curated experiment reports, one file per experiment, named `YYYY-MM-DD-<topic>.md`, with a
 same-named folder for its figures, tables and the scripts that produced it. Generated output
-(`analysis_finetune.py`, `tools/analysis/*`) still lands in `output/reports/` and `output/<run>/`;
+(`analysis_finetune.py`, `tools/analysis/*`) still lands in `output/analysis/` and `output/<run>/`;
 a report copies what it cites here, so it outlives archived run folders.
 
 Mechanism cards (`docs/cards/`) hold one pre-registered change and its verdict; a report covers a

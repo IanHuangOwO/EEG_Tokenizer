@@ -99,6 +99,8 @@ learned from the same few trials. Shelved, worth revisiting (e.g. filters fit in
 instead of by gradient); the option stays in the code (default off). Runs archived in
 `output/archive/2026-09-30_per_stamp_spatial/`.
 
+Where the combined head reads from (tiny s1, all folds and finetune seeds per cell): `2026-09-29-combined-head/head_maps_tiny_s1/stamp_maps_<cell>_s1.png` -- top row the z half (virtual channel x time, spatial filters), bottom the stamp half (per-stamp time weights, spatial filters). On MI the stamp half reads 12 / 24 Hz power over lateral central sites 0.5-4 s after the cue; the z half reads 0.1-0.5 s, on BNCI2014001 from parieto-occipital sites (likely the visual cue response, caveat 7).
+
 ## Notes
 
 - The combined head has the largest train/test gap in every cell but BNCI2014008 loso. On loso, where many training

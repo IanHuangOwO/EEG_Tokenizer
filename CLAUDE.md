@@ -36,7 +36,7 @@ python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threa
 # codebook; quick: the first six). Judge each change by its own mechanism metric, not finetuning (ADR 0020).
 python analysis_pretrain.py --run <backbone> [--preset quick] [--panel <name> ...]
 python analysis_pretrain.py --panel profile [--train]     # parameter counts + timing, no checkpoint
-# Finetune = several backbones under one head label -> output/reports/<groups>/ (standard: summary, report,
+# Finetune = several backbones under one head label -> output/analysis/<groups>/ (standard: summary, report,
 # time_weights; also seed_equivalence, class_snapshots --checkpoint <head.pth>). Run backbone_eval first.
 python analysis_finetune.py --group base=<backbone> --group X=<backbone> --ref base [--head frozen_learned]
 python -m tools.analysis.summarize_runs 'output/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>] [--rank N]
@@ -149,10 +149,10 @@ Per backbone: `output/<backbone>/pretrain/` (`checkpoint/last.pth` -- prefer it 
 onto an easy epoch of the mask curriculum; `artifacts/config.json`; `visualization/`; `analysis/`;
 `feature_cache/` -- regenerable, keyed by checkpoint, build_config, code hash and data fingerprint) and
 `output/<backbone>/finetune/<head>/<cell>/` (`artifacts/group_eval.json`: per-subject `tail` = mean of the last
-10 epochs' balanced accuracy, `last`, kappa). `output/reports/` holds generated comparison reports,
+10 epochs' balanced accuracy, `last`, kappa). `output/analysis/` holds generated multi-backbone analysis (regenerable),
 `output/queue/` queue state, `output/archive/<date>_<topic>/` superseded experiments. Once a result is final, write it up
 in `docs/reports/` (fixed format and index in `docs/reports/README.md`; copy the figures, tables and
-pipeline scripts it cites) and delete the generated report and queue folders.
+pipeline scripts it cites) and delete the generated `output/analysis/` and queue folders.
 
 ## Data
 
