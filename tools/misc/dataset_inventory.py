@@ -28,7 +28,8 @@ PARADIGM = {
     'SEED_VIG': 'Vigilance (PERCLOS regression)', 'Siena': 'Seizure detection (adult)',
     'Sleep_EDFx': 'Sleep staging', 'Things_EEG2': 'Visual decoding (images)',
     'TUAB': 'Abnormal EEG (clinical)', 'TUEV': 'Event classification (clinical)',
-    'TUSL': 'Slowing classification (clinical)',
+    'TUSL': 'Slowing classification (clinical)', 'ADFTD': "Clinical: Alzheimer's / FTD / healthy (rest)",
+    'Lee2019_ERP': 'P300 speller (continuous)',
     # pretrain
     'AAD_KUL': 'Auditory attention', 'BCIC2020-3': 'Imagined speech',
     'BCICIV1_Test': 'Motor imagery (uncued)', 'BCICIV1_Train': 'Motor imagery',
@@ -45,7 +46,7 @@ PARADIGM = {
     'Weibo2014': 'Motor imagery (7-class)', 'Cho2017': 'Motor imagery (L/R hand)',
     'Schirrmeister2017': 'Motor execution (4-class)', 'Dreyer2023': 'Motor imagery (L/R hand)',
     'Wang2016': 'SSVEP (40-class)', 'Lee2019_SSVEP': 'SSVEP (4-class)',
-    'Liu2022EldBETA': 'SSVEP (9-class, elderly)', 'Lee2019_ERP': 'P300 speller (continuous)', 'UCSD_PD': "Clinical: Parkinson's (rest)",
+    'Liu2022EldBETA': 'SSVEP (9-class, elderly)', 'UCSD_PD': "Clinical: Parkinson's (rest)",
 }
 
 # Which external finetune benchmark lists each dataset: B = EEG-FM-Bench (arXiv 2508.17742),
@@ -54,13 +55,12 @@ BENCH = {
     'BNCI2014001': 'B, C', 'BNCI2014004': 'C', 'BNCI2014008': 'C', 'BNCI2014009': 'C',
     'BNCI2015001': 'C', 'CHB_MIT': 'C', 'EEGMAT': 'B, C', 'Nakanishi2015': 'C', 'PhysionetMI': 'B',
     'SEED': 'B, C', 'SEED_V': 'B', 'SEED_VII': 'B', 'SEED_VIG': 'C', 'Siena': 'B',
-    'Sleep_EDFx': 'C', 'Things_EEG2': 'B, C', 'TUAB': 'B, C', 'TUEV': 'B', 'TUSL': 'B',
+    'Sleep_EDFx': 'C', 'Things_EEG2': 'B, C', 'TUAB': 'B, C', 'TUEV': 'B', 'TUSL': 'B', 'ADFTD': 'B',
 }
 # Benchmark datasets with no datas/ folder yet (all open access).
 MISSING = [
     ('Mimul-11', 'Motor imagery (upper limb, 3-class)', 'B', 'open (GigaDB, Jeong 2020), not fetched'),
     ('HMC', 'Sleep staging', 'B', 'open (PhysioNet hmc-sleep-staging), not fetched'),
-    ('ADFTD', "Clinical: Alzheimer's / FTD", 'B', 'open (OpenNeuro ds004504), not fetched'),
 ]
 
 # Why each datas/archive/ dataset was dropped from pretraining (2026-09-24 rebalance).

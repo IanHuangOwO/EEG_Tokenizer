@@ -113,7 +113,10 @@
         "dataset_path": "datas/pretrain/Liu2022EldBETA"
       },
       "Lee2019_ERP": {
-        "dataset_path": "datas/pretrain/Lee2019_ERP"
+        "dataset_path": "datas/finetune/Lee2019_ERP"
+      },
+      "ADFTD": {
+        "dataset_path": "datas/finetune/ADFTD"
       }
     }
   }

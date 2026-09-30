@@ -1,0 +1,446 @@
+{
+    "data_metadata": {
+        "dataset_name": "ADFTD",
+        "dataset_info": {
+            "source_url": "https://openneuro.org/datasets/ds004504",
+            "file_format": "EEGLAB (.set), BIDS",
+            "description": "88 subjects (36 Alzheimer's disease, 23 frontotemporal dementia, 29 healthy), eyes-closed resting EEG, 19ch 10-20, 500 Hz, ~5-21 min each; classify the subject's diagnosis.",
+            "task_type": "clinical_dementia",
+            "reference": "Miltiadous A, Tzimourta KD, Afrantou T, et al. (2023). A Dataset of Scalp EEG Recordings of Alzheimer's Disease, Frontotemporal Dementia and Healthy Subjects from Routine EEG. Data 8(6):95. doi:10.3390/data8060095",
+            "notes": "Unprocessed recordings (raw/set/sub-XXX), referential montage (all 19 channels carry signal, Cz included); derivatives/ (their filtered, ASR/ICA-cleaned version) is on disk but unused. Per-subject label: loso only. 10 s windows as EEG-FM-Bench."
+        },
+        "acquisition": {
+            "sample_frequency": 500,
+            "window_size_seconds": 10.0,
+            "num_subjects": 88
+        },
+        "targets": {
+            "count": 3,
+            "type": "clinical_dementia",
+            "0": {
+                "label": "Alzheimer's disease (group A)"
+            },
+            "1": {
+                "label": "frontotemporal dementia (group F)"
+            },
+            "2": {
+                "label": "healthy control (group C)"
+            }
+        },
+        "channels": {
+            "count": 19,
+            "system": "10-20 International System",
+            "1": {
+                "label": "Fp1"
+            },
+            "2": {
+                "label": "Fp2"
+            },
+            "3": {
+                "label": "F3"
+            },
+            "4": {
+                "label": "F4"
+            },
+            "5": {
+                "label": "C3"
+            },
+            "6": {
+                "label": "C4"
+            },
+            "7": {
+                "label": "P3"
+            },
+            "8": {
+                "label": "P4"
+            },
+            "9": {
+                "label": "O1"
+            },
+            "10": {
+                "label": "O2"
+            },
+            "11": {
+                "label": "F7"
+            },
+            "12": {
+                "label": "F8"
+            },
+            "13": {
+                "label": "T3"
+            },
+            "14": {
+                "label": "T4"
+            },
+            "15": {
+                "label": "T5"
+            },
+            "16": {
+                "label": "T6"
+            },
+            "17": {
+                "label": "Fz"
+            },
+            "18": {
+                "label": "Cz"
+            },
+            "19": {
+                "label": "Pz"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "file": "raw/set/sub-001/eeg/sub-001_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "2": {
+            "file": "raw/set/sub-002/eeg/sub-002_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "3": {
+            "file": "raw/set/sub-003/eeg/sub-003_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "4": {
+            "file": "raw/set/sub-004/eeg/sub-004_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "5": {
+            "file": "raw/set/sub-005/eeg/sub-005_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "6": {
+            "file": "raw/set/sub-006/eeg/sub-006_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "7": {
+            "file": "raw/set/sub-007/eeg/sub-007_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "8": {
+            "file": "raw/set/sub-008/eeg/sub-008_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "9": {
+            "file": "raw/set/sub-009/eeg/sub-009_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "10": {
+            "file": "raw/set/sub-010/eeg/sub-010_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "11": {
+            "file": "raw/set/sub-011/eeg/sub-011_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "12": {
+            "file": "raw/set/sub-012/eeg/sub-012_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "13": {
+            "file": "raw/set/sub-013/eeg/sub-013_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "14": {
+            "file": "raw/set/sub-014/eeg/sub-014_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "15": {
+            "file": "raw/set/sub-015/eeg/sub-015_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "16": {
+            "file": "raw/set/sub-016/eeg/sub-016_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "17": {
+            "file": "raw/set/sub-017/eeg/sub-017_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "18": {
+            "file": "raw/set/sub-018/eeg/sub-018_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "19": {
+            "file": "raw/set/sub-019/eeg/sub-019_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "20": {
+            "file": "raw/set/sub-020/eeg/sub-020_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "21": {
+            "file": "raw/set/sub-021/eeg/sub-021_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "22": {
+            "file": "raw/set/sub-022/eeg/sub-022_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "23": {
+            "file": "raw/set/sub-023/eeg/sub-023_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "24": {
+            "file": "raw/set/sub-024/eeg/sub-024_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "25": {
+            "file": "raw/set/sub-025/eeg/sub-025_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "26": {
+            "file": "raw/set/sub-026/eeg/sub-026_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "27": {
+            "file": "raw/set/sub-027/eeg/sub-027_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "28": {
+            "file": "raw/set/sub-028/eeg/sub-028_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "29": {
+            "file": "raw/set/sub-029/eeg/sub-029_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "30": {
+            "file": "raw/set/sub-030/eeg/sub-030_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "31": {
+            "file": "raw/set/sub-031/eeg/sub-031_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "32": {
+            "file": "raw/set/sub-032/eeg/sub-032_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "33": {
+            "file": "raw/set/sub-033/eeg/sub-033_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "34": {
+            "file": "raw/set/sub-034/eeg/sub-034_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "35": {
+            "file": "raw/set/sub-035/eeg/sub-035_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "36": {
+            "file": "raw/set/sub-036/eeg/sub-036_task-eyesclosed_eeg.set",
+            "label": 0
+        },
+        "37": {
+            "file": "raw/set/sub-037/eeg/sub-037_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "38": {
+            "file": "raw/set/sub-038/eeg/sub-038_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "39": {
+            "file": "raw/set/sub-039/eeg/sub-039_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "40": {
+            "file": "raw/set/sub-040/eeg/sub-040_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "41": {
+            "file": "raw/set/sub-041/eeg/sub-041_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "42": {
+            "file": "raw/set/sub-042/eeg/sub-042_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "43": {
+            "file": "raw/set/sub-043/eeg/sub-043_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "44": {
+            "file": "raw/set/sub-044/eeg/sub-044_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "45": {
+            "file": "raw/set/sub-045/eeg/sub-045_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "46": {
+            "file": "raw/set/sub-046/eeg/sub-046_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "47": {
+            "file": "raw/set/sub-047/eeg/sub-047_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "48": {
+            "file": "raw/set/sub-048/eeg/sub-048_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "49": {
+            "file": "raw/set/sub-049/eeg/sub-049_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "50": {
+            "file": "raw/set/sub-050/eeg/sub-050_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "51": {
+            "file": "raw/set/sub-051/eeg/sub-051_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "52": {
+            "file": "raw/set/sub-052/eeg/sub-052_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "53": {
+            "file": "raw/set/sub-053/eeg/sub-053_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "54": {
+            "file": "raw/set/sub-054/eeg/sub-054_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "55": {
+            "file": "raw/set/sub-055/eeg/sub-055_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "56": {
+            "file": "raw/set/sub-056/eeg/sub-056_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "57": {
+            "file": "raw/set/sub-057/eeg/sub-057_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "58": {
+            "file": "raw/set/sub-058/eeg/sub-058_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "59": {
+            "file": "raw/set/sub-059/eeg/sub-059_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "60": {
+            "file": "raw/set/sub-060/eeg/sub-060_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "61": {
+            "file": "raw/set/sub-061/eeg/sub-061_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "62": {
+            "file": "raw/set/sub-062/eeg/sub-062_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "63": {
+            "file": "raw/set/sub-063/eeg/sub-063_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "64": {
+            "file": "raw/set/sub-064/eeg/sub-064_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "65": {
+            "file": "raw/set/sub-065/eeg/sub-065_task-eyesclosed_eeg.set",
+            "label": 2
+        },
+        "66": {
+            "file": "raw/set/sub-066/eeg/sub-066_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "67": {
+            "file": "raw/set/sub-067/eeg/sub-067_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "68": {
+            "file": "raw/set/sub-068/eeg/sub-068_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "69": {
+            "file": "raw/set/sub-069/eeg/sub-069_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "70": {
+            "file": "raw/set/sub-070/eeg/sub-070_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "71": {
+            "file": "raw/set/sub-071/eeg/sub-071_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "72": {
+            "file": "raw/set/sub-072/eeg/sub-072_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "73": {
+            "file": "raw/set/sub-073/eeg/sub-073_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "74": {
+            "file": "raw/set/sub-074/eeg/sub-074_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "75": {
+            "file": "raw/set/sub-075/eeg/sub-075_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "76": {
+            "file": "raw/set/sub-076/eeg/sub-076_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "77": {
+            "file": "raw/set/sub-077/eeg/sub-077_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "78": {
+            "file": "raw/set/sub-078/eeg/sub-078_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "79": {
+            "file": "raw/set/sub-079/eeg/sub-079_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "80": {
+            "file": "raw/set/sub-080/eeg/sub-080_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "81": {
+            "file": "raw/set/sub-081/eeg/sub-081_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "82": {
+            "file": "raw/set/sub-082/eeg/sub-082_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "83": {
+            "file": "raw/set/sub-083/eeg/sub-083_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "84": {
+            "file": "raw/set/sub-084/eeg/sub-084_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "85": {
+            "file": "raw/set/sub-085/eeg/sub-085_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "86": {
+            "file": "raw/set/sub-086/eeg/sub-086_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "87": {
+            "file": "raw/set/sub-087/eeg/sub-087_task-eyesclosed_eeg.set",
+            "label": 1
+        },
+        "88": {
+            "file": "raw/set/sub-088/eeg/sub-088_task-eyesclosed_eeg.set",
+            "label": 1
+        }
+    }
+}

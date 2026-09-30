@@ -10,10 +10,11 @@ Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.1
 Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the
 trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).
 
-## finetune (19 datasets, 1834.4 h compiled)
+## finetune (21 datasets, 1911.8 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
+| ADFTD | Clinical: Alzheimer's / FTD / healthy (rest) | B | 88 | 19 | 500 | 3 | — | 19.5 | compiled |
 | BNCI2014001 | Motor imagery (4-class) | B, C | 9 | 22 | 250 | 4 | 0 s | 5.8 | compiled (MOABB) |
 | BNCI2014004 | Motor imagery (L/R hand) | C | 9 | 3 | 250 | 2 | 0 s | 8.2 | compiled (MOABB) |
 | BNCI2014008 | P300 speller (ALS) | C | 8 | 8 | 256 | 2 | 0 s | 9.3 | compiled (MOABB) |
@@ -21,6 +22,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | BNCI2015001 | Motor imagery (hand/feet) | C | 12 | 13 | 512 | 2 | 1 s | 7.8 | compiled (MOABB) |
 | CHB_MIT | Seizure detection (pediatric) | C | 24 | 16 | 256 | 2 | — | 6.1 | compiled |
 | EEGMAT | Mental workload (arithmetic) | B, C | 36 | 19 | 500 | 2 | — | 0.6 | compiled |
+| Lee2019_ERP | P300 speller (continuous) |  | 54 | 62 | 1000 | none | — | 57.9 | compiled (MOABB) |
 | Nakanishi2015 | SSVEP (12-class) | C | 9 | 8 | 256 | 12 | 0 s | 1.8 | compiled (MOABB) |
 | PhysionetMI | Motor imagery (5-class) | B | 109 | 64 | 160 | 5 | 0 s | 21.1 | compiled (MOABB) |
 | SEED | Emotion (3-class) | B, C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
@@ -35,9 +37,8 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | TUSL | Slowing classification (clinical) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | Mimul-11 | Motor imagery (upper limb, 3-class) | B |  |  |  |  |  |  | open (GigaDB, Jeong 2020), not fetched |
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
-| ADFTD | Clinical: Alzheimer's / FTD | B |  |  |  |  |  |  | open (OpenNeuro ds004504), not fetched |
 
-## pretrain (24 datasets, 437.9 h compiled)
+## pretrain (25 datasets, 380.0 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -48,11 +49,12 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Cho2017 | Motor imagery (L/R hand) |  | 52 | 64 | 512 | 2 | 1 s | 14.6 | compiled (MOABB) |
 | Dreyer2023 | Motor imagery (L/R hand) |  | 87 | 27 | 512 | 2 | 1 s | 28.9 | compiled (MOABB) |
 | ERP_Longitudinal | RSVP oddball ERP |  | 15 | 57 | 1000 | none | — | 14.8 | compiled |
+| GoNoGo_Delorme(inhouse) | ? |  |  |  |  |  |  |  | in-house hold: downloaded, not compiled (2026-09-30) |
 | GraspAndLift_Test | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 1.7 | compiled |
 | GraspAndLift_Train | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 9.9 | compiled |
 | Inria_Test | Error-related potential |  | 10 | 57 | 200 | 2 | 1 s | 4.7 | compiled |
 | Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 1 s | 7.6 | compiled |
-| Lee2019_ERP | P300 speller (continuous) |  | 54 | 62 | 1000 | none | — | 57.9 | compiled (MOABB) |
+| Lane_Keeping(inhouse) | ? |  |  |  |  |  |  |  | no metadata |
 | Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s | 30.0 | compiled (MOABB) |
 | Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s | 30.0 | compiled (MOABB) |
 | Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s | 8.8 | compiled (MOABB) |

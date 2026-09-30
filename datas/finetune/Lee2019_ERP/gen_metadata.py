@@ -1,6 +1,6 @@
 """
 Lee2019_ERP, loaded through MOABB's Lee2019_ERP (1.5.0) -- metadata.json generator (downloads subject 1).
-Then `python datas/pretrain/Lee2019_ERP/fetch.py` downloads the rest (resumable).
+Then `python datas/finetune/Lee2019_ERP/fetch.py` downloads the rest (resumable).
 
 OpenBMI ERP speller (same 54 subjects as Lee2019_MI): 2 sessions x (train + test runs), 62 EEG ch at 1000 Hz. Flashes are ~0.1 s apart, so trials would overlap: each run is cut into continuous non-overlapping 5 s windows with a dummy label instead (pretraining only).
 """
