@@ -831,6 +831,19 @@ def spatial_mix(spatial, t, dim):
     return torch.movedim(spatial(torch.movedim(t, dim, -1).float()), -1, dim)
 
 
+class PerStampSpatial(nn.Module):
+    """One signed spatial filter bank per stamp (filter-bank-CSP style): weight [S, K, C], so stamp s's code is mixed
+    by its own K filters. [B, N', C, S] -> [B, N', K, S], the same shape the shared nn.Linear(C, K) gives.
+    Init as nn.Linear's (uniform, bound 1/sqrt(C))."""
+    def __init__(self, num_channels, k, num_stamps):
+        super().__init__()
+        b = 1.0 / math.sqrt(num_channels)
+        self.weight = nn.Parameter(torch.empty(num_stamps, k, num_channels).uniform_(-b, b))
+
+    def forward(self, t):
+        return torch.einsum('bncs,skc->bnks', t.float(), self.weight)
+
+
 class FlatTimePool(nn.Module):
     """Uniform weights over patches (ADR 0014 C0)."""
     def forward(self, power):                                    # [B, N', K, S] -> [B, K, S]
@@ -925,15 +938,25 @@ def _selfcheck_head_modules():
                                sample_freq=200.0, patch_len=50, patch_stride=50)
     out = FeatureHead(hcfg)({'stamp': torch.randn(2, 8, 6, S, 2), 'raw': torch.randn(2, 6, 8, 50)})
     assert out.shape == (2, 3), out.shape
+    ps = resolve_head_config(dict(features=[{'type': 'stamp_power', 'spatial_k': 2, 'spatial_per_stamp': True}], time_pool='flat',
+                                  dropout=0.0), num_patches=8, num_channels=6, num_classes=3, num_stamps=S,
+                             sample_freq=200.0, patch_len=50, patch_stride=50)
+    ph = FeatureHead(ps)
+    x = torch.randn(2, 8, 6, S, 2)
+    assert ph({'stamp': x}).shape == (2, 3)
+    W = ph.spatials['stamp_power'].weight                        # [S, K, C]: stamp s mixed by its own filters only
+    ref = torch.stack([x[..., s, 0] @ W[s].T for s in range(S)], -1)
+    assert torch.allclose(ph.spatials['stamp_power'](x[..., 0]), ref, atol=1e-5)
 
     print('head_modules self-check OK')
 
 
 BANDS = ((8.0, 13.0), (13.0, 30.0))   # mu, beta
 # Per-entry keys: set at the top level as the default for every entry, or inside one entry.
-_ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'stamp_rank', 'latent_proj')
+_ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'stamp_rank', 'latent_proj',
+               'spatial_per_stamp')
 _HEAD_DEFAULTS = dict(features=[{'type': 'stamp_power'}], spatial_k=8, time_pool='learned', time_rank=2,
-                      window=None, evoked_rank=0, stamp_rank=4, latent_proj='learned', dropout=0.5,
+                      window=None, evoked_rank=0, stamp_rank=4, latent_proj='learned', spatial_per_stamp=False, dropout=0.5,
                       latent_source='output')
 
 
@@ -979,6 +1002,8 @@ def resolve_head_config(ft_params, **derived):
         if etp not in ('flat', 'learned', 'window', 'none'):
             raise ValueError(f"features['{name}'] time_pool must be flat|learned|window|none, got {etp!r}")
         ENTRY_TYPES[name].check(e)
+        if e['spatial_per_stamp'] and (ENTRY_TYPES[name].source != 'stamp' or not k):
+            raise ValueError(f"spatial_per_stamp ('{name}') needs a stamp-code entry and spatial_k > 0")
         if etp == 'window' and not e['window']:
             raise ValueError(f"features['{name}'] time_pool='window' requires a window=[lo, hi]")
         if etp == 'learned' and int(e['time_rank']) < 1:
@@ -992,7 +1017,7 @@ def resolve_head_config(ft_params, **derived):
 def _entry_cfg(cfg, name):
     """One entry's effective _ENTRY_KEYS (top-level default, the entry's own value wins) plus the
     shape keys every entry needs."""
-    eff = {k: cfg[k] for k in _ENTRY_KEYS}
+    eff = {k: cfg.get(k, _HEAD_DEFAULTS[k]) for k in _ENTRY_KEYS}    # saved heads predate newer keys
     eff.update({k: v for k, v in next(f for f in cfg['features'] if f['type'] == name).items() if k != 'type'})
     for k in ('num_patches', 'num_stamps', 'sample_freq', 'patch_stride', 'patch_len', 'num_channels', 'latent_dim'):
         eff[k] = cfg.get(k)
@@ -1363,7 +1388,9 @@ class FeatureHead(nn.Module):
         self.entries = nn.ModuleDict({name: ENTRY_TYPES[name](_entry_cfg(cfg, name)) for name in names})
         # spatial_k None/0 = no mixing (ADR 0016 ablation control): spatial_mix(None, ...) is identity,
         # so each real channel stays its own feature row instead of being pooled to K filters.
-        self.spatials = nn.ModuleDict({name: nn.Linear(cfg['num_channels'], k, bias=False)
+        self.spatials = nn.ModuleDict({name: (PerStampSpatial(cfg['num_channels'], k, cfg['num_stamps'])
+                                              if _entry_cfg(cfg, name)['spatial_per_stamp']
+                                              else nn.Linear(cfg['num_channels'], k, bias=False))
                                        for name in names if (k := _entry_cfg(cfg, name)['spatial_k'])})
         n_feat = feature_dim(cfg)
         # BatchNorm stands in for the probe's StandardScaler: log-powers are far from unit scale.
@@ -1385,6 +1412,8 @@ class FeatureHead(nn.Module):
                     outs.append(mod(spatial_mix(spatial, raw, 1)))                           # [B, K, N', L]
                 elif mod.source == 'latent':
                     outs.append(mod(spatial_mix(spatial, latent, 2)))                        # [B, N', K, D]
+                elif isinstance(spatial, PerStampSpatial):
+                    outs.append(mod(spatial(amp[..., 0]), spatial(amp[..., 1])))              # each [B, N', K, S]
                 else:
                     outs.append(mod(spatial_mix(spatial, amp[..., 0], 2),
                                     spatial_mix(spatial, amp[..., 1], 2)))                  # each [B, N', K, S]
