@@ -90,7 +90,9 @@ per stamp (`spatial_per_stamp`, filter-bank-CSP style) instead of one shared K =
 every cell: BNCI2014004 loso 74.6 vs 77.0 (-2.4), BNCI2014001 loso 48.8 vs 50.5 (-1.7), BNCI2014004 few-shot 72.0 vs
 75.4 (-3.3), BNCI2014001 few-shot 38.3 vs 41.3 (-3.0); the train/test gap did not shrink. A shared filter pools the
 spatial evidence of all stamps (mu and beta ERD share their lateral motor topography); per-stamp filters must each be
-learned from the same few trials. Not pursued; the option stays in the code (default off).
+learned from the same few trials. Shelved, worth revisiting (e.g. filters fit in closed form per stamp, as CSP does,
+instead of by gradient); the option stays in the code (default off). Runs archived in
+`output/archive/2026-09-30_per_stamp_spatial/`.
 
 ## Notes
 
