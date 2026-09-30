@@ -104,8 +104,9 @@ Key fields (templates show defaults):
 **MeSAE**: an EEG tokenizer. A TSA encoder feeds a static stamp dictionary (StampBank: every stamp active at
 every patch; each reconstructs a patch as `a*D + b*H`, D a template and H its quadrature partner), trained by
 masked reconstruction. Routed (top-k) stamps were removed (docs/adr/0022; code on the `routed-stamps`
-branch). Downstream heads read the encoder output z (`latent_signed`), the stamps being the reconstruction
-objective and an interpretable filterbank view. Plugged in via `model/MeSAE/plugin.py` (`model/factory.py`
+branch). The default downstream head reads both the stamp power (`stamp_power`, induced band power: MI) and the
+signed encoder output z (`latent_signed`: phase-locked / P300); it beats either alone on every loso cell
+(docs/reports/2026-09-29-combined-head.md). Plugged in via `model/MeSAE/plugin.py` (`model/factory.py`
 `MODEL_REGISTRY`, docs/adr/0004).
 
 ```
