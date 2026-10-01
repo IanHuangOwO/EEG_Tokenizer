@@ -50,7 +50,7 @@ PARADIGM = {
 }
 
 # Which external finetune benchmark lists each dataset: B = EEG-FM-Bench (arXiv 2508.17742),
-# C = EEG-FM-Compass (arXiv 2601.17883). Notes on both: docs/benchmark_papers/*.md (local, git-ignored).
+# C = EEG-FM-Compass (arXiv 2601.17883). Notes on both: docs/references/*.md (local, git-ignored).
 BENCH = {
     'BNCI2014001': 'B, C', 'BNCI2014004': 'C', 'BNCI2014008': 'C', 'BNCI2014009': 'C',
     'BNCI2015001': 'C', 'CHB_MIT': 'C', 'EEGMAT': 'B, C', 'Nakanishi2015': 'C', 'PhysionetMI': 'B',
