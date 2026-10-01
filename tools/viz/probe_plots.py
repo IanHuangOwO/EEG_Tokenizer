@@ -5,6 +5,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 
+from tools.viz import mirror_order
+
 
 def plot_probe_maps(out_path, maps, channel_names, title, event_s=None):
     """maps: {row title: (importance [K, N], spatial [K, C], t_axis [N] seconds of each patch centre)} -- each row
@@ -28,9 +30,10 @@ def plot_probe_maps(out_path, maps, channel_names, title, event_s=None):
         ax_t.set_ylabel('virtual channel\n(ranked)')
         ax_t.set_title(f'{name}: decision weight over time', fontsize=9)
         fig.colorbar(im, ax=ax_t, fraction=0.03)
+        cols = mirror_order(channel_names)                      # standard mirrored channel order
         lim = np.abs(sp).max() or 1.0
-        im2 = ax_s.imshow(sp, aspect='auto', cmap='RdBu_r', vmin=-lim, vmax=lim, origin='lower')
-        ax_s.set_xticks(range(len(channel_names)), channel_names, rotation=90, fontsize=6)
+        im2 = ax_s.imshow(sp[:, cols], aspect='auto', cmap='RdBu_r', vmin=-lim, vmax=lim, origin='lower')
+        ax_s.set_xticks(range(len(channel_names)), [channel_names[i] for i in cols], rotation=90, fontsize=6)
         ax_s.set_yticks(range(K), [f'v{k + 1}' for k in range(K)], fontsize=7)
         ax_s.set_title('spatial filter per virtual channel (sign-aligned)', fontsize=9)
         fig.colorbar(im2, ax=ax_s, fraction=0.03)
@@ -71,8 +74,9 @@ def plot_stamp_maps(out_path, tw, imp, chan, t_axis, stamp_labels, xy, channel_n
         fig.colorbar(imz, ax=az, fraction=0.03)
         asp = fig.add_subplot(gs[0, 1:])
         lim = np.abs(zs).max() or 1.0
-        ims = asp.imshow(zs, aspect='auto', cmap='RdBu_r', vmin=-lim, vmax=lim, origin='upper')
-        asp.set_xticks(range(len(channel_names)), channel_names, rotation=90, fontsize=6)
+        cols = mirror_order(channel_names)
+        ims = asp.imshow(zs[:, cols], aspect='auto', cmap='RdBu_r', vmin=-lim, vmax=lim, origin='upper')
+        asp.set_xticks(range(len(channel_names)), [channel_names[i] for i in cols], rotation=90, fontsize=6)
         asp.set_yticks(range(K), vlab, fontsize=7)
         asp.set_title('z half: spatial filter per virtual channel (sign-aligned)', fontsize=9)
         fig.colorbar(ims, ax=asp, fraction=0.03)

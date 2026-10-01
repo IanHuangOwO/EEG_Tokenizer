@@ -2,6 +2,8 @@
 
 import os
 import numpy as np
+
+from tools.viz import mirror_order
 import matplotlib.pyplot as plt
 
 
@@ -81,6 +83,11 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
 
     orig  = val_orig[0].detach().cpu().numpy()
     recon = val_recon[0].detach().cpu().numpy()
+    if channel_names and len(channel_names) == orig.shape[0]:   # rows in the standard mirrored channel order
+        rows = mirror_order(channel_names)
+        orig, recon, channel_names = orig[rows], recon[rows], [channel_names[i] for i in rows]
+        if mask is not None and mask.ndim == 2:
+            mask = mask[rows]
     C = orig.shape[0]
     n = min(orig.shape[-1], recon.shape[-1])
     orig, recon = orig[:, :n], recon[:, :n]
