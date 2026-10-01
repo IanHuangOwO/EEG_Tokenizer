@@ -22,3 +22,6 @@ __pycache__/
 *.log
 .superpowers/
 /docs/papers/
+/docs/reports/
+/docs/cards/
+/docs/adr/

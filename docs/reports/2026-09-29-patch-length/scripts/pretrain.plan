@@ -1,4 +1,0 @@
-job mesae_tiny_p100_s16_s2 :: python train_pretrain.py --config configs/runs/mesae_tiny_p100_s16_s2/pretrain.json
-job mesae_tiny_p100_s16_s3 :: python train_pretrain.py --config configs/runs/mesae_tiny_p100_s16_s3/pretrain.json
-job mesae_tiny_p50_s16_s2 :: python train_pretrain.py --config configs/runs/mesae_tiny_p50_s16_s2/pretrain.json
-job mesae_tiny_p50_s16_s3 :: python train_pretrain.py --config configs/runs/mesae_tiny_p50_s16_s3/pretrain.json
