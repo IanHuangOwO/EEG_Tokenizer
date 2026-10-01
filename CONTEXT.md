@@ -18,8 +18,9 @@ is excluded from masking and the loss (`IO/preprocessing.py`'s `window_continuou
 **Patch**: one channel's 50-sample (0.25 s) slice of a Window, stepped by 25 (50% overlap): 39 per Window.
 At 200 Hz a patch's FFT grid is 4 Hz (60 Hz lands on a bin, 50 Hz never does).
 
-**Canonical montage / valid channels**: every dataset is mapped onto one channel list (`10-10`, 64);
-channels a dataset lacks are zero padding and `valid_channels` marks the real ones. Padded channels are
+**Canonical montage / valid channels**: every dataset is mapped onto 64 channel slots named by one list
+(`10-10`); under the native layout a dataset's non-10-10 channels fill slots its montage leaves free. Slots a
+dataset does not fill are zero padding and `valid_channels` marks the real ones. Padded channels are
 masked out of attention and the loss; a subject's near-flat channels (dead electrodes, the recording
 reference) are treated as padding in pretraining. A **sub-montage** (`configs/montages.json`: motor-3,
 p300-8, 10-20, bci-22, ...) is what channel subsampling cuts a dense cap down to.
@@ -111,8 +112,9 @@ What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
 | `StampBank` | 0.01M | 16 stamps (sparsity budget 32 < 50) |
 
 Loss: patch MSE + per-stamp `mp` (weight 1; stamps ranked per patch by strength) + `ffn_lb` (0.01);
-visible samples weighted 0.1 in the masked phase. Removed: trial MSE (ADR 0021), STFT (0019), nested (0018). 50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2,
-random_channel 0.3, time_block 0.4 max ratios) + channel subsampling.
+visible samples weighted 0.1 in the masked phase. Removed: trial MSE (ADR 0021), STFT (0019), nested (0018).
+50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2, random_channel 0.3, time_block 0.4 max ratios)
++ channel subsampling. Channels: native layout, MNE template positions. Finetune head: stamp_power + latent_signed.
 
 **Unit**: umbrella term in shared tooling (`model/base_*`, `tools/`) for whatever a model codes per patch --
 a Stamp for MeSAE. Plugins: `model/<Name>/plugin.py`, docs/adr/0004.

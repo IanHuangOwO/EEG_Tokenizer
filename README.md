@@ -6,8 +6,7 @@ The model is **MeSAE**: a temporal-spatial attention (TSA) encoder feeds a **sta
 pretrained with masked reconstruction on a multi-dataset corpus, then frozen. Downstream tasks read
 either the encoder output directly (a linear probe) or the stamp codes (a structured head).
 
-> The earlier discrete tokenizer, MeFSQ (FSQ/VQ), has been removed (`docs/adr/0013`).
-> Its terms are kept in `CONTEXT.md` only as a glossary for reading older ADRs.
+> An earlier discrete tokenizer, MeFSQ (FSQ/VQ), has been removed.
 
 ## How it works
 
@@ -16,7 +15,8 @@ raw dataset files
   → datas/<split>/<Name>/loader.py     read recordings; cut event trials (event −1 s … +4 s) or fixed windows
   → cache_dataset.py                   bandpass 0.5–100 Hz + resample to 200 Hz per continuous recording,
                                        then cut; drop flat-line windows; bake per-subject .npz caches
-  → IO/dataset.py                      map onto the canonical montage (missing → padding), z-score,
+  → IO/dataset.py                      map onto 64 channel slots (native layout: every EEG channel of the
+                                       dataset, at MNE template positions; missing → padding), z-score,
                                        Trial → Windows → Patches; one-montage batches
   → train_pretrain.py                  tokenizer phase (unmasked) → masked phase, one run
   → cache_feature.py / train_finetune.py   frozen backbone → cached features → small head
@@ -101,7 +101,8 @@ in `output/.../artifacts/config.json`. See `configs/README.md`.
 
 **Finetune.** A head is a list of feature entries (`model_params.MeSAE.finetune.features`), each
 with its own spatial filter: stamp-code entries (`stamp_power`, `signed_ab`, ...), latent entries
-on the encoder output z (`latent_signed` is the linear probe), and raw-signal baselines. Splits
+on the encoder output z (`latent_signed` is the linear probe), and raw-signal baselines. The default head
+combines `stamp_power` (MI) and `latent_signed` (P300). Splits
 (`training_params.finetune.split.type`): `loso`, `subject_kfold`, `eval_subjects`, `kfold`,
 `blocked_kfold`, `fewshot`. Frozen protocols (`configs/finetune_protocols.json`: `mi_loso`,
 `mi_fewshot`, `p300_loso`, `p300_fewshot`) were tuned on development sets only. Read
@@ -136,14 +137,13 @@ output/archive/<date>_<topic>/     # superseded experiments, grouped by topic
 | `datas/pretrain/`, `datas/finetune/` | One folder per dataset: `loader.py`, `metadata.json`, git-ignored `raw/` and `cache/` |
 | `tools/` | `analysis/` (calculation), `viz/` (rendering), `panels/` (analysis units), `misc/` (sweeps, queue, corpus and inventory scripts) |
 | `configs/` | Templates, `compile.json`, `montages.json`, `finetune_protocols.json`, `sweeps/` |
-| `docs/` | ADRs, agent how-tos, finetune caveats |
+| `docs/` | Agent how-tos, finetune caveats (ADRs, cards and reports are kept locally, not in git) |
 
 ## Datasets
 
 `datas/DATASETS.md` lists every dataset with its paradigm, benchmark membership (EEG-FM-Bench /
-EEG-FM-Compass), subject count, event position, compiled hours and status: currently 24 pretrain
-datasets (438 h compiled) and 19 finetune datasets, plus 5 archived. The file is generated, so
-regenerate it with `python -m tools.misc.dataset_inventory` after you add or compile a dataset.
+EEG-FM-Compass), subject count, event position, compiled hours and status, plus candidates on hold and
+archived ones. The file is generated, so regenerate it with `python -m tools.misc.dataset_inventory` after you add or compile a dataset.
 Pretraining splits train/val by person, per cohort, so no subject's data appears in both.
 
 ## Further reading

@@ -1,6 +1,7 @@
 # CLAUDE.md
 
-Guidance for Claude Code in this repository. Canonical terms: `CONTEXT.md`. Design history: `docs/adr/`.
+Guidance for Claude Code in this repository. Canonical terms: `CONTEXT.md`. Design history: `docs/adr/` (decisions),
+`docs/cards/` (pre-registered experiments), `docs/reports/` (results) -- kept locally, not tracked in git.
 
 ## Environment
 
@@ -32,8 +33,9 @@ python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threa
 
 # Analysis: one panel mechanism (tools/panels/, presets in tools/panels/__init__.py PRESETS), failures don't stop
 # the other panels. Pretrain = one backbone -> output/<backbone>/pretrain/analysis/ (standard: backbone_eval,
-# attention_range, stamp_usage, ridge_probe, stamp_templates, stamp_duplicates, stamp_distribution, snapshot,
-# codebook; quick: the first six). Judge each change by its own mechanism metric, not finetuning (ADR 0020).
+# attention_range, stamp_usage, ridge_probe, stamp_vs_raw, stamp_templates, stamp_duplicates, stamp_distribution,
+# snapshot, codebook; quick: the first seven; on request: coord_robustness, stamp_maps, probe_maps). Judge each
+# change by its own mechanism metric, not finetuning (ADR 0020).
 python analysis_pretrain.py --run <backbone> [--preset quick] [--panel <name> ...]
 python analysis_pretrain.py --panel profile [--train]     # parameter counts + timing, no checkpoint
 # Finetune = several backbones under one head label -> output/analysis/<groups>/ (standard: summary, report,
@@ -120,8 +122,8 @@ datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.
  │                     sets use EEG-FM-Compass post-event windows via metadata moabb.onset_window/window, or fixed windows); drops
  │                     flat-line dropout windows -> datas/<split>/<Name>/cache/*.npz. BETA_3s/4s ship
  │                     pre-epoched and are filtered per epoch.
- └ IO/dataset.py       EEGDataset maps channels onto the canonical montage (missing -> zero padding,
- │                     valid_channels marks real ones), normalises per trial; PretrainDataset cuts
+ └ IO/dataset.py       EEGDataset maps channels onto the 64 slots (channel_layout native / grid; missing -> zero
+ │                     padding, valid_channels marks real ones), normalises per trial; PretrainDataset cuts
  │                     windows -> patches and draws masks; MontageBatchSampler makes one-montage batches
  └ train_pretrain.py   tokenizer phase (every block, temporal attention only, unmasked) -> masked phase
                        (spatial attention + coordinate embedding on, mask curriculum starts)
@@ -161,7 +163,9 @@ pipeline scripts it cites) and delete the generated `output/analysis/` and queue
 ## Data
 
 `datas/<split>/<name>/metadata.json`: `data_metadata` (`acquisition.sample_frequency`, 1-indexed `channels`
-with labels and coordinates, `event_onset_seconds`, `moabb` class/kwargs/window, optional `cohort`) and
+with labels and, where the dataset ships them, its own positions -- polar `coordinates` with
+`polar_equator_radius`, or `xyz`; per-subject `channel_xyz` in `data_structure` -- read only by `coords: recorded`;
+`event_onset_seconds`, `moabb` class/kwargs/window, optional `cohort`) and
 `data_structure` (per-subject files or `moabb_subject`). `datas/DATASETS.md` lists every dataset; regenerate
 with `python -m tools.misc.dataset_inventory`. Read `docs/finetune-caveats.md` before reporting finetune numbers.
 
@@ -169,7 +173,8 @@ with `python -m tools.misc.dataset_inventory`. Read `docs/finetune-caveats.md` b
 
 - Issues: GitHub Issues (IanHuangOwO/EEG_Tokenizer) via `gh`; labels `needs-triage` / `needs-info` /
   `ready-for-agent` / `ready-for-human` / `wontfix` -- `docs/agents/issue-tracker.md`, `triage-labels.md`.
-- Adding a dataset / model / montage / tool: `docs/agents/adding-a-*.md`. `tools/` = `analysis/`
+- Adding a dataset / model / montage / tool: `docs/agents/adding-a-*.md`. Raw downloads (NEMAR / MOABB, resumable,
+  checksummed): `python -m tools.misc.fetch_datasets`. `tools/` = `analysis/`
   (calculation), `viz/` (rendering), `panels/` (the analysis entrypoints' units); `tools/misc/` = pipeline utilities run directly.
 - `.reshape(`/`.view(` silently scrambles data when it merges non-adjacent axes (it has hit training data
   three times): check any new one against `docs/agents/reshape-pitfalls.md`.
