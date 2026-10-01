@@ -106,3 +106,22 @@ Reading (same margin rule, vs grid):
 - real-template level with grid on 001 loso while dcoord loses -> the own coordinates cause it;
 - in between (real-template within the margin of both grid and dcoord) -> unresolved, report the three means.
 004 loso is read the same way for its gain.
+
+### Follow-up (a) result (2026-10-01): the own coordinates cause the 001 loss; the extra channels help 004
+
+Tail balanced accuracy, loso, mean +- SE over pretrain seeds (combined head, 3 finetune seeds each; 0 head mismatches):
+
+| cell | grid | real, template positions | dcoord (real, own positions) |
+|---|---|---|---|
+| BNCI2014001 loso | 49.5 +- 0.5 | 49.4 +- 0.3 | 47.8 +- 0.7 |
+| BNCI2014004 loso | 77.1 +- 0.1 | 78.5 +- 0.2 | 78.0 +- 0.2 |
+
+- 001: real-template level with grid (-0.17, margin 1.09); dcoord below real-template (-1.57, margin 1.50). The
+  extra channels do not cost 001; the datasets' own positions do.
+- 004: real-template beats grid (+1.34, margin 0.39); dcoord gives part of it back (-0.53 vs real-template, margin
+  0.45). Kappa agrees on every comparison.
+- So the own positions (mostly per-dataset templates on idealised spheres, plus Cho2017's digitization) hurt both
+  cells relative to template positions -- consistent with the finetune sets sitting at MNE template positions, so a
+  backbone pretrained with per-dataset positions sees the same anatomical site at a slightly different place than at
+  pretraining. The extra channels alone look like a gain: real-template has not been run on BNCI2014008 loso and the
+  few-shot cells, so it cannot be judged on the full rule yet.

@@ -9,9 +9,10 @@
   cells (BNCI2014001 / 004 / 008 x Compass loso / few-shot) x finetune seeds 1-3; metric tail balanced accuracy (and
   kappa). Per pretrain seed the mean of its 3 finetune seeds; a cell differs when |diff| > 2 x sqrt(SE_a^2 + SE_b^2)
   over pretrain seeds. Loso decides (card rule); few-shot reported.
-- **Verdict:** keep grid. Dataset coordinates win BNCI2014004 loso (+0.8) and lose BNCI2014001 loso (-1.7, just past
-  the margin), both consistent over all three seed pairs; the other four cells are level. The pre-set rule (any loso
-  loss -> keep grid) decides.
+- **Verdict:** keep grid over dcoord. Dataset coordinates win BNCI2014004 loso (+0.8) and lose BNCI2014001 loso (-1.7,
+  just past the margin), both consistent over all three seed pairs; the other four cells are level. The pre-set rule
+  (any loso loss -> keep grid) decides. Follow-up (a): the 001 loss comes from the own positions; the real layout
+  with template positions is level on 001 and wins 004 (+1.3), pending its other cells.
 - **Cards / ADRs:** [card](../cards/2026-10-01-dataset-coordinates.md), [ADR 0023](../adr/0023-real-channel-coordinates.md),
   [coordinate-lookup card](../cards/2026-10-01-coordinate-lookup.md)
 
@@ -48,6 +49,20 @@ Coordinate sources (Step 1 of the card): BETA, Wang2016, Liu2022EldBETA, Inria, 
 manufacturer tables) and Cho2017 (per-subject digitized); alignment residuals 5.5-8 mm, two Cho2017 subjects above
 15 mm fell back to the template; 11 datasets and the finetune sets have no source and kept the template.
 `montages.png` shows every source after alignment over the template.
+
+## Follow-up (a): extra channels vs own positions
+
+The archived ADR 0023 backbones (real layout, template positions, same corpus and seeds) finetuned with the combined
+head on the two MI loso cells:
+
+| cell | grid | real, template positions | dcoord |
+|---|---|---|---|
+| BNCI2014001 loso | 49.5 +- 0.5 | 49.4 +- 0.3 | 47.8 +- 0.7 |
+| BNCI2014004 loso | 77.1 +- 0.1 | **78.5 +- 0.2** | 78.0 +- 0.2 |
+
+The 001 loss comes from the datasets' own positions (real-template is level with grid, dcoord is below real-template
+by more than the margin); the extra channels alone are neutral on 001 and win 004 by +1.3 (kappa +2.7). Real layout
+with template positions is the promising variant; it still needs BNCI2014008 loso and the few-shot cells.
 
 ## Notes
 
