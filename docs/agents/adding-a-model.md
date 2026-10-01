@@ -171,8 +171,7 @@ class MeXXXPlotter(BasePlotter):
         panels = [
             dict(title='Total Loss', ylabel='Loss', series=[dict(key='loss', color='b')]),
             # ... one dict per panel, from your step-0 metrics list. Use
-            # self.pool_pair_series(...) / self.indexed_series(...) for
-            # unbounded-family metrics.
+            # self.indexed_series(...) for unbounded-family metrics.
         ]
         self.render(panels, filename, suptitle='Training Dashboard')
 
