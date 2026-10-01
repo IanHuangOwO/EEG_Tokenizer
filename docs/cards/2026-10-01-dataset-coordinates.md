@@ -93,3 +93,16 @@ BNCI2014004 loso +0.81 (margin 0.37, win), BNCI2014001 loso -1.74 (margin 1.69, 
 few-shot cells level; consistent over the three seed pairs. One loso loss -> keep grid by the rule above. Report:
 docs/reports/2026-10-01-dataset-coordinates.md.
 
+
+## Follow-up (a): extra channels or own coordinates? (written 2026-10-01, before the runs)
+
+The dcoord change bundles two things: the real layout's extra non-grid channels and the datasets' own positions. The
+archived ADR 0023 backbones `mesae_tiny_p50_s16_real_s1..3` (real layout, template positions; same corpus and seeds)
+isolate the first. They were never finetuned with the combined head (their ADR 0023 runs used protocol heads), so:
+combined head, BNCI2014001 loso and BNCI2014004 loso, finetune seeds 1-3, effective configs checked against grid.
+
+Reading (same margin rule, vs grid):
+- real-template also loses 001 loso -> the extra channels cause it;
+- real-template level with grid on 001 loso while dcoord loses -> the own coordinates cause it;
+- in between (real-template within the margin of both grid and dcoord) -> unresolved, report the three means.
+004 loso is read the same way for its gain.
