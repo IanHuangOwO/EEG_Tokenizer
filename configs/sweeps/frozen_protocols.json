@@ -1,18 +1,17 @@
 {
- "_comment": "The frozen finetune protocols (configs/finetune_protocols.json: mi_loso / mi_fewshot / p300_loso / p300_fewshot) applied unchanged to the REPORTED datasets for every backbone of a comparison. Report: python analysis_finetune.py --group base=<backbone> --group X=<backbone> --ref base (after analysis_pretrain.py --panel backbone_eval per backbone).",
+ "_comment": "The frozen finetune protocols (configs/finetune_protocols.json: mi_loso / mi_fewshot / p300_loso / p300_fewshot, each with the combined head) on the 6 reported cells for every backbone of a comparison, finetune seed 1 (add seeds 2-3 by repeating with training_params.finetune.seed). Report: python analysis_finetune.py --group base=<backbone> --group X=<backbone> --ref base (after analysis_pretrain.py --panel backbone_eval per backbone).",
  "script": "train_finetune.py",
- "config": "configs/runs/{backbone}/finetune/learned/BNCI2014001_loso.json",
+ "config": "configs/runs/{backbone}/finetune/combined/BNCI2014001_loso_seed1.json",
  "backbones": [
-  "mesae_tiny_static16_base_s1",
-  "mesae_tiny_static16_groupA_s1",
-  "mesae_tiny_static16_groupB_s1",
-  "mesae_tiny_static16_groupAB_s1"
+  "mesae_tiny_p50_s16_s1",
+  "mesae_tiny_p50_s16_s2",
+  "mesae_tiny_p50_s16_s3"
  ],
  "set": {
   "training_params.finetune.seed": 1
  },
  "cases": {
-  "learned/BNCI2014001_loso": {
+  "combined/BNCI2014001_loso": {
    "dataset_params.finetune": {
     "BNCI2014001": {
      "dataset_path": "datas/finetune/BNCI2014001",
@@ -25,9 +24,9 @@
     }
    },
    "training_params.finetune.protocol": "mi_loso",
-   "training_params.finetune.model_name": "frozen_learned_BNCI2014001_loso"
+   "training_params.finetune.model_name": "frozen_combined_BNCI2014001_loso"
   },
-  "learned/BNCI2014001_fewshot": {
+  "combined/BNCI2014001_fewshot": {
    "dataset_params.finetune": {
     "BNCI2014001": {
      "dataset_path": "datas/finetune/BNCI2014001",
@@ -40,9 +39,9 @@
     }
    },
    "training_params.finetune.protocol": "mi_fewshot",
-   "training_params.finetune.model_name": "frozen_learned_BNCI2014001_fewshot"
+   "training_params.finetune.model_name": "frozen_combined_BNCI2014001_fewshot"
   },
-  "learned/BNCI2014004_loso": {
+  "combined/BNCI2014004_loso": {
    "dataset_params.finetune": {
     "BNCI2014004": {
      "dataset_path": "datas/finetune/BNCI2014004",
@@ -55,9 +54,9 @@
     }
    },
    "training_params.finetune.protocol": "mi_loso",
-   "training_params.finetune.model_name": "frozen_learned_BNCI2014004_loso"
+   "training_params.finetune.model_name": "frozen_combined_BNCI2014004_loso"
   },
-  "learned/BNCI2014004_fewshot": {
+  "combined/BNCI2014004_fewshot": {
    "dataset_params.finetune": {
     "BNCI2014004": {
      "dataset_path": "datas/finetune/BNCI2014004",
@@ -70,9 +69,9 @@
     }
    },
    "training_params.finetune.protocol": "mi_fewshot",
-   "training_params.finetune.model_name": "frozen_learned_BNCI2014004_fewshot"
+   "training_params.finetune.model_name": "frozen_combined_BNCI2014004_fewshot"
   },
-  "learned/BNCI2014008_loso": {
+  "combined/BNCI2014008_loso": {
    "dataset_params.finetune": {
     "BNCI2014008": {
      "dataset_path": "datas/finetune/BNCI2014008",
@@ -85,9 +84,9 @@
     }
    },
    "training_params.finetune.protocol": "p300_loso",
-   "training_params.finetune.model_name": "frozen_learned_BNCI2014008_loso"
+   "training_params.finetune.model_name": "frozen_combined_BNCI2014008_loso"
   },
-  "learned/BNCI2014008_fewshot": {
+  "combined/BNCI2014008_fewshot": {
    "dataset_params.finetune": {
     "BNCI2014008": {
      "dataset_path": "datas/finetune/BNCI2014008",
@@ -100,7 +99,7 @@
     }
    },
    "training_params.finetune.protocol": "p300_fewshot",
-   "training_params.finetune.model_name": "frozen_learned_BNCI2014008_fewshot"
+   "training_params.finetune.model_name": "frozen_combined_BNCI2014008_fewshot"
   }
  },
  "output_path": "{backbone}/finetune/frozen_{case}"

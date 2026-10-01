@@ -99,8 +99,8 @@ Key fields (templates show defaults):
   (`spatial_k`, `time_pool`, `time_rank`, `window`, `evoked_rank`, `stamp_rank`, `latent_proj`) may also be set
   at the top level as defaults; plus `dropout`. Defaults: `_HEAD_DEFAULTS`.
 - `training_params.finetune`: `pretrained_checkpoint`, `protocol` (a `configs/finetune_protocols.json` entry:
-  mi_loso / mi_fewshot / p300_loso / p300_fewshot, tuned on DEV sets BNCI2015001 / BNCI2014009 only; applied
-  over the merged config, `--set` still wins), `split` = `{"type": ...}` from `train_finetune.py`'s `SPLITS`:
+  mi_loso / mi_fewshot / p300_loso / p300_fewshot, tuned on DEV sets BNCI2015001 / BNCI2014009 only; each sets
+  the combined head; applied over the merged config, so a head in the run config is overridden -- `--set` still wins), `split` = `{"type": ...}` from `train_finetune.py`'s `SPLITS`:
   `loso`, `subject_kfold` (`n_folds`), `eval_subjects`, `kfold`, `blocked_kfold`, `fewshot` (`train_fraction`,
   EEG-FM-Compass calibration); all take `sessions` and `seed`, per-subject types also `purge` (P300 overlap);
   unknown keys are rejected. Plus LR fields, `epochs`, `class_weight` (`balanced`), `batch_size`, `seed`.
