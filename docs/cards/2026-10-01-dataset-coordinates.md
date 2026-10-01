@@ -144,3 +144,6 @@ head mismatches. Tail balanced accuracy, mean +- SE over pretrain seeds; rule as
 Kappa: 004 loso +2.68 (margin 0.79) win, everything else level. Real layout with template positions wins one loso
 cell and loses none: it meets this card's adopt rule (and ADR 0023's). Adoption is the user's call (the grid was kept
 by choice on 2026-10-01).
+
+Adopted (user, 2026-10-01): `channel_layout: real` with template positions is the default in the pretrain templates
+(ADR 0023 accepted); `coords: dataset` stays an option, not the default.

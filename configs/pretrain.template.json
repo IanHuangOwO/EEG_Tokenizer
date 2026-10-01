@@ -1127,6 +1127,7 @@
   },
   "preprocess_params": {
     "canonical_channels": "10-10",
+    "channel_layout": "real",
     "window_length": 1000,
     "patch_length": 50,
     "patch_stride": 25,

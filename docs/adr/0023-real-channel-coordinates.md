@@ -1,7 +1,11 @@
 # 0023: Real channel coordinates instead of the name-matched 10-10 grid
 
-- **Status:** reverted (user, 2026-09-30). The code was removed (IO/dataset.py, tools/analysis/backbone_eval.py back to
-  their state before 951e3c5); `grid` is the only layout. Why: see Outcome below.
+- **Status:** accepted (user, 2026-10-01; first accepted 2026-09-30, reverted the same day on a comparison that
+  turned out to be a head mismatch -- see Outcome). `channel_layout: real` with MNE template positions is the
+  default in configs/pretrain*.template.json; the code default stays `grid` so every config without the key
+  reproduces. Evidence: docs/reports/2026-10-01-dataset-coordinates.md (wins BNCI2014004 loso +1.34, level on the
+  other five cells, tiny, 3 seeds); the datasets' own positions (`coords: dataset`) were tested too and lose
+  BNCI2014001 loso, so positions stay the template.
 - **Context:** `IO/dataset.py` mapped every dataset onto the 64 slots of the canonical 10-10 montage by channel name
   (`_map_channels`): a channel whose label is not one of the 64 names (EGI `E1..E129`, BioSemi `A1..D32`, 10-05 names
   such as `FFC1h`, extra sites like `Iz`) was dropped, and every kept channel sat at its grid slot. The new pretraining
@@ -51,6 +55,6 @@ or `real`:
   60.4 vs 33.6 / 73.8 / 55.2. No sign that `real` hurt; a fair finetune comparison was never run.
 - Schirrmeister2017 has all 64 canonical sites by name, so no site was interpolated; the extra channels `real`
   added were mostly peripheral (TP9/10, PO9/10, FT9/10, F9/10, 10-05 temporal; Lee2019 +14).
-- "Real coordinates" was a misnomer: no metadata records measured positions, so every channel had MNE's template
-  position under both layouts. The user kept the revert: the 64-site 10-10 grid is enough (2026-10-01).
+- "Real coordinates" is a misnomer: no metadata records measured positions, so every channel had MNE's template
+  position under both layouts (that remains the adopted design: the gain is from the extra channels).
 - Runs archived in output/archive/2026-09-30_real_layout/ (real s1-s3 backbones kept, reusable for a fair rerun).

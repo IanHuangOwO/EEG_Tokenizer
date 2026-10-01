@@ -77,7 +77,10 @@ Key fields (templates show defaults):
   `temporal_bias` (true: a learned bias on the signed time lag in every block's temporal attention),
   `spatial_heads`, `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (true: Fourier electrode-coordinate
   embedding + per-block directional relative spatial bias; false: neither -- the spatial ablation).
-- `preprocess_params`: `canonical_channels` (a `montages.json` name or a list), `window_length`,
+- `preprocess_params`: `canonical_channels` (a `montages.json` name or a list), `channel_layout` (`real`, the
+  templates' default: every EEG channel kept at MNE's template position, non-10-10 ones in free slots, > 64 channels
+  reduced to the 64 sites; `grid`: 10-10 names only -- the code default, so configs without the key reproduce;
+  docs/adr/0023), `window_length`,
   `window_min_real`, `window_fraction`, `patch_length` 50, `patch_stride` 25 (50% overlap), `sample_freq` 200,
   `bandpass_filter`, `normalization_type`, and `mask` (`IO/masking.py`): `masking_strategy` `mixture` (one
   MaskMode per window -- channel_cluster / random_channel / time_block / random_token -- on a shared ratio
