@@ -12,7 +12,7 @@
 - **Verdict:** keep grid over dcoord. Dataset coordinates win BNCI2014004 loso (+0.8) and lose BNCI2014001 loso (-1.7,
   just past the margin), both consistent over all three seed pairs; the other four cells are level. The pre-set rule
   (any loso loss -> keep grid) decides. Follow-up (a): the 001 loss comes from the own positions; the real layout
-  with template positions is level on 001 and wins 004 (+1.3), pending its other cells.
+  with template positions wins 004 loso (+1.3) and is level on the other five cells: meets the adopt rule.
 - **Cards / ADRs:** [card](../cards/2026-10-01-dataset-coordinates.md), [ADR 0023](../adr/0023-real-channel-coordinates.md),
   [coordinate-lookup card](../cards/2026-10-01-coordinate-lookup.md)
 
@@ -62,7 +62,9 @@ head on the two MI loso cells:
 
 The 001 loss comes from the datasets' own positions (real-template is level with grid, dcoord is below real-template
 by more than the margin); the extra channels alone are neutral on 001 and win 004 by +1.3 (kappa +2.7). Real layout
-with template positions is the promising variant; it still needs BNCI2014008 loso and the few-shot cells.
+with template positions on all six cells (tail balanced accuracy, vs grid): 001 loso 49.4 (-0.17, level), 004 loso
+78.5 (+1.34, margin 0.39, win), 008 loso 69.5 (+0.22, level), few-shot 40.8 / 76.5 / 59.7 (all level). One loso win,
+no loss: it meets the adopt rule (`real_template_results.json`).
 
 ## Notes
 

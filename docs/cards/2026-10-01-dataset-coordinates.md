@@ -125,3 +125,22 @@ Tail balanced accuracy, loso, mean +- SE over pretrain seeds (combined head, 3 f
   backbone pretrained with per-dataset positions sees the same anatomical site at a slightly different place than at
   pretraining. The extra channels alone look like a gain: real-template has not been run on BNCI2014008 loso and the
   few-shot cells, so it cannot be judged on the full rule yet.
+
+
+### Real layout with template positions, all six cells (2026-10-01)
+
+Archived ADR 0023 backbones (real layout, MNE template positions), combined head, 3 pretrain x 3 finetune seeds, 0
+head mismatches. Tail balanced accuracy, mean +- SE over pretrain seeds; rule as above (vs grid):
+
+| cell | grid | real, template | dcoord | real - grid (margin) | verdict |
+|---|---|---|---|---|---|
+| BNCI2014001 loso | 49.5 +- 0.5 | 49.4 +- 0.3 | 47.8 | -0.17 (1.09) | level |
+| BNCI2014004 loso | 77.1 +- 0.1 | 78.5 +- 0.2 | 78.0 | +1.34 (0.39) | win |
+| BNCI2014008 loso | 69.3 +- 0.0 | 69.5 +- 0.1 | 69.4 | +0.22 (0.31) | level |
+| BNCI2014001 few-shot | 40.9 +- 0.2 | 40.8 +- 0.5 | 41.0 | -0.09 (1.09) | level |
+| BNCI2014004 few-shot | 75.5 +- 0.1 | 76.5 +- 0.6 | 75.4 | +0.98 (1.17) | level |
+| BNCI2014008 few-shot | 59.5 +- 0.4 | 59.7 +- 0.4 | 60.0 | +0.23 (1.04) | level |
+
+Kappa: 004 loso +2.68 (margin 0.79) win, everything else level. Real layout with template positions wins one loso
+cell and loses none: it meets this card's adopt rule (and ADR 0023's). Adoption is the user's call (the grid was kept
+by choice on 2026-10-01).
