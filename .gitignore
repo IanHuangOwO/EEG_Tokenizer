@@ -20,7 +20,6 @@ __pycache__/
 # Misc
 .DS_Store
 *.log
-.superpowers/
 /docs/papers/
 /docs/reports/
 /docs/cards/
