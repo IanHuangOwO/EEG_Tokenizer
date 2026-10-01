@@ -91,7 +91,7 @@ def fetch_nemar(ds_id, dest, derivatives=False):
                 time.sleep(15 * (a + 1))
         return False
 
-    # ponytail: NEMAR's S3 gives ~0.35 MB/s per connection, ~2.2 MB/s over 8; datasets stay sequential (the queue),
+    # NEMAR's S3 gives ~0.35 MB/s per connection, ~2.2 MB/s over 8; datasets stay sequential (the queue),
     # files within one dataset go 8 at a time.
     with ThreadPoolExecutor(WORKERS) as ex:
         for f, ok in zip(todo, ex.map(one, todo)):

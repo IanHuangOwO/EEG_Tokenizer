@@ -217,7 +217,7 @@ def moabb_dataset(class_name: str, dataset_path: str, **kwargs):
     import sys
     import moabb.datasets
     ds = getattr(moabb.datasets, class_name)(**kwargs)
-    # ponytail: module-global redirect of MOABB's storage-path lookup. Its MNE_DATASETS_<SIGN>_PATH
+    # Deliberate shortcut: module-global redirect of MOABB's storage-path lookup. Its MNE_DATASETS_<SIGN>_PATH
     # keys use a per-module sign (e.g. every BNCI dataset shares "BNCI"), not ds.code, and
     # several modules import get_dataset_path by name -- so patch every copy. One raw dir at
     # a time: fine for cache_dataset.py's per-dataset loop, not for two datasets in one process
@@ -231,7 +231,7 @@ def moabb_dataset(class_name: str, dataset_path: str, **kwargs):
 
 def subject_runs(ds, subject: int):
     """[(session, run, mne.io.Raw)] for one subject, downloading it if needed."""
-    # ponytail: private _get_single_subject_data instead of get_data -- get_data's session
+    # Deliberate shortcut: private _get_single_subject_data instead of get_data -- get_data's session
     # filter drops Lee2019's first session (selected_sessions (1, 2) vs session keys
     # '0'/'1', MOABB 1.5.0), and it also skips MOABB's cache layer we don't need.
     # Switch to get_data if a MOABB upgrade removes the private method.

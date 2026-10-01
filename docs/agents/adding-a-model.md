@@ -28,7 +28,7 @@ stage owns, then trains masked.
 Answer these — they shape steps 2-3 below:
 
 - Does the model need a **Tokenizer-stage-only component to freeze** before masked
-  training (VQ+decoder for MeFSQ, StampBank for MeSAE)? If not, `on_pretrain_start` can be a
+  training (MeSAE: the StampBank, `freeze_stamps`)? If not, `on_pretrain_start` can be a
   no-op.
 - What per-Expert/Stamp/Unit **health metrics** does it need on the dashboard? List them
   now — they become `MeXXXPlotter`'s panel specs in step 3.
@@ -53,14 +53,14 @@ def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels
       recon: [B, C, N, L]
       attn:  [B, N, Q, C] — each Unit's own channel-attention weights (rows sum to 1
              per Unit) — read by the extraction hooks in step 2
-    Plus whatever extra fields get_loss/get_metrics/extract_psd need (MeFSQ carries
-    v_q_routed/v_q_shared/gate_mask_routed/lb_loss; MeSAE carries dense_routed/aux_loss/k_eff).
+    Plus whatever extra fields get_loss/get_metrics/extract_psd need (MeSAE's output carries
+    its stamp gains and the FFN load-balance loss, model/MeSAE/MeSAE.py).
     """
 
 def get_loss(self, x, recon, bool_masked_pos, masked_mse_weight=1.0, unmasked_mse_weight=1.0, **extra):
     """Returns (l_total, l_masked, l_unmasked). l_masked/l_unmasked may be a plain float
-    1.0/0.0 sentinel when that half genuinely doesn't apply (see MeFSQ's unmasked-stage
-    case) — the training loop calls .item() defensively either way."""
+    1.0/0.0 sentinel when that half genuinely doesn't apply (e.g. no masked half in an
+    unmasked tokenizer phase) — the training loop calls .item() defensively either way."""
 
 def get_metrics(self, *detached_tensors):
     """Returns a flat dict merged into the epoch's logged/plotted metrics. Called once
@@ -75,7 +75,7 @@ def enable_spatial(self):
 
 def enable_temporal(self):
     """Optional — only if the model has a temporal-mixing gate to unlock separately from
-    spatial (MeSAE has one, MeFSQ doesn't). Checked via hasattr(model, 'enable_temporal')
+    spatial (MeSAE has one). Checked via hasattr(model, 'enable_temporal')
     at call sites, so omit entirely if not needed."""
 
 def freeze_<whatever_is_tokenizer_only>(self):
@@ -106,7 +106,7 @@ def forward(self, x, coords, time_idx=None, pad_mask=None):
 
 One file, three things: a `build_model` function, and two classes subclassing the
 bases in `model/base_trainer.py` / `model/base_plotter.py`.
-MeFSQ's and MeSAE's `plugin.py` are the reference examples — copy the shape, not
+MeSAE's `plugin.py` is the reference example — copy the shape, not
 necessarily the content.
 
 ```python
@@ -131,8 +131,8 @@ def build_model(bp, num_channels):
 
 @torch.no_grad()
 def _run_reconstruction(model, dataset, trial_idx, device):
-    """One trial -> dict(raw, recon, coords, T, N, L, fs). See MeFSQ/plugin.py or
-    MeSAE/plugin.py for the full pattern (unsqueeze batch dim, forward unmasked, reshape
+    """One trial -> dict(raw, recon, coords, T, N, L, fs). See MeSAE/plugin.py
+    for the full pattern (unsqueeze batch dim, forward unmasked, reshape
     back to [C, T])."""
     ...
 
@@ -172,7 +172,7 @@ class MeXXXPlotter(BasePlotter):
             dict(title='Total Loss', ylabel='Loss', series=[dict(key='loss', color='b')]),
             # ... one dict per panel, from your step-0 metrics list. Use
             # self.pool_pair_series(...) / self.indexed_series(...) for
-            # routed/shared-style or unbounded-family metrics.
+            # unbounded-family metrics.
         ]
         self.render(panels, filename, suptitle='Training Dashboard')
 
@@ -202,7 +202,6 @@ Two lines:
 from model.MeXXX.plugin import PLUGIN as MEXXX_PLUGIN
 # ...
 MODEL_REGISTRY = {
-    'MeFSQ': MEFSQ_PLUGIN,
     'MeSAE': MESAE_PLUGIN,
     'MeXXX': MEXXX_PLUGIN,
 }
