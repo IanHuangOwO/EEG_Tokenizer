@@ -18,8 +18,7 @@ class Loader(BaseSubjectLoader):
     setting -- see IO/loader.py's BaseSubjectLoader) only apply in the
     standard_window branch below (where headroom was actually measured: min
     6.57s pre-event, comfortably more than post_event_seconds too since the
-    next trigger is at least that far away -- see
-    docs/model-analysis-checklist.md); the trig-spacing fallback (no
+    next trigger is at least that far away; the trig-spacing fallback (no
     standard_window) derives trial_len from inter-trigger gaps themselves,
     where a pre/post shift would eat directly into that budget.
     """

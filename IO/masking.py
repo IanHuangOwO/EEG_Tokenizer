@@ -13,7 +13,7 @@ Tokens are channel-major (c * N + n), matching IO/dataset.py's (C, N) layout. va
 same shape) marks real content: masks are never True on a zero-padded channel or on an
 assembled window's zero tail, and every ratio is a ratio of the VALID tokens -- otherwise a
 heavily padded dataset (8 of 64 channels) or a window's zero tail wastes most of the budget
-on content already known to be zero (docs/model-analysis-checklist.md).
+on content already known to be zero.
 
 Strategies (preprocess_params.mask.masking_strategy) -- all MaskingStrategy: one MaskMode
 per window (random_token / random_channel / channel_cluster / time_block, ...) on one shared ramp.

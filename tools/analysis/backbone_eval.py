@@ -17,14 +17,14 @@ schemes are compared on one task.
    position, time_idx shuffled, time_idx constant, and skips_off (the encoder's UNet skips removed
    at eval: what the deep path alone reconstructs -- a small rise = the deep path carries the
    content), and coordinate jitter (2 / 5 / 10 mm per channel) and left-right mirror (cache_feature.
-   transform_coords; docs/cards/2026-10-01-coordinate-lookup.md). Masked MSE per mask type;
+   transform_coords). Masked MSE per mask type;
    ablation_masked_mse keeps the token_runs row for older readers.
 3. Structure: coordinate-embedding similarity vs electrode closeness (Spearman, 10-10
    channels); pos_emb drift from its sinusoidal init; with a RelativeSpatialBias, per block
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
    neighbours) and its mean |value|.
 4. Masked spectrum, per test mask: log-spectral distance on the masked samples (multi-resolution
-   log-magnitude STFT, the measure of the rejected STFT loss, docs/adr/0019); per band the relative
+   log-magnitude STFT, the measure of the rejected STFT loss); per band the relative
    error |X^ - X|^2 / |X|^2 (phase-sensitive: 0 = exact, 1 = as bad as predicting 0), also for the
    unmasked reconstruction; and per band predicted / true power (1 = right power;
    << 1 = the prediction shrinks toward 0, what a time-domain MSE target does to an

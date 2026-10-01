@@ -229,7 +229,7 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
     return res
 
 
-# ---------- stamp hidden: does each stamp's MLP hidden carry more than z? (docs/cards/2026-09-29-stamp-hidden.md) ----------
+# ---------- stamp hidden: does each stamp's MLP hidden carry more than z? ----------
 
 @torch.no_grad()
 def stamp_hidden_stats(config, checkpoint, out_path, datasets=DATASETS, n_tokens=20000, seed=0):
@@ -295,7 +295,7 @@ COORD_TRANSFORMS = ('jitter_2mm', 'jitter_5mm', 'jitter_10mm', 'mirror')
 
 def coord_robustness(config, checkpoint, out_path, n_pca=8, transforms=COORD_TRANSFORMS,
                      datasets=(('BNCI2014004', 'mi_loso'), ('BNCI2014001', 'mi_loso'))):
-    """docs/cards/2026-10-01-coordinate-lookup.md: the loso ridge probe (as ridge_probe) trained on the training
+    """Coordinate robustness: the loso ridge probe (as ridge_probe) trained on the training
     subjects' normal-coordinate z, tested on the held-out subject's z extracted with transformed coordinates
     (cache_feature.transform_coords, data untouched). Per transform: balanced accuracy, the fraction of held-out
     predictions that change vs normal coordinates, and the fraction of hand trials predicted as the other hand."""

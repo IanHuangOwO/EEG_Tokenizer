@@ -4,7 +4,7 @@ from IO.dataset import resolve_canonical_channels
 
 # Adding a model = implement model/<Name>/plugin.py (Trainer/Checker/Plotter + build_model,
 # bundled into a BasePlugin) and register the PLUGIN instance here. No other shared file
-# needs editing — see docs/adr/0004-model-plugin-base-classes.md.
+# needs editing.
 MODEL_REGISTRY = {
     'MeSAE': MESAE_PLUGIN,
 }

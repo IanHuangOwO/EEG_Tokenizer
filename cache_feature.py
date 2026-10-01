@@ -71,7 +71,7 @@ def cache_key(config, dataset_name, checkpoint_path, latent=False, build_config=
 
 
 def transform_coords(coords, kind, seed=0):
-    """Evaluation-only coordinate transforms (docs/cards/2026-10-01-coordinate-lookup.md), coords [..., C, 3] in metres:
+    """Evaluation-only coordinate transforms, coords [..., C, 3] in metres:
     'jitter_<k>mm' moves every channel by an independent Gaussian offset (sigma per axis k / sqrt(3): mean
     displacement ~k mm) and projects it back to its distance from the head centre; 'mirror' swaps left and right
     (x -> -x). Seeded, so a recording gets the same offsets every time."""

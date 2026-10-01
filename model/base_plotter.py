@@ -1,6 +1,5 @@
 """BasePlotter: training-curve dashboard, rendered generically from a declarative list
 of panel specs each subclass builds in plot_pretrain/plot_finetune.
-See docs/adr/0004-model-plugin-base-classes.md.
 """
 
 import os

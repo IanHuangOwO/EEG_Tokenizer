@@ -31,7 +31,7 @@ class BaseSubjectLoader(ABC):
         # already uses). 0.0 default = old behavior (window starts exactly at the event,
         # zero-length post) for every loader that hasn't opted in. Only meaningful for a
         # trigger/annotation-anchored loader that actually reads it (BCICIV1_Train,
-        # BNCI2014001, Inria_Train as of this comment) -- see docs/model-analysis-checklist.md
+        # BNCI2014001, Inria_Train as of this comment)
         # for the per-dataset headroom measured before enabling this. In NATIVE sample-rate
         # samples wherever a loader converts to pts (self.sample_freq, not the compile
         # target) -- cache_dataset.py rescales the resulting valid_ranges to the compiled

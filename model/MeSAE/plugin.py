@@ -23,12 +23,12 @@ from IO.preprocessing import slice_patches
 
 def build_model(bp, num_channels):
     """bp: config['model_params']['MeSAE']['pretrain']. stamp_bank: n_stamps, hidden_width (a static
-    checkpoint's build_config from before docs/adr/0022 names them n_shared_stamps /
+    checkpoint's build_config from before routed stamps were removed names them n_shared_stamps /
     stamp_shared_hidden_width, with n_routed_stamps 0 -- still read)."""
     sb = bp.get('stamp_bank', {})
     moe_ffn = bp.get('moe_ffn', {})
     if sb.get('n_routed_stamps', 0):
-        raise ValueError("routed stamps were removed (docs/adr/0022): use the `routed-stamps` branch, "
+        raise ValueError("routed stamps were removed: use the `routed-stamps` branch, "
                          "or set stamp_bank to {n_stamps, hidden_width}")
 
     return MeSAEPretrain(
@@ -65,7 +65,7 @@ class MeSAETrainer(BaseTrainer):
                    'stft_sizes': '0019', 'nested_sizes': '0018', 'nested_weights': '0018', 'aux_weight': '0022'}
         stale = sorted(k for k in hparams if k in removed and hparams[k])
         if stale:   # a removed loss term: fail loudly rather than train a silently different loss
-            raise ValueError(f"loss keys {stale} were removed (docs/adr/{', '.join(sorted({removed[k] for k in stale}))}); "
+            raise ValueError(f"loss keys {stale} were removed (ADR {', '.join(sorted({removed[k] for k in stale}))}); "
                              "drop them from the config")
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         mp_weight = hparams.get('mp_weight', 0.0)
@@ -102,7 +102,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
     def decoder_fingerprint_matrix(self, model):
         """Pairwise cosine similarity of the unit templates D_s (content-free: D never depends on
-        input) -- the check on template diversity that mp_loss is meant to keep (docs/adr/0011)."""
+        input) -- the check on template diversity that mp_loss is meant to keep."""
         D = model.stamps.templates()[0].detach().cpu().numpy()        # [n_stamps, patch_len], unit rows
         return D @ D.T
 
@@ -344,7 +344,7 @@ class MeSAEPlotter(BasePlotter):
             loss_panels[1]['series'].append(dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss'))
 
         # FFN Router Health — the MoEFFN routers inside every TSABlock (averaged across blocks),
-        # see MeSAE.update_ffn_router_metrics / docs/adr/0008-moe-ffn-for-mesae.md.
+        # see MeSAE.update_ffn_router_metrics.
         ffn_router_series, ffn_twin_series = self.router_health_series(
             'ffn', entropy_label='Router entropy (load balance)')
 

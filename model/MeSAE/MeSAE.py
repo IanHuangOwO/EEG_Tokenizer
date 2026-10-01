@@ -31,13 +31,13 @@ _RENAMED_STATE = ('W_down', 'b_down', 'w_amp', 'b_amp', 'D')   # were stamps.<na
 
 
 def _legacy_state(state_dict, prefix, *args):
-    """load_state_dict pre-hook for checkpoints trained before docs/adr/0022: drop the empty routed
+    """load_state_dict pre-hook for checkpoints trained before routed stamps were removed: drop the empty routed
     tensors and routing EMAs of a static checkpoint, and rename stamps.<name>_shared to stamps.<name>.
     A checkpoint with routed stamps cannot be rebuilt here: it needs the `routed-stamps` branch."""
     for k in _ROUTED_STATE:
         v = state_dict.pop(prefix + k, None)
         if v is not None and k.startswith('stamps.') and v.numel() > 0:
-            raise ValueError("checkpoint has routed stamps, removed in docs/adr/0022: "
+            raise ValueError("checkpoint has routed stamps, which were removed: "
                              "load it from the `routed-stamps` branch")
     for k in _RENAMED_STATE:
         if prefix + f'stamps.{k}_shared' in state_dict:
@@ -63,10 +63,9 @@ class MeSAEPretrain(nn.Module):
     Pipeline: encoder -> StampBank (dictionary of fixed per-atom waveform templates, each
     presented at a per-channel, per-atom amplitude/phase read off that atom's own
     bottleneck) -> reconstruction, summed directly in patch space (no separate decoder
-    stage). See docs/adr/0009-spatiotemporal-stamp-dictionary-for-mesae.md for the full
-    derivation; the dictionary is static (every stamp active everywhere, docs/adr/0022).
+    stage); the dictionary is static (every stamp active everywhere).
 
-    Trains in two phases of one run (train_pretrain.py; docs/adr/0013, CONTEXT.md:
+    Trains in two phases of one run (train_pretrain.py, CONTEXT.md:
     Tokenizer stage / Masked stage):
     - enter_tokenizer_phase(): every block runs with temporal mixing only (spatial
       attention and the coordinate embedding off), no masking (bool_masked_pos=None) —
@@ -132,8 +131,7 @@ class MeSAEPretrain(nn.Module):
         self.register_load_state_dict_post_hook(_restore_phase)
 
         # EMA health of the FFN MoE routers (MoEFFN/FFNRouter, one per TSABlock, averaged
-        # across blocks by TSAEncoder.forward), see docs/adr/0008-moe-ffn-for-mesae.md and
-        # update_ffn_router_metrics below.
+        # across blocks by TSAEncoder.forward), see update_ffn_router_metrics below.
         self.register_buffer('ema_ffn_router_entropy',  torch.tensor(0.0))
         self.register_buffer('ema_ffn_router_load_std', torch.tensor(0.0))
         self.register_buffer('ema_ffn_gate_entropy',    torch.tensor(0.0))
@@ -180,8 +178,7 @@ class MeSAEPretrain(nn.Module):
         """
         End of Tokenizer stage: lock StampBank so the Masked stage's frozen reconstruction
         target stops moving (mp_loss is dropped from the Masked-stage loss once this is
-        called, see get_loss): two-stage/sequential rather than joint-warmup-then-freeze (see
-        docs/adr/0003-mesae-two-stage-masked-training.md).
+        called, see get_loss): two-stage/sequential rather than joint-warmup-then-freeze.
         """
         for p in self.stamps.parameters():
             p.requires_grad_(False)
@@ -323,7 +320,7 @@ class MeSAEPretrain(nn.Module):
         position counts equally). With bool_masked_pos=None (tokenizer phase) every valid position
         is a target and unmasked_weight is unused.
 
-        Removed terms, with the evidence: the overlap-added trial MSE (docs/adr/0021: it let
+        Removed terms, with the evidence: the overlap-added trial MSE (it let
         neighbouring patches disagree on their shared samples as long as the crossfade averaged
         out; without it seam disagreement fell 40%), a masked STFT loss (0019), a nested
         reconstruction loss (0018); earlier spectral whitening and a window level (0011).
@@ -373,10 +370,9 @@ class MeSAEPretrain(nn.Module):
         Dictionary shaping is mp_loss's job (see StampBank.forward): the residual-ordered term
         that stops stamps being rewarded for re-explaining what a higher-ranked stamp already
         covered. Earlier attempts at this — spectral whitening, then activation
-        decorrelation/negentropy — were measured and dropped; see docs/adr/0011.
+        decorrelation/negentropy — were measured and dropped.
 
-        ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks, see
-        docs/adr/0008-moe-ffn-for-mesae.md) is added unconditionally, both stages: it comes
+        ffn_lb_loss (MoEFFN routers' load-balance loss, summed across TSABlocks) is added unconditionally, both stages: it comes
         from the encoder, which keeps training through the Masked stage (freeze_stamps()
         never locks the encoder).
         """
@@ -493,7 +489,7 @@ class FinetuneModel(nn.Module):
     def from_checkpoint(cls, backbone, ckpt):
         cfg = dict(ckpt['head_config'])
         channel_idx = cfg.pop('channel_idx')
-        cfg.pop('keep', None)   # heads saved before docs/adr/0022 list the alive stamps: now all of them
+        cfg.pop('keep', None)   # heads saved before routed stamps were removed list the alive stamps: now all of them
         model = cls(backbone, cfg, channel_idx)
         model.head.load_state_dict(ckpt['model_state_dict'])
         return model

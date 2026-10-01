@@ -2,7 +2,7 @@
 Per-stamp feature extraction for the snapshot and codebook panels: each stamp's decoded content,
 signed topography, phase, PSD and whole-trial waveform on one trial. Model-coupled (runs the frozen
 backbone through MeSAEPretrain.encode_stamps), unlike viz/topomap.py. Every stamp is active at every
-patch (static dictionary, docs/adr/0022), so nothing here tracks selection.
+patch (static dictionary), so nothing here tracks selection.
 """
 
 from dataclasses import dataclass

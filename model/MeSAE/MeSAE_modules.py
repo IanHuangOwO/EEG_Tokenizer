@@ -201,7 +201,7 @@ class FFNRouter(nn.Module):
     granularity rather than over a small fixed pool of pre-pooled Views.
 
     Same top-k softmax gating + Switch-Transformer-style load-balance loss formula as
-    FilterRouter (see docs/adr/0008-moe-ffn-for-mesae.md), applied to a much larger token
+    FilterRouter, applied to a much larger token
     count instead of a handful of Filters.
     """
     def __init__(self, dim, n_routed, top_k):
@@ -228,7 +228,7 @@ class MoEFFN(nn.Module):
     DeepSeekMoE-style FFN: n_routed Experts (top-k gated per token, competing for a fixed
     per-token budget) + n_shared Experts (always active on every token, summed at full
     weight). Replaces the single dense FFN sub-layer in
-    TSABlock. See docs/adr/0008-moe-ffn-for-mesae.md.
+    TSABlock.
 
     Each expert's inner width is a fraction of the dense FFN's hidden_dim (dim * mlp_ratio)
     so total *active* per-token compute (n_shared + top_k experts firing) stays roughly at
@@ -278,7 +278,7 @@ class MoEFFN(nn.Module):
         load std) — computed every forward call (cheap, R is small) and stashed on self so
         TSAEncoder.forward can average across all TSABlocks' MoEFFNs into one dashboard
         number, mirroring the SAE Filter router's diagnostic but kept as a separate metric
-        (see docs/adr/0008-moe-ffn-for-mesae.md: two distinct MoEs, two distinct health
+        (two distinct MoEs, two distinct health
         readouts)."""
         selected = (gate_mask > 0).float()
         load = selected.mean(dim=0)
@@ -361,8 +361,7 @@ class TSABlock(nn.Module):
         # Both cross-patch (temporal, global context pooled over all N) and cross-channel
         # (spatial) mixing default off — MeSAE's tokenizer stage trains the SAE on
         # patch-local features only, so the frozen dictionary can't leak already-seen
-        # context into masked-stage reconstruction targets (see
-        # docs/adr/0003-mesae-two-stage-masked-training.md). Both out_proj-equivalents are
+        # context into masked-stage reconstruction targets. Both out_proj-equivalents are
         # zero-inited so enabling later starts as a no-op and grows in under gradient,
         # instead of shocking a checkpoint that never saw either term active.
         self.temporal_active = False
@@ -674,7 +673,7 @@ class StampBank(nn.Module):
     at every position; amplitude is read per channel. The instantaneous-mixing ICA picture made
     structural: x_c(t) = sum_s A[c, s] * source_s(t) -- D_hat_s is source s's waveform, and the [C]
     vector of a stamp's per-channel amps IS that source's mixing column (its topomap at that patch
-    time). Routed (top-k) stamps were removed, docs/adr/0022 (`routed-stamps` branch).
+    time). Routed (top-k) stamps were removed (`routed-stamps` branch).
 
     phi_s(z_c) = rms_c * (a_s(z_c) * D_hat_s + b_s(z_c) * Hilbert(D_hat_s)): a fixed per-stamp waveform
     TEMPLATE D_s (no z dependence, used UNIT-L2-NORMALIZED everywhere -- with a free-norm D, amp*D has
@@ -683,13 +682,13 @@ class StampBank(nn.Module):
     atan2(b, a) -- times that channel's raw-input RMS (the LayerNorm stack erases amplitude from z, so
     the gain multiplies it back in). Shape is a pure parameter and amplitude/phase the only
     z-dependent knobs, so "same waveform, different amplitude across channels" is structural
-    (docs/adr/0009: no per-token shape warping). A free [patch_len] template's frequency content is
+    (no per-token shape warping). A free [patch_len] template's frequency content is
     bound to the patch_len FFT grid (Df = fs/patch_len); oscillator atoms were withdrawn (0010).
     """
     def __init__(self, dim, patch_len, n_stamps=16, hidden_width=16, spatial_rank=0):
         super().__init__()
         self.n_stamps = n_stamps
-        # spatial_rank K > 0: source-factorized gains (docs/cards/2026-09-29-source-stamps.md). Each stamp's
+        # spatial_rank K > 0: source-factorized gains. Each stamp's
         # [C] gain column is forced to rank K: src_sk = mean_c W_s[c, k] * g_cs (unmixing), g_cs <- sum_k
         # A_s[c, k] * src_sk (mixing). W and A are functions of the electrode position only (fixed scalp
         # fields, any montage); A_s[:, k] is source (s, k)'s topography, src_sk its (a, b) activation.
@@ -795,8 +794,8 @@ class StampBank(nn.Module):
         # Matching-Pursuit-style residual loss: rank the stamps per position by h, then grade rank m
         # against x_target MINUS what ranks 0..m-1 already explained (detached, so gradient only pushes a
         # stamp toward what is still unexplained). A duplicate of a higher-ranked stamp sees a near-zero
-        # residual and earns nothing. Doesn't change recon; only reshapes each stamp's training target
-        # (docs/adr/0011). Ranked per patch, not by stamp index (a fixed global hierarchy).
+        # residual and earns nothing. Doesn't change recon; only reshapes each stamp's training target.
+        # Ranked per patch, not by stamp index (a fixed global hierarchy).
         mp_loss, mp_map = amp.new_zeros(()), None
         if x_target is not None:
             contrib = self.decode(amp)                                      # [G, C, S, L]
@@ -816,11 +815,11 @@ class StampBank(nn.Module):
 
 
 # ==========================================
-# FINETUNE HEAD MODULES (ADR 0016)
+# FINETUNE HEAD MODULES
 # Everything above this line is the pretrain side.
 # Shapes: a, b are the spatially mixed code amplitudes [B, N', K, S] (B trials, N' patches,
 # K spatial filters, S stamps); power = a^2 + b^2. Parameter names (p, q) and init match
-# the ADR 0014 MeSAEFeatureHead so saved checkpoints load unchanged.
+# the MeSAEFeatureHead so saved checkpoints load unchanged.
 # ==========================================
 
 def spatial_mix(spatial, t, dim):
@@ -845,13 +844,13 @@ class PerStampSpatial(nn.Module):
 
 
 class FlatTimePool(nn.Module):
-    """Uniform weights over patches (ADR 0014 C0)."""
+    """Uniform weights over patches."""
     def forward(self, power):                                    # [B, N', K, S] -> [B, K, S]
         return power.mean(1)
 
 
 class LearnedTimePool(nn.Module):
-    """Low-rank softmax time weights w[s, n] = softmax_n(sum_r p[r, s] q[r, n]) (ADR 0014 C1).
+    """Low-rank softmax time weights w[s, n] = softmax_n(sum_r p[r, s] q[r, n]).
     Small init => starts equal to the flat mean."""
     def __init__(self, rank, num_stamps, num_patches):
         super().__init__()
@@ -867,7 +866,7 @@ class LearnedTimePool(nn.Module):
 
 class EvokedBranch(nn.Module):
     """Signed low-rank time filter T[s, n] = 1/N' + sum_r p[r, s] q[r, n] applied LINEARLY to
-    a and b (phase-locked content survives a linear functional, not power) (ADR 0014 C4)."""
+    a and b (phase-locked content survives a linear functional, not power)."""
     def __init__(self, rank, num_stamps, num_patches):
         super().__init__()
         self.p = nn.Parameter(torch.randn(rank, num_stamps) * 0.02)
@@ -880,8 +879,8 @@ class EvokedBranch(nn.Module):
 
 
 def phase_advance(a, b):
-    """z[k, s] = sum_n u[n+1] conj(u[n]), u = a + i b, as real/imag parts (no complex dtype)
-    (ADR 0014 C3). Returns cat([z_re, z_im], -1) [B, K, 2*S]."""
+    """z[k, s] = sum_n u[n+1] conj(u[n]), u = a + i b, as real/imag parts (no complex dtype).
+    Returns cat([z_re, z_im], -1) [B, K, 2*S]."""
     a_next, a_prev, b_next, b_prev = a[:, 1:], a[:, :-1], b[:, 1:], b[:, :-1]
     z_re = (a_next * a_prev + b_next * b_prev).sum(1)
     z_im = (b_next * a_prev - a_next * b_prev).sum(1)
@@ -1251,7 +1250,7 @@ class RawSignalEntry(_Entry):
 
 
 class PhaseAdvanceEntry(_Entry):
-    """Phase advance between neighbouring patches (ADR 0014 C3), windowed by its own time_pool."""
+    """Phase advance between neighbouring patches, windowed by its own time_pool."""
 
     @staticmethod
     def dim(e, K):
@@ -1262,7 +1261,7 @@ class PhaseAdvanceEntry(_Entry):
 
 
 class EvokedEntry(_Entry):
-    """Signed low-rank time filter over a and b (ADR 0014 C4); needs the full patch axis."""
+    """Signed low-rank time filter over a and b; needs the full patch axis."""
 
     def __init__(self, e):
         super().__init__(e)
@@ -1378,7 +1377,7 @@ FEATURES_ALL = tuple(ENTRY_TYPES)
 
 
 class FeatureHead(nn.Module):
-    """Composable finetune head, no backbone inside (ADR 0016): one ENTRY_TYPES submodule per
+    """Composable finetune head, no backbone inside: one ENTRY_TYPES submodule per
     cfg['features'] entry, each behind its own spatial filter, concatenated ->
     BatchNorm/Dropout/Linear readout."""
     def __init__(self, cfg):
@@ -1386,7 +1385,7 @@ class FeatureHead(nn.Module):
         self.cfg = cfg
         names = feature_names(cfg)
         self.entries = nn.ModuleDict({name: ENTRY_TYPES[name](_entry_cfg(cfg, name)) for name in names})
-        # spatial_k None/0 = no mixing (ADR 0016 ablation control): spatial_mix(None, ...) is identity,
+        # spatial_k None/0 = no mixing (ablation control): spatial_mix(None, ...) is identity,
         # so each real channel stays its own feature row instead of being pooled to K filters.
         self.spatials = nn.ModuleDict({name: (PerStampSpatial(cfg['num_channels'], k, cfg['num_stamps'])
                                               if _entry_cfg(cfg, name)['spatial_per_stamp']

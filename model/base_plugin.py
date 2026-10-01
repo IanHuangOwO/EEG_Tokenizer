@@ -1,6 +1,6 @@
 """
 BasePlugin: the bundle a model dir (model/<Name>/plugin.py) builds at module bottom and
-registers in model/factory.py's MODEL_REGISTRY. See docs/adr/0004-model-plugin-base-classes.md.
+registers in model/factory.py's MODEL_REGISTRY.
 """
 
 from dataclasses import dataclass

@@ -1,5 +1,5 @@
 """BaseTrainer: per-step loss and per-epoch metrics — the per-model hook a model dir (model/<Name>/plugin.py) implements so train_pretrain.py's
-loop has no if/elif model_type dispatch. See docs/adr/0004-model-plugin-base-classes.md.
+loop has no if/elif model_type dispatch.
 """
 
 

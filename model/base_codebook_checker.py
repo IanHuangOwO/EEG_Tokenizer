@@ -4,8 +4,6 @@ the corpus-sampling + panel-render flow, subclasses only implement the two model
 extraction hooks. Parallel to BaseEpochChecker (model/base_checker.py) but operates over
 many trials across many datasets at once instead of one trial at a time, so it lives in
 its own base class rather than growing BaseEpochChecker a second unrelated flow.
-
-See docs/adr/0004-model-plugin-base-classes.md.
 """
 
 import os

@@ -61,7 +61,7 @@ def visualize_reconstruction(train_batch, val_batch, epoch,
     event_onset_sec: real-trial event onset in seconds (see
     BaseEpochChecker._lookup_event_onset), or None — drawn as a vertical dashed line on
     every panel when given, `is not None` (0 is a real onset, e.g. a trial with no
-    pre-event buffer — see docs/model-analysis-checklist.md), never omitted just because
+    pre-event buffer), never omitted just because
     it's falsy.
     valid_start/valid_end: sample indices (see BaseEpochChecker._lookup_valid_range) —
     real content lies in [valid_start, valid_end), everything outside is compile-time

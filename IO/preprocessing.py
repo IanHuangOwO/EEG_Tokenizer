@@ -59,7 +59,7 @@ class Normalizer:
     normalized tensors in a Python list simultaneously before torch.stack
     copied them into one buffer -- a real, avoidable memory spike across a
     whole dataset's worth of subjects, not just a speed cost (see check_model.py
-    OOM investigation, docs/model-analysis-checklist.md)."""
+    OOM investigation)."""
     def __init__(self, normalization_type='fixed'):
         self.normalization_type = str(normalization_type).lower() if normalization_type else 'none'
 
@@ -142,7 +142,7 @@ def cut_event_window(data: np.ndarray, event_pts: int, pre_pts: int, post_pts: i
     valid_start/valid_end mark the real (non-padded) content within the returned window
     (window[:, valid_start:valid_end] is real; everything outside is zero pad) — feeds
     IO/dataset.py's per-row validity, which keeps masking/loss from treating pad as
-    signal (see docs/model-analysis-checklist.md).
+    signal.
 
     Padding here only covers running off the EDGE OF THE RECORDING — it does NOT
     protect against reading real content that belongs to a DIFFERENT, adjacent

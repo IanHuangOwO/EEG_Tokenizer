@@ -1,4 +1,4 @@
-"""Finetune a FeatureHead on a frozen MeSAE backbone (ADR 0016; finetune restructure, sub-project C).
+"""Finetune a FeatureHead on a frozen MeSAE backbone.
 
 The backbone never trains: stamp features come from the amplitude cache (cache_feature.py), raw
 features from the compiled dataset; only the head is optimised (fp32, batches indexed from RAM).

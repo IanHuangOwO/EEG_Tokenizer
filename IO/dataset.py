@@ -26,7 +26,7 @@ HEAD_RADIUS_M = 0.095   # polar metadata coordinates are projected onto a sphere
 
 
 def channel_xyz(ch_info: Dict) -> Optional[np.ndarray]:
-    """Real-layout template coordinate of one metadata channel (docs/adr/0023): MNE's standard_1020 position for the
+    """Native-layout template coordinate of one metadata channel: MNE's standard_1020 position for the
     label, else standard_1005, else the polar topomap coordinates projected onto a head sphere (radius 0.5 = the
     equator), else None. A dataset's own 'xyz' (any frame) is read only by coords 'recorded' (own_xyz)."""
     p = get_standard_coords(ch_info.get('label', ''))
@@ -42,7 +42,7 @@ def channel_xyz(ch_info: Dict) -> Optional[np.ndarray]:
 
 
 def own_xyz(ch_info: Dict, equator_radius: Optional[float]) -> Optional[np.ndarray]:
-    """preprocess_params.coords 'recorded' (docs/cards/2026-10-01-dataset-coordinates.md): the position the dataset
+    """preprocess_params.coords 'recorded': the position the dataset
     itself records for this channel -- 'xyz' (any frame and unit; aligned later by align_similarity), else its polar
     table when the dataset states its convention (channels.polar_equator_radius, the radius of the equator: EEGLAB
     .loc 0.5, idealised tables e.g. 0.36 / 0.406), projected onto the HEAD_RADIUS_M sphere -- else None."""
@@ -91,7 +91,7 @@ IDW_K = 4   # > Nc channels: a missing canonical site = inverse-distance-squared
 
 def idw_matrix(pos_from: np.ndarray, pos_to: np.ndarray, k: int = IDW_K) -> np.ndarray:
     """Inverse-distance-weighted (1/d^2) interpolation from the k nearest electrodes -> [len(pos_to), len(pos_from)].
-    Chosen over spherical splines (docs/cards/2026-09-30-real-coordinates.md check 3: on a 126-channel montage IDW had
+    Chosen over spherical splines (measured: on a 126-channel montage IDW had
     the lower mean and median error, and splines blew up on a noisy electrode)."""
     W = np.zeros((len(pos_to), len(pos_from)))
     for r, p in enumerate(pos_to):
@@ -157,7 +157,7 @@ class EEGDataset(Dataset):
         self.channel_names = desired_channels
         self.Nc = len(desired_channels)
         # 'grid' (every channel matched to its canonical 10-10 slot by name, the rest dropped) or 'native' (every EEG
-        # channel of the dataset kept; > Nc channels reduced to the canonical sites), docs/adr/0023.
+        # channel of the dataset kept; > Nc channels reduced to the canonical sites)
         # Old names stay accepted so archived configs reproduce: 'real' = 'native', coords 'dataset' = 'recorded'.
         pp = config.get('preprocess_params', {})
         self.channel_layout = pp.get('channel_layout', 'grid')
@@ -165,7 +165,7 @@ class EEGDataset(Dataset):
         if self.channel_layout not in ('grid', 'native'):
             raise ValueError(f"preprocess_params.channel_layout must be grid|native, got {self.channel_layout!r}")
         # 'template' (MNE's position for each channel name) or 'recorded' (native layout only: the dataset's own recorded
-        # positions, aligned to MNE's head frame; template where it has none), docs/cards/2026-10-01-dataset-coordinates.md
+        # positions, aligned to MNE's head frame; template where it has none)
         self.coords_source = pp.get('coords', 'template')
         self.coords_source = 'recorded' if self.coords_source == 'dataset' else self.coords_source
         if self.coords_source not in ('template', 'recorded'):
@@ -434,7 +434,7 @@ class EEGDataset(Dataset):
         return ds_indices, target_pos
 
     def _real_plan(self, desired_channels: List[str], ds_config: Dict, sub_xyz=None, name: str = '') -> Dict:
-        """channel_layout 'native' (docs/adr/0023): which cached channels to read and where they go. A channel whose
+        """channel_layout 'native': which cached channels to read and where they go. A channel whose
         label (with the 10-20 aliases) is a canonical name keeps that slot, exactly as under 'grid'; every other EEG
         channel with a known position fills a free slot. More than Nc channels -> 'interp': all of them feed
         _interp_matrix. -> {src, slots, labels, coords, named, interp, pos}."""

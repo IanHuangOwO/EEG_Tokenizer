@@ -127,7 +127,7 @@ def resolve_finetune_analysis_dir(config: dict, dataset_name: str) -> str:
     """Return analysis_finetune.py's output dir for one dataset and create it.
 
     For a baseline-matrix run (training_params.finetune.output_path ==
-    '<backbone>/finetune/<head>/<dataset>_<mode>', see ADR 0017) this is
+    '<backbone>/finetune/<head>/<dataset>_<mode>') this is
     output/<backbone>/finetune/analysis/<head>/<dataset>_<mode>/<dataset_name>/ -- one
     shared analysis/ root directly under finetune/ (sibling to every head's own run dirs),
     instead of nested inside each individual run, so every run's snapshots land in one
