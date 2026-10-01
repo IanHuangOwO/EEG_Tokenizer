@@ -1,5 +1,8 @@
 # Card: real channel coordinates (channel_layout real), correctness checks
 
+_Naming (2026-10-01): `channel_layout: real` is now `native` and `coords: dataset` is `recorded` (old values still
+accepted); run names (`*_real_s*`, `*_dcoord_s*`) are unchanged. Text below uses the names of when it was written._
+
 Written 2026-09-30, before the code ran. ADR 0023.
 
 - **Change:** `preprocess_params.channel_layout: real` keeps every EEG channel with its real coordinates (<= 64), or

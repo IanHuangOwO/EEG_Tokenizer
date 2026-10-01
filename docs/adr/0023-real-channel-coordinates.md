@@ -1,10 +1,13 @@
-# 0023: Real channel coordinates instead of the name-matched 10-10 grid
+# 0023: Native channel layout (all of a dataset's channels) instead of the 10-10 grid
+
+_Naming (2026-10-01): the layout first called `real` is `native` (old value still accepted); positions are
+`coords: template` (MNE, default) or `recorded` (the dataset's own; was `dataset`). "Real" below is the old name._
 
 - **Status:** accepted (user, 2026-10-01; first accepted 2026-09-30, reverted the same day on a comparison that
-  turned out to be a head mismatch -- see Outcome). `channel_layout: real` with MNE template positions is the
+  turned out to be a head mismatch -- see Outcome). `channel_layout: native` with MNE template positions is the
   default in configs/pretrain*.template.json; the code default stays `grid` so every config without the key
   reproduces. Evidence: docs/reports/2026-10-01-dataset-coordinates.md (wins BNCI2014004 loso +1.34, level on the
-  other five cells, tiny, 3 seeds); the datasets' own positions (`coords: dataset`) were tested too and lose
+  other five cells, tiny, 3 seeds); the datasets' own positions (`coords: recorded`) were tested too and lose
   BNCI2014001 loso, so positions stay the template.
 - **Context:** `IO/dataset.py` mapped every dataset onto the 64 slots of the canonical 10-10 montage by channel name
   (`_map_channels`): a channel whose label is not one of the 64 names (EGI `E1..E129`, BioSemi `A1..D32`, 10-05 names

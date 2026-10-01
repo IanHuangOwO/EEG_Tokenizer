@@ -24,6 +24,14 @@ masked out of attention and the loss; a subject's near-flat channels (dead elect
 reference) are treated as padding in pretraining. A **sub-montage** (`configs/montages.json`: motor-3,
 p300-8, 10-20, bci-22, ...) is what channel subsampling cuts a dense cap down to.
 
+**Channel layout**: which of a dataset's channels are kept -- **grid** (only the 64 canonical 10-10 names) or
+**native** (every EEG channel; non-10-10 ones fill free slots; > 64 channels reduced to the 64 canonical sites, IDW
+for missing ones). Native is the default for new runs (docs/adr/0023).
+_Avoid_: real layout, real coordinates (old name for native; it never meant measured positions)
+
+**Template / recorded positions**: where a channel sits -- MNE's standard position for its name (template, the
+default) or the position that came with the dataset, aligned to MNE's head frame (recorded; `coords: recorded`).
+
 **Cohort**: datasets recorded from the same people (`data_metadata.cohort`); the pretrain train/val
 split keeps a person on one side for the whole cohort.
 

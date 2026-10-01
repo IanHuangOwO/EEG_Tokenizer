@@ -122,7 +122,7 @@ def batches(ds, idx, bs=32):
 
 def make_mask(kind, valid_tok, coords, window_id, names_idx, named=None):
     """valid_tok [C, N] bool -> (mask [C, N], score [C, N]); score = tokens that count. named [C] bool: slots that hold
-    their canonical-name channel (EEGDataset.all_named_slots; under channel_layout 'real' other channels sit in free
+    their canonical-name channel (EEGDataset.all_named_slots; under channel_layout 'native' other channels sit in free
     slots) -- the name-based motor3_to_bci22 test reads only those."""
     torch.manual_seed(1_000_003 * window_id + zlib.crc32(kind.encode()) % 997)   # stable across processes
     C, N = valid_tok.shape

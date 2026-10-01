@@ -1,5 +1,8 @@
 # Card: real layout with each dataset's own electrode coordinates (tiny, 3 seeds)
 
+_Naming (2026-10-01): `channel_layout: real` is now `native` and `coords: dataset` is `recorded` (old values still
+accepted); run names (`*_real_s*`, `*_dcoord_s*`) are unchanged. Text below uses the names of when it was written._
+
 Written 2026-10-01, before any code or run.
 
 - **Change:** the `real` channel layout of ADR 0023 (every EEG channel kept; > 64 channels reduced to the 64 canonical
@@ -145,5 +148,5 @@ Kappa: 004 loso +2.68 (margin 0.79) win, everything else level. Real layout with
 cell and loses none: it meets this card's adopt rule (and ADR 0023's). Adoption is the user's call (the grid was kept
 by choice on 2026-10-01).
 
-Adopted (user, 2026-10-01): `channel_layout: real` with template positions is the default in the pretrain templates
-(ADR 0023 accepted); `coords: dataset` stays an option, not the default.
+Adopted (user, 2026-10-01): `channel_layout: native` (was `real`) with template positions is the default in the pretrain templates
+(ADR 0023 accepted); `coords: recorded` (was `dataset`) stays an option, not the default.

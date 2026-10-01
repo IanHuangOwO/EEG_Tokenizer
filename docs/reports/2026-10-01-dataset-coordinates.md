@@ -1,5 +1,8 @@
 # Real layout with each dataset's own electrode coordinates (tiny, 3 seeds)
 
+_Naming (2026-10-01): `channel_layout: real` is now `native` and `coords: dataset` is `recorded` (old values still
+accepted); run names (`*_real_s*`, `*_dcoord_s*`) are unchanged. Text below uses the names of when it was written._
+
 - **Date:** 2026-10-01
 - **Question:** does pretraining on each dataset's own recorded electrode positions (plus its non-grid channels, the
   real layout) give a backbone that finetunes better than the 64-site 10-10 grid with MNE template positions?

@@ -1,5 +1,8 @@
 # Card: is the coordinate embedding a per-site lookup? (diagnostic, no training)
 
+_Naming (2026-10-01): `channel_layout: real` is now `native` and `coords: dataset` is `recorded` (old values still
+accepted); run names (`*_real_s*`, `*_dcoord_s*`) are unchanged. Text below uses the names of when it was written._
+
 Written 2026-10-01, before any number was computed.
 
 - **Hypothesis (user):** trained on the fixed 64 10-10 positions only, the backbone memorises each site's coordinate

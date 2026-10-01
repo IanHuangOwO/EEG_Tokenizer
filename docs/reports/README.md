@@ -34,6 +34,8 @@ What is in the report's folder and where the raw output lives.
 
 Reports and cards keep the name a run had when they were written. Renamed 2026-09-29:
 `mesae_tiny_notrial_s1` -> `mesae_tiny_p50_s16_s1`, `mesae_small_graded_s1` -> `mesae_small_p50_s16_s1`.
+Config values renamed 2026-10-01 (runs keep their names): `channel_layout: real` -> `native`, `coords: dataset` ->
+`recorded`; `mesae_tiny_p50_s16_real_s*` are native-layout runs, `*_dcoord_s*` native + recorded positions.
 
 ## Index
 

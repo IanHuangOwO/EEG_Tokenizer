@@ -22,13 +22,13 @@ NON_EEG_CHANNELS = {
     'STI', 'STIM', 'STATUS', 'TRIGGER',
 }
 
-HEAD_RADIUS_M = 0.095   # polar metadata coordinates are projected onto a sphere of this radius (real layout)
+HEAD_RADIUS_M = 0.095   # polar metadata coordinates are projected onto a sphere of this radius (native layout)
 
 
 def channel_xyz(ch_info: Dict) -> Optional[np.ndarray]:
     """Real-layout template coordinate of one metadata channel (docs/adr/0023): MNE's standard_1020 position for the
     label, else standard_1005, else the polar topomap coordinates projected onto a head sphere (radius 0.5 = the
-    equator), else None. A dataset's own 'xyz' (any frame) is read only by coords 'dataset' (own_xyz)."""
+    equator), else None. A dataset's own 'xyz' (any frame) is read only by coords 'recorded' (own_xyz)."""
     p = get_standard_coords(ch_info.get('label', ''))
     if p is None:
         p = _standard_1005().get(ch_info.get('label', '').strip().lower())   # 10-05 names (FFC1h, TPP9h, AFp3h, ...)
@@ -42,7 +42,7 @@ def channel_xyz(ch_info: Dict) -> Optional[np.ndarray]:
 
 
 def own_xyz(ch_info: Dict, equator_radius: Optional[float]) -> Optional[np.ndarray]:
-    """preprocess_params.coords 'dataset' (docs/cards/2026-10-01-dataset-coordinates.md): the position the dataset
+    """preprocess_params.coords 'recorded' (docs/cards/2026-10-01-dataset-coordinates.md): the position the dataset
     itself records for this channel -- 'xyz' (any frame and unit; aligned later by align_similarity), else its polar
     table when the dataset states its convention (channels.polar_equator_radius, the radius of the equator: EEGLAB
     .loc 0.5, idealised tables e.g. 0.36 / 0.406), projected onto the HEAD_RADIUS_M sphere -- else None."""
@@ -156,18 +156,22 @@ class EEGDataset(Dataset):
         self.config = config
         self.channel_names = desired_channels
         self.Nc = len(desired_channels)
-        # 'grid' (every channel matched to its canonical 10-10 slot by name, the rest dropped) or 'real' (every EEG
-        # channel kept with real coordinates; > Nc channels reduced to the canonical sites), docs/adr/0023.
-        self.channel_layout = config.get('preprocess_params', {}).get('channel_layout', 'grid')
-        if self.channel_layout not in ('grid', 'real'):
-            raise ValueError(f"preprocess_params.channel_layout must be grid|real, got {self.channel_layout!r}")
-        # 'template' (MNE's position for each channel name) or 'dataset' (real layout only: the dataset's own recorded
+        # 'grid' (every channel matched to its canonical 10-10 slot by name, the rest dropped) or 'native' (every EEG
+        # channel of the dataset kept; > Nc channels reduced to the canonical sites), docs/adr/0023.
+        # Old names stay accepted so archived configs reproduce: 'real' = 'native', coords 'dataset' = 'recorded'.
+        pp = config.get('preprocess_params', {})
+        self.channel_layout = pp.get('channel_layout', 'grid')
+        self.channel_layout = 'native' if self.channel_layout == 'real' else self.channel_layout
+        if self.channel_layout not in ('grid', 'native'):
+            raise ValueError(f"preprocess_params.channel_layout must be grid|native, got {self.channel_layout!r}")
+        # 'template' (MNE's position for each channel name) or 'recorded' (native layout only: the dataset's own recorded
         # positions, aligned to MNE's head frame; template where it has none), docs/cards/2026-10-01-dataset-coordinates.md
-        self.coords_source = config.get('preprocess_params', {}).get('coords', 'template')
-        if self.coords_source not in ('template', 'dataset'):
-            raise ValueError(f"preprocess_params.coords must be template|dataset, got {self.coords_source!r}")
-        if self.coords_source == 'dataset' and self.channel_layout != 'real':
-            raise ValueError("preprocess_params.coords 'dataset' needs channel_layout 'real'")
+        self.coords_source = pp.get('coords', 'template')
+        self.coords_source = 'recorded' if self.coords_source == 'dataset' else self.coords_source
+        if self.coords_source not in ('template', 'recorded'):
+            raise ValueError(f"preprocess_params.coords must be template|recorded, got {self.coords_source!r}")
+        if self.coords_source == 'recorded' and self.channel_layout != 'native':
+            raise ValueError("preprocess_params.coords 'recorded' needs channel_layout 'native'")
         self.coord_report = {}
         self._plans = {}
         self.assemble_trials = assemble_trials
@@ -223,7 +227,7 @@ class EEGDataset(Dataset):
         self.dataset_names = all_dataset_names
         self.all_coords = all_coords
         self.all_valid_channels = all_valid_channels
-        # Which valid slots hold the channel their canonical name says: everything valid under 'grid'; under 'real'
+        # Which valid slots hold the channel their canonical name says: everything valid under 'grid'; under 'native'
         # a non-grid channel sits in a free slot. Name-based logic (channel subsampler, backbone_eval's motor-3 ->
         # bci-22 test) reads only these.
         self.all_named_slots = all_named_slots
@@ -256,9 +260,9 @@ class EEGDataset(Dataset):
         ds_config = task['dataset_config']
 
         plan = None
-        if self.channel_layout == 'real':
+        if self.channel_layout == 'native':
             sub_xyz = None
-            if self.coords_source == 'dataset':      # per-subject digitized positions (data_structure.<id>.channel_xyz)
+            if self.coords_source == 'recorded':     # per-subject digitized positions (data_structure.<id>.channel_xyz)
                 sub_xyz = (ds_config.get('data_structure', {}).get(str(subject_id)) or {}).get('channel_xyz')
             key = (ds_name, str(subject_id)) if sub_xyz else ds_name
             if key not in self._plans:
@@ -430,7 +434,7 @@ class EEGDataset(Dataset):
         return ds_indices, target_pos
 
     def _real_plan(self, desired_channels: List[str], ds_config: Dict, sub_xyz=None, name: str = '') -> Dict:
-        """channel_layout 'real' (docs/adr/0023): which cached channels to read and where they go. A channel whose
+        """channel_layout 'native' (docs/adr/0023): which cached channels to read and where they go. A channel whose
         label (with the 10-20 aliases) is a canonical name keeps that slot, exactly as under 'grid'; every other EEG
         channel with a known position fills a free slot. More than Nc channels -> 'interp': all of them feed
         _interp_matrix. -> {src, slots, labels, coords, named, interp, pos}."""
@@ -454,7 +458,7 @@ class EEGDataset(Dataset):
             src.append(int(k) - 1); labels.append(label); pos.append(p); slot.append(s)
         if dropped:
             print(f"  [channel map] no position, dropped: {dropped}")
-        if self.coords_source == 'dataset':
+        if self.coords_source == 'recorded':
             pos = self._dataset_positions(chans, src, labels, pos, sub_xyz, name)
         # canonical-slot order first (as 'grid' reads them, so a canonical-only dataset normalises bit-identically:
         # the per-trial z-score sums channels in read order), the other channels after in metadata order
@@ -473,7 +477,7 @@ class EEGDataset(Dataset):
 
     def _dataset_positions(self, chans: Dict, src: List[int], labels: List[str], pos: List[np.ndarray], sub_xyz,
                            name: str) -> List[np.ndarray]:
-        """coords 'dataset': each channel's own recorded position (own_xyz, or the subject's channel_xyz row), all of a
+        """coords 'recorded': each channel's own recorded position (own_xyz, or the subject's channel_xyz row), all of a
         dataset's (or subject's) own positions mapped onto MNE's head frame by one similarity transform fitted on its
         channels that also have a template position; channels without an own position keep the template one. A fit
         residual above ALIGN_MAX_RESIDUAL_M -> the whole dataset keeps the template (reported)."""
