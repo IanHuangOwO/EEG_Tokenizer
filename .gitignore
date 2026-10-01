@@ -20,8 +20,8 @@ __pycache__/
 # Misc
 .DS_Store
 *.log
-/docs/papers/
+/docs/benchmark_papers/
 /docs/reports/
 /docs/cards/
 /docs/adr/
-/paper/
+/docs/paper/
