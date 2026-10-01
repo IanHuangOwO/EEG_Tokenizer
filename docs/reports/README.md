@@ -47,3 +47,4 @@ Reports and cards keep the name a run had when they were written. Renamed 2026-0
 | 2026-09-29 | [Stamp hidden vectors vs z](2026-09-29-stamp-hidden.md) | u is a lossy low-rank copy of z, loses 2 / 3 loso cells; idea dropped |
 | 2026-09-29 | [Source-factorized stamps, K=4 pilot](2026-09-29-source-stamps.md) | not promising: stamp head -9.0 on BNCI2014001 loso, topographies scalp-wide not focal; shelved |
 | 2026-09-29 | [Combined head: stamp_power + latent_signed](2026-09-29-combined-head.md) | adopted: wins every loso cell vs both parents (tiny, 3 seeds); overfits few-shot; small 80.2 / 53.1 / 70.0 loso |
+| 2026-10-01 | [Real layout with each dataset's own electrode coordinates](2026-10-01-dataset-coordinates.md) | keep grid: wins BNCI2014004 loso (+0.8), loses BNCI2014001 loso (-1.7), rest level (tiny, 3 seeds) |

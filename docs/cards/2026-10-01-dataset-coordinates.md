@@ -86,3 +86,10 @@ Per cell, mean over the 3 pretrain seeds (each the mean of its 3 finetune seeds)
 - **Neutral** (no loso cell differs beyond the margin): keep grid for now (the user's 10-10 choice stands); record the
   result for when the corpus grows with datasets that ship measured positions.
 - Few-shot cells are reported, not judged.
+
+## Result (2026-10-01): keep grid
+
+BNCI2014004 loso +0.81 (margin 0.37, win), BNCI2014001 loso -1.74 (margin 1.69, loss), BNCI2014008 loso and all
+few-shot cells level; consistent over the three seed pairs. One loso loss -> keep grid by the rule above. Report:
+docs/reports/2026-10-01-dataset-coordinates.md.
+
