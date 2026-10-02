@@ -102,7 +102,8 @@ in `output/.../artifacts/config.json`. See `configs/README.md`.
 **Finetune.** A head is a list of feature entries (`model_params.MeSAE.finetune.features`), each
 with its own spatial filter: stamp-code entries (`stamp_power`, `signed_ab`, ...), latent entries
 on the encoder output z (`latent_signed` is the linear probe), and raw-signal baselines. The default head
-combines `stamp_power` (MI) and `latent_signed` (P300). Splits
+reads only the stamps: `stamp_power` (MI) and `signed_ab` (signed gains, P300); swapping `signed_ab` for
+`latent_signed` gives a stronger head on MI few-shot. Splits
 (`training_params.finetune.split.type`): `loso`, `subject_kfold`, `eval_subjects`, `kfold`,
 `blocked_kfold`, `fewshot`. Frozen protocols (`configs/finetune_protocols.json`: `mi_loso`,
 `mi_fewshot`, `p300_loso`, `p300_fewshot`) were tuned on development sets only. Read

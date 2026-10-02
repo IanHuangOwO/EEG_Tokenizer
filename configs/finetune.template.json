@@ -16,7 +16,7 @@
   "model_params": {
     "MeSAE": {
       "finetune": {
-        "_comment": "Modular head (MeSAE_modules FeatureHead): each features entry is {type, its own keys} and gets its own spatial filter. Types: stamp_power / stamp_band (log power, time_pool flat|learned|window|none, time_rank, window), signed_ab (signed phase-locked: stamp_rank, time_rank), evoked (evoked_rank), phase_advance, raw_band, raw_signal, latent_power / latent_signed (on the encoder output z). Default: the combined head, stamp_power (induced band power, MI) + latent_signed (signed z, phase-locked / P300) Any entry may set its own spatial_k (default below).",
+        "_comment": "Modular head (MeSAE_modules FeatureHead): each features entry is {type, its own keys} and gets its own spatial filter. Types: stamp_power / stamp_band (log power, time_pool flat|learned|window|none, time_rank, window), signed_ab (signed phase-locked: stamp_rank, time_rank), evoked (evoked_rank), phase_advance, raw_band, raw_signal, latent_power / latent_signed (on the encoder output z). Default: the all-stamp head, stamp_power (induced band power, MI) + signed_ab (signed stamp gains, phase-locked / P300); the stronger head swaps signed_ab for latent_signed (signed z, latent_proj pca). Any entry may set its own spatial_k (default below).",
         "spatial_k": 8,
         "dropout": 0.3,
         "features": [
@@ -26,8 +26,8 @@
             "time_rank": 2
           },
           {
-            "type": "latent_signed",
-            "latent_proj": "pca",
+            "type": "signed_ab",
+            "stamp_rank": 4,
             "time_rank": 2
           }
         ]

@@ -114,7 +114,7 @@ What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
 Loss: patch MSE + per-stamp `mp` (weight 1; stamps ranked per patch by strength) + `ffn_lb` (0.01);
 visible samples weighted 0.1 in the masked phase. Removed: trial MSE (ADR 0021), STFT (0019), nested (0018).
 50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2, random_channel 0.3, time_block 0.4 max ratios)
-+ channel subsampling. Channels: native layout, MNE template positions. Finetune head: stamp_power + latent_signed.
++ channel subsampling. Channels: native layout, MNE template positions. Finetune head: stamp_power + signed_ab (all-stamp; stamp_power + latent_signed is the stronger head).
 
 **Unit**: umbrella term in shared tooling (`model/base_*`, `tools/`) for whatever a model codes per patch --
 a Stamp for MeSAE. Plugins: `model/<Name>/plugin.py`, docs/adr/0004.
