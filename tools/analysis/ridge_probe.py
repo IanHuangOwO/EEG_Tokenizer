@@ -56,12 +56,35 @@ def stamp_hidden(z, bank, chunk=256):
     return torch.cat(out)
 
 
-def _features(feature, z, checkpoint):
-    """The token features a probe reads: 'z' (as cached) or 'stamp_hidden'."""
+@torch.no_grad()
+def token_rms(amp, u, bank):
+    """Per-token input rms [T, N', Cv, 1], recovered from the cached amp = (u w_amp + b_amp) * rms by least
+    squares over the stamps (the cache keeps amp and z, not rms)."""
+    out = []
+    for a, h in zip(amp.split(256), u.split(256)):
+        pre = torch.einsum('tncsk,skj->tncsj', h.unflatten(-1, (bank.W_down.shape[0], -1)), bank.w_amp) + bank.b_amp
+        out.append((a.float() * pre).sum((-2, -1)) / pre.pow(2).sum((-2, -1)).clamp_min(1e-12))
+    return torch.cat(out).unsqueeze(-1)
+
+
+def _features(feature, data, checkpoint):
+    """The token features a probe reads [T, N', Cv, F]: 'z' (as cached), 'stamp_hidden' (u), 'ln_z' (z after the
+    stamp bank's LayerNorm: z without its scale), 'stamp_hidden_rms' (u times the token's input rms: scale put
+    back) or 'ab' (the cached signed stamp gains a, b, rms included)."""
+    z = data.z.float()
     if feature == 'z':
         return z
-    assert feature == 'stamp_hidden', feature
-    return stamp_hidden(z, _stamp_bank(checkpoint))
+    if feature == 'ab':
+        return data.amp.float().flatten(-2)
+    bank = _stamp_bank(checkpoint)
+    if feature == 'ln_z':
+        with torch.no_grad():
+            return torch.cat([bank.input_norm(c) for c in z.split(256)])
+    u = stamp_hidden(z, bank)
+    if feature == 'stamp_hidden':
+        return u
+    assert feature == 'stamp_hidden_rms', feature
+    return u * token_rms(data.amp, u, bank)
 
 
 def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1, feature='z'):
@@ -80,7 +103,7 @@ def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1
         sessions = cfg['training_params']['finetune']['split'].get('sessions')
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
         data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
-        z, y = _features(feature, data.z.float(), checkpoint), data.labels.numpy()   # [T, N', Cv, D]
+        z, y = _features(feature, data, checkpoint), data.labels.numpy()   # [T, N', Cv, D]
         if pool > 1:
             z = pool_tokens(z, pool)
         subj = data.subject_data.numpy()
@@ -203,7 +226,7 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
         split = cfg['training_params']['finetune']['split']
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
         data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
-        z, y, subj = _features(feature, data.z.float(), checkpoint), data.labels.numpy(), data.subject_data.numpy()
+        z, y, subj = _features(feature, data, checkpoint), data.labels.numpy(), data.subject_data.numpy()
         stamp = _segment_means((data.amp.float().pow(2).sum(-1) + 1e-6).log(), n_seg).numpy()
         runs = make_runs(split, subs, subj, y, _load_sessions(cfg, ds_args, subs, subj))
         scores = {'z': {}, 'z_power': {}, 'stamp': {}}

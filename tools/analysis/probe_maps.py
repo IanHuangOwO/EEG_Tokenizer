@@ -35,8 +35,8 @@ def head_maps(head_pth, entry='latent_signed'):
     sd = ckpt['model_state_dict']
     q = sd[f'entries.{entry}.q'].float()                                     # [R, N]
     S = sd[f'spatials.{entry}.weight'].float()                               # [K, C]
-    M = sd[f'entries.{entry}.proj.weight'].shape[0]
     K, R = S.shape[0], q.shape[0]
+    M = sd[f'entries.{entry}.proj.weight'].shape[0]
     w = readout(ckpt, entry).view(-1, K, M, R)                               # [classes, K, M, R]
     E = torch.einsum('ckmr,rn->cknm', w, q)
     E = E - E.mean(0, keepdim=True)                                          # class-centred
@@ -81,4 +81,44 @@ def summarise_stamps(head_paths, entry='stamp_power'):
     for h in head_paths:
         tw, imp, chan = stamp_head_maps(h, entry)
         tws.append(tw); imps.append(imp.sum(0)); chans.append(chan / chan.amax(1, keepdim=True).clamp(min=1e-12))
+    return torch.stack(tws).mean(0), torch.stack(imps).mean(0), torch.stack(chans).mean(0), len(tws)
+
+
+def gain_scale(amp, spatial, n_trials=2000, seed=0):
+    """Std of the spatially filtered stamp gains [2, K, S] (a, b) over trials and patches: the input scale each signed_ab
+    readout weight multiplies. amp [T, N', C, S, 2] (the feature cache), spatial [K, C]; a random subset of trials."""
+    g = torch.Generator().manual_seed(seed)
+    idx = torch.randperm(amp.shape[0], generator=g)[:n_trials]
+    x = torch.einsum('kc,tncsj->jtnks', spatial, amp[idx].float())           # [2, T', N', K, S]
+    return x.flatten(1, 2).std(1)                                             # [2, K, S]
+
+
+def signed_stamp_head_maps(head_pth, amp, entry='signed_ab'):
+    """A signed_ab entry in stamp space: features f[ab, k, m, r] = sum_n q[r, n] sum_s W[m, s] (S g_ab)[n, k, s], so the
+    class-centred effective weight per stamp and patch is E[c, ab, k, n, s] = sum_{m, r} w[c, ab, k, m, r] q[r, n] W[m, s],
+    times the stamp's filtered gain std (a weight on a quiet stamp moves the decision little).
+    -> (importance [S, N] = norm over class, a / b and virtual channel; per-stamp importance [K, S] over the rest;
+    channel map [S, C] weighted like stamp_head_maps)."""
+    ckpt = torch.load(head_pth, map_location='cpu', weights_only=False)
+    sd = ckpt['model_state_dict']
+    q, W = sd[f'entries.{entry}.q'].float(), sd[f'entries.{entry}.stamp.weight'].float()   # [R, N], [M, S]
+    S = sd[f'spatials.{entry}.weight'].float()                                            # [K, C]
+    K, (M, R) = S.shape[0], (W.shape[0], q.shape[0])
+    w = readout(ckpt, entry).view(-1, 2, K, M, R)
+    E = torch.einsum('cjkmr,rn,ms->cjkns', w, q, W) * gain_scale(amp, S)[None, :, :, None, :]
+    E = E - E.mean(0, keepdim=True)
+    tw = E.pow(2).sum((0, 1, 2)).sqrt().T                                                 # [S, N]
+    imp = E.pow(2).sum((0, 1, 3)).sqrt()                                                  # [K, S]
+    chan = torch.einsum('ks,kc->sc', imp, S.pow(2)) / imp.sum(0)[:, None].clamp(min=1e-12)
+    return tw, imp, chan
+
+
+def summarise_signed_stamps(head_paths, amp, entry='signed_ab'):
+    """Mean over heads of one backbone: importance map [S, N] (each head's map scaled to sum 1 first), per-stamp
+    importance [S] (each head's scaled to sum 1), channel map [S, C] (rows scaled to max 1)."""
+    tws, imps, chans = [], [], []
+    for h in head_paths:
+        tw, imp, chan = signed_stamp_head_maps(h, amp, entry)
+        tws.append(tw / tw.sum()); i = imp.sum(0); imps.append(i / i.sum())
+        chans.append(chan / chan.amax(1, keepdim=True).clamp(min=1e-12))
     return torch.stack(tws).mean(0), torch.stack(imps).mean(0), torch.stack(chans).mean(0), len(tws)
