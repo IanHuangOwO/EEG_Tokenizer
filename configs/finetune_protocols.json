@@ -1,5 +1,5 @@
 {
-  "_comment": "Named finetune protocols: training_params.finetune.protocol = <name> applies one entry (dotted keys, in order, like --set) after base_config merging; --set on the command line still wins over it. Frozen 2026-09-25 from the DEV-set grid configs/sweeps/tune_base_s1.json (BNCI2015001 MI, BNCI2014009 P300, never reported): the top config per cell, top-10 within 1.6 points. Don't retune these per backbone -- that would confound a backbone comparison. Head: the all-stamp head (stamp_power + signed_ab, spatial_k 8, dropout 0.3) in every protocol since 2026-10-02 (docs/reports/2026-10-02-head-ablation.md): every feature reads the stamps. The stronger head is stamp_power + latent_signed (pca), the protocol head 2026-10-01..02, better on MI few-shot (BNCI2014004 +3.5); set it with --set model_params.MeSAE.finetune.features=... The tuned split / LR / weight-decay / epoch values are unchanged. Earlier protocol heads: stamp_power (MI) or stamp_power + signed_ab (P300), spatial_k 2 / 8.",
+  "_comment": "Named finetune protocols: training_params.finetune.protocol = <name> applies one entry (dotted keys, in order, like --set) after base_config merging; --set on the command line still wins over it. Frozen 2026-09-25 from the DEV-set grid configs/sweeps/tune_base_s1.json (BNCI2015001 MI, BNCI2014009 P300, never reported): the top config per cell, top-10 within 1.6 points. Don't retune these per backbone -- that would confound a backbone comparison. Head: the all-stamp head (stamp_power + signed_ab, spatial_k 8, dropout 0.3) in every protocol since 2026-10-02 (docs/reports/2026-10-02-head-ablation.md): every feature reads the stamps. The stronger head is stamp_power + latent_signed (pca), the protocol head 2026-10-01..02, better on MI few-shot (BNCI2014004 +3.5); set it with --set model_params.MeSAE.finetune.features=... The tuned split / LR / weight-decay / epoch values are unchanged. Earlier protocol heads: stamp_power (MI) or stamp_power + signed_ab (P300), spatial_k 2 / 8. Few-shot fit (2026-10-04): mi_fewshot / p300_fewshot fit the closed-form head (model/MeSAE/closed_form.py, no SGD: per-stamp CSP + shrinkage LDA for MI, stamp xDAWN covariances + tangent space + LR for P300), picked on DEV few-shot (+7.5 / +5.4 over the SGD head); their SGD keys stay for --set training_params.finetune.fit=\"sgd\".",
   "mi_loso": {
     "training_params.finetune.split": {
       "type": "loso",
@@ -57,7 +57,12 @@
     "training_params.finetune.learning_rate": 0.01,
     "training_params.finetune.min_learning_rate": 0.001,
     "training_params.finetune.weight_decay": 0.5,
-    "training_params.finetune.epochs": 50
+    "training_params.finetune.epochs": 50,
+    "training_params.finetune.fit": "closed_form",
+    "training_params.finetune.closed_form": {
+      "branch": "power",
+      "nfilter": 4
+    }
   },
   "p300_loso": {
     "training_params.finetune.split": {
@@ -117,7 +122,12 @@
     "training_params.finetune.learning_rate": 0.01,
     "training_params.finetune.min_learning_rate": 0.001,
     "training_params.finetune.weight_decay": 0.5,
-    "training_params.finetune.epochs": 50
+    "training_params.finetune.epochs": 50,
+    "training_params.finetune.fit": "closed_form",
+    "training_params.finetune.closed_form": {
+      "branch": "signed",
+      "nfilter": 2
+    }
   },
   "_dataset_split_comment": "Per-dataset split settings applied on top of any protocol, matching the EEG-FM-Compass code (github.com/Dingkun0817/EEG-FM-Benchmark, datasets/*/Preprocess_Dataset.py and its configs): BNCI2014004 uses session '3test' (index 3 in our caches, 160 trials/subject); BNCI2014008 few-shot calibrates on 5% of the session. train_fraction applies only to fewshot splits.",
   "_dataset_split": {

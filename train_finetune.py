@@ -414,6 +414,31 @@ def _pca_axes(z, train_idx, m, chunk=256):
     return torch.linalg.eigh(cov)[1][:, -m:].flip(1).T.float()
 
 
+def run_closed_form(config, run, source, tag, logger):
+    """training_params.finetune.fit 'closed_form': fit ClosedFormHead (model/MeSAE/closed_form.py) on run['train'],
+    no SGD; per-subject balanced accuracy + kappa on run['eval'], in run_one's format (tail = last: one fit)."""
+    from model.MeSAE.closed_form import ClosedFormHead
+    tp = config['training_params']['finetune']
+    if source.kind != 'stamp':
+        raise ValueError("fit 'closed_form' reads the stamp code: the head needs a stamp entry")
+    amp, y = source.data.amp, source.labels.numpy()
+    head = ClosedFormHead(**tp.get('closed_form', {})).fit(amp[run['train']].float().numpy(), y[run['train']])
+    logger.info(f"[{tag}] closed_form {tp.get('closed_form', {})} train={len(run['train'])}")
+    out = {}
+    for g, subs in run['eval'].items():
+        sd = {}
+        for s, i in subs.items():
+            pred = head.predict(amp[i].float().numpy())
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
+                acc, kappa = float(balanced_accuracy_score(y[i], pred)), float(cohen_kappa_score(y[i], pred))
+            sd[s] = {'tail': acc, 'last': acc, 'kappa_tail': kappa, 'kappa_last': kappa, 'n_trials': int(len(i))}
+        out[g] = {'subjects': sd, 'n_subjects': len(sd),
+                  **{f'mean_{k}': float(np.mean([v[k] for v in sd.values()]))
+                     for k in ('tail', 'last', 'kappa_tail', 'kappa_last')}}
+    return out
+
+
 def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, device):
     """Train one head on run['train'], evaluate on the union of run['eval'] every epoch."""
     tp = config['training_params']['finetune']
@@ -536,7 +561,8 @@ def main():
         dirs = {'ckpt': os.path.join(base, 'finetune', f"run_{run['name']}"), 'vis': os.path.join(base, 'visualization', f"run_{run['name']}")}
         for d in dirs.values():
             os.makedirs(d, exist_ok=True)
-        groups = run_one(config, run, source, head_cfg, new_head, tag, dirs, logger, device)
+        groups = (run_closed_form(config, run, source, tag, logger) if tp.get('fit') == 'closed_form'
+                  else run_one(config, run, source, head_cfg, new_head, tag, dirs, logger, device))
         for g, d in groups.items():
             logger.info(f"  [{run['name']}] group {g}: n={d['n_subjects']} mean_tail={d['mean_tail']:.4f} mean_last={d['mean_last']:.4f}")
         result[run['name']] = {'train_subjects': run['train_subjects'], 'epochs': tp['epochs'],
