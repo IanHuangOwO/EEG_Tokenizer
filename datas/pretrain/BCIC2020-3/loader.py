@@ -3,7 +3,7 @@ from typing import Dict, List
 
 import numpy as np
 
-from IO.loader import BaseSubjectLoader
+from IO.loader import BaseSubjectLoader, _windows_with_tail
 
 
 class Loader(BaseSubjectLoader):
@@ -22,7 +22,7 @@ class Loader(BaseSubjectLoader):
 
     def _load_data(self):
         import mne
-        data, labels = [], []
+        data, labels, ranges = [], [], []
         present = set(self._existing([e for e, _ in self.runs]))
         for edf, events in self.runs:
             if edf not in present:
@@ -30,10 +30,19 @@ class Loader(BaseSubjectLoader):
             try:
                 raw = mne.io.read_raw_edf(edf, preload=True, verbose=False)
                 sig = raw.get_data(picks=self.pick_names).astype(np.float32)   # (C, T)
-                sig, sf = self._filter_run(sig)                                  # whole run, before cutting
-                win, scale = int(round(self.standard_window * sf)), sf / self.sample_freq
                 with open(events, encoding='utf-8-sig') as f:
                     rows = list(csv.DictReader(f, delimiter='\t'))
+                if self.continuous_seconds:
+                    # event-free compile: the run is epochs laid back to back, so each epoch is its own recording --
+                    # filtered alone and kept as one zero-padded window, never joined to its neighbours (user, 2026-10-03)
+                    onsets = sorted(int(r['sample']) for r in rows) + [sig.shape[1]]
+                    for a, b in zip(onsets[:-1], onsets[1:]):
+                        piece, sf_p = self._filter_run(sig[:, a:b])
+                        for w, r in _windows_with_tail(piece, int(round(self.continuous_seconds * sf_p))):
+                            data.append(w); labels.append(0); ranges.append(r)
+                    continue
+                sig, sf = self._filter_run(sig)                                  # whole run, before cutting
+                win, scale = int(round(self.standard_window * sf)), sf / self.sample_freq
                 for r in rows:
                     s = int(round(int(r['sample']) * scale))
                     if s + win <= sig.shape[1]:
@@ -43,4 +52,6 @@ class Loader(BaseSubjectLoader):
                 print(f"  [Warning] {edf}: {e}")
         if not data:
             return None, None
+        if ranges:
+            self._last_valid_ranges = ranges        # real content of each padded epoch window (compiled rate)
         return np.stack(data), np.array(labels, dtype=np.int64)

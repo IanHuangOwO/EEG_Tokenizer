@@ -870,7 +870,8 @@ def build_dataset_from_config(config_dict: Dict, transform: Optional[Callable] =
 
         ds_transform = transform if transform is not None else build_normalizer_from_config(config_dict)
         ds_cache_suffix = cache_suffix(pp['sample_freq'], pp['bandpass_filter'],
-                                        pp.get('pre_event_seconds', 0.0), pp.get('post_event_seconds', 0.0))
+                                        pp.get('pre_event_seconds', 0.0), pp.get('post_event_seconds', 0.0),
+                                        pp.get('continuous_seconds', 0.0) if ds_mode == 'pretrain' else 0.0)
 
         loader_config = {
             'dataset_params': ds_args,

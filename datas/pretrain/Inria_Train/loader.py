@@ -41,6 +41,10 @@ class Loader(BaseSubjectLoader):
             data = df.iloc[:, 1:-1].values.T[self.channel_indices]  # (C, T)
             markers = df.iloc[:, -1].values   # (Time,)
             data, sf = self._filter_run(data)                  # whole session, before cutting
+            if self.continuous_seconds:                         # event-free compile: fixed windows, label 0
+                wins = self._continuous_windows(data, sf)
+                all_trials += wins; all_labels += [0] * len(wins); all_valid_ranges += [(0, w.shape[1]) for w in wins]
+                continue
             trig_indices = np.round(np.where(markers == 1)[0] * (sf / self.sample_freq)).astype(int)
 
             sub_sess = os.path.basename(signal_path).replace('Data_', '').replace('.csv', '')

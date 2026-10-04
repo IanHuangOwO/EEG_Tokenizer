@@ -113,7 +113,7 @@ def build_bandpass_resample_from_config(config: dict, fs_orig: Optional[float] =
 
 
 def cache_suffix(sample_freq, bandpass_filter: dict, pre_event_seconds: float = 0.0,
-                  post_event_seconds: float = 0.0) -> str:
+                  post_event_seconds: float = 0.0, continuous_seconds: float = 0.0) -> str:
     """Derives the compiled-cache filename suffix from the params baked into it —
     shared by cache_dataset.py (writes) and IO/dataset.py (reads), so a config
     change that alters either just misses the cache instead of silently reading
@@ -125,6 +125,8 @@ def cache_suffix(sample_freq, bandpass_filter: dict, pre_event_seconds: float = 
     cache_dataset.py / IO/loader.py's cut_event_window)."""
     l_freq, h_freq = bandpass_filter['l_freq'], bandpass_filter['h_freq']
     suffix = f"fs{sample_freq}_bp{l_freq}-{h_freq}"
+    if continuous_seconds:   # event-free compile: every recording cut into fixed windows, events ignored
+        return suffix + f"_cont{continuous_seconds:g}"
     if pre_event_seconds or post_event_seconds:
         suffix += f"_pre{pre_event_seconds:g}_post{post_event_seconds:g}"
     return suffix

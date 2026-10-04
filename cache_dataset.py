@@ -29,7 +29,8 @@ def dropout_keep(data):
 
 
 def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_filter: dict,
-                     pre_event_seconds: float = 0.0, post_event_seconds: float = 0.0):
+                     pre_event_seconds: float = 0.0, post_event_seconds: float = 0.0,
+                     continuous_seconds: float = 0.0):
     dataset_path = ds_args['dataset_path']
     meta_path = os.path.join(dataset_path, 'metadata.json')
     with open(meta_path, 'r', encoding='utf-8') as f:
@@ -47,7 +48,7 @@ def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_fi
         original_freq=fs_orig, sample_freq=sample_freq,
         l_freq=bandpass_filter['l_freq'], h_freq=bandpass_filter['h_freq'],
     )
-    suffix = cache_suffix(sample_freq, bandpass_filter, pre_event_seconds, post_event_seconds)
+    suffix = cache_suffix(sample_freq, bandpass_filter, pre_event_seconds, post_event_seconds, continuous_seconds)
     resample_scale = sample_freq / fs_orig  # same ratio BandpassResample.resample uses
 
     loader_config = {
@@ -56,7 +57,7 @@ def compile_dataset(ds_name: str, ds_args: dict, sample_freq: float, bandpass_fi
         # loaders never reference them (see e.g. datas/finetune/PhysionetMI/loader.py, which
         # deliberately opts out even though it receives them) and are unaffected.
         'dataset_params': {**ds_args, 'pre_event_seconds': pre_event_seconds,
-                            'post_event_seconds': post_event_seconds},
+                            'post_event_seconds': post_event_seconds, 'continuous_seconds': continuous_seconds},
         'data_metadata': data_metadata,
         'data_structure': data_structure,
     }
@@ -339,28 +340,32 @@ def main():
     bandpass_filter = compile_params['bandpass_filter']
     pre_event_seconds = compile_params.get('pre_event_seconds', 0.0)
     post_event_seconds = compile_params.get('post_event_seconds', 0.0)
+    # continuous_seconds (event-free pretraining windows, adopted 2026-10-03): for datasets under datas/pretrain/ only,
+    # loaders that cut event windows cut every recording into non-overlapping windows of this length instead (cache
+    # suffix _cont<s>). Finetune datasets keep their event windows (pre/post_event_seconds, moabb windows).
+    continuous_seconds = compile_params.get('continuous_seconds', 0.0)
+    cs_of = lambda a: continuous_seconds if a['dataset_path'].replace('./', '').startswith('datas/pretrain') else 0.0
+    suffix_of = lambda a: cache_suffix(sample_freq, bandpass_filter, pre_event_seconds, post_event_seconds, cs_of(a))
     datasets = compile_params['datasets']
     if args.dataset:
         if args.dataset not in datasets:
             raise SystemExit(f"--dataset {args.dataset!r} not in config['compile_params']['datasets']: "
                               f"{list(datasets.keys())}")
         datasets = {args.dataset: datasets[args.dataset]}
-    suffix = cache_suffix(sample_freq, bandpass_filter, pre_event_seconds, post_event_seconds)
-
     any_problems = False
 
     if args.verify_only:
         if args.workers <= 1:
             for ds_name, ds_args in datasets.items():
                 ds_name, n_total, results = check_dataset(
-                    ds_name, ds_args, sample_freq, bandpass_filter, suffix, args.subjects,
+                    ds_name, ds_args, sample_freq, bandpass_filter, suffix_of(ds_args), args.subjects,
                     args.deep, pre_event_seconds, post_event_seconds)
                 any_problems |= _print_dataset_result(ds_name, n_total, results, args.deep)
         else:
             with ProcessPoolExecutor(max_workers=args.workers) as pool:
                 futures = [
                     pool.submit(check_dataset, ds_name, ds_args, sample_freq, bandpass_filter,
-                                suffix, args.subjects, args.deep, pre_event_seconds, post_event_seconds)
+                                suffix_of(ds_args), args.subjects, args.deep, pre_event_seconds, post_event_seconds)
                     for ds_name, ds_args in datasets.items()
                 ]
                 for future in as_completed(futures):
@@ -377,7 +382,7 @@ def main():
             print(f"Compiling {ds_name} ({ds_args['dataset_path']})...")
             try:
                 compile_dataset(ds_name, ds_args, sample_freq, bandpass_filter,
-                                 pre_event_seconds, post_event_seconds)
+                                 pre_event_seconds, post_event_seconds, cs_of(ds_args))
             except Exception as e:
                 print(f"[{ds_name}] FAILED: {e}\n")
                 failed.append(ds_name)
@@ -385,7 +390,7 @@ def main():
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             futures = {
                 pool.submit(compile_dataset, ds_name, ds_args, sample_freq, bandpass_filter,
-                            pre_event_seconds, post_event_seconds): ds_name
+                            pre_event_seconds, post_event_seconds, cs_of(ds_args)): ds_name
                 for ds_name, ds_args in datasets.items()
             }
             for future in as_completed(futures):
@@ -404,7 +409,7 @@ def main():
             if ds_name in failed:
                 continue  # nothing new was written; don't report a stale/missing cache as a fresh failure
             ds_name, n_total, results = check_dataset(
-                ds_name, ds_args, sample_freq, bandpass_filter, suffix, None,
+                ds_name, ds_args, sample_freq, bandpass_filter, suffix_of(ds_args), None,
                 args.deep, pre_event_seconds, post_event_seconds)
             any_problems |= _print_dataset_result(ds_name, n_total, results, args.deep)
 

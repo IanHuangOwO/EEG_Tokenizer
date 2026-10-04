@@ -44,6 +44,12 @@ class BaseSubjectLoader(ABC):
         self.prefiltered = False
         self.pre_event_seconds = self.dataset_params.get('pre_event_seconds', 0.0)
         self.post_event_seconds = self.dataset_params.get('post_event_seconds', 0.0)
+        # continuous_seconds (compile_params, event-free experiment): an event-cutting loader that supports it cuts
+        # every recording into non-overlapping windows of this length instead (MoabbLoader, Inria, BCIC2020-3)
+        self.continuous_seconds = self.dataset_params.get('continuous_seconds', 0.0)
+        if self.continuous_seconds:   # fixed-window loaders cut continuous_seconds windows (30 s runs), not the metadata's
+            self.standard_window = self.continuous_seconds
+            self.target_points = int(self.standard_window * self.sample_freq)
         # Set by a loader's _load_data() when it cuts event windows: a list of N (start, end)
         # sample pairs (native rate, or compiled rate once prefiltered), one per trial this subject
         # produced, marking real (non-padded) content -- see IO/preprocessing.py's
@@ -53,6 +59,12 @@ class BaseSubjectLoader(ABC):
         # Optional per-trial session index (0 = the subject's first session, in recording
         # order), set by loaders that know it (MoabbLoader). None = every trial session 0.
         self._last_sessions = None
+
+    def _continuous_windows(self, sig, sf):
+        """sig [C, T] at rate sf -> list of non-overlapping continuous_seconds windows [C, win] (the tail is dropped)."""
+        win = int(round(self.continuous_seconds * sf))
+        n = sig.shape[1] // win
+        return list(sig[:, :n * win].reshape(sig.shape[0], n, win).transpose(1, 0, 2)) if n else []
 
     def _require_subject(self, subject_id) -> Dict:
         """Looks up this subject's data_structure entry, raising a clear error if missing."""
@@ -279,13 +291,24 @@ class MoabbLoader(BaseSubjectLoader):
         for session, _, raw in runs:
             self._resample_if_needed(raw)
             data = raw.get_data(picks=self.pick_names).astype(np.float32)
+            if (self.continuous or self.continuous_seconds) and len(segs := _zero_gap_segments(data, raw.info['sfreq'])) > 1:
+                # MOABB stitched epochs with zero buffers (Weibo2014, Wang2016, Cho2017, ...): each piece is its own
+                # recording, filtered alone and cut alone, never joined across a gap (user, 2026-10-03)
+                for a, b in segs:
+                    piece, sf_p = data[:, a:b], raw.info['sfreq']
+                    if tf is not None:
+                        piece, sf_p = tf(piece).numpy(), tf.sample_freq
+                    win = int(round((self.continuous_seconds or self.standard_window) * sf_p))
+                    for w, (vs, ve) in _windows_with_tail(piece, win):
+                        trials.append(w); labels.append(0); ranges.append((vs, ve)); sessions.append(session_idx[session])
+                continue
             scale = 1.0
             if tf is not None:     # bandpass + resample the whole run, then cut at the compiled rate
                 data = tf(data).numpy()
                 scale = tf.sample_freq / raw.info['sfreq']
             sf = raw.info['sfreq'] * scale
-            if self.continuous:
-                win = int(round(self.standard_window * sf))
+            if self.continuous or self.continuous_seconds:
+                win = int(round((self.continuous_seconds or self.standard_window) * sf))
                 n = data.shape[1] // win
                 if n:
                     trials += list(data[:, :n * win].reshape(data.shape[0], n, win).transpose(1, 0, 2))
@@ -324,6 +347,30 @@ class MoabbLoader(BaseSubjectLoader):
             return None, None
         self._last_valid_ranges, self._last_sessions = ranges, sessions
         return np.stack(trials), np.array(labels, dtype=np.int64)
+
+
+def _zero_gap_segments(data, sfreq, min_gap_s=0.1, min_seg_s=1.0):
+    """[(start, end)] of the stretches between all-channel exact-zero gaps of at least min_gap_s (MOABB's buffers
+    between stitched epochs); pieces shorter than min_seg_s are dropped. No gap -> one segment, the whole run."""
+    zero = ~np.any(data != 0, axis=0)
+    edges = np.flatnonzero(np.diff(np.r_[0, zero.astype(np.int8), 0]))
+    gaps = [(a, b) for a, b in zip(edges[::2], edges[1::2]) if b - a >= min_gap_s * sfreq]
+    cuts = [0] + [x for g in gaps for x in g] + [data.shape[1]]
+    return [(a, b) for a, b in zip(cuts[::2], cuts[1::2]) if b - a >= min_seg_s * sfreq]
+
+
+def _windows_with_tail(piece, win, min_real=0.5):
+    """Non-overlapping win-sample windows of piece [C, T] -> [(window [C, win], (valid_start, valid_end))]; the tail
+    is kept zero-padded when it is the whole piece (a trial shorter than a window) or at least min_real of a window."""
+    n, out = piece.shape[1] // win, []
+    for i in range(n):
+        out.append((piece[:, i * win:(i + 1) * win], (0, win)))
+    tail = piece.shape[1] - n * win
+    if tail and (n == 0 or tail >= min_real * win):
+        w = np.zeros((piece.shape[0], win), dtype=piece.dtype)
+        w[:, :tail] = piece[:, n * win:]
+        out.append((w, (0, tail)))
+    return out
 
 
 def write_moabb_metadata(root: str, name: str, class_name: str, dataset_info: Dict,

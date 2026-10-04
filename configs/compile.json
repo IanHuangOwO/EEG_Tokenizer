@@ -9,6 +9,8 @@
     "pre_event_seconds": 1.0,
     "post_event_seconds": 4.0,
     "_pre_post_comment": "Global — injected into every loader's dataset_params uniformly (see cache_dataset.py), same mechanism dataset_path already uses. Only the event-anchored loaders read them (IO/loader.py's MoabbLoader for MOABB datasets, Inria_Train / Inria_Test); everyone else's loader ignores them (see e.g. datas/finetune/PhysionetMI/loader.py, which deliberately opts out even though it receives them — real headroom there is ~0). Total window = pre+post = 5.0s = 1000 samples @ 200Hz, must match the run config's preprocess_params.window_length.",
+    "continuous_seconds": 5.0,
+    "_continuous_comment": "Event-free pretraining windows (adopted 2026-10-03, docs/reports/2026-10-03-event-free-pretrain.md): every dataset under datas/pretrain/ is cut into non-overlapping continuous_seconds windows over whole recordings, events ignored (cache suffix _cont5; must match the run config's preprocess_params.continuous_seconds). Finetune datasets keep their event windows. 0 = the old event-anchored pretraining caches (_pre1_post4).",
     "datasets": {
       "Nakanishi2015": {
         "dataset_path": "datas/finetune/Nakanishi2015"
