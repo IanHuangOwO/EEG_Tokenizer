@@ -120,19 +120,29 @@ class ChannelClusterMask(MaskMode):
 class TimeBlockMask(MaskMode):
     """Blocks of run_patches consecutive patches hidden on every channel at once, until
     ratio of the window's real patches is covered (>= 3: patches overlap by 50%, a shorter
-    hole is visible through its neighbours)."""
-    def __init__(self, run_patches=(3, 8)):
+    hole is visible through its neighbours). max_blocks n: instead, 1..n holes (drawn per window) that
+    split the ratio at uniform random points (each at least run_patches[0]) -- holes scale with the
+    window, so a 30 s window gets one or two gaps of any length rather than many short ones. None = the
+    fixed run_patches lengths."""
+    def __init__(self, run_patches=(3, 8), max_blocks=None):
         self.run = (int(run_patches[0]), int(run_patches[1]))
+        self.max_blocks = int(max_blocks) if max_blocks else None
 
     def generate(self, valid, coords, ratio):
         real = valid.any(0).nonzero().flatten()
         lo, hi = int(real.min()), int(real.max()) + 1        # a window's real content is one span
         target = max(1, int(round(ratio * (hi - lo))))
         hidden = torch.zeros(valid.shape[1], dtype=torch.bool)
-        for _ in range(100):
+        if self.max_blocks:   # 1..max_blocks holes, the target cut at uniform random points, each >= run[0]
+            lo_len = self.run[0]
+            n = max(1, min(int(torch.randint(1, self.max_blocks + 1, (1,))), target // lo_len))
+            cuts = torch.randint(0, max(target - n * lo_len, 0) + 1, (n - 1,)).sort().values.tolist()
+            lens = [b - a + lo_len for a, b in zip([0] + cuts, cuts + [max(target - n * lo_len, 0)])]
+        for k in range(100):
             if int(hidden.sum()) >= target:
                 break
-            L = min(int(torch.randint(self.run[0], self.run[1] + 1, (1,))), hi - lo)
+            L = (min(lens[k % len(lens)], hi - lo) if self.max_blocks
+                 else min(int(torch.randint(self.run[0], self.run[1] + 1, (1,))), hi - lo))
             start = lo + int(torch.randint(hi - lo - L + 1, (1,)))
             hidden[start:start + L] = True
         return valid & hidden[None, :]
