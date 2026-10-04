@@ -8,7 +8,9 @@ Guidance for Claude Code in this repository. Canonical terms: `CONTEXT.md`. Desi
 Run everything with the `eeg_fm` conda env: `/home/mamechin/anaconda3/envs/eeg_fm/bin/python` (torch, mne,
 moabb). A bare `python` is `base`, which has no `mne`/`moabb`: coordinates silently fall back to flat polar
 values from `metadata.json` and MOABB loaders fail. The machine is CPU-bound (20 cores, one 12 GB GPU):
-cap threads (`--threads`, `training_params.<mode>.num_threads`) and run at most a few jobs in parallel.
+cap threads (`--threads`, `training_params.<mode>.num_threads`). Parallel jobs: 3 for unattended (overnight) queues,
+2 while the user is working. Measured 2026-10-02 on tiny pretrains: 3 jobs give ~10% more total throughput than 2
+(tokenizer epoch 127 s vs 93 s per job) but each job runs ~35-40% slower; three pretrains use ~8 of 12 GB GPU memory.
 
 ## Commands
 
@@ -104,6 +106,10 @@ Key fields (templates show defaults):
   `loso`, `subject_kfold` (`n_folds`), `eval_subjects`, `kfold`, `blocked_kfold`, `fewshot` (`train_fraction`,
   EEG-FM-Compass calibration); all take `sessions` and `seed`, per-subject types also `purge` (P300 overlap);
   unknown keys are rejected. Plus LR fields, `epochs`, `class_weight` (`balanced`), `batch_size`, `seed`.
+  `fit`: `sgd` (default) or `closed_form` (`model/MeSAE/closed_form.py`, no SGD: per-stamp CSP + shrinkage LDA for MI,
+  stamp xDAWN covariances + tangent space + LR for P300; `closed_form` = `{"branch": "power"|"signed", "nfilter"}`).
+  Few-shot always uses closed-form (the mi_fewshot / p300_fewshot protocols set it); loso uses SGD (closed-form loses
+  there). docs/reports/2026-10-04-closed-form-fewshot.md.
 
 ## Architecture
 
