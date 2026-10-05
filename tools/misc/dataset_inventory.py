@@ -122,7 +122,6 @@ NOT_COMPILED = {
         'Stieger2021', 'Yang2025', 'LEMON', 'Nieuwland2018_N400', 'GuttmannFlury2025', 'GuttmannFlury2025_ME',
         'GuttmannFlury2025_MI', 'GuttmannFlury2025_P300', 'GuttmannFlury2025_SSVEP')},
     'Ma2020': 'download fails (dataverse 400 Bad Request)',
-    'Liu2024': 'MOABB metadata fails (figshare 403 on the electrodes file)',
     'GoNoGo_Delorme(inhouse)': 'in-house hold', 'Lane_Keeping(inhouse)': 'in-house hold',
 }
 

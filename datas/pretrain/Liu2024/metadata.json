@@ -1,0 +1,304 @@
+{
+    "data_metadata": {
+        "dataset_name": "Liu2024",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.Liu2024.html",
+            "file_format": "via MOABB",
+            "description": "motor imagery (stroke patients) (pretraining only, continuous windows)."
+        },
+        "event_onset_seconds": 1.0,
+        "moabb": {
+            "class": "Liu2024",
+            "kwargs": {},
+            "code": "Liu2024"
+        },
+        "acquisition": {
+            "sample_frequency": 500.0,
+            "window_size_seconds": 4,
+            "num_subjects": 50
+        },
+        "targets": {
+            "count": 2,
+            "type": "imagery",
+            "0": {
+                "label": "left_hand",
+                "moabb_event": "left_hand"
+            },
+            "1": {
+                "label": "right_hand",
+                "moabb_event": "right_hand"
+            }
+        },
+        "channels": {
+            "count": 29,
+            "1": {
+                "label": "FP1",
+                "original_label": "FP1"
+            },
+            "2": {
+                "label": "FP2",
+                "original_label": "FP2"
+            },
+            "3": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "4": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "5": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "6": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "7": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "8": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "9": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "10": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "11": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "12": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "13": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "14": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "15": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "16": {
+                "label": "T3",
+                "original_label": "T3"
+            },
+            "17": {
+                "label": "T4",
+                "original_label": "T4"
+            },
+            "18": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "19": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "20": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "21": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "22": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "23": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "24": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "25": {
+                "label": "T5",
+                "original_label": "T5"
+            },
+            "26": {
+                "label": "T6",
+                "original_label": "T6"
+            },
+            "27": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "28": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "29": {
+                "label": "O2",
+                "original_label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        },
+        "11": {
+            "moabb_subject": 11
+        },
+        "12": {
+            "moabb_subject": 12
+        },
+        "13": {
+            "moabb_subject": 13
+        },
+        "14": {
+            "moabb_subject": 14
+        },
+        "15": {
+            "moabb_subject": 15
+        },
+        "16": {
+            "moabb_subject": 16
+        },
+        "17": {
+            "moabb_subject": 17
+        },
+        "18": {
+            "moabb_subject": 18
+        },
+        "19": {
+            "moabb_subject": 19
+        },
+        "20": {
+            "moabb_subject": 20
+        },
+        "21": {
+            "moabb_subject": 21
+        },
+        "22": {
+            "moabb_subject": 22
+        },
+        "23": {
+            "moabb_subject": 23
+        },
+        "24": {
+            "moabb_subject": 24
+        },
+        "25": {
+            "moabb_subject": 25
+        },
+        "26": {
+            "moabb_subject": 26
+        },
+        "27": {
+            "moabb_subject": 27
+        },
+        "28": {
+            "moabb_subject": 28
+        },
+        "29": {
+            "moabb_subject": 29
+        },
+        "30": {
+            "moabb_subject": 30
+        },
+        "31": {
+            "moabb_subject": 31
+        },
+        "32": {
+            "moabb_subject": 32
+        },
+        "33": {
+            "moabb_subject": 33
+        },
+        "34": {
+            "moabb_subject": 34
+        },
+        "35": {
+            "moabb_subject": 35
+        },
+        "36": {
+            "moabb_subject": 36
+        },
+        "37": {
+            "moabb_subject": 37
+        },
+        "38": {
+            "moabb_subject": 38
+        },
+        "39": {
+            "moabb_subject": 39
+        },
+        "40": {
+            "moabb_subject": 40
+        },
+        "41": {
+            "moabb_subject": 41
+        },
+        "42": {
+            "moabb_subject": 42
+        },
+        "43": {
+            "moabb_subject": 43
+        },
+        "44": {
+            "moabb_subject": 44
+        },
+        "45": {
+            "moabb_subject": 45
+        },
+        "46": {
+            "moabb_subject": 46
+        },
+        "47": {
+            "moabb_subject": 47
+        },
+        "48": {
+            "moabb_subject": 48
+        },
+        "49": {
+            "moabb_subject": 49
+        },
+        "50": {
+            "moabb_subject": 50
+        }
+    }
+}

@@ -39,7 +39,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Mimul-11 | Motor imagery (upper limb, 3-class) | B |  |  |  |  |  |  | open (GigaDB, Jeong 2020), not fetched |
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 
-## pretrain (47 datasets, 2041.6 h compiled)
+## pretrain (48 datasets, 2046.0 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -71,6 +71,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s | 91.4 | compiled (MOABB) |
 | Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s | 81.0 | compiled (MOABB) |
 | Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s | 19.7 | compiled (MOABB) |
+| Liu2024 | Motor imagery (stroke) |  | 50 | 29 | 500 | 2 | 1 s | 4.4 | compiled (MOABB) |
 | LSE_IndiaTanzania | Resting state / task (consumer headsets) |  | 2000 | 60 | 128 | none | — | 275.1 | compiled |
 | MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 110.5 | compiled |
@@ -93,7 +94,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 
 ## pretrain candidates
 
-### Downloaded, not compiled (13 folders in `datas/pretrain/`, not in the corpus)
+### Downloaded, not compiled (12 folders in `datas/pretrain/`, not in the corpus)
 
 | Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Status | Why not compiled |
 |---|---|---|---|---|---|---|---|
@@ -105,7 +106,6 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | GuttmannFlury2025_SSVEP | SSVEP | 30 | 64 | 1000 | 4 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
 | Lane_Keeping(inhouse) | Lane keeping (in-house hold) |  |  |  |  | no metadata | in-house hold |
 | LEMON | Resting state | 215 | 61 | 2500 | none | not compiled | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
-| Liu2024 | Motor imagery (stroke) |  |  |  |  | raw complete (moabb Liu2024, 50/50 subjects), not added | MOABB metadata fails (figshare 403 on the electrodes file) |
 | Ma2020 | Motor imagery (multi-session) |  |  |  |  | raw failed (moabb Ma2020, 0/25 subjects), not added | download fails (dataverse 400 Bad Request) |
 | Nieuwland2018_N400 | ERP (N400, sentence reading) | 356 | 74 | 500 | none | not compiled | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
 | Stieger2021 | Motor imagery (cursor control) | 62 | 60 | 1000 | 4 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
