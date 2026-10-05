@@ -90,7 +90,8 @@ Key fields (templates show defaults):
   `bandpass_filter`, `normalization_type`, and `mask` (`IO/masking.py`): `masking_strategy` `mixture` (one
   MaskMode per window -- channel_cluster / random_channel / time_block / random_token -- on a shared ratio
   ramp; the default) or `random` (the masking baseline); masks redrawn every masked epoch; `time_run` masks
-  runs of >= 3 patches (a lone patch leaks through the overlap); `subsample` removes channels down to a
+  runs of >= 3 patches (a lone patch leaks through the overlap); `time_block` `max_blocks` 2 (templates since 2026-10-05; the
+  v2 backbones predate it): 1-2 holes splitting the ratio at random cut points, each >= 3 patches; `subsample` removes channels down to a
   `montages.json` sub-montage for part of the dense-cap windows.
 - `training_params.pretrain`: `model_name`, `output_path`, `epochs`, `tokenizer_epochs`, `freeze_stamps`,
   `warmup_epochs`, `batch_size`, LR fields, `train_val_split`, `seed`.

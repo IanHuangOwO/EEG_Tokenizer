@@ -129,7 +129,7 @@
       "nfilter": 2
     }
   },
-  "_dataset_split_comment": "Per-dataset split settings applied on top of any protocol, matching the EEG-FM-Compass code (github.com/Dingkun0817/EEG-FM-Benchmark, datasets/*/Preprocess_Dataset.py and its configs): BNCI2014004 uses session '3test' (index 3 in our caches, 160 trials/subject); BNCI2014008 few-shot calibrates on 5% of the session. train_fraction applies only to fewshot splits.",
+  "_dataset_split_comment": "Per-dataset split settings applied on top of any protocol, matching the EEG-FM-Compass code (github.com/Dingkun0817/EEG-FM-Benchmark, datasets/*/Preprocess_Dataset.py and its configs): BNCI2014004 uses session '3test' (index 3 in our caches, 160 trials/subject); BNCI2014008 few-shot calibrates on 5% of the session. train_fraction applies only to fewshot splits. Nakanishi2015 few-shot trains on 80% (Compass); its trials do not overlap, so runs set split.purge=0 over p300_fewshot's purge 5.",
   "_dataset_split": {
     "BNCI2014004": {
       "sessions": [
@@ -138,6 +138,9 @@
     },
     "BNCI2014008": {
       "train_fraction": 0.05
+    },
+    "Nakanishi2015": {
+      "train_fraction": 0.8
     }
   }
 }
