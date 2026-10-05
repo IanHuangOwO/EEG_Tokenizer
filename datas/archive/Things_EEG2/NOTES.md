@@ -13,3 +13,9 @@ multi-way-retrieval support in this repo) before a loader makes sense.
 Also large: 241.5 GB total.
 
 Skipped by user request 2026-09-22, revisit as its own task later.
+
+## Dropped from the finetune benchmark (user, 2026-10-05)
+
+Moved to `datas/archive/`. Not part of our evaluation: the paper does not compete on image decoding / retrieval, and
+the dataset is too large (241.5 GB) for the disk we have. Never downloaded or compiled. Things-EEG2 rows of
+EEG-FM-Compass / EEG-FM-Bench are therefore not reported.

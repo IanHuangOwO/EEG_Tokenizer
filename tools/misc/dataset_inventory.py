@@ -137,6 +137,8 @@ ARCHIVED = {
     'DEAP': 'Only the data_preprocessed_python release is on disk: downsampled to 128 Hz, band-passed '
             '4-45 Hz, EOG-removed and re-referenced -- no delta or >45 Hz content, unlike the 0.5-100 Hz '
             'corpus. Revisit with the raw 512 Hz BDF release (data_original, same EULA)',
+    'Things_EEG2': 'Finetune benchmark (B, C) dropped 2026-10-05: image decoding / 200-way retrieval is not a field '
+                   'we compete in, and 241.5 GB; never downloaded',
     'EmotionVideo': 'g.tec Unicorn, 8 dry electrodes: sparse montage (mostly zero-padded on the 10-10 '
                     'grid) and dry-electrode artifacts, little spatial signal',
 }
@@ -230,7 +232,7 @@ lines += ['', '### On hold, not downloaded (TB scale or gated)', '', '| Dataset 
           '|---|---|---|---|---|'] + [f'| {" | ".join(r)} |' for r in ON_HOLD] + ['']
 archived = sorted(os.path.basename(p.rstrip('/')) for p in glob.glob('datas/archive/*/'))
 lines += [f'## archive ({len(archived)} datasets, not compiled into any run)', '',
-          'Moved out of `datas/pretrain/` and `configs/compile.json`; loaders, metadata and cache kept.', '',
+          'Moved out of `datas/pretrain/` / `datas/finetune/` and `configs/compile.json`; loaders, metadata and cache kept.', '',
           '| Dataset | Paradigm | Reason |', '|---|---|---|']
 lines += [f"| {n} | {PARADIGM.get(n, '?')} | {ARCHIVED.get(n, '?')} |" for n in archived]
 lines.append('')

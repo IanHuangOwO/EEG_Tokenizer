@@ -11,7 +11,7 @@ Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.1
 Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the
 trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).
 
-## finetune (22 datasets, 2027.6 h compiled)
+## finetune (21 datasets, 2027.6 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -33,7 +33,6 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | SEED_VII | Emotion (7-class) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | Siena | Seizure detection (adult) | B | 14 | 29 | 512 | none | — | 140.1 | compiled |
 | Sleep_EDFx | Sleep staging | C | 78 | 2 | 100 | 5 | — | 1628.8 | compiled |
-| Things_EEG2 | Visual decoding (images) | B, C |  |  |  |  |  |  | skipped for now (2026-09-22) |
 | TUAB | Abnormal EEG (clinical) | B, C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | TUEV | Event classification (clinical) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | TUSL | Slowing classification (clinical) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
@@ -124,9 +123,9 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | SEED-VII | BCMI (gated) | ? | ? | 7 emotions; may be wanted as finetune instead |
 | SEED-FRA / SEED-GER | BCMI (gated) | 8 + 8 | ? | 3 emotions, French / German subjects; small |
 
-## archive (5 datasets, not compiled into any run)
+## archive (6 datasets, not compiled into any run)
 
-Moved out of `datas/pretrain/` and `configs/compile.json`; loaders, metadata and cache kept.
+Moved out of `datas/pretrain/` / `datas/finetune/` and `configs/compile.json`; loaders, metadata and cache kept.
 
 | Dataset | Paradigm | Reason |
 |---|---|---|
@@ -135,3 +134,4 @@ Moved out of `datas/pretrain/` and `configs/compile.json`; loaders, metadata and
 | BCICIV1_Train | Motor imagery | Subjects c, d, e of BCI Competition IV ds1 are artificially generated, not real EEG; the 4 real subjects are ~3.5 h, not worth keeping |
 | DEAP | Emotion (music video) | Only the data_preprocessed_python release is on disk: downsampled to 128 Hz, band-passed 4-45 Hz, EOG-removed and re-referenced -- no delta or >45 Hz content, unlike the 0.5-100 Hz corpus. Revisit with the raw 512 Hz BDF release (data_original, same EULA) |
 | EmotionVideo | Emotion (video) | g.tec Unicorn, 8 dry electrodes: sparse montage (mostly zero-padded on the 10-10 grid) and dry-electrode artifacts, little spatial signal |
+| Things_EEG2 | Visual decoding (images) | Finetune benchmark (B, C) dropped 2026-10-05: image decoding / 200-way retrieval is not a field we compete in, and 241.5 GB; never downloaded |
