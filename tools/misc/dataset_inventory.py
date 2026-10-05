@@ -44,7 +44,6 @@ PARADIGM = {
     'Yang2025': 'Motor imagery (multi-day)',
     'Stieger2021': 'Motor imagery (cursor control)',
     'Liu2024': 'Motor imagery (stroke)',
-    'Ma2020': 'Motor imagery (multi-session)',
     'ErpCore2021_ERN': 'ERP (ERN)',
     'ErpCore2021_MMN': 'ERP (MMN)',
     'ErpCore2021_N170': 'ERP (N170)',
@@ -121,7 +120,6 @@ NOT_COMPILED = {
     **{d: 'raw > 100 GB, left out of corpus v2 for disk space (2026-10-05)' for d in (
         'Stieger2021', 'Yang2025', 'LEMON', 'Nieuwland2018_N400', 'GuttmannFlury2025', 'GuttmannFlury2025_ME',
         'GuttmannFlury2025_MI', 'GuttmannFlury2025_P300', 'GuttmannFlury2025_SSVEP')},
-    'Ma2020': 'download fails (dataverse 400 Bad Request)',
     'GoNoGo_Delorme(inhouse)': 'in-house hold', 'Lane_Keeping(inhouse)': 'in-house hold',
 }
 

@@ -23,7 +23,7 @@ import numpy as np
 
 TOTAL_HOURS = 210.0
 # group -> (share of the full corpus, datasets). Left out 2026-10-05: Stieger2021, Yang2025, LEMON, Nieuwland2018_N400,
-# GuttmannFlury2025_* (raw > 100 GB, disk), Ma2020 (download fails), Liu2024 (figshare 403), in-house sets.
+# GuttmannFlury2025_* (raw > 100 GB, disk), Liu2024 (added after the build), in-house sets.
 GROUPS = {
     'motor': (0.25, ['Lee2019_MI', 'Dreyer2023', 'Cho2017', 'Weibo2014', 'Schirrmeister2017', 'GraspAndLift_Train',
                      'GraspAndLift_Test', 'Chang2025']),

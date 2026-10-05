@@ -94,7 +94,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 
 ## pretrain candidates
 
-### Downloaded, not compiled (12 folders in `datas/pretrain/`, not in the corpus)
+### Downloaded, not compiled (11 folders in `datas/pretrain/`, not in the corpus)
 
 | Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Status | Why not compiled |
 |---|---|---|---|---|---|---|---|
@@ -106,7 +106,6 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | GuttmannFlury2025_SSVEP | SSVEP | 30 | 64 | 1000 | 4 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
 | Lane_Keeping(inhouse) | Lane keeping (in-house hold) |  |  |  |  | no metadata | in-house hold |
 | LEMON | Resting state | 215 | 61 | 2500 | none | not compiled | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
-| Ma2020 | Motor imagery (multi-session) |  |  |  |  | raw failed (moabb Ma2020, 0/25 subjects), not added | download fails (dataverse 400 Bad Request) |
 | Nieuwland2018_N400 | ERP (N400, sentence reading) | 356 | 74 | 500 | none | not compiled | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
 | Stieger2021 | Motor imagery (cursor control) | 62 | 60 | 1000 | 4 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
 | Yang2025 | Motor imagery (multi-day) | 51 | 59 | 1000 | 2 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
