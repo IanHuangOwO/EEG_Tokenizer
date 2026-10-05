@@ -1,0 +1,1994 @@
+{
+    "data_metadata": {
+        "dataset_name": "LEMON",
+        "dataset_info": {
+            "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=nm000179",
+            "file_format": "BIDS (vhdr)",
+            "description": "LEMON: MPI Leipzig Mind-Brain-Body EEG (Resting State): MPI LEMON resting state"
+        },
+        "bids": {
+            "task": null
+        },
+        "acquisition": {
+            "sample_frequency": 2500.0,
+            "window_size_seconds": null,
+            "num_subjects": 215
+        },
+        "targets": {
+            "count": 1,
+            "type": "pretrain_dummy",
+            "0": {
+                "label": "dummy (continuous window, no task label)"
+            }
+        },
+        "channels": {
+            "count": 61,
+            "1": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "2": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "3": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "4": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "5": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "6": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "7": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "8": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "9": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "10": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "11": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "12": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "13": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "14": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "15": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "16": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "17": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "18": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "19": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "20": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "21": {
+                "label": "AFz",
+                "original_label": "AFz"
+            },
+            "22": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "23": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "24": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "25": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "26": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "27": {
+                "label": "PO9",
+                "original_label": "PO9"
+            },
+            "28": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "29": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "30": {
+                "label": "O2",
+                "original_label": "O2"
+            },
+            "31": {
+                "label": "PO10",
+                "original_label": "PO10"
+            },
+            "32": {
+                "label": "AF7",
+                "original_label": "AF7"
+            },
+            "33": {
+                "label": "AF3",
+                "original_label": "AF3"
+            },
+            "34": {
+                "label": "AF4",
+                "original_label": "AF4"
+            },
+            "35": {
+                "label": "AF8",
+                "original_label": "AF8"
+            },
+            "36": {
+                "label": "F5",
+                "original_label": "F5"
+            },
+            "37": {
+                "label": "F1",
+                "original_label": "F1"
+            },
+            "38": {
+                "label": "F2",
+                "original_label": "F2"
+            },
+            "39": {
+                "label": "F6",
+                "original_label": "F6"
+            },
+            "40": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "41": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "42": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "43": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "44": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "45": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "46": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "47": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "48": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "49": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "50": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "51": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "52": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "53": {
+                "label": "P5",
+                "original_label": "P5"
+            },
+            "54": {
+                "label": "P1",
+                "original_label": "P1"
+            },
+            "55": {
+                "label": "P2",
+                "original_label": "P2"
+            },
+            "56": {
+                "label": "P6",
+                "original_label": "P6"
+            },
+            "57": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "58": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "59": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "60": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "61": {
+                "label": "PO8",
+                "original_label": "PO8"
+            }
+        }
+    },
+    "data_structure": {
+        "10002": {
+            "bids_subject": "010002",
+            "runs": [
+                {
+                    "file": "raw/sub-010002/eeg/sub-010002_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10003": {
+            "bids_subject": "010003",
+            "runs": [
+                {
+                    "file": "raw/sub-010003/eeg/sub-010003_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10004": {
+            "bids_subject": "010004",
+            "runs": [
+                {
+                    "file": "raw/sub-010004/eeg/sub-010004_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10005": {
+            "bids_subject": "010005",
+            "runs": [
+                {
+                    "file": "raw/sub-010005/eeg/sub-010005_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10006": {
+            "bids_subject": "010006",
+            "runs": [
+                {
+                    "file": "raw/sub-010006/eeg/sub-010006_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10007": {
+            "bids_subject": "010007",
+            "runs": [
+                {
+                    "file": "raw/sub-010007/eeg/sub-010007_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10010": {
+            "bids_subject": "010010",
+            "runs": [
+                {
+                    "file": "raw/sub-010010/eeg/sub-010010_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10012": {
+            "bids_subject": "010012",
+            "runs": [
+                {
+                    "file": "raw/sub-010012/eeg/sub-010012_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10015": {
+            "bids_subject": "010015",
+            "runs": [
+                {
+                    "file": "raw/sub-010015/eeg/sub-010015_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10016": {
+            "bids_subject": "010016",
+            "runs": [
+                {
+                    "file": "raw/sub-010016/eeg/sub-010016_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10017": {
+            "bids_subject": "010017",
+            "runs": [
+                {
+                    "file": "raw/sub-010017/eeg/sub-010017_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10019": {
+            "bids_subject": "010019",
+            "runs": [
+                {
+                    "file": "raw/sub-010019/eeg/sub-010019_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10020": {
+            "bids_subject": "010020",
+            "runs": [
+                {
+                    "file": "raw/sub-010020/eeg/sub-010020_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10021": {
+            "bids_subject": "010021",
+            "runs": [
+                {
+                    "file": "raw/sub-010021/eeg/sub-010021_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10022": {
+            "bids_subject": "010022",
+            "runs": [
+                {
+                    "file": "raw/sub-010022/eeg/sub-010022_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10023": {
+            "bids_subject": "010023",
+            "runs": [
+                {
+                    "file": "raw/sub-010023/eeg/sub-010023_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10024": {
+            "bids_subject": "010024",
+            "runs": [
+                {
+                    "file": "raw/sub-010024/eeg/sub-010024_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10026": {
+            "bids_subject": "010026",
+            "runs": [
+                {
+                    "file": "raw/sub-010026/eeg/sub-010026_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10027": {
+            "bids_subject": "010027",
+            "runs": [
+                {
+                    "file": "raw/sub-010027/eeg/sub-010027_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10028": {
+            "bids_subject": "010028",
+            "runs": [
+                {
+                    "file": "raw/sub-010028/eeg/sub-010028_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10029": {
+            "bids_subject": "010029",
+            "runs": [
+                {
+                    "file": "raw/sub-010029/eeg/sub-010029_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10030": {
+            "bids_subject": "010030",
+            "runs": [
+                {
+                    "file": "raw/sub-010030/eeg/sub-010030_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10031": {
+            "bids_subject": "010031",
+            "runs": [
+                {
+                    "file": "raw/sub-010031/eeg/sub-010031_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10032": {
+            "bids_subject": "010032",
+            "runs": [
+                {
+                    "file": "raw/sub-010032/eeg/sub-010032_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10033": {
+            "bids_subject": "010033",
+            "runs": [
+                {
+                    "file": "raw/sub-010033/eeg/sub-010033_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10034": {
+            "bids_subject": "010034",
+            "runs": [
+                {
+                    "file": "raw/sub-010034/eeg/sub-010034_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10035": {
+            "bids_subject": "010035",
+            "runs": [
+                {
+                    "file": "raw/sub-010035/eeg/sub-010035_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10036": {
+            "bids_subject": "010036",
+            "runs": [
+                {
+                    "file": "raw/sub-010036/eeg/sub-010036_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10037": {
+            "bids_subject": "010037",
+            "runs": [
+                {
+                    "file": "raw/sub-010037/eeg/sub-010037_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10038": {
+            "bids_subject": "010038",
+            "runs": [
+                {
+                    "file": "raw/sub-010038/eeg/sub-010038_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10039": {
+            "bids_subject": "010039",
+            "runs": [
+                {
+                    "file": "raw/sub-010039/eeg/sub-010039_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10040": {
+            "bids_subject": "010040",
+            "runs": [
+                {
+                    "file": "raw/sub-010040/eeg/sub-010040_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10041": {
+            "bids_subject": "010041",
+            "runs": [
+                {
+                    "file": "raw/sub-010041/eeg/sub-010041_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10042": {
+            "bids_subject": "010042",
+            "runs": [
+                {
+                    "file": "raw/sub-010042/eeg/sub-010042_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10044": {
+            "bids_subject": "010044",
+            "runs": [
+                {
+                    "file": "raw/sub-010044/eeg/sub-010044_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10045": {
+            "bids_subject": "010045",
+            "runs": [
+                {
+                    "file": "raw/sub-010045/eeg/sub-010045_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10046": {
+            "bids_subject": "010046",
+            "runs": [
+                {
+                    "file": "raw/sub-010046/eeg/sub-010046_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10047": {
+            "bids_subject": "010047",
+            "runs": [
+                {
+                    "file": "raw/sub-010047/eeg/sub-010047_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10048": {
+            "bids_subject": "010048",
+            "runs": [
+                {
+                    "file": "raw/sub-010048/eeg/sub-010048_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10049": {
+            "bids_subject": "010049",
+            "runs": [
+                {
+                    "file": "raw/sub-010049/eeg/sub-010049_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10050": {
+            "bids_subject": "010050",
+            "runs": [
+                {
+                    "file": "raw/sub-010050/eeg/sub-010050_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10051": {
+            "bids_subject": "010051",
+            "runs": [
+                {
+                    "file": "raw/sub-010051/eeg/sub-010051_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10052": {
+            "bids_subject": "010052",
+            "runs": [
+                {
+                    "file": "raw/sub-010052/eeg/sub-010052_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10053": {
+            "bids_subject": "010053",
+            "runs": [
+                {
+                    "file": "raw/sub-010053/eeg/sub-010053_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10056": {
+            "bids_subject": "010056",
+            "runs": [
+                {
+                    "file": "raw/sub-010056/eeg/sub-010056_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10059": {
+            "bids_subject": "010059",
+            "runs": [
+                {
+                    "file": "raw/sub-010059/eeg/sub-010059_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10060": {
+            "bids_subject": "010060",
+            "runs": [
+                {
+                    "file": "raw/sub-010060/eeg/sub-010060_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10061": {
+            "bids_subject": "010061",
+            "runs": [
+                {
+                    "file": "raw/sub-010061/eeg/sub-010061_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10062": {
+            "bids_subject": "010062",
+            "runs": [
+                {
+                    "file": "raw/sub-010062/eeg/sub-010062_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10063": {
+            "bids_subject": "010063",
+            "runs": [
+                {
+                    "file": "raw/sub-010063/eeg/sub-010063_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10064": {
+            "bids_subject": "010064",
+            "runs": [
+                {
+                    "file": "raw/sub-010064/eeg/sub-010064_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10065": {
+            "bids_subject": "010065",
+            "runs": [
+                {
+                    "file": "raw/sub-010065/eeg/sub-010065_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10066": {
+            "bids_subject": "010066",
+            "runs": [
+                {
+                    "file": "raw/sub-010066/eeg/sub-010066_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10067": {
+            "bids_subject": "010067",
+            "runs": [
+                {
+                    "file": "raw/sub-010067/eeg/sub-010067_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10068": {
+            "bids_subject": "010068",
+            "runs": [
+                {
+                    "file": "raw/sub-010068/eeg/sub-010068_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10069": {
+            "bids_subject": "010069",
+            "runs": [
+                {
+                    "file": "raw/sub-010069/eeg/sub-010069_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10070": {
+            "bids_subject": "010070",
+            "runs": [
+                {
+                    "file": "raw/sub-010070/eeg/sub-010070_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10071": {
+            "bids_subject": "010071",
+            "runs": [
+                {
+                    "file": "raw/sub-010071/eeg/sub-010071_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10072": {
+            "bids_subject": "010072",
+            "runs": [
+                {
+                    "file": "raw/sub-010072/eeg/sub-010072_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10073": {
+            "bids_subject": "010073",
+            "runs": [
+                {
+                    "file": "raw/sub-010073/eeg/sub-010073_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10074": {
+            "bids_subject": "010074",
+            "runs": [
+                {
+                    "file": "raw/sub-010074/eeg/sub-010074_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10075": {
+            "bids_subject": "010075",
+            "runs": [
+                {
+                    "file": "raw/sub-010075/eeg/sub-010075_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10076": {
+            "bids_subject": "010076",
+            "runs": [
+                {
+                    "file": "raw/sub-010076/eeg/sub-010076_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10077": {
+            "bids_subject": "010077",
+            "runs": [
+                {
+                    "file": "raw/sub-010077/eeg/sub-010077_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10078": {
+            "bids_subject": "010078",
+            "runs": [
+                {
+                    "file": "raw/sub-010078/eeg/sub-010078_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10079": {
+            "bids_subject": "010079",
+            "runs": [
+                {
+                    "file": "raw/sub-010079/eeg/sub-010079_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10080": {
+            "bids_subject": "010080",
+            "runs": [
+                {
+                    "file": "raw/sub-010080/eeg/sub-010080_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10081": {
+            "bids_subject": "010081",
+            "runs": [
+                {
+                    "file": "raw/sub-010081/eeg/sub-010081_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10083": {
+            "bids_subject": "010083",
+            "runs": [
+                {
+                    "file": "raw/sub-010083/eeg/sub-010083_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10084": {
+            "bids_subject": "010084",
+            "runs": [
+                {
+                    "file": "raw/sub-010084/eeg/sub-010084_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10085": {
+            "bids_subject": "010085",
+            "runs": [
+                {
+                    "file": "raw/sub-010085/eeg/sub-010085_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10086": {
+            "bids_subject": "010086",
+            "runs": [
+                {
+                    "file": "raw/sub-010086/eeg/sub-010086_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10087": {
+            "bids_subject": "010087",
+            "runs": [
+                {
+                    "file": "raw/sub-010087/eeg/sub-010087_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10088": {
+            "bids_subject": "010088",
+            "runs": [
+                {
+                    "file": "raw/sub-010088/eeg/sub-010088_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10089": {
+            "bids_subject": "010089",
+            "runs": [
+                {
+                    "file": "raw/sub-010089/eeg/sub-010089_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10090": {
+            "bids_subject": "010090",
+            "runs": [
+                {
+                    "file": "raw/sub-010090/eeg/sub-010090_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10091": {
+            "bids_subject": "010091",
+            "runs": [
+                {
+                    "file": "raw/sub-010091/eeg/sub-010091_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10092": {
+            "bids_subject": "010092",
+            "runs": [
+                {
+                    "file": "raw/sub-010092/eeg/sub-010092_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10093": {
+            "bids_subject": "010093",
+            "runs": [
+                {
+                    "file": "raw/sub-010093/eeg/sub-010093_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10094": {
+            "bids_subject": "010094",
+            "runs": [
+                {
+                    "file": "raw/sub-010094/eeg/sub-010094_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10100": {
+            "bids_subject": "010100",
+            "runs": [
+                {
+                    "file": "raw/sub-010100/eeg/sub-010100_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10104": {
+            "bids_subject": "010104",
+            "runs": [
+                {
+                    "file": "raw/sub-010104/eeg/sub-010104_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10126": {
+            "bids_subject": "010126",
+            "runs": [
+                {
+                    "file": "raw/sub-010126/eeg/sub-010126_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10134": {
+            "bids_subject": "010134",
+            "runs": [
+                {
+                    "file": "raw/sub-010134/eeg/sub-010134_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10136": {
+            "bids_subject": "010136",
+            "runs": [
+                {
+                    "file": "raw/sub-010136/eeg/sub-010136_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10137": {
+            "bids_subject": "010137",
+            "runs": [
+                {
+                    "file": "raw/sub-010137/eeg/sub-010137_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10138": {
+            "bids_subject": "010138",
+            "runs": [
+                {
+                    "file": "raw/sub-010138/eeg/sub-010138_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10141": {
+            "bids_subject": "010141",
+            "runs": [
+                {
+                    "file": "raw/sub-010141/eeg/sub-010141_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10142": {
+            "bids_subject": "010142",
+            "runs": [
+                {
+                    "file": "raw/sub-010142/eeg/sub-010142_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10146": {
+            "bids_subject": "010146",
+            "runs": [
+                {
+                    "file": "raw/sub-010146/eeg/sub-010146_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10148": {
+            "bids_subject": "010148",
+            "runs": [
+                {
+                    "file": "raw/sub-010148/eeg/sub-010148_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10150": {
+            "bids_subject": "010150",
+            "runs": [
+                {
+                    "file": "raw/sub-010150/eeg/sub-010150_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10152": {
+            "bids_subject": "010152",
+            "runs": [
+                {
+                    "file": "raw/sub-010152/eeg/sub-010152_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10155": {
+            "bids_subject": "010155",
+            "runs": [
+                {
+                    "file": "raw/sub-010155/eeg/sub-010155_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10157": {
+            "bids_subject": "010157",
+            "runs": [
+                {
+                    "file": "raw/sub-010157/eeg/sub-010157_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10162": {
+            "bids_subject": "010162",
+            "runs": [
+                {
+                    "file": "raw/sub-010162/eeg/sub-010162_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10163": {
+            "bids_subject": "010163",
+            "runs": [
+                {
+                    "file": "raw/sub-010163/eeg/sub-010163_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10164": {
+            "bids_subject": "010164",
+            "runs": [
+                {
+                    "file": "raw/sub-010164/eeg/sub-010164_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10165": {
+            "bids_subject": "010165",
+            "runs": [
+                {
+                    "file": "raw/sub-010165/eeg/sub-010165_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10166": {
+            "bids_subject": "010166",
+            "runs": [
+                {
+                    "file": "raw/sub-010166/eeg/sub-010166_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10168": {
+            "bids_subject": "010168",
+            "runs": [
+                {
+                    "file": "raw/sub-010168/eeg/sub-010168_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10170": {
+            "bids_subject": "010170",
+            "runs": [
+                {
+                    "file": "raw/sub-010170/eeg/sub-010170_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10176": {
+            "bids_subject": "010176",
+            "runs": [
+                {
+                    "file": "raw/sub-010176/eeg/sub-010176_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10183": {
+            "bids_subject": "010183",
+            "runs": [
+                {
+                    "file": "raw/sub-010183/eeg/sub-010183_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10191": {
+            "bids_subject": "010191",
+            "runs": [
+                {
+                    "file": "raw/sub-010191/eeg/sub-010191_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10192": {
+            "bids_subject": "010192",
+            "runs": [
+                {
+                    "file": "raw/sub-010192/eeg/sub-010192_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10193": {
+            "bids_subject": "010193",
+            "runs": [
+                {
+                    "file": "raw/sub-010193/eeg/sub-010193_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10194": {
+            "bids_subject": "010194",
+            "runs": [
+                {
+                    "file": "raw/sub-010194/eeg/sub-010194_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10195": {
+            "bids_subject": "010195",
+            "runs": [
+                {
+                    "file": "raw/sub-010195/eeg/sub-010195_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10196": {
+            "bids_subject": "010196",
+            "runs": [
+                {
+                    "file": "raw/sub-010196/eeg/sub-010196_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10197": {
+            "bids_subject": "010197",
+            "runs": [
+                {
+                    "file": "raw/sub-010197/eeg/sub-010197_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10199": {
+            "bids_subject": "010199",
+            "runs": [
+                {
+                    "file": "raw/sub-010199/eeg/sub-010199_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10200": {
+            "bids_subject": "010200",
+            "runs": [
+                {
+                    "file": "raw/sub-010200/eeg/sub-010200_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10201": {
+            "bids_subject": "010201",
+            "runs": [
+                {
+                    "file": "raw/sub-010201/eeg/sub-010201_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10202": {
+            "bids_subject": "010202",
+            "runs": [
+                {
+                    "file": "raw/sub-010202/eeg/sub-010202_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10203": {
+            "bids_subject": "010203",
+            "runs": [
+                {
+                    "file": "raw/sub-010203/eeg/sub-010203_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10204": {
+            "bids_subject": "010204",
+            "runs": [
+                {
+                    "file": "raw/sub-010204/eeg/sub-010204_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10207": {
+            "bids_subject": "010207",
+            "runs": [
+                {
+                    "file": "raw/sub-010207/eeg/sub-010207_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10210": {
+            "bids_subject": "010210",
+            "runs": [
+                {
+                    "file": "raw/sub-010210/eeg/sub-010210_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10213": {
+            "bids_subject": "010213",
+            "runs": [
+                {
+                    "file": "raw/sub-010213/eeg/sub-010213_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10214": {
+            "bids_subject": "010214",
+            "runs": [
+                {
+                    "file": "raw/sub-010214/eeg/sub-010214_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10215": {
+            "bids_subject": "010215",
+            "runs": [
+                {
+                    "file": "raw/sub-010215/eeg/sub-010215_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10216": {
+            "bids_subject": "010216",
+            "runs": [
+                {
+                    "file": "raw/sub-010216/eeg/sub-010216_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10218": {
+            "bids_subject": "010218",
+            "runs": [
+                {
+                    "file": "raw/sub-010218/eeg/sub-010218_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10219": {
+            "bids_subject": "010219",
+            "runs": [
+                {
+                    "file": "raw/sub-010219/eeg/sub-010219_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10220": {
+            "bids_subject": "010220",
+            "runs": [
+                {
+                    "file": "raw/sub-010220/eeg/sub-010220_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10222": {
+            "bids_subject": "010222",
+            "runs": [
+                {
+                    "file": "raw/sub-010222/eeg/sub-010222_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10223": {
+            "bids_subject": "010223",
+            "runs": [
+                {
+                    "file": "raw/sub-010223/eeg/sub-010223_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10224": {
+            "bids_subject": "010224",
+            "runs": [
+                {
+                    "file": "raw/sub-010224/eeg/sub-010224_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10226": {
+            "bids_subject": "010226",
+            "runs": [
+                {
+                    "file": "raw/sub-010226/eeg/sub-010226_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10227": {
+            "bids_subject": "010227",
+            "runs": [
+                {
+                    "file": "raw/sub-010227/eeg/sub-010227_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10228": {
+            "bids_subject": "010228",
+            "runs": [
+                {
+                    "file": "raw/sub-010228/eeg/sub-010228_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10230": {
+            "bids_subject": "010230",
+            "runs": [
+                {
+                    "file": "raw/sub-010230/eeg/sub-010230_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10231": {
+            "bids_subject": "010231",
+            "runs": [
+                {
+                    "file": "raw/sub-010231/eeg/sub-010231_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10232": {
+            "bids_subject": "010232",
+            "runs": [
+                {
+                    "file": "raw/sub-010232/eeg/sub-010232_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10233": {
+            "bids_subject": "010233",
+            "runs": [
+                {
+                    "file": "raw/sub-010233/eeg/sub-010233_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10234": {
+            "bids_subject": "010234",
+            "runs": [
+                {
+                    "file": "raw/sub-010234/eeg/sub-010234_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10236": {
+            "bids_subject": "010236",
+            "runs": [
+                {
+                    "file": "raw/sub-010236/eeg/sub-010236_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10238": {
+            "bids_subject": "010238",
+            "runs": [
+                {
+                    "file": "raw/sub-010238/eeg/sub-010238_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10239": {
+            "bids_subject": "010239",
+            "runs": [
+                {
+                    "file": "raw/sub-010239/eeg/sub-010239_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10240": {
+            "bids_subject": "010240",
+            "runs": [
+                {
+                    "file": "raw/sub-010240/eeg/sub-010240_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10241": {
+            "bids_subject": "010241",
+            "runs": [
+                {
+                    "file": "raw/sub-010241/eeg/sub-010241_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10242": {
+            "bids_subject": "010242",
+            "runs": [
+                {
+                    "file": "raw/sub-010242/eeg/sub-010242_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10243": {
+            "bids_subject": "010243",
+            "runs": [
+                {
+                    "file": "raw/sub-010243/eeg/sub-010243_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10244": {
+            "bids_subject": "010244",
+            "runs": [
+                {
+                    "file": "raw/sub-010244/eeg/sub-010244_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10245": {
+            "bids_subject": "010245",
+            "runs": [
+                {
+                    "file": "raw/sub-010245/eeg/sub-010245_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10246": {
+            "bids_subject": "010246",
+            "runs": [
+                {
+                    "file": "raw/sub-010246/eeg/sub-010246_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10247": {
+            "bids_subject": "010247",
+            "runs": [
+                {
+                    "file": "raw/sub-010247/eeg/sub-010247_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10248": {
+            "bids_subject": "010248",
+            "runs": [
+                {
+                    "file": "raw/sub-010248/eeg/sub-010248_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10249": {
+            "bids_subject": "010249",
+            "runs": [
+                {
+                    "file": "raw/sub-010249/eeg/sub-010249_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10250": {
+            "bids_subject": "010250",
+            "runs": [
+                {
+                    "file": "raw/sub-010250/eeg/sub-010250_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10251": {
+            "bids_subject": "010251",
+            "runs": [
+                {
+                    "file": "raw/sub-010251/eeg/sub-010251_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10252": {
+            "bids_subject": "010252",
+            "runs": [
+                {
+                    "file": "raw/sub-010252/eeg/sub-010252_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10254": {
+            "bids_subject": "010254",
+            "runs": [
+                {
+                    "file": "raw/sub-010254/eeg/sub-010254_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10255": {
+            "bids_subject": "010255",
+            "runs": [
+                {
+                    "file": "raw/sub-010255/eeg/sub-010255_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10256": {
+            "bids_subject": "010256",
+            "runs": [
+                {
+                    "file": "raw/sub-010256/eeg/sub-010256_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10257": {
+            "bids_subject": "010257",
+            "runs": [
+                {
+                    "file": "raw/sub-010257/eeg/sub-010257_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10258": {
+            "bids_subject": "010258",
+            "runs": [
+                {
+                    "file": "raw/sub-010258/eeg/sub-010258_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10260": {
+            "bids_subject": "010260",
+            "runs": [
+                {
+                    "file": "raw/sub-010260/eeg/sub-010260_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10261": {
+            "bids_subject": "010261",
+            "runs": [
+                {
+                    "file": "raw/sub-010261/eeg/sub-010261_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10262": {
+            "bids_subject": "010262",
+            "runs": [
+                {
+                    "file": "raw/sub-010262/eeg/sub-010262_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10263": {
+            "bids_subject": "010263",
+            "runs": [
+                {
+                    "file": "raw/sub-010263/eeg/sub-010263_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10264": {
+            "bids_subject": "010264",
+            "runs": [
+                {
+                    "file": "raw/sub-010264/eeg/sub-010264_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10265": {
+            "bids_subject": "010265",
+            "runs": [
+                {
+                    "file": "raw/sub-010265/eeg/sub-010265_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10266": {
+            "bids_subject": "010266",
+            "runs": [
+                {
+                    "file": "raw/sub-010266/eeg/sub-010266_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10267": {
+            "bids_subject": "010267",
+            "runs": [
+                {
+                    "file": "raw/sub-010267/eeg/sub-010267_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10268": {
+            "bids_subject": "010268",
+            "runs": [
+                {
+                    "file": "raw/sub-010268/eeg/sub-010268_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10269": {
+            "bids_subject": "010269",
+            "runs": [
+                {
+                    "file": "raw/sub-010269/eeg/sub-010269_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10270": {
+            "bids_subject": "010270",
+            "runs": [
+                {
+                    "file": "raw/sub-010270/eeg/sub-010270_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10271": {
+            "bids_subject": "010271",
+            "runs": [
+                {
+                    "file": "raw/sub-010271/eeg/sub-010271_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10272": {
+            "bids_subject": "010272",
+            "runs": [
+                {
+                    "file": "raw/sub-010272/eeg/sub-010272_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10273": {
+            "bids_subject": "010273",
+            "runs": [
+                {
+                    "file": "raw/sub-010273/eeg/sub-010273_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10274": {
+            "bids_subject": "010274",
+            "runs": [
+                {
+                    "file": "raw/sub-010274/eeg/sub-010274_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10275": {
+            "bids_subject": "010275",
+            "runs": [
+                {
+                    "file": "raw/sub-010275/eeg/sub-010275_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10276": {
+            "bids_subject": "010276",
+            "runs": [
+                {
+                    "file": "raw/sub-010276/eeg/sub-010276_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10277": {
+            "bids_subject": "010277",
+            "runs": [
+                {
+                    "file": "raw/sub-010277/eeg/sub-010277_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10278": {
+            "bids_subject": "010278",
+            "runs": [
+                {
+                    "file": "raw/sub-010278/eeg/sub-010278_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10279": {
+            "bids_subject": "010279",
+            "runs": [
+                {
+                    "file": "raw/sub-010279/eeg/sub-010279_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10280": {
+            "bids_subject": "010280",
+            "runs": [
+                {
+                    "file": "raw/sub-010280/eeg/sub-010280_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10282": {
+            "bids_subject": "010282",
+            "runs": [
+                {
+                    "file": "raw/sub-010282/eeg/sub-010282_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10283": {
+            "bids_subject": "010283",
+            "runs": [
+                {
+                    "file": "raw/sub-010283/eeg/sub-010283_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10284": {
+            "bids_subject": "010284",
+            "runs": [
+                {
+                    "file": "raw/sub-010284/eeg/sub-010284_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10285": {
+            "bids_subject": "010285",
+            "runs": [
+                {
+                    "file": "raw/sub-010285/eeg/sub-010285_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10286": {
+            "bids_subject": "010286",
+            "runs": [
+                {
+                    "file": "raw/sub-010286/eeg/sub-010286_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10287": {
+            "bids_subject": "010287",
+            "runs": [
+                {
+                    "file": "raw/sub-010287/eeg/sub-010287_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10288": {
+            "bids_subject": "010288",
+            "runs": [
+                {
+                    "file": "raw/sub-010288/eeg/sub-010288_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10289": {
+            "bids_subject": "010289",
+            "runs": [
+                {
+                    "file": "raw/sub-010289/eeg/sub-010289_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10290": {
+            "bids_subject": "010290",
+            "runs": [
+                {
+                    "file": "raw/sub-010290/eeg/sub-010290_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10291": {
+            "bids_subject": "010291",
+            "runs": [
+                {
+                    "file": "raw/sub-010291/eeg/sub-010291_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10292": {
+            "bids_subject": "010292",
+            "runs": [
+                {
+                    "file": "raw/sub-010292/eeg/sub-010292_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10294": {
+            "bids_subject": "010294",
+            "runs": [
+                {
+                    "file": "raw/sub-010294/eeg/sub-010294_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10295": {
+            "bids_subject": "010295",
+            "runs": [
+                {
+                    "file": "raw/sub-010295/eeg/sub-010295_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10296": {
+            "bids_subject": "010296",
+            "runs": [
+                {
+                    "file": "raw/sub-010296/eeg/sub-010296_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10297": {
+            "bids_subject": "010297",
+            "runs": [
+                {
+                    "file": "raw/sub-010297/eeg/sub-010297_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10298": {
+            "bids_subject": "010298",
+            "runs": [
+                {
+                    "file": "raw/sub-010298/eeg/sub-010298_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10299": {
+            "bids_subject": "010299",
+            "runs": [
+                {
+                    "file": "raw/sub-010299/eeg/sub-010299_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10300": {
+            "bids_subject": "010300",
+            "runs": [
+                {
+                    "file": "raw/sub-010300/eeg/sub-010300_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10301": {
+            "bids_subject": "010301",
+            "runs": [
+                {
+                    "file": "raw/sub-010301/eeg/sub-010301_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10302": {
+            "bids_subject": "010302",
+            "runs": [
+                {
+                    "file": "raw/sub-010302/eeg/sub-010302_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10303": {
+            "bids_subject": "010303",
+            "runs": [
+                {
+                    "file": "raw/sub-010303/eeg/sub-010303_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10304": {
+            "bids_subject": "010304",
+            "runs": [
+                {
+                    "file": "raw/sub-010304/eeg/sub-010304_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10305": {
+            "bids_subject": "010305",
+            "runs": [
+                {
+                    "file": "raw/sub-010305/eeg/sub-010305_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10306": {
+            "bids_subject": "010306",
+            "runs": [
+                {
+                    "file": "raw/sub-010306/eeg/sub-010306_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10307": {
+            "bids_subject": "010307",
+            "runs": [
+                {
+                    "file": "raw/sub-010307/eeg/sub-010307_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10308": {
+            "bids_subject": "010308",
+            "runs": [
+                {
+                    "file": "raw/sub-010308/eeg/sub-010308_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10309": {
+            "bids_subject": "010309",
+            "runs": [
+                {
+                    "file": "raw/sub-010309/eeg/sub-010309_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10310": {
+            "bids_subject": "010310",
+            "runs": [
+                {
+                    "file": "raw/sub-010310/eeg/sub-010310_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10311": {
+            "bids_subject": "010311",
+            "runs": [
+                {
+                    "file": "raw/sub-010311/eeg/sub-010311_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10314": {
+            "bids_subject": "010314",
+            "runs": [
+                {
+                    "file": "raw/sub-010314/eeg/sub-010314_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10315": {
+            "bids_subject": "010315",
+            "runs": [
+                {
+                    "file": "raw/sub-010315/eeg/sub-010315_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10316": {
+            "bids_subject": "010316",
+            "runs": [
+                {
+                    "file": "raw/sub-010316/eeg/sub-010316_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10317": {
+            "bids_subject": "010317",
+            "runs": [
+                {
+                    "file": "raw/sub-010317/eeg/sub-010317_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10318": {
+            "bids_subject": "010318",
+            "runs": [
+                {
+                    "file": "raw/sub-010318/eeg/sub-010318_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10319": {
+            "bids_subject": "010319",
+            "runs": [
+                {
+                    "file": "raw/sub-010319/eeg/sub-010319_task-resting_eeg.vhdr"
+                }
+            ]
+        },
+        "10321": {
+            "bids_subject": "010321",
+            "runs": [
+                {
+                    "file": "raw/sub-010321/eeg/sub-010321_task-resting_eeg.vhdr"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,2920 @@
+{
+    "data_metadata": {
+        "dataset_name": "PD_Rest",
+        "dataset_info": {
+            "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on008768",
+            "file_format": "BIDS (vhdr)",
+            "description": "Resting-State EEG in Parkinson's Disease and Healthy Controls: Parkinson's disease resting state"
+        },
+        "bids": {
+            "task": null
+        },
+        "acquisition": {
+            "sample_frequency": 500.0,
+            "window_size_seconds": null,
+            "num_subjects": 312
+        },
+        "targets": {
+            "count": 1,
+            "type": "pretrain_dummy",
+            "0": {
+                "label": "dummy (continuous window, no task label)"
+            }
+        },
+        "channels": {
+            "count": 64,
+            "1": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "2": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "3": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "4": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "5": {
+                "label": "Iz",
+                "original_label": "Iz"
+            },
+            "6": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "7": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "8": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "9": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "10": {
+                "label": "TP9",
+                "original_label": "TP9"
+            },
+            "11": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "12": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "13": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "14": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "15": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "16": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "17": {
+                "label": "O2",
+                "original_label": "O2"
+            },
+            "18": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "19": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "20": {
+                "label": "TP10",
+                "original_label": "TP10"
+            },
+            "21": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "22": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "23": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "24": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "25": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "26": {
+                "label": "FT10",
+                "original_label": "FT10"
+            },
+            "27": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "28": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "29": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "30": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "31": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "32": {
+                "label": "AF7",
+                "original_label": "AF7"
+            },
+            "33": {
+                "label": "AF3",
+                "original_label": "AF3"
+            },
+            "34": {
+                "label": "AFz",
+                "original_label": "AFz"
+            },
+            "35": {
+                "label": "F1",
+                "original_label": "F1"
+            },
+            "36": {
+                "label": "F5",
+                "original_label": "F5"
+            },
+            "37": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "38": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "39": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "40": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "41": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "42": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "43": {
+                "label": "P1",
+                "original_label": "P1"
+            },
+            "44": {
+                "label": "P5",
+                "original_label": "P5"
+            },
+            "45": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "46": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "47": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "48": {
+                "label": "P6",
+                "original_label": "P6"
+            },
+            "49": {
+                "label": "P2",
+                "original_label": "P2"
+            },
+            "50": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "51": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "52": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "53": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "54": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "55": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "56": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "57": {
+                "label": "F6",
+                "original_label": "F6"
+            },
+            "58": {
+                "label": "AF8",
+                "original_label": "AF8"
+            },
+            "59": {
+                "label": "AF4",
+                "original_label": "AF4"
+            },
+            "60": {
+                "label": "F2",
+                "original_label": "F2"
+            },
+            "61": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "62": {
+                "label": "FT9",
+                "original_label": "FT9"
+            },
+            "63": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "64": {
+                "label": "PO4",
+                "original_label": "PO4"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "bids_subject": "1",
+            "runs": [
+                {
+                    "file": "raw/sub-1/ses-01/eeg/sub-1_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-1/ses-02/eeg/sub-1_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "2": {
+            "bids_subject": "2",
+            "runs": [
+                {
+                    "file": "raw/sub-2/ses-01/eeg/sub-2_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-2/ses-02/eeg/sub-2_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "3": {
+            "bids_subject": "3",
+            "runs": [
+                {
+                    "file": "raw/sub-3/ses-01/eeg/sub-3_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "4": {
+            "bids_subject": "4",
+            "runs": [
+                {
+                    "file": "raw/sub-4/ses-01/eeg/sub-4_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-4/ses-02/eeg/sub-4_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "5": {
+            "bids_subject": "5",
+            "runs": [
+                {
+                    "file": "raw/sub-5/ses-01/eeg/sub-5_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "6": {
+            "bids_subject": "6",
+            "runs": [
+                {
+                    "file": "raw/sub-6/ses-01/eeg/sub-6_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "7": {
+            "bids_subject": "7",
+            "runs": [
+                {
+                    "file": "raw/sub-7/ses-01/eeg/sub-7_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "8": {
+            "bids_subject": "8",
+            "runs": [
+                {
+                    "file": "raw/sub-8/ses-01/eeg/sub-8_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-8/ses-02/eeg/sub-8_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "9": {
+            "bids_subject": "9",
+            "runs": [
+                {
+                    "file": "raw/sub-9/ses-01/eeg/sub-9_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "10": {
+            "bids_subject": "10",
+            "runs": [
+                {
+                    "file": "raw/sub-10/ses-01/eeg/sub-10_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "11": {
+            "bids_subject": "11",
+            "runs": [
+                {
+                    "file": "raw/sub-11/ses-01/eeg/sub-11_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "12": {
+            "bids_subject": "12",
+            "runs": [
+                {
+                    "file": "raw/sub-12/ses-01/eeg/sub-12_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "13": {
+            "bids_subject": "13",
+            "runs": [
+                {
+                    "file": "raw/sub-13/ses-01/eeg/sub-13_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "14": {
+            "bids_subject": "14",
+            "runs": [
+                {
+                    "file": "raw/sub-14/ses-01/eeg/sub-14_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "15": {
+            "bids_subject": "15",
+            "runs": [
+                {
+                    "file": "raw/sub-15/ses-01/eeg/sub-15_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "16": {
+            "bids_subject": "16",
+            "runs": [
+                {
+                    "file": "raw/sub-16/ses-01/eeg/sub-16_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "17": {
+            "bids_subject": "17",
+            "runs": [
+                {
+                    "file": "raw/sub-17/ses-01/eeg/sub-17_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "18": {
+            "bids_subject": "18",
+            "runs": [
+                {
+                    "file": "raw/sub-18/ses-01/eeg/sub-18_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "19": {
+            "bids_subject": "19",
+            "runs": [
+                {
+                    "file": "raw/sub-19/ses-01/eeg/sub-19_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "20": {
+            "bids_subject": "20",
+            "runs": [
+                {
+                    "file": "raw/sub-20/ses-01/eeg/sub-20_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "21": {
+            "bids_subject": "21",
+            "runs": [
+                {
+                    "file": "raw/sub-21/ses-01/eeg/sub-21_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "22": {
+            "bids_subject": "22",
+            "runs": [
+                {
+                    "file": "raw/sub-22/ses-01/eeg/sub-22_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "23": {
+            "bids_subject": "23",
+            "runs": [
+                {
+                    "file": "raw/sub-23/ses-01/eeg/sub-23_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "24": {
+            "bids_subject": "24",
+            "runs": [
+                {
+                    "file": "raw/sub-24/ses-01/eeg/sub-24_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "25": {
+            "bids_subject": "25",
+            "runs": [
+                {
+                    "file": "raw/sub-25/ses-01/eeg/sub-25_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "26": {
+            "bids_subject": "26",
+            "runs": [
+                {
+                    "file": "raw/sub-26/ses-01/eeg/sub-26_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "27": {
+            "bids_subject": "27",
+            "runs": [
+                {
+                    "file": "raw/sub-27/ses-01/eeg/sub-27_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "28": {
+            "bids_subject": "28",
+            "runs": [
+                {
+                    "file": "raw/sub-28/ses-01/eeg/sub-28_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "29": {
+            "bids_subject": "29",
+            "runs": [
+                {
+                    "file": "raw/sub-29/ses-01/eeg/sub-29_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "30": {
+            "bids_subject": "30",
+            "runs": [
+                {
+                    "file": "raw/sub-30/ses-01/eeg/sub-30_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "31": {
+            "bids_subject": "31",
+            "runs": [
+                {
+                    "file": "raw/sub-31/ses-01/eeg/sub-31_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "32": {
+            "bids_subject": "32",
+            "runs": [
+                {
+                    "file": "raw/sub-32/ses-01/eeg/sub-32_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-32/ses-02/eeg/sub-32_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "33": {
+            "bids_subject": "33",
+            "runs": [
+                {
+                    "file": "raw/sub-33/ses-01/eeg/sub-33_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "34": {
+            "bids_subject": "34",
+            "runs": [
+                {
+                    "file": "raw/sub-34/ses-01/eeg/sub-34_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "35": {
+            "bids_subject": "35",
+            "runs": [
+                {
+                    "file": "raw/sub-35/ses-01/eeg/sub-35_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "36": {
+            "bids_subject": "36",
+            "runs": [
+                {
+                    "file": "raw/sub-36/ses-01/eeg/sub-36_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "37": {
+            "bids_subject": "37",
+            "runs": [
+                {
+                    "file": "raw/sub-37/ses-01/eeg/sub-37_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "38": {
+            "bids_subject": "38",
+            "runs": [
+                {
+                    "file": "raw/sub-38/ses-01/eeg/sub-38_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "39": {
+            "bids_subject": "39",
+            "runs": [
+                {
+                    "file": "raw/sub-39/ses-01/eeg/sub-39_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "40": {
+            "bids_subject": "40",
+            "runs": [
+                {
+                    "file": "raw/sub-40/ses-01/eeg/sub-40_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "41": {
+            "bids_subject": "41",
+            "runs": [
+                {
+                    "file": "raw/sub-41/ses-01/eeg/sub-41_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "42": {
+            "bids_subject": "42",
+            "runs": [
+                {
+                    "file": "raw/sub-42/ses-01/eeg/sub-42_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "43": {
+            "bids_subject": "43",
+            "runs": [
+                {
+                    "file": "raw/sub-43/ses-01/eeg/sub-43_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "44": {
+            "bids_subject": "44",
+            "runs": [
+                {
+                    "file": "raw/sub-44/ses-01/eeg/sub-44_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "45": {
+            "bids_subject": "45",
+            "runs": [
+                {
+                    "file": "raw/sub-45/ses-01/eeg/sub-45_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "46": {
+            "bids_subject": "46",
+            "runs": [
+                {
+                    "file": "raw/sub-46/ses-01/eeg/sub-46_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "47": {
+            "bids_subject": "47",
+            "runs": [
+                {
+                    "file": "raw/sub-47/ses-01/eeg/sub-47_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "48": {
+            "bids_subject": "48",
+            "runs": [
+                {
+                    "file": "raw/sub-48/ses-01/eeg/sub-48_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "49": {
+            "bids_subject": "49",
+            "runs": [
+                {
+                    "file": "raw/sub-49/ses-01/eeg/sub-49_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "50": {
+            "bids_subject": "50",
+            "runs": [
+                {
+                    "file": "raw/sub-50/ses-01/eeg/sub-50_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "51": {
+            "bids_subject": "51",
+            "runs": [
+                {
+                    "file": "raw/sub-51/ses-01/eeg/sub-51_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "52": {
+            "bids_subject": "52",
+            "runs": [
+                {
+                    "file": "raw/sub-52/ses-01/eeg/sub-52_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "53": {
+            "bids_subject": "53",
+            "runs": [
+                {
+                    "file": "raw/sub-53/ses-01/eeg/sub-53_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "54": {
+            "bids_subject": "54",
+            "runs": [
+                {
+                    "file": "raw/sub-54/ses-01/eeg/sub-54_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "55": {
+            "bids_subject": "55",
+            "runs": [
+                {
+                    "file": "raw/sub-55/ses-01/eeg/sub-55_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "56": {
+            "bids_subject": "56",
+            "runs": [
+                {
+                    "file": "raw/sub-56/ses-01/eeg/sub-56_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "57": {
+            "bids_subject": "57",
+            "runs": [
+                {
+                    "file": "raw/sub-57/ses-01/eeg/sub-57_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "58": {
+            "bids_subject": "58",
+            "runs": [
+                {
+                    "file": "raw/sub-58/ses-01/eeg/sub-58_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "59": {
+            "bids_subject": "59",
+            "runs": [
+                {
+                    "file": "raw/sub-59/ses-01/eeg/sub-59_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "60": {
+            "bids_subject": "60",
+            "runs": [
+                {
+                    "file": "raw/sub-60/ses-01/eeg/sub-60_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "61": {
+            "bids_subject": "61",
+            "runs": [
+                {
+                    "file": "raw/sub-61/ses-01/eeg/sub-61_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "62": {
+            "bids_subject": "62",
+            "runs": [
+                {
+                    "file": "raw/sub-62/ses-01/eeg/sub-62_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "63": {
+            "bids_subject": "63",
+            "runs": [
+                {
+                    "file": "raw/sub-63/ses-01/eeg/sub-63_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "64": {
+            "bids_subject": "64",
+            "runs": [
+                {
+                    "file": "raw/sub-64/ses-01/eeg/sub-64_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "65": {
+            "bids_subject": "65",
+            "runs": [
+                {
+                    "file": "raw/sub-65/ses-01/eeg/sub-65_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "66": {
+            "bids_subject": "66",
+            "runs": [
+                {
+                    "file": "raw/sub-66/ses-01/eeg/sub-66_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "67": {
+            "bids_subject": "67",
+            "runs": [
+                {
+                    "file": "raw/sub-67/ses-01/eeg/sub-67_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "68": {
+            "bids_subject": "68",
+            "runs": [
+                {
+                    "file": "raw/sub-68/ses-01/eeg/sub-68_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "69": {
+            "bids_subject": "69",
+            "runs": [
+                {
+                    "file": "raw/sub-69/ses-01/eeg/sub-69_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "70": {
+            "bids_subject": "70",
+            "runs": [
+                {
+                    "file": "raw/sub-70/ses-01/eeg/sub-70_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "71": {
+            "bids_subject": "71",
+            "runs": [
+                {
+                    "file": "raw/sub-71/ses-01/eeg/sub-71_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "72": {
+            "bids_subject": "72",
+            "runs": [
+                {
+                    "file": "raw/sub-72/ses-01/eeg/sub-72_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "73": {
+            "bids_subject": "73",
+            "runs": [
+                {
+                    "file": "raw/sub-73/ses-01/eeg/sub-73_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "74": {
+            "bids_subject": "74",
+            "runs": [
+                {
+                    "file": "raw/sub-74/ses-01/eeg/sub-74_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "75": {
+            "bids_subject": "75",
+            "runs": [
+                {
+                    "file": "raw/sub-75/ses-01/eeg/sub-75_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "76": {
+            "bids_subject": "76",
+            "runs": [
+                {
+                    "file": "raw/sub-76/ses-01/eeg/sub-76_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "77": {
+            "bids_subject": "77",
+            "runs": [
+                {
+                    "file": "raw/sub-77/ses-01/eeg/sub-77_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "78": {
+            "bids_subject": "78",
+            "runs": [
+                {
+                    "file": "raw/sub-78/ses-01/eeg/sub-78_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "79": {
+            "bids_subject": "79",
+            "runs": [
+                {
+                    "file": "raw/sub-79/ses-01/eeg/sub-79_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "80": {
+            "bids_subject": "80",
+            "runs": [
+                {
+                    "file": "raw/sub-80/ses-01/eeg/sub-80_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "81": {
+            "bids_subject": "81",
+            "runs": [
+                {
+                    "file": "raw/sub-81/ses-01/eeg/sub-81_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "82": {
+            "bids_subject": "82",
+            "runs": [
+                {
+                    "file": "raw/sub-82/ses-01/eeg/sub-82_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "83": {
+            "bids_subject": "83",
+            "runs": [
+                {
+                    "file": "raw/sub-83/ses-01/eeg/sub-83_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "84": {
+            "bids_subject": "84",
+            "runs": [
+                {
+                    "file": "raw/sub-84/ses-01/eeg/sub-84_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "85": {
+            "bids_subject": "85",
+            "runs": [
+                {
+                    "file": "raw/sub-85/ses-01/eeg/sub-85_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-85/ses-02/eeg/sub-85_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "86": {
+            "bids_subject": "86",
+            "runs": [
+                {
+                    "file": "raw/sub-86/ses-01/eeg/sub-86_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-86/ses-02/eeg/sub-86_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "87": {
+            "bids_subject": "87",
+            "runs": [
+                {
+                    "file": "raw/sub-87/ses-01/eeg/sub-87_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "88": {
+            "bids_subject": "88",
+            "runs": [
+                {
+                    "file": "raw/sub-88/ses-01/eeg/sub-88_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "89": {
+            "bids_subject": "89",
+            "runs": [
+                {
+                    "file": "raw/sub-89/ses-01/eeg/sub-89_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "90": {
+            "bids_subject": "90",
+            "runs": [
+                {
+                    "file": "raw/sub-90/ses-01/eeg/sub-90_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "91": {
+            "bids_subject": "91",
+            "runs": [
+                {
+                    "file": "raw/sub-91/ses-01/eeg/sub-91_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "92": {
+            "bids_subject": "92",
+            "runs": [
+                {
+                    "file": "raw/sub-92/ses-01/eeg/sub-92_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "93": {
+            "bids_subject": "93",
+            "runs": [
+                {
+                    "file": "raw/sub-93/ses-01/eeg/sub-93_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "94": {
+            "bids_subject": "94",
+            "runs": [
+                {
+                    "file": "raw/sub-94/ses-01/eeg/sub-94_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "95": {
+            "bids_subject": "95",
+            "runs": [
+                {
+                    "file": "raw/sub-95/ses-01/eeg/sub-95_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "96": {
+            "bids_subject": "96",
+            "runs": [
+                {
+                    "file": "raw/sub-96/ses-01/eeg/sub-96_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "97": {
+            "bids_subject": "97",
+            "runs": [
+                {
+                    "file": "raw/sub-97/ses-01/eeg/sub-97_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "98": {
+            "bids_subject": "98",
+            "runs": [
+                {
+                    "file": "raw/sub-98/ses-01/eeg/sub-98_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "99": {
+            "bids_subject": "99",
+            "runs": [
+                {
+                    "file": "raw/sub-99/ses-01/eeg/sub-99_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "100": {
+            "bids_subject": "100",
+            "runs": [
+                {
+                    "file": "raw/sub-100/ses-01/eeg/sub-100_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-100/ses-02/eeg/sub-100_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "101": {
+            "bids_subject": "101",
+            "runs": [
+                {
+                    "file": "raw/sub-101/ses-01/eeg/sub-101_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "102": {
+            "bids_subject": "102",
+            "runs": [
+                {
+                    "file": "raw/sub-102/ses-01/eeg/sub-102_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "103": {
+            "bids_subject": "103",
+            "runs": [
+                {
+                    "file": "raw/sub-103/ses-01/eeg/sub-103_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "104": {
+            "bids_subject": "104",
+            "runs": [
+                {
+                    "file": "raw/sub-104/ses-01/eeg/sub-104_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "105": {
+            "bids_subject": "105",
+            "runs": [
+                {
+                    "file": "raw/sub-105/ses-01/eeg/sub-105_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "106": {
+            "bids_subject": "106",
+            "runs": [
+                {
+                    "file": "raw/sub-106/ses-01/eeg/sub-106_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "107": {
+            "bids_subject": "107",
+            "runs": [
+                {
+                    "file": "raw/sub-107/ses-01/eeg/sub-107_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "108": {
+            "bids_subject": "108",
+            "runs": [
+                {
+                    "file": "raw/sub-108/ses-01/eeg/sub-108_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "109": {
+            "bids_subject": "109",
+            "runs": [
+                {
+                    "file": "raw/sub-109/ses-01/eeg/sub-109_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "110": {
+            "bids_subject": "110",
+            "runs": [
+                {
+                    "file": "raw/sub-110/ses-01/eeg/sub-110_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "111": {
+            "bids_subject": "111",
+            "runs": [
+                {
+                    "file": "raw/sub-111/ses-01/eeg/sub-111_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "112": {
+            "bids_subject": "112",
+            "runs": [
+                {
+                    "file": "raw/sub-112/ses-01/eeg/sub-112_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "113": {
+            "bids_subject": "113",
+            "runs": [
+                {
+                    "file": "raw/sub-113/ses-01/eeg/sub-113_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "114": {
+            "bids_subject": "114",
+            "runs": [
+                {
+                    "file": "raw/sub-114/ses-01/eeg/sub-114_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "115": {
+            "bids_subject": "115",
+            "runs": [
+                {
+                    "file": "raw/sub-115/ses-01/eeg/sub-115_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "116": {
+            "bids_subject": "116",
+            "runs": [
+                {
+                    "file": "raw/sub-116/ses-01/eeg/sub-116_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "117": {
+            "bids_subject": "117",
+            "runs": [
+                {
+                    "file": "raw/sub-117/ses-01/eeg/sub-117_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "118": {
+            "bids_subject": "118",
+            "runs": [
+                {
+                    "file": "raw/sub-118/ses-01/eeg/sub-118_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "119": {
+            "bids_subject": "119",
+            "runs": [
+                {
+                    "file": "raw/sub-119/ses-01/eeg/sub-119_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "120": {
+            "bids_subject": "120",
+            "runs": [
+                {
+                    "file": "raw/sub-120/ses-01/eeg/sub-120_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "121": {
+            "bids_subject": "121",
+            "runs": [
+                {
+                    "file": "raw/sub-121/ses-01/eeg/sub-121_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "122": {
+            "bids_subject": "122",
+            "runs": [
+                {
+                    "file": "raw/sub-122/ses-01/eeg/sub-122_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "123": {
+            "bids_subject": "123",
+            "runs": [
+                {
+                    "file": "raw/sub-123/ses-01/eeg/sub-123_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "124": {
+            "bids_subject": "124",
+            "runs": [
+                {
+                    "file": "raw/sub-124/ses-01/eeg/sub-124_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "125": {
+            "bids_subject": "125",
+            "runs": [
+                {
+                    "file": "raw/sub-125/ses-01/eeg/sub-125_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "126": {
+            "bids_subject": "126",
+            "runs": [
+                {
+                    "file": "raw/sub-126/ses-01/eeg/sub-126_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "127": {
+            "bids_subject": "127",
+            "runs": [
+                {
+                    "file": "raw/sub-127/ses-01/eeg/sub-127_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "128": {
+            "bids_subject": "128",
+            "runs": [
+                {
+                    "file": "raw/sub-128/ses-01/eeg/sub-128_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "129": {
+            "bids_subject": "129",
+            "runs": [
+                {
+                    "file": "raw/sub-129/ses-01/eeg/sub-129_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "130": {
+            "bids_subject": "130",
+            "runs": [
+                {
+                    "file": "raw/sub-130/ses-01/eeg/sub-130_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "131": {
+            "bids_subject": "131",
+            "runs": [
+                {
+                    "file": "raw/sub-131/ses-01/eeg/sub-131_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "132": {
+            "bids_subject": "132",
+            "runs": [
+                {
+                    "file": "raw/sub-132/ses-01/eeg/sub-132_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "133": {
+            "bids_subject": "133",
+            "runs": [
+                {
+                    "file": "raw/sub-133/ses-01/eeg/sub-133_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "134": {
+            "bids_subject": "134",
+            "runs": [
+                {
+                    "file": "raw/sub-134/ses-01/eeg/sub-134_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "135": {
+            "bids_subject": "135",
+            "runs": [
+                {
+                    "file": "raw/sub-135/ses-01/eeg/sub-135_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "136": {
+            "bids_subject": "136",
+            "runs": [
+                {
+                    "file": "raw/sub-136/ses-01/eeg/sub-136_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "137": {
+            "bids_subject": "137",
+            "runs": [
+                {
+                    "file": "raw/sub-137/ses-01/eeg/sub-137_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "138": {
+            "bids_subject": "138",
+            "runs": [
+                {
+                    "file": "raw/sub-138/ses-01/eeg/sub-138_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "139": {
+            "bids_subject": "139",
+            "runs": [
+                {
+                    "file": "raw/sub-139/ses-01/eeg/sub-139_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "140": {
+            "bids_subject": "140",
+            "runs": [
+                {
+                    "file": "raw/sub-140/ses-01/eeg/sub-140_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "141": {
+            "bids_subject": "141",
+            "runs": [
+                {
+                    "file": "raw/sub-141/ses-01/eeg/sub-141_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "142": {
+            "bids_subject": "142",
+            "runs": [
+                {
+                    "file": "raw/sub-142/ses-01/eeg/sub-142_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "143": {
+            "bids_subject": "143",
+            "runs": [
+                {
+                    "file": "raw/sub-143/ses-01/eeg/sub-143_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "144": {
+            "bids_subject": "144",
+            "runs": [
+                {
+                    "file": "raw/sub-144/ses-01/eeg/sub-144_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "145": {
+            "bids_subject": "145",
+            "runs": [
+                {
+                    "file": "raw/sub-145/ses-01/eeg/sub-145_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "146": {
+            "bids_subject": "146",
+            "runs": [
+                {
+                    "file": "raw/sub-146/ses-01/eeg/sub-146_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "147": {
+            "bids_subject": "147",
+            "runs": [
+                {
+                    "file": "raw/sub-147/ses-01/eeg/sub-147_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "148": {
+            "bids_subject": "148",
+            "runs": [
+                {
+                    "file": "raw/sub-148/ses-01/eeg/sub-148_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "149": {
+            "bids_subject": "149",
+            "runs": [
+                {
+                    "file": "raw/sub-149/ses-01/eeg/sub-149_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "150": {
+            "bids_subject": "150",
+            "runs": [
+                {
+                    "file": "raw/sub-150/ses-01/eeg/sub-150_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "151": {
+            "bids_subject": "151",
+            "runs": [
+                {
+                    "file": "raw/sub-151/ses-01/eeg/sub-151_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "152": {
+            "bids_subject": "152",
+            "runs": [
+                {
+                    "file": "raw/sub-152/ses-01/eeg/sub-152_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-152/ses-02/eeg/sub-152_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "153": {
+            "bids_subject": "153",
+            "runs": [
+                {
+                    "file": "raw/sub-153/ses-01/eeg/sub-153_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-153/ses-02/eeg/sub-153_ses-02_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-153/ses-03/eeg/sub-153_ses-03_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-153/ses-04/eeg/sub-153_ses-04_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "154": {
+            "bids_subject": "154",
+            "runs": [
+                {
+                    "file": "raw/sub-154/ses-01/eeg/sub-154_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-154/ses-02/eeg/sub-154_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "155": {
+            "bids_subject": "155",
+            "runs": [
+                {
+                    "file": "raw/sub-155/ses-01/eeg/sub-155_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-155/ses-02/eeg/sub-155_ses-02_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-155/ses-03/eeg/sub-155_ses-03_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-155/ses-04/eeg/sub-155_ses-04_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "156": {
+            "bids_subject": "156",
+            "runs": [
+                {
+                    "file": "raw/sub-156/ses-01/eeg/sub-156_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-156/ses-02/eeg/sub-156_ses-02_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-156/ses-03/eeg/sub-156_ses-03_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "157": {
+            "bids_subject": "157",
+            "runs": [
+                {
+                    "file": "raw/sub-157/ses-01/eeg/sub-157_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-157/ses-02/eeg/sub-157_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "158": {
+            "bids_subject": "158",
+            "runs": [
+                {
+                    "file": "raw/sub-158/ses-01/eeg/sub-158_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "159": {
+            "bids_subject": "159",
+            "runs": [
+                {
+                    "file": "raw/sub-159/ses-01/eeg/sub-159_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "160": {
+            "bids_subject": "160",
+            "runs": [
+                {
+                    "file": "raw/sub-160/ses-01/eeg/sub-160_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-160/ses-02/eeg/sub-160_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "161": {
+            "bids_subject": "161",
+            "runs": [
+                {
+                    "file": "raw/sub-161/ses-01/eeg/sub-161_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "162": {
+            "bids_subject": "162",
+            "runs": [
+                {
+                    "file": "raw/sub-162/ses-01/eeg/sub-162_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "163": {
+            "bids_subject": "163",
+            "runs": [
+                {
+                    "file": "raw/sub-163/ses-01/eeg/sub-163_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "164": {
+            "bids_subject": "164",
+            "runs": [
+                {
+                    "file": "raw/sub-164/ses-01/eeg/sub-164_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-164/ses-02/eeg/sub-164_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "165": {
+            "bids_subject": "165",
+            "runs": [
+                {
+                    "file": "raw/sub-165/ses-01/eeg/sub-165_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "166": {
+            "bids_subject": "166",
+            "runs": [
+                {
+                    "file": "raw/sub-166/ses-01/eeg/sub-166_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "167": {
+            "bids_subject": "167",
+            "runs": [
+                {
+                    "file": "raw/sub-167/ses-01/eeg/sub-167_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "168": {
+            "bids_subject": "168",
+            "runs": [
+                {
+                    "file": "raw/sub-168/ses-01/eeg/sub-168_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-168/ses-02/eeg/sub-168_ses-02_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-168/ses-03/eeg/sub-168_ses-03_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-168/ses-04/eeg/sub-168_ses-04_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "169": {
+            "bids_subject": "169",
+            "runs": [
+                {
+                    "file": "raw/sub-169/ses-01/eeg/sub-169_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "170": {
+            "bids_subject": "170",
+            "runs": [
+                {
+                    "file": "raw/sub-170/ses-01/eeg/sub-170_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "171": {
+            "bids_subject": "171",
+            "runs": [
+                {
+                    "file": "raw/sub-171/ses-01/eeg/sub-171_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "172": {
+            "bids_subject": "172",
+            "runs": [
+                {
+                    "file": "raw/sub-172/ses-01/eeg/sub-172_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-172/ses-02/eeg/sub-172_ses-02_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-172/ses-03/eeg/sub-172_ses-03_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "173": {
+            "bids_subject": "173",
+            "runs": [
+                {
+                    "file": "raw/sub-173/ses-01/eeg/sub-173_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "174": {
+            "bids_subject": "174",
+            "runs": [
+                {
+                    "file": "raw/sub-174/ses-01/eeg/sub-174_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "175": {
+            "bids_subject": "175",
+            "runs": [
+                {
+                    "file": "raw/sub-175/ses-01/eeg/sub-175_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "176": {
+            "bids_subject": "176",
+            "runs": [
+                {
+                    "file": "raw/sub-176/ses-01/eeg/sub-176_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-176/ses-02/eeg/sub-176_ses-02_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-176/ses-03/eeg/sub-176_ses-03_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "177": {
+            "bids_subject": "177",
+            "runs": [
+                {
+                    "file": "raw/sub-177/ses-01/eeg/sub-177_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-177/ses-02/eeg/sub-177_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "178": {
+            "bids_subject": "178",
+            "runs": [
+                {
+                    "file": "raw/sub-178/ses-01/eeg/sub-178_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "179": {
+            "bids_subject": "179",
+            "runs": [
+                {
+                    "file": "raw/sub-179/ses-01/eeg/sub-179_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-179/ses-02/eeg/sub-179_ses-02_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-179/ses-03/eeg/sub-179_ses-03_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "180": {
+            "bids_subject": "180",
+            "runs": [
+                {
+                    "file": "raw/sub-180/ses-01/eeg/sub-180_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "181": {
+            "bids_subject": "181",
+            "runs": [
+                {
+                    "file": "raw/sub-181/ses-01/eeg/sub-181_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-181/ses-02/eeg/sub-181_ses-02_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-181/ses-03/eeg/sub-181_ses-03_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "182": {
+            "bids_subject": "182",
+            "runs": [
+                {
+                    "file": "raw/sub-182/ses-01/eeg/sub-182_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "183": {
+            "bids_subject": "183",
+            "runs": [
+                {
+                    "file": "raw/sub-183/ses-01/eeg/sub-183_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "184": {
+            "bids_subject": "184",
+            "runs": [
+                {
+                    "file": "raw/sub-184/ses-01/eeg/sub-184_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-184/ses-02/eeg/sub-184_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "185": {
+            "bids_subject": "185",
+            "runs": [
+                {
+                    "file": "raw/sub-185/ses-01/eeg/sub-185_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "186": {
+            "bids_subject": "186",
+            "runs": [
+                {
+                    "file": "raw/sub-186/ses-01/eeg/sub-186_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "187": {
+            "bids_subject": "187",
+            "runs": [
+                {
+                    "file": "raw/sub-187/ses-01/eeg/sub-187_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "188": {
+            "bids_subject": "188",
+            "runs": [
+                {
+                    "file": "raw/sub-188/ses-01/eeg/sub-188_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "189": {
+            "bids_subject": "189",
+            "runs": [
+                {
+                    "file": "raw/sub-189/ses-01/eeg/sub-189_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "190": {
+            "bids_subject": "190",
+            "runs": [
+                {
+                    "file": "raw/sub-190/ses-01/eeg/sub-190_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "191": {
+            "bids_subject": "191",
+            "runs": [
+                {
+                    "file": "raw/sub-191/ses-01/eeg/sub-191_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "192": {
+            "bids_subject": "192",
+            "runs": [
+                {
+                    "file": "raw/sub-192/ses-01/eeg/sub-192_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "193": {
+            "bids_subject": "193",
+            "runs": [
+                {
+                    "file": "raw/sub-193/ses-01/eeg/sub-193_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "194": {
+            "bids_subject": "194",
+            "runs": [
+                {
+                    "file": "raw/sub-194/ses-01/eeg/sub-194_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-194/ses-02/eeg/sub-194_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "195": {
+            "bids_subject": "195",
+            "runs": [
+                {
+                    "file": "raw/sub-195/ses-01/eeg/sub-195_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "196": {
+            "bids_subject": "196",
+            "runs": [
+                {
+                    "file": "raw/sub-196/ses-01/eeg/sub-196_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "197": {
+            "bids_subject": "197",
+            "runs": [
+                {
+                    "file": "raw/sub-197/ses-01/eeg/sub-197_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "198": {
+            "bids_subject": "198",
+            "runs": [
+                {
+                    "file": "raw/sub-198/ses-01/eeg/sub-198_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "199": {
+            "bids_subject": "199",
+            "runs": [
+                {
+                    "file": "raw/sub-199/ses-01/eeg/sub-199_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "200": {
+            "bids_subject": "200",
+            "runs": [
+                {
+                    "file": "raw/sub-200/ses-01/eeg/sub-200_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "201": {
+            "bids_subject": "201",
+            "runs": [
+                {
+                    "file": "raw/sub-201/ses-01/eeg/sub-201_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "202": {
+            "bids_subject": "202",
+            "runs": [
+                {
+                    "file": "raw/sub-202/ses-01/eeg/sub-202_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "203": {
+            "bids_subject": "203",
+            "runs": [
+                {
+                    "file": "raw/sub-203/ses-01/eeg/sub-203_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-203/ses-02/eeg/sub-203_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "204": {
+            "bids_subject": "204",
+            "runs": [
+                {
+                    "file": "raw/sub-204/ses-01/eeg/sub-204_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "205": {
+            "bids_subject": "205",
+            "runs": [
+                {
+                    "file": "raw/sub-205/ses-01/eeg/sub-205_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "206": {
+            "bids_subject": "206",
+            "runs": [
+                {
+                    "file": "raw/sub-206/ses-01/eeg/sub-206_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "207": {
+            "bids_subject": "207",
+            "runs": [
+                {
+                    "file": "raw/sub-207/ses-01/eeg/sub-207_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "208": {
+            "bids_subject": "208",
+            "runs": [
+                {
+                    "file": "raw/sub-208/ses-01/eeg/sub-208_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "209": {
+            "bids_subject": "209",
+            "runs": [
+                {
+                    "file": "raw/sub-209/ses-01/eeg/sub-209_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "210": {
+            "bids_subject": "210",
+            "runs": [
+                {
+                    "file": "raw/sub-210/ses-01/eeg/sub-210_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "211": {
+            "bids_subject": "211",
+            "runs": [
+                {
+                    "file": "raw/sub-211/ses-01/eeg/sub-211_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "212": {
+            "bids_subject": "212",
+            "runs": [
+                {
+                    "file": "raw/sub-212/ses-01/eeg/sub-212_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "213": {
+            "bids_subject": "213",
+            "runs": [
+                {
+                    "file": "raw/sub-213/ses-01/eeg/sub-213_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "214": {
+            "bids_subject": "214",
+            "runs": [
+                {
+                    "file": "raw/sub-214/ses-01/eeg/sub-214_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "215": {
+            "bids_subject": "215",
+            "runs": [
+                {
+                    "file": "raw/sub-215/ses-01/eeg/sub-215_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "216": {
+            "bids_subject": "216",
+            "runs": [
+                {
+                    "file": "raw/sub-216/ses-01/eeg/sub-216_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "217": {
+            "bids_subject": "217",
+            "runs": [
+                {
+                    "file": "raw/sub-217/ses-01/eeg/sub-217_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "218": {
+            "bids_subject": "218",
+            "runs": [
+                {
+                    "file": "raw/sub-218/ses-01/eeg/sub-218_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "219": {
+            "bids_subject": "219",
+            "runs": [
+                {
+                    "file": "raw/sub-219/ses-01/eeg/sub-219_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "220": {
+            "bids_subject": "220",
+            "runs": [
+                {
+                    "file": "raw/sub-220/ses-01/eeg/sub-220_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "221": {
+            "bids_subject": "221",
+            "runs": [
+                {
+                    "file": "raw/sub-221/ses-01/eeg/sub-221_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "222": {
+            "bids_subject": "222",
+            "runs": [
+                {
+                    "file": "raw/sub-222/ses-01/eeg/sub-222_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "223": {
+            "bids_subject": "223",
+            "runs": [
+                {
+                    "file": "raw/sub-223/ses-01/eeg/sub-223_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "224": {
+            "bids_subject": "224",
+            "runs": [
+                {
+                    "file": "raw/sub-224/ses-01/eeg/sub-224_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "225": {
+            "bids_subject": "225",
+            "runs": [
+                {
+                    "file": "raw/sub-225/ses-01/eeg/sub-225_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "226": {
+            "bids_subject": "226",
+            "runs": [
+                {
+                    "file": "raw/sub-226/ses-01/eeg/sub-226_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "227": {
+            "bids_subject": "227",
+            "runs": [
+                {
+                    "file": "raw/sub-227/ses-01/eeg/sub-227_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "228": {
+            "bids_subject": "228",
+            "runs": [
+                {
+                    "file": "raw/sub-228/ses-01/eeg/sub-228_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "229": {
+            "bids_subject": "229",
+            "runs": [
+                {
+                    "file": "raw/sub-229/ses-01/eeg/sub-229_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "230": {
+            "bids_subject": "230",
+            "runs": [
+                {
+                    "file": "raw/sub-230/ses-01/eeg/sub-230_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "231": {
+            "bids_subject": "231",
+            "runs": [
+                {
+                    "file": "raw/sub-231/ses-01/eeg/sub-231_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "232": {
+            "bids_subject": "232",
+            "runs": [
+                {
+                    "file": "raw/sub-232/ses-01/eeg/sub-232_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "233": {
+            "bids_subject": "233",
+            "runs": [
+                {
+                    "file": "raw/sub-233/ses-01/eeg/sub-233_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "234": {
+            "bids_subject": "234",
+            "runs": [
+                {
+                    "file": "raw/sub-234/ses-01/eeg/sub-234_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "235": {
+            "bids_subject": "235",
+            "runs": [
+                {
+                    "file": "raw/sub-235/ses-01/eeg/sub-235_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "236": {
+            "bids_subject": "236",
+            "runs": [
+                {
+                    "file": "raw/sub-236/ses-01/eeg/sub-236_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "237": {
+            "bids_subject": "237",
+            "runs": [
+                {
+                    "file": "raw/sub-237/ses-01/eeg/sub-237_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "238": {
+            "bids_subject": "238",
+            "runs": [
+                {
+                    "file": "raw/sub-238/ses-01/eeg/sub-238_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "239": {
+            "bids_subject": "239",
+            "runs": [
+                {
+                    "file": "raw/sub-239/ses-01/eeg/sub-239_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "240": {
+            "bids_subject": "240",
+            "runs": [
+                {
+                    "file": "raw/sub-240/ses-01/eeg/sub-240_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "241": {
+            "bids_subject": "241",
+            "runs": [
+                {
+                    "file": "raw/sub-241/ses-01/eeg/sub-241_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "242": {
+            "bids_subject": "242",
+            "runs": [
+                {
+                    "file": "raw/sub-242/ses-01/eeg/sub-242_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "243": {
+            "bids_subject": "243",
+            "runs": [
+                {
+                    "file": "raw/sub-243/ses-01/eeg/sub-243_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-243/ses-02/eeg/sub-243_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "244": {
+            "bids_subject": "244",
+            "runs": [
+                {
+                    "file": "raw/sub-244/ses-01/eeg/sub-244_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "245": {
+            "bids_subject": "245",
+            "runs": [
+                {
+                    "file": "raw/sub-245/ses-01/eeg/sub-245_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "246": {
+            "bids_subject": "246",
+            "runs": [
+                {
+                    "file": "raw/sub-246/ses-01/eeg/sub-246_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "247": {
+            "bids_subject": "247",
+            "runs": [
+                {
+                    "file": "raw/sub-247/ses-01/eeg/sub-247_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "248": {
+            "bids_subject": "248",
+            "runs": [
+                {
+                    "file": "raw/sub-248/ses-01/eeg/sub-248_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "249": {
+            "bids_subject": "249",
+            "runs": [
+                {
+                    "file": "raw/sub-249/ses-01/eeg/sub-249_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "250": {
+            "bids_subject": "250",
+            "runs": [
+                {
+                    "file": "raw/sub-250/ses-01/eeg/sub-250_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "251": {
+            "bids_subject": "251",
+            "runs": [
+                {
+                    "file": "raw/sub-251/ses-01/eeg/sub-251_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "252": {
+            "bids_subject": "252",
+            "runs": [
+                {
+                    "file": "raw/sub-252/ses-01/eeg/sub-252_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "253": {
+            "bids_subject": "253",
+            "runs": [
+                {
+                    "file": "raw/sub-253/ses-01/eeg/sub-253_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "254": {
+            "bids_subject": "254",
+            "runs": [
+                {
+                    "file": "raw/sub-254/ses-01/eeg/sub-254_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "255": {
+            "bids_subject": "255",
+            "runs": [
+                {
+                    "file": "raw/sub-255/ses-01/eeg/sub-255_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-255/ses-02/eeg/sub-255_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "256": {
+            "bids_subject": "256",
+            "runs": [
+                {
+                    "file": "raw/sub-256/ses-01/eeg/sub-256_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "257": {
+            "bids_subject": "257",
+            "runs": [
+                {
+                    "file": "raw/sub-257/ses-01/eeg/sub-257_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "258": {
+            "bids_subject": "258",
+            "runs": [
+                {
+                    "file": "raw/sub-258/ses-01/eeg/sub-258_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "259": {
+            "bids_subject": "259",
+            "runs": [
+                {
+                    "file": "raw/sub-259/ses-01/eeg/sub-259_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "260": {
+            "bids_subject": "260",
+            "runs": [
+                {
+                    "file": "raw/sub-260/ses-01/eeg/sub-260_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "261": {
+            "bids_subject": "261",
+            "runs": [
+                {
+                    "file": "raw/sub-261/ses-01/eeg/sub-261_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "262": {
+            "bids_subject": "262",
+            "runs": [
+                {
+                    "file": "raw/sub-262/ses-01/eeg/sub-262_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "263": {
+            "bids_subject": "263",
+            "runs": [
+                {
+                    "file": "raw/sub-263/ses-01/eeg/sub-263_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "264": {
+            "bids_subject": "264",
+            "runs": [
+                {
+                    "file": "raw/sub-264/ses-01/eeg/sub-264_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "265": {
+            "bids_subject": "265",
+            "runs": [
+                {
+                    "file": "raw/sub-265/ses-01/eeg/sub-265_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "266": {
+            "bids_subject": "266",
+            "runs": [
+                {
+                    "file": "raw/sub-266/ses-01/eeg/sub-266_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "267": {
+            "bids_subject": "267",
+            "runs": [
+                {
+                    "file": "raw/sub-267/ses-01/eeg/sub-267_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "268": {
+            "bids_subject": "268",
+            "runs": [
+                {
+                    "file": "raw/sub-268/ses-01/eeg/sub-268_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-268/ses-02/eeg/sub-268_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "269": {
+            "bids_subject": "269",
+            "runs": [
+                {
+                    "file": "raw/sub-269/ses-01/eeg/sub-269_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "270": {
+            "bids_subject": "270",
+            "runs": [
+                {
+                    "file": "raw/sub-270/ses-01/eeg/sub-270_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-270/ses-02/eeg/sub-270_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "271": {
+            "bids_subject": "271",
+            "runs": [
+                {
+                    "file": "raw/sub-271/ses-01/eeg/sub-271_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "272": {
+            "bids_subject": "272",
+            "runs": [
+                {
+                    "file": "raw/sub-272/ses-01/eeg/sub-272_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "273": {
+            "bids_subject": "273",
+            "runs": [
+                {
+                    "file": "raw/sub-273/ses-01/eeg/sub-273_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "274": {
+            "bids_subject": "274",
+            "runs": [
+                {
+                    "file": "raw/sub-274/ses-01/eeg/sub-274_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-274/ses-02/eeg/sub-274_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "275": {
+            "bids_subject": "275",
+            "runs": [
+                {
+                    "file": "raw/sub-275/ses-01/eeg/sub-275_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "276": {
+            "bids_subject": "276",
+            "runs": [
+                {
+                    "file": "raw/sub-276/ses-01/eeg/sub-276_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-276/ses-02/eeg/sub-276_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "277": {
+            "bids_subject": "277",
+            "runs": [
+                {
+                    "file": "raw/sub-277/ses-01/eeg/sub-277_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "278": {
+            "bids_subject": "278",
+            "runs": [
+                {
+                    "file": "raw/sub-278/ses-01/eeg/sub-278_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "279": {
+            "bids_subject": "279",
+            "runs": [
+                {
+                    "file": "raw/sub-279/ses-01/eeg/sub-279_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "280": {
+            "bids_subject": "280",
+            "runs": [
+                {
+                    "file": "raw/sub-280/ses-01/eeg/sub-280_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "281": {
+            "bids_subject": "281",
+            "runs": [
+                {
+                    "file": "raw/sub-281/ses-01/eeg/sub-281_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "282": {
+            "bids_subject": "282",
+            "runs": [
+                {
+                    "file": "raw/sub-282/ses-01/eeg/sub-282_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-282/ses-02/eeg/sub-282_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "283": {
+            "bids_subject": "283",
+            "runs": [
+                {
+                    "file": "raw/sub-283/ses-01/eeg/sub-283_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-283/ses-02/eeg/sub-283_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "284": {
+            "bids_subject": "284",
+            "runs": [
+                {
+                    "file": "raw/sub-284/ses-01/eeg/sub-284_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "285": {
+            "bids_subject": "285",
+            "runs": [
+                {
+                    "file": "raw/sub-285/ses-01/eeg/sub-285_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "286": {
+            "bids_subject": "286",
+            "runs": [
+                {
+                    "file": "raw/sub-286/ses-01/eeg/sub-286_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "287": {
+            "bids_subject": "287",
+            "runs": [
+                {
+                    "file": "raw/sub-287/ses-01/eeg/sub-287_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-287/ses-02/eeg/sub-287_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "288": {
+            "bids_subject": "288",
+            "runs": [
+                {
+                    "file": "raw/sub-288/ses-01/eeg/sub-288_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "289": {
+            "bids_subject": "289",
+            "runs": [
+                {
+                    "file": "raw/sub-289/ses-01/eeg/sub-289_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "290": {
+            "bids_subject": "290",
+            "runs": [
+                {
+                    "file": "raw/sub-290/ses-01/eeg/sub-290_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "291": {
+            "bids_subject": "291",
+            "runs": [
+                {
+                    "file": "raw/sub-291/ses-01/eeg/sub-291_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "292": {
+            "bids_subject": "292",
+            "runs": [
+                {
+                    "file": "raw/sub-292/ses-01/eeg/sub-292_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "293": {
+            "bids_subject": "293",
+            "runs": [
+                {
+                    "file": "raw/sub-293/ses-01/eeg/sub-293_ses-01_task-rest_eeg.vhdr"
+                },
+                {
+                    "file": "raw/sub-293/ses-02/eeg/sub-293_ses-02_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "294": {
+            "bids_subject": "294",
+            "runs": [
+                {
+                    "file": "raw/sub-294/ses-01/eeg/sub-294_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "295": {
+            "bids_subject": "295",
+            "runs": [
+                {
+                    "file": "raw/sub-295/ses-01/eeg/sub-295_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "296": {
+            "bids_subject": "296",
+            "runs": [
+                {
+                    "file": "raw/sub-296/ses-01/eeg/sub-296_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "297": {
+            "bids_subject": "297",
+            "runs": [
+                {
+                    "file": "raw/sub-297/ses-01/eeg/sub-297_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "298": {
+            "bids_subject": "298",
+            "runs": [
+                {
+                    "file": "raw/sub-298/ses-01/eeg/sub-298_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "299": {
+            "bids_subject": "299",
+            "runs": [
+                {
+                    "file": "raw/sub-299/ses-01/eeg/sub-299_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "300": {
+            "bids_subject": "300",
+            "runs": [
+                {
+                    "file": "raw/sub-300/ses-01/eeg/sub-300_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "301": {
+            "bids_subject": "301",
+            "runs": [
+                {
+                    "file": "raw/sub-301/ses-01/eeg/sub-301_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "302": {
+            "bids_subject": "302",
+            "runs": [
+                {
+                    "file": "raw/sub-302/ses-01/eeg/sub-302_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "303": {
+            "bids_subject": "303",
+            "runs": [
+                {
+                    "file": "raw/sub-303/ses-01/eeg/sub-303_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "304": {
+            "bids_subject": "304",
+            "runs": [
+                {
+                    "file": "raw/sub-304/ses-01/eeg/sub-304_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "305": {
+            "bids_subject": "305",
+            "runs": [
+                {
+                    "file": "raw/sub-305/ses-01/eeg/sub-305_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "306": {
+            "bids_subject": "306",
+            "runs": [
+                {
+                    "file": "raw/sub-306/ses-01/eeg/sub-306_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "307": {
+            "bids_subject": "307",
+            "runs": [
+                {
+                    "file": "raw/sub-307/ses-01/eeg/sub-307_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "308": {
+            "bids_subject": "308",
+            "runs": [
+                {
+                    "file": "raw/sub-308/ses-01/eeg/sub-308_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "309": {
+            "bids_subject": "309",
+            "runs": [
+                {
+                    "file": "raw/sub-309/ses-01/eeg/sub-309_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "310": {
+            "bids_subject": "310",
+            "runs": [
+                {
+                    "file": "raw/sub-310/ses-01/eeg/sub-310_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "311": {
+            "bids_subject": "311",
+            "runs": [
+                {
+                    "file": "raw/sub-311/ses-01/eeg/sub-311_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        },
+        "312": {
+            "bids_subject": "312",
+            "runs": [
+                {
+                    "file": "raw/sub-312/ses-01/eeg/sub-312_ses-01_task-rest_eeg.vhdr"
+                }
+            ]
+        }
+    }
+}

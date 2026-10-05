@@ -1,0 +1,2435 @@
+{
+    "data_metadata": {
+        "dataset_name": "PURSUE_MMN",
+        "dataset_info": {
+            "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on007069",
+            "file_format": "BIDS (set)",
+            "description": "PURSUE MMN Auditory Oddball: PURSUE MMN (ERP CORE task replicated across labs)"
+        },
+        "bids": {
+            "task": null
+        },
+        "acquisition": {
+            "sample_frequency": 500.0,
+            "window_size_seconds": null,
+            "num_subjects": 281
+        },
+        "targets": {
+            "count": 1,
+            "type": "pretrain_dummy",
+            "0": {
+                "label": "dummy (continuous window, no task label)"
+            }
+        },
+        "channels": {
+            "count": 39,
+            "1": {
+                "label": "FP1",
+                "original_label": "FP1"
+            },
+            "2": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "3": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "4": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "5": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "6": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "7": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "8": {
+                "label": "TP9",
+                "original_label": "TP9"
+            },
+            "9": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "10": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "11": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "12": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "13": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "14": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "15": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "16": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "17": {
+                "label": "FP2",
+                "original_label": "FP2"
+            },
+            "18": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "19": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "20": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "21": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "22": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "23": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "24": {
+                "label": "TP10",
+                "original_label": "TP10"
+            },
+            "25": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "26": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "27": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "28": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "29": {
+                "label": "O2",
+                "original_label": "O2"
+            },
+            "30": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "31": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "32": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "33": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "34": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "35": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "36": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "37": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "38": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "39": {
+                "label": "FC2",
+                "original_label": "FC2"
+            }
+        },
+        "cohort": "PURSUE"
+    },
+    "data_structure": {
+        "1001": {
+            "bids_subject": "1001",
+            "runs": [
+                {
+                    "file": "raw/sub-1001/eeg/sub-1001_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1002": {
+            "bids_subject": "1002",
+            "runs": [
+                {
+                    "file": "raw/sub-1002/eeg/sub-1002_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1004": {
+            "bids_subject": "1004",
+            "runs": [
+                {
+                    "file": "raw/sub-1004/eeg/sub-1004_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1005": {
+            "bids_subject": "1005",
+            "runs": [
+                {
+                    "file": "raw/sub-1005/eeg/sub-1005_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1006": {
+            "bids_subject": "1006",
+            "runs": [
+                {
+                    "file": "raw/sub-1006/eeg/sub-1006_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1007": {
+            "bids_subject": "1007",
+            "runs": [
+                {
+                    "file": "raw/sub-1007/eeg/sub-1007_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1008": {
+            "bids_subject": "1008",
+            "runs": [
+                {
+                    "file": "raw/sub-1008/eeg/sub-1008_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1009": {
+            "bids_subject": "1009",
+            "runs": [
+                {
+                    "file": "raw/sub-1009/eeg/sub-1009_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1010": {
+            "bids_subject": "1010",
+            "runs": [
+                {
+                    "file": "raw/sub-1010/eeg/sub-1010_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1011": {
+            "bids_subject": "1011",
+            "runs": [
+                {
+                    "file": "raw/sub-1011/eeg/sub-1011_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1013": {
+            "bids_subject": "1013",
+            "runs": [
+                {
+                    "file": "raw/sub-1013/eeg/sub-1013_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1014": {
+            "bids_subject": "1014",
+            "runs": [
+                {
+                    "file": "raw/sub-1014/eeg/sub-1014_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1015": {
+            "bids_subject": "1015",
+            "runs": [
+                {
+                    "file": "raw/sub-1015/eeg/sub-1015_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1016": {
+            "bids_subject": "1016",
+            "runs": [
+                {
+                    "file": "raw/sub-1016/eeg/sub-1016_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1017": {
+            "bids_subject": "1017",
+            "runs": [
+                {
+                    "file": "raw/sub-1017/eeg/sub-1017_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1018": {
+            "bids_subject": "1018",
+            "runs": [
+                {
+                    "file": "raw/sub-1018/eeg/sub-1018_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1019": {
+            "bids_subject": "1019",
+            "runs": [
+                {
+                    "file": "raw/sub-1019/eeg/sub-1019_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1020": {
+            "bids_subject": "1020",
+            "runs": [
+                {
+                    "file": "raw/sub-1020/eeg/sub-1020_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1021": {
+            "bids_subject": "1021",
+            "runs": [
+                {
+                    "file": "raw/sub-1021/eeg/sub-1021_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1022": {
+            "bids_subject": "1022",
+            "runs": [
+                {
+                    "file": "raw/sub-1022/eeg/sub-1022_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1023": {
+            "bids_subject": "1023",
+            "runs": [
+                {
+                    "file": "raw/sub-1023/eeg/sub-1023_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1024": {
+            "bids_subject": "1024",
+            "runs": [
+                {
+                    "file": "raw/sub-1024/eeg/sub-1024_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1025": {
+            "bids_subject": "1025",
+            "runs": [
+                {
+                    "file": "raw/sub-1025/eeg/sub-1025_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1026": {
+            "bids_subject": "1026",
+            "runs": [
+                {
+                    "file": "raw/sub-1026/eeg/sub-1026_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1027": {
+            "bids_subject": "1027",
+            "runs": [
+                {
+                    "file": "raw/sub-1027/eeg/sub-1027_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1028": {
+            "bids_subject": "1028",
+            "runs": [
+                {
+                    "file": "raw/sub-1028/eeg/sub-1028_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1029": {
+            "bids_subject": "1029",
+            "runs": [
+                {
+                    "file": "raw/sub-1029/eeg/sub-1029_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1030": {
+            "bids_subject": "1030",
+            "runs": [
+                {
+                    "file": "raw/sub-1030/eeg/sub-1030_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1031": {
+            "bids_subject": "1031",
+            "runs": [
+                {
+                    "file": "raw/sub-1031/eeg/sub-1031_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1032": {
+            "bids_subject": "1032",
+            "runs": [
+                {
+                    "file": "raw/sub-1032/eeg/sub-1032_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1033": {
+            "bids_subject": "1033",
+            "runs": [
+                {
+                    "file": "raw/sub-1033/eeg/sub-1033_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1034": {
+            "bids_subject": "1034",
+            "runs": [
+                {
+                    "file": "raw/sub-1034/eeg/sub-1034_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1035": {
+            "bids_subject": "1035",
+            "runs": [
+                {
+                    "file": "raw/sub-1035/eeg/sub-1035_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1036": {
+            "bids_subject": "1036",
+            "runs": [
+                {
+                    "file": "raw/sub-1036/eeg/sub-1036_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1037": {
+            "bids_subject": "1037",
+            "runs": [
+                {
+                    "file": "raw/sub-1037/eeg/sub-1037_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1038": {
+            "bids_subject": "1038",
+            "runs": [
+                {
+                    "file": "raw/sub-1038/eeg/sub-1038_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1039": {
+            "bids_subject": "1039",
+            "runs": [
+                {
+                    "file": "raw/sub-1039/eeg/sub-1039_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1040": {
+            "bids_subject": "1040",
+            "runs": [
+                {
+                    "file": "raw/sub-1040/eeg/sub-1040_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1041": {
+            "bids_subject": "1041",
+            "runs": [
+                {
+                    "file": "raw/sub-1041/eeg/sub-1041_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1042": {
+            "bids_subject": "1042",
+            "runs": [
+                {
+                    "file": "raw/sub-1042/eeg/sub-1042_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1043": {
+            "bids_subject": "1043",
+            "runs": [
+                {
+                    "file": "raw/sub-1043/eeg/sub-1043_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1044": {
+            "bids_subject": "1044",
+            "runs": [
+                {
+                    "file": "raw/sub-1044/eeg/sub-1044_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1045": {
+            "bids_subject": "1045",
+            "runs": [
+                {
+                    "file": "raw/sub-1045/eeg/sub-1045_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1046": {
+            "bids_subject": "1046",
+            "runs": [
+                {
+                    "file": "raw/sub-1046/eeg/sub-1046_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1047": {
+            "bids_subject": "1047",
+            "runs": [
+                {
+                    "file": "raw/sub-1047/eeg/sub-1047_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1048": {
+            "bids_subject": "1048",
+            "runs": [
+                {
+                    "file": "raw/sub-1048/eeg/sub-1048_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1049": {
+            "bids_subject": "1049",
+            "runs": [
+                {
+                    "file": "raw/sub-1049/eeg/sub-1049_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1050": {
+            "bids_subject": "1050",
+            "runs": [
+                {
+                    "file": "raw/sub-1050/eeg/sub-1050_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1051": {
+            "bids_subject": "1051",
+            "runs": [
+                {
+                    "file": "raw/sub-1051/eeg/sub-1051_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1052": {
+            "bids_subject": "1052",
+            "runs": [
+                {
+                    "file": "raw/sub-1052/eeg/sub-1052_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1053": {
+            "bids_subject": "1053",
+            "runs": [
+                {
+                    "file": "raw/sub-1053/eeg/sub-1053_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1054": {
+            "bids_subject": "1054",
+            "runs": [
+                {
+                    "file": "raw/sub-1054/eeg/sub-1054_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1055": {
+            "bids_subject": "1055",
+            "runs": [
+                {
+                    "file": "raw/sub-1055/eeg/sub-1055_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1056": {
+            "bids_subject": "1056",
+            "runs": [
+                {
+                    "file": "raw/sub-1056/eeg/sub-1056_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1057": {
+            "bids_subject": "1057",
+            "runs": [
+                {
+                    "file": "raw/sub-1057/eeg/sub-1057_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1058": {
+            "bids_subject": "1058",
+            "runs": [
+                {
+                    "file": "raw/sub-1058/eeg/sub-1058_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1059": {
+            "bids_subject": "1059",
+            "runs": [
+                {
+                    "file": "raw/sub-1059/eeg/sub-1059_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1060": {
+            "bids_subject": "1060",
+            "runs": [
+                {
+                    "file": "raw/sub-1060/eeg/sub-1060_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1061": {
+            "bids_subject": "1061",
+            "runs": [
+                {
+                    "file": "raw/sub-1061/eeg/sub-1061_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1062": {
+            "bids_subject": "1062",
+            "runs": [
+                {
+                    "file": "raw/sub-1062/eeg/sub-1062_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1063": {
+            "bids_subject": "1063",
+            "runs": [
+                {
+                    "file": "raw/sub-1063/eeg/sub-1063_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1064": {
+            "bids_subject": "1064",
+            "runs": [
+                {
+                    "file": "raw/sub-1064/eeg/sub-1064_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1065": {
+            "bids_subject": "1065",
+            "runs": [
+                {
+                    "file": "raw/sub-1065/eeg/sub-1065_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1066": {
+            "bids_subject": "1066",
+            "runs": [
+                {
+                    "file": "raw/sub-1066/eeg/sub-1066_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1067": {
+            "bids_subject": "1067",
+            "runs": [
+                {
+                    "file": "raw/sub-1067/eeg/sub-1067_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1068": {
+            "bids_subject": "1068",
+            "runs": [
+                {
+                    "file": "raw/sub-1068/eeg/sub-1068_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1069": {
+            "bids_subject": "1069",
+            "runs": [
+                {
+                    "file": "raw/sub-1069/eeg/sub-1069_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1070": {
+            "bids_subject": "1070",
+            "runs": [
+                {
+                    "file": "raw/sub-1070/eeg/sub-1070_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1071": {
+            "bids_subject": "1071",
+            "runs": [
+                {
+                    "file": "raw/sub-1071/eeg/sub-1071_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1072": {
+            "bids_subject": "1072",
+            "runs": [
+                {
+                    "file": "raw/sub-1072/eeg/sub-1072_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1073": {
+            "bids_subject": "1073",
+            "runs": [
+                {
+                    "file": "raw/sub-1073/eeg/sub-1073_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1075": {
+            "bids_subject": "1075",
+            "runs": [
+                {
+                    "file": "raw/sub-1075/eeg/sub-1075_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1076": {
+            "bids_subject": "1076",
+            "runs": [
+                {
+                    "file": "raw/sub-1076/eeg/sub-1076_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1077": {
+            "bids_subject": "1077",
+            "runs": [
+                {
+                    "file": "raw/sub-1077/eeg/sub-1077_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1078": {
+            "bids_subject": "1078",
+            "runs": [
+                {
+                    "file": "raw/sub-1078/eeg/sub-1078_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1079": {
+            "bids_subject": "1079",
+            "runs": [
+                {
+                    "file": "raw/sub-1079/eeg/sub-1079_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1080": {
+            "bids_subject": "1080",
+            "runs": [
+                {
+                    "file": "raw/sub-1080/eeg/sub-1080_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1081": {
+            "bids_subject": "1081",
+            "runs": [
+                {
+                    "file": "raw/sub-1081/eeg/sub-1081_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1082": {
+            "bids_subject": "1082",
+            "runs": [
+                {
+                    "file": "raw/sub-1082/eeg/sub-1082_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1083": {
+            "bids_subject": "1083",
+            "runs": [
+                {
+                    "file": "raw/sub-1083/eeg/sub-1083_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1084": {
+            "bids_subject": "1084",
+            "runs": [
+                {
+                    "file": "raw/sub-1084/eeg/sub-1084_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1085": {
+            "bids_subject": "1085",
+            "runs": [
+                {
+                    "file": "raw/sub-1085/eeg/sub-1085_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1086": {
+            "bids_subject": "1086",
+            "runs": [
+                {
+                    "file": "raw/sub-1086/eeg/sub-1086_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1087": {
+            "bids_subject": "1087",
+            "runs": [
+                {
+                    "file": "raw/sub-1087/eeg/sub-1087_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1088": {
+            "bids_subject": "1088",
+            "runs": [
+                {
+                    "file": "raw/sub-1088/eeg/sub-1088_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1089": {
+            "bids_subject": "1089",
+            "runs": [
+                {
+                    "file": "raw/sub-1089/eeg/sub-1089_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1090": {
+            "bids_subject": "1090",
+            "runs": [
+                {
+                    "file": "raw/sub-1090/eeg/sub-1090_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1091": {
+            "bids_subject": "1091",
+            "runs": [
+                {
+                    "file": "raw/sub-1091/eeg/sub-1091_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1092": {
+            "bids_subject": "1092",
+            "runs": [
+                {
+                    "file": "raw/sub-1092/eeg/sub-1092_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1093": {
+            "bids_subject": "1093",
+            "runs": [
+                {
+                    "file": "raw/sub-1093/eeg/sub-1093_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1094": {
+            "bids_subject": "1094",
+            "runs": [
+                {
+                    "file": "raw/sub-1094/eeg/sub-1094_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1095": {
+            "bids_subject": "1095",
+            "runs": [
+                {
+                    "file": "raw/sub-1095/eeg/sub-1095_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1096": {
+            "bids_subject": "1096",
+            "runs": [
+                {
+                    "file": "raw/sub-1096/eeg/sub-1096_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1097": {
+            "bids_subject": "1097",
+            "runs": [
+                {
+                    "file": "raw/sub-1097/eeg/sub-1097_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1098": {
+            "bids_subject": "1098",
+            "runs": [
+                {
+                    "file": "raw/sub-1098/eeg/sub-1098_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1099": {
+            "bids_subject": "1099",
+            "runs": [
+                {
+                    "file": "raw/sub-1099/eeg/sub-1099_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1100": {
+            "bids_subject": "1100",
+            "runs": [
+                {
+                    "file": "raw/sub-1100/eeg/sub-1100_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1102": {
+            "bids_subject": "1102",
+            "runs": [
+                {
+                    "file": "raw/sub-1102/eeg/sub-1102_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1104": {
+            "bids_subject": "1104",
+            "runs": [
+                {
+                    "file": "raw/sub-1104/eeg/sub-1104_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1105": {
+            "bids_subject": "1105",
+            "runs": [
+                {
+                    "file": "raw/sub-1105/eeg/sub-1105_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1106": {
+            "bids_subject": "1106",
+            "runs": [
+                {
+                    "file": "raw/sub-1106/eeg/sub-1106_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1107": {
+            "bids_subject": "1107",
+            "runs": [
+                {
+                    "file": "raw/sub-1107/eeg/sub-1107_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1108": {
+            "bids_subject": "1108",
+            "runs": [
+                {
+                    "file": "raw/sub-1108/eeg/sub-1108_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "1109": {
+            "bids_subject": "1109",
+            "runs": [
+                {
+                    "file": "raw/sub-1109/eeg/sub-1109_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2001": {
+            "bids_subject": "2001",
+            "runs": [
+                {
+                    "file": "raw/sub-2001/eeg/sub-2001_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2002": {
+            "bids_subject": "2002",
+            "runs": [
+                {
+                    "file": "raw/sub-2002/eeg/sub-2002_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2003": {
+            "bids_subject": "2003",
+            "runs": [
+                {
+                    "file": "raw/sub-2003/eeg/sub-2003_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2005": {
+            "bids_subject": "2005",
+            "runs": [
+                {
+                    "file": "raw/sub-2005/eeg/sub-2005_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2008": {
+            "bids_subject": "2008",
+            "runs": [
+                {
+                    "file": "raw/sub-2008/eeg/sub-2008_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2009": {
+            "bids_subject": "2009",
+            "runs": [
+                {
+                    "file": "raw/sub-2009/eeg/sub-2009_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2010": {
+            "bids_subject": "2010",
+            "runs": [
+                {
+                    "file": "raw/sub-2010/eeg/sub-2010_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2011": {
+            "bids_subject": "2011",
+            "runs": [
+                {
+                    "file": "raw/sub-2011/eeg/sub-2011_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2012": {
+            "bids_subject": "2012",
+            "runs": [
+                {
+                    "file": "raw/sub-2012/eeg/sub-2012_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2013": {
+            "bids_subject": "2013",
+            "runs": [
+                {
+                    "file": "raw/sub-2013/eeg/sub-2013_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2016": {
+            "bids_subject": "2016",
+            "runs": [
+                {
+                    "file": "raw/sub-2016/eeg/sub-2016_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2017": {
+            "bids_subject": "2017",
+            "runs": [
+                {
+                    "file": "raw/sub-2017/eeg/sub-2017_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2019": {
+            "bids_subject": "2019",
+            "runs": [
+                {
+                    "file": "raw/sub-2019/eeg/sub-2019_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2020": {
+            "bids_subject": "2020",
+            "runs": [
+                {
+                    "file": "raw/sub-2020/eeg/sub-2020_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2022": {
+            "bids_subject": "2022",
+            "runs": [
+                {
+                    "file": "raw/sub-2022/eeg/sub-2022_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2025": {
+            "bids_subject": "2025",
+            "runs": [
+                {
+                    "file": "raw/sub-2025/eeg/sub-2025_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2026": {
+            "bids_subject": "2026",
+            "runs": [
+                {
+                    "file": "raw/sub-2026/eeg/sub-2026_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2027": {
+            "bids_subject": "2027",
+            "runs": [
+                {
+                    "file": "raw/sub-2027/eeg/sub-2027_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2029": {
+            "bids_subject": "2029",
+            "runs": [
+                {
+                    "file": "raw/sub-2029/eeg/sub-2029_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2030": {
+            "bids_subject": "2030",
+            "runs": [
+                {
+                    "file": "raw/sub-2030/eeg/sub-2030_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2033": {
+            "bids_subject": "2033",
+            "runs": [
+                {
+                    "file": "raw/sub-2033/eeg/sub-2033_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2034": {
+            "bids_subject": "2034",
+            "runs": [
+                {
+                    "file": "raw/sub-2034/eeg/sub-2034_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2035": {
+            "bids_subject": "2035",
+            "runs": [
+                {
+                    "file": "raw/sub-2035/eeg/sub-2035_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2036": {
+            "bids_subject": "2036",
+            "runs": [
+                {
+                    "file": "raw/sub-2036/eeg/sub-2036_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2037": {
+            "bids_subject": "2037",
+            "runs": [
+                {
+                    "file": "raw/sub-2037/eeg/sub-2037_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2038": {
+            "bids_subject": "2038",
+            "runs": [
+                {
+                    "file": "raw/sub-2038/eeg/sub-2038_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2039": {
+            "bids_subject": "2039",
+            "runs": [
+                {
+                    "file": "raw/sub-2039/eeg/sub-2039_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2040": {
+            "bids_subject": "2040",
+            "runs": [
+                {
+                    "file": "raw/sub-2040/eeg/sub-2040_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2041": {
+            "bids_subject": "2041",
+            "runs": [
+                {
+                    "file": "raw/sub-2041/eeg/sub-2041_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2042": {
+            "bids_subject": "2042",
+            "runs": [
+                {
+                    "file": "raw/sub-2042/eeg/sub-2042_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2044": {
+            "bids_subject": "2044",
+            "runs": [
+                {
+                    "file": "raw/sub-2044/eeg/sub-2044_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2045": {
+            "bids_subject": "2045",
+            "runs": [
+                {
+                    "file": "raw/sub-2045/eeg/sub-2045_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2047": {
+            "bids_subject": "2047",
+            "runs": [
+                {
+                    "file": "raw/sub-2047/eeg/sub-2047_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2048": {
+            "bids_subject": "2048",
+            "runs": [
+                {
+                    "file": "raw/sub-2048/eeg/sub-2048_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2050": {
+            "bids_subject": "2050",
+            "runs": [
+                {
+                    "file": "raw/sub-2050/eeg/sub-2050_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2051": {
+            "bids_subject": "2051",
+            "runs": [
+                {
+                    "file": "raw/sub-2051/eeg/sub-2051_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2054": {
+            "bids_subject": "2054",
+            "runs": [
+                {
+                    "file": "raw/sub-2054/eeg/sub-2054_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2059": {
+            "bids_subject": "2059",
+            "runs": [
+                {
+                    "file": "raw/sub-2059/eeg/sub-2059_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2060": {
+            "bids_subject": "2060",
+            "runs": [
+                {
+                    "file": "raw/sub-2060/eeg/sub-2060_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2063": {
+            "bids_subject": "2063",
+            "runs": [
+                {
+                    "file": "raw/sub-2063/eeg/sub-2063_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2064": {
+            "bids_subject": "2064",
+            "runs": [
+                {
+                    "file": "raw/sub-2064/eeg/sub-2064_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2065": {
+            "bids_subject": "2065",
+            "runs": [
+                {
+                    "file": "raw/sub-2065/eeg/sub-2065_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2066": {
+            "bids_subject": "2066",
+            "runs": [
+                {
+                    "file": "raw/sub-2066/eeg/sub-2066_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2069": {
+            "bids_subject": "2069",
+            "runs": [
+                {
+                    "file": "raw/sub-2069/eeg/sub-2069_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2070": {
+            "bids_subject": "2070",
+            "runs": [
+                {
+                    "file": "raw/sub-2070/eeg/sub-2070_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2073": {
+            "bids_subject": "2073",
+            "runs": [
+                {
+                    "file": "raw/sub-2073/eeg/sub-2073_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2074": {
+            "bids_subject": "2074",
+            "runs": [
+                {
+                    "file": "raw/sub-2074/eeg/sub-2074_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2075": {
+            "bids_subject": "2075",
+            "runs": [
+                {
+                    "file": "raw/sub-2075/eeg/sub-2075_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2076": {
+            "bids_subject": "2076",
+            "runs": [
+                {
+                    "file": "raw/sub-2076/eeg/sub-2076_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2077": {
+            "bids_subject": "2077",
+            "runs": [
+                {
+                    "file": "raw/sub-2077/eeg/sub-2077_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2078": {
+            "bids_subject": "2078",
+            "runs": [
+                {
+                    "file": "raw/sub-2078/eeg/sub-2078_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2080": {
+            "bids_subject": "2080",
+            "runs": [
+                {
+                    "file": "raw/sub-2080/eeg/sub-2080_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2081": {
+            "bids_subject": "2081",
+            "runs": [
+                {
+                    "file": "raw/sub-2081/eeg/sub-2081_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2085": {
+            "bids_subject": "2085",
+            "runs": [
+                {
+                    "file": "raw/sub-2085/eeg/sub-2085_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2089": {
+            "bids_subject": "2089",
+            "runs": [
+                {
+                    "file": "raw/sub-2089/eeg/sub-2089_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2091": {
+            "bids_subject": "2091",
+            "runs": [
+                {
+                    "file": "raw/sub-2091/eeg/sub-2091_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2094": {
+            "bids_subject": "2094",
+            "runs": [
+                {
+                    "file": "raw/sub-2094/eeg/sub-2094_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2101": {
+            "bids_subject": "2101",
+            "runs": [
+                {
+                    "file": "raw/sub-2101/eeg/sub-2101_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2104": {
+            "bids_subject": "2104",
+            "runs": [
+                {
+                    "file": "raw/sub-2104/eeg/sub-2104_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2105": {
+            "bids_subject": "2105",
+            "runs": [
+                {
+                    "file": "raw/sub-2105/eeg/sub-2105_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2107": {
+            "bids_subject": "2107",
+            "runs": [
+                {
+                    "file": "raw/sub-2107/eeg/sub-2107_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2108": {
+            "bids_subject": "2108",
+            "runs": [
+                {
+                    "file": "raw/sub-2108/eeg/sub-2108_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2110": {
+            "bids_subject": "2110",
+            "runs": [
+                {
+                    "file": "raw/sub-2110/eeg/sub-2110_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2111": {
+            "bids_subject": "2111",
+            "runs": [
+                {
+                    "file": "raw/sub-2111/eeg/sub-2111_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2114": {
+            "bids_subject": "2114",
+            "runs": [
+                {
+                    "file": "raw/sub-2114/eeg/sub-2114_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2115": {
+            "bids_subject": "2115",
+            "runs": [
+                {
+                    "file": "raw/sub-2115/eeg/sub-2115_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2117": {
+            "bids_subject": "2117",
+            "runs": [
+                {
+                    "file": "raw/sub-2117/eeg/sub-2117_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2118": {
+            "bids_subject": "2118",
+            "runs": [
+                {
+                    "file": "raw/sub-2118/eeg/sub-2118_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2119": {
+            "bids_subject": "2119",
+            "runs": [
+                {
+                    "file": "raw/sub-2119/eeg/sub-2119_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2121": {
+            "bids_subject": "2121",
+            "runs": [
+                {
+                    "file": "raw/sub-2121/eeg/sub-2121_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "2122": {
+            "bids_subject": "2122",
+            "runs": [
+                {
+                    "file": "raw/sub-2122/eeg/sub-2122_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3001": {
+            "bids_subject": "3001",
+            "runs": [
+                {
+                    "file": "raw/sub-3001/eeg/sub-3001_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3003": {
+            "bids_subject": "3003",
+            "runs": [
+                {
+                    "file": "raw/sub-3003/eeg/sub-3003_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3004": {
+            "bids_subject": "3004",
+            "runs": [
+                {
+                    "file": "raw/sub-3004/eeg/sub-3004_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3006": {
+            "bids_subject": "3006",
+            "runs": [
+                {
+                    "file": "raw/sub-3006/eeg/sub-3006_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3007": {
+            "bids_subject": "3007",
+            "runs": [
+                {
+                    "file": "raw/sub-3007/eeg/sub-3007_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3008": {
+            "bids_subject": "3008",
+            "runs": [
+                {
+                    "file": "raw/sub-3008/eeg/sub-3008_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3009": {
+            "bids_subject": "3009",
+            "runs": [
+                {
+                    "file": "raw/sub-3009/eeg/sub-3009_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3010": {
+            "bids_subject": "3010",
+            "runs": [
+                {
+                    "file": "raw/sub-3010/eeg/sub-3010_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3011": {
+            "bids_subject": "3011",
+            "runs": [
+                {
+                    "file": "raw/sub-3011/eeg/sub-3011_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3013": {
+            "bids_subject": "3013",
+            "runs": [
+                {
+                    "file": "raw/sub-3013/eeg/sub-3013_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3014": {
+            "bids_subject": "3014",
+            "runs": [
+                {
+                    "file": "raw/sub-3014/eeg/sub-3014_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3015": {
+            "bids_subject": "3015",
+            "runs": [
+                {
+                    "file": "raw/sub-3015/eeg/sub-3015_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3016": {
+            "bids_subject": "3016",
+            "runs": [
+                {
+                    "file": "raw/sub-3016/eeg/sub-3016_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3017": {
+            "bids_subject": "3017",
+            "runs": [
+                {
+                    "file": "raw/sub-3017/eeg/sub-3017_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3018": {
+            "bids_subject": "3018",
+            "runs": [
+                {
+                    "file": "raw/sub-3018/eeg/sub-3018_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3019": {
+            "bids_subject": "3019",
+            "runs": [
+                {
+                    "file": "raw/sub-3019/eeg/sub-3019_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3020": {
+            "bids_subject": "3020",
+            "runs": [
+                {
+                    "file": "raw/sub-3020/eeg/sub-3020_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3021": {
+            "bids_subject": "3021",
+            "runs": [
+                {
+                    "file": "raw/sub-3021/eeg/sub-3021_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3022": {
+            "bids_subject": "3022",
+            "runs": [
+                {
+                    "file": "raw/sub-3022/eeg/sub-3022_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3023": {
+            "bids_subject": "3023",
+            "runs": [
+                {
+                    "file": "raw/sub-3023/eeg/sub-3023_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3024": {
+            "bids_subject": "3024",
+            "runs": [
+                {
+                    "file": "raw/sub-3024/eeg/sub-3024_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3025": {
+            "bids_subject": "3025",
+            "runs": [
+                {
+                    "file": "raw/sub-3025/eeg/sub-3025_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3026": {
+            "bids_subject": "3026",
+            "runs": [
+                {
+                    "file": "raw/sub-3026/eeg/sub-3026_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3027": {
+            "bids_subject": "3027",
+            "runs": [
+                {
+                    "file": "raw/sub-3027/eeg/sub-3027_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3028": {
+            "bids_subject": "3028",
+            "runs": [
+                {
+                    "file": "raw/sub-3028/eeg/sub-3028_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3029": {
+            "bids_subject": "3029",
+            "runs": [
+                {
+                    "file": "raw/sub-3029/eeg/sub-3029_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3030": {
+            "bids_subject": "3030",
+            "runs": [
+                {
+                    "file": "raw/sub-3030/eeg/sub-3030_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3031": {
+            "bids_subject": "3031",
+            "runs": [
+                {
+                    "file": "raw/sub-3031/eeg/sub-3031_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3032": {
+            "bids_subject": "3032",
+            "runs": [
+                {
+                    "file": "raw/sub-3032/eeg/sub-3032_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3033": {
+            "bids_subject": "3033",
+            "runs": [
+                {
+                    "file": "raw/sub-3033/eeg/sub-3033_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3034": {
+            "bids_subject": "3034",
+            "runs": [
+                {
+                    "file": "raw/sub-3034/eeg/sub-3034_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3035": {
+            "bids_subject": "3035",
+            "runs": [
+                {
+                    "file": "raw/sub-3035/eeg/sub-3035_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3036": {
+            "bids_subject": "3036",
+            "runs": [
+                {
+                    "file": "raw/sub-3036/eeg/sub-3036_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3037": {
+            "bids_subject": "3037",
+            "runs": [
+                {
+                    "file": "raw/sub-3037/eeg/sub-3037_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3038": {
+            "bids_subject": "3038",
+            "runs": [
+                {
+                    "file": "raw/sub-3038/eeg/sub-3038_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3039": {
+            "bids_subject": "3039",
+            "runs": [
+                {
+                    "file": "raw/sub-3039/eeg/sub-3039_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3040": {
+            "bids_subject": "3040",
+            "runs": [
+                {
+                    "file": "raw/sub-3040/eeg/sub-3040_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3041": {
+            "bids_subject": "3041",
+            "runs": [
+                {
+                    "file": "raw/sub-3041/eeg/sub-3041_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3042": {
+            "bids_subject": "3042",
+            "runs": [
+                {
+                    "file": "raw/sub-3042/eeg/sub-3042_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3043": {
+            "bids_subject": "3043",
+            "runs": [
+                {
+                    "file": "raw/sub-3043/eeg/sub-3043_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3044": {
+            "bids_subject": "3044",
+            "runs": [
+                {
+                    "file": "raw/sub-3044/eeg/sub-3044_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3045": {
+            "bids_subject": "3045",
+            "runs": [
+                {
+                    "file": "raw/sub-3045/eeg/sub-3045_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3046": {
+            "bids_subject": "3046",
+            "runs": [
+                {
+                    "file": "raw/sub-3046/eeg/sub-3046_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3047": {
+            "bids_subject": "3047",
+            "runs": [
+                {
+                    "file": "raw/sub-3047/eeg/sub-3047_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3048": {
+            "bids_subject": "3048",
+            "runs": [
+                {
+                    "file": "raw/sub-3048/eeg/sub-3048_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3050": {
+            "bids_subject": "3050",
+            "runs": [
+                {
+                    "file": "raw/sub-3050/eeg/sub-3050_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3051": {
+            "bids_subject": "3051",
+            "runs": [
+                {
+                    "file": "raw/sub-3051/eeg/sub-3051_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3052": {
+            "bids_subject": "3052",
+            "runs": [
+                {
+                    "file": "raw/sub-3052/eeg/sub-3052_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3053": {
+            "bids_subject": "3053",
+            "runs": [
+                {
+                    "file": "raw/sub-3053/eeg/sub-3053_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3055": {
+            "bids_subject": "3055",
+            "runs": [
+                {
+                    "file": "raw/sub-3055/eeg/sub-3055_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3056": {
+            "bids_subject": "3056",
+            "runs": [
+                {
+                    "file": "raw/sub-3056/eeg/sub-3056_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3057": {
+            "bids_subject": "3057",
+            "runs": [
+                {
+                    "file": "raw/sub-3057/eeg/sub-3057_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3058": {
+            "bids_subject": "3058",
+            "runs": [
+                {
+                    "file": "raw/sub-3058/eeg/sub-3058_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3059": {
+            "bids_subject": "3059",
+            "runs": [
+                {
+                    "file": "raw/sub-3059/eeg/sub-3059_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3060": {
+            "bids_subject": "3060",
+            "runs": [
+                {
+                    "file": "raw/sub-3060/eeg/sub-3060_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3061": {
+            "bids_subject": "3061",
+            "runs": [
+                {
+                    "file": "raw/sub-3061/eeg/sub-3061_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3062": {
+            "bids_subject": "3062",
+            "runs": [
+                {
+                    "file": "raw/sub-3062/eeg/sub-3062_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3063": {
+            "bids_subject": "3063",
+            "runs": [
+                {
+                    "file": "raw/sub-3063/eeg/sub-3063_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3064": {
+            "bids_subject": "3064",
+            "runs": [
+                {
+                    "file": "raw/sub-3064/eeg/sub-3064_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3065": {
+            "bids_subject": "3065",
+            "runs": [
+                {
+                    "file": "raw/sub-3065/eeg/sub-3065_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3066": {
+            "bids_subject": "3066",
+            "runs": [
+                {
+                    "file": "raw/sub-3066/eeg/sub-3066_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3067": {
+            "bids_subject": "3067",
+            "runs": [
+                {
+                    "file": "raw/sub-3067/eeg/sub-3067_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3068": {
+            "bids_subject": "3068",
+            "runs": [
+                {
+                    "file": "raw/sub-3068/eeg/sub-3068_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3069": {
+            "bids_subject": "3069",
+            "runs": [
+                {
+                    "file": "raw/sub-3069/eeg/sub-3069_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3070": {
+            "bids_subject": "3070",
+            "runs": [
+                {
+                    "file": "raw/sub-3070/eeg/sub-3070_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3071": {
+            "bids_subject": "3071",
+            "runs": [
+                {
+                    "file": "raw/sub-3071/eeg/sub-3071_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3072": {
+            "bids_subject": "3072",
+            "runs": [
+                {
+                    "file": "raw/sub-3072/eeg/sub-3072_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3073": {
+            "bids_subject": "3073",
+            "runs": [
+                {
+                    "file": "raw/sub-3073/eeg/sub-3073_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3074": {
+            "bids_subject": "3074",
+            "runs": [
+                {
+                    "file": "raw/sub-3074/eeg/sub-3074_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3075": {
+            "bids_subject": "3075",
+            "runs": [
+                {
+                    "file": "raw/sub-3075/eeg/sub-3075_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3076": {
+            "bids_subject": "3076",
+            "runs": [
+                {
+                    "file": "raw/sub-3076/eeg/sub-3076_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3077": {
+            "bids_subject": "3077",
+            "runs": [
+                {
+                    "file": "raw/sub-3077/eeg/sub-3077_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3078": {
+            "bids_subject": "3078",
+            "runs": [
+                {
+                    "file": "raw/sub-3078/eeg/sub-3078_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3079": {
+            "bids_subject": "3079",
+            "runs": [
+                {
+                    "file": "raw/sub-3079/eeg/sub-3079_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3080": {
+            "bids_subject": "3080",
+            "runs": [
+                {
+                    "file": "raw/sub-3080/eeg/sub-3080_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3081": {
+            "bids_subject": "3081",
+            "runs": [
+                {
+                    "file": "raw/sub-3081/eeg/sub-3081_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3082": {
+            "bids_subject": "3082",
+            "runs": [
+                {
+                    "file": "raw/sub-3082/eeg/sub-3082_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3083": {
+            "bids_subject": "3083",
+            "runs": [
+                {
+                    "file": "raw/sub-3083/eeg/sub-3083_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3084": {
+            "bids_subject": "3084",
+            "runs": [
+                {
+                    "file": "raw/sub-3084/eeg/sub-3084_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3085": {
+            "bids_subject": "3085",
+            "runs": [
+                {
+                    "file": "raw/sub-3085/eeg/sub-3085_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3086": {
+            "bids_subject": "3086",
+            "runs": [
+                {
+                    "file": "raw/sub-3086/eeg/sub-3086_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3087": {
+            "bids_subject": "3087",
+            "runs": [
+                {
+                    "file": "raw/sub-3087/eeg/sub-3087_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3088": {
+            "bids_subject": "3088",
+            "runs": [
+                {
+                    "file": "raw/sub-3088/eeg/sub-3088_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3089": {
+            "bids_subject": "3089",
+            "runs": [
+                {
+                    "file": "raw/sub-3089/eeg/sub-3089_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3090": {
+            "bids_subject": "3090",
+            "runs": [
+                {
+                    "file": "raw/sub-3090/eeg/sub-3090_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3091": {
+            "bids_subject": "3091",
+            "runs": [
+                {
+                    "file": "raw/sub-3091/eeg/sub-3091_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3092": {
+            "bids_subject": "3092",
+            "runs": [
+                {
+                    "file": "raw/sub-3092/eeg/sub-3092_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3093": {
+            "bids_subject": "3093",
+            "runs": [
+                {
+                    "file": "raw/sub-3093/eeg/sub-3093_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3094": {
+            "bids_subject": "3094",
+            "runs": [
+                {
+                    "file": "raw/sub-3094/eeg/sub-3094_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3095": {
+            "bids_subject": "3095",
+            "runs": [
+                {
+                    "file": "raw/sub-3095/eeg/sub-3095_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3096": {
+            "bids_subject": "3096",
+            "runs": [
+                {
+                    "file": "raw/sub-3096/eeg/sub-3096_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3097": {
+            "bids_subject": "3097",
+            "runs": [
+                {
+                    "file": "raw/sub-3097/eeg/sub-3097_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3098": {
+            "bids_subject": "3098",
+            "runs": [
+                {
+                    "file": "raw/sub-3098/eeg/sub-3098_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3099": {
+            "bids_subject": "3099",
+            "runs": [
+                {
+                    "file": "raw/sub-3099/eeg/sub-3099_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3100": {
+            "bids_subject": "3100",
+            "runs": [
+                {
+                    "file": "raw/sub-3100/eeg/sub-3100_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3101": {
+            "bids_subject": "3101",
+            "runs": [
+                {
+                    "file": "raw/sub-3101/eeg/sub-3101_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3102": {
+            "bids_subject": "3102",
+            "runs": [
+                {
+                    "file": "raw/sub-3102/eeg/sub-3102_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3103": {
+            "bids_subject": "3103",
+            "runs": [
+                {
+                    "file": "raw/sub-3103/eeg/sub-3103_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3104": {
+            "bids_subject": "3104",
+            "runs": [
+                {
+                    "file": "raw/sub-3104/eeg/sub-3104_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3105": {
+            "bids_subject": "3105",
+            "runs": [
+                {
+                    "file": "raw/sub-3105/eeg/sub-3105_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3106": {
+            "bids_subject": "3106",
+            "runs": [
+                {
+                    "file": "raw/sub-3106/eeg/sub-3106_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3107": {
+            "bids_subject": "3107",
+            "runs": [
+                {
+                    "file": "raw/sub-3107/eeg/sub-3107_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3108": {
+            "bids_subject": "3108",
+            "runs": [
+                {
+                    "file": "raw/sub-3108/eeg/sub-3108_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3109": {
+            "bids_subject": "3109",
+            "runs": [
+                {
+                    "file": "raw/sub-3109/eeg/sub-3109_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3110": {
+            "bids_subject": "3110",
+            "runs": [
+                {
+                    "file": "raw/sub-3110/eeg/sub-3110_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        },
+        "3111": {
+            "bids_subject": "3111",
+            "runs": [
+                {
+                    "file": "raw/sub-3111/eeg/sub-3111_task-AuditoryOddball_eeg.set"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,280 @@
+{
+    "data_metadata": {
+        "dataset_name": "ErpCore2021_ERN",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.ErpCore2021_ERN.html",
+            "file_format": "via MOABB",
+            "description": "ERP CORE ERN task (pretraining only, continuous windows)."
+        },
+        "event_onset_seconds": 1.0,
+        "moabb": {
+            "class": "ErpCore2021_ERN",
+            "kwargs": {},
+            "code": "ErpCore2021-ERN",
+            "raw_root": "../ErpCore2021"
+        },
+        "acquisition": {
+            "sample_frequency": 1024.0,
+            "window_size_seconds": 1.0,
+            "num_subjects": 40
+        },
+        "targets": {
+            "count": 2,
+            "type": "p300",
+            "0": {
+                "label": "NonTarget",
+                "moabb_event": "NonTarget"
+            },
+            "1": {
+                "label": "Target",
+                "moabb_event": "Target"
+            }
+        },
+        "channels": {
+            "count": 30,
+            "1": {
+                "label": "FP1",
+                "original_label": "FP1"
+            },
+            "2": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "3": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "4": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "5": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "6": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "7": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "8": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "9": {
+                "label": "P9",
+                "original_label": "P9"
+            },
+            "10": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "11": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "12": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "13": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "14": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "15": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "16": {
+                "label": "FP2",
+                "original_label": "FP2"
+            },
+            "17": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "18": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "19": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "20": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "21": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "22": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "23": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "24": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "25": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "26": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "27": {
+                "label": "P10",
+                "original_label": "P10"
+            },
+            "28": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "29": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "30": {
+                "label": "O2",
+                "original_label": "O2"
+            }
+        },
+        "cohort": "ErpCore2021"
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        },
+        "11": {
+            "moabb_subject": 11
+        },
+        "12": {
+            "moabb_subject": 12
+        },
+        "13": {
+            "moabb_subject": 13
+        },
+        "14": {
+            "moabb_subject": 14
+        },
+        "15": {
+            "moabb_subject": 15
+        },
+        "16": {
+            "moabb_subject": 16
+        },
+        "17": {
+            "moabb_subject": 17
+        },
+        "18": {
+            "moabb_subject": 18
+        },
+        "19": {
+            "moabb_subject": 19
+        },
+        "20": {
+            "moabb_subject": 20
+        },
+        "21": {
+            "moabb_subject": 21
+        },
+        "22": {
+            "moabb_subject": 22
+        },
+        "23": {
+            "moabb_subject": 23
+        },
+        "24": {
+            "moabb_subject": 24
+        },
+        "25": {
+            "moabb_subject": 25
+        },
+        "26": {
+            "moabb_subject": 26
+        },
+        "27": {
+            "moabb_subject": 27
+        },
+        "28": {
+            "moabb_subject": 28
+        },
+        "29": {
+            "moabb_subject": 29
+        },
+        "30": {
+            "moabb_subject": 30
+        },
+        "31": {
+            "moabb_subject": 31
+        },
+        "32": {
+            "moabb_subject": 32
+        },
+        "33": {
+            "moabb_subject": 33
+        },
+        "34": {
+            "moabb_subject": 34
+        },
+        "35": {
+            "moabb_subject": 35
+        },
+        "36": {
+            "moabb_subject": 36
+        },
+        "37": {
+            "moabb_subject": 37
+        },
+        "38": {
+            "moabb_subject": 38
+        },
+        "39": {
+            "moabb_subject": 39
+        },
+        "40": {
+            "moabb_subject": 40
+        }
+    }
+}

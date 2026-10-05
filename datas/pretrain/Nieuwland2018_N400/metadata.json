@@ -1,0 +1,3297 @@
+{
+    "data_metadata": {
+        "dataset_name": "Nieuwland2018_N400",
+        "dataset_info": {
+            "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=nm000228",
+            "file_format": "BIDS (bdf)",
+            "description": "Nieuwland et al. 2018: Multi-site N400 Replication Study: N400 sentence-reading replication (multi-lab)"
+        },
+        "bids": {
+            "task": null
+        },
+        "acquisition": {
+            "sample_frequency": 500.0,
+            "window_size_seconds": null,
+            "num_subjects": 356
+        },
+        "targets": {
+            "count": 1,
+            "type": "pretrain_dummy",
+            "0": {
+                "label": "dummy (continuous window, no task label)"
+            }
+        },
+        "channels": {
+            "count": 74,
+            "1": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "2": {
+                "label": "Fpz",
+                "original_label": "Fpz"
+            },
+            "3": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "4": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "5": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "6": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "7": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "8": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "9": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "10": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "11": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "12": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "13": {
+                "label": "M1",
+                "original_label": "M1"
+            },
+            "14": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "15": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "16": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "17": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "18": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "19": {
+                "label": "M2",
+                "original_label": "M2"
+            },
+            "20": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "21": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "22": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "23": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "24": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "25": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "26": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "27": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "28": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "29": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "30": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "31": {
+                "label": "O2",
+                "original_label": "O2"
+            },
+            "32": {
+                "label": "AF7",
+                "original_label": "AF7"
+            },
+            "33": {
+                "label": "AF3",
+                "original_label": "AF3"
+            },
+            "34": {
+                "label": "AF4",
+                "original_label": "AF4"
+            },
+            "35": {
+                "label": "AF8",
+                "original_label": "AF8"
+            },
+            "36": {
+                "label": "F5",
+                "original_label": "F5"
+            },
+            "37": {
+                "label": "F1",
+                "original_label": "F1"
+            },
+            "38": {
+                "label": "F2",
+                "original_label": "F2"
+            },
+            "39": {
+                "label": "F6",
+                "original_label": "F6"
+            },
+            "40": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "41": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "42": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "43": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "44": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "45": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "46": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "47": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "48": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "49": {
+                "label": "P5",
+                "original_label": "P5"
+            },
+            "50": {
+                "label": "P1",
+                "original_label": "P1"
+            },
+            "51": {
+                "label": "P2",
+                "original_label": "P2"
+            },
+            "52": {
+                "label": "P6",
+                "original_label": "P6"
+            },
+            "53": {
+                "label": "PO5",
+                "original_label": "PO5"
+            },
+            "54": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "55": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "56": {
+                "label": "PO6",
+                "original_label": "PO6"
+            },
+            "57": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "58": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "59": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "60": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "61": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "62": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "63": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "64": {
+                "label": "TP9",
+                "original_label": "TP9"
+            },
+            "65": {
+                "label": "TP10",
+                "original_label": "TP10"
+            },
+            "66": {
+                "label": "PO9",
+                "original_label": "PO9"
+            },
+            "67": {
+                "label": "PO10",
+                "original_label": "PO10"
+            },
+            "68": {
+                "label": "P9",
+                "original_label": "P9"
+            },
+            "69": {
+                "label": "Iz",
+                "original_label": "Iz"
+            },
+            "70": {
+                "label": "CPz",
+                "original_label": "CPz"
+            },
+            "71": {
+                "label": "AFz",
+                "original_label": "AFz"
+            },
+            "72": {
+                "label": "P10",
+                "original_label": "P10"
+            },
+            "73": {
+                "label": "A1",
+                "original_label": "A1"
+            },
+            "74": {
+                "label": "A2",
+                "original_label": "A2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "bids_subject": "edin1",
+            "runs": [
+                {
+                    "file": "raw/sub-edin1/eeg/sub-edin1_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "2": {
+            "bids_subject": "edin2",
+            "runs": [
+                {
+                    "file": "raw/sub-edin2/eeg/sub-edin2_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "3": {
+            "bids_subject": "edin3",
+            "runs": [
+                {
+                    "file": "raw/sub-edin3/eeg/sub-edin3_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "4": {
+            "bids_subject": "edin4",
+            "runs": [
+                {
+                    "file": "raw/sub-edin4/eeg/sub-edin4_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "5": {
+            "bids_subject": "edin5",
+            "runs": [
+                {
+                    "file": "raw/sub-edin5/eeg/sub-edin5_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "6": {
+            "bids_subject": "edin6",
+            "runs": [
+                {
+                    "file": "raw/sub-edin6/eeg/sub-edin6_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "7": {
+            "bids_subject": "edin7",
+            "runs": [
+                {
+                    "file": "raw/sub-edin7/eeg/sub-edin7_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "8": {
+            "bids_subject": "edin8",
+            "runs": [
+                {
+                    "file": "raw/sub-edin8/eeg/sub-edin8_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "9": {
+            "bids_subject": "edin9",
+            "runs": [
+                {
+                    "file": "raw/sub-edin9/eeg/sub-edin9_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "10": {
+            "bids_subject": "oxfo1",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo1/eeg/sub-oxfo1_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "11": {
+            "bids_subject": "oxfo2",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo2/eeg/sub-oxfo2_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "12": {
+            "bids_subject": "oxfo3",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo3/eeg/sub-oxfo3_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "13": {
+            "bids_subject": "oxfo4",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo4/eeg/sub-oxfo4_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "14": {
+            "bids_subject": "oxfo5",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo5/eeg/sub-oxfo5_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "15": {
+            "bids_subject": "oxfo6",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo6/eeg/sub-oxfo6_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "16": {
+            "bids_subject": "oxfo7",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo7/eeg/sub-oxfo7_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "17": {
+            "bids_subject": "oxfo8",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo8/eeg/sub-oxfo8_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "18": {
+            "bids_subject": "oxfo9",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo9/eeg/sub-oxfo9_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "19": {
+            "bids_subject": "stir1",
+            "runs": [
+                {
+                    "file": "raw/sub-stir1/eeg/sub-stir1_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "20": {
+            "bids_subject": "stir2",
+            "runs": [
+                {
+                    "file": "raw/sub-stir2/eeg/sub-stir2_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "21": {
+            "bids_subject": "stir3",
+            "runs": [
+                {
+                    "file": "raw/sub-stir3/eeg/sub-stir3_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "22": {
+            "bids_subject": "stir4",
+            "runs": [
+                {
+                    "file": "raw/sub-stir4/eeg/sub-stir4_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "23": {
+            "bids_subject": "stir5",
+            "runs": [
+                {
+                    "file": "raw/sub-stir5/eeg/sub-stir5_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "24": {
+            "bids_subject": "stir6",
+            "runs": [
+                {
+                    "file": "raw/sub-stir6/eeg/sub-stir6_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "25": {
+            "bids_subject": "stir7",
+            "runs": [
+                {
+                    "file": "raw/sub-stir7/eeg/sub-stir7_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "26": {
+            "bids_subject": "stir8",
+            "runs": [
+                {
+                    "file": "raw/sub-stir8/eeg/sub-stir8_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "27": {
+            "bids_subject": "stir9",
+            "runs": [
+                {
+                    "file": "raw/sub-stir9/eeg/sub-stir9_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "28": {
+            "bids_subject": "york1",
+            "runs": [
+                {
+                    "file": "raw/sub-york1/eeg/sub-york1_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "29": {
+            "bids_subject": "york2",
+            "runs": [
+                {
+                    "file": "raw/sub-york2/eeg/sub-york2_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "30": {
+            "bids_subject": "york3",
+            "runs": [
+                {
+                    "file": "raw/sub-york3/eeg/sub-york3_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "31": {
+            "bids_subject": "york4",
+            "runs": [
+                {
+                    "file": "raw/sub-york4/eeg/sub-york4_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "32": {
+            "bids_subject": "york5",
+            "runs": [
+                {
+                    "file": "raw/sub-york5/eeg/sub-york5_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "33": {
+            "bids_subject": "york6",
+            "runs": [
+                {
+                    "file": "raw/sub-york6/eeg/sub-york6_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "34": {
+            "bids_subject": "york7",
+            "runs": [
+                {
+                    "file": "raw/sub-york7/eeg/sub-york7_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "35": {
+            "bids_subject": "york8",
+            "runs": [
+                {
+                    "file": "raw/sub-york8/eeg/sub-york8_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "36": {
+            "bids_subject": "york9",
+            "runs": [
+                {
+                    "file": "raw/sub-york9/eeg/sub-york9_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "37": {
+            "bids_subject": "birm01",
+            "runs": [
+                {
+                    "file": "raw/sub-birm01/eeg/sub-birm01_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "38": {
+            "bids_subject": "birm02",
+            "runs": [
+                {
+                    "file": "raw/sub-birm02/eeg/sub-birm02_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "39": {
+            "bids_subject": "birm03",
+            "runs": [
+                {
+                    "file": "raw/sub-birm03/eeg/sub-birm03_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "40": {
+            "bids_subject": "birm04",
+            "runs": [
+                {
+                    "file": "raw/sub-birm04/eeg/sub-birm04_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "41": {
+            "bids_subject": "birm05",
+            "runs": [
+                {
+                    "file": "raw/sub-birm05/eeg/sub-birm05_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "42": {
+            "bids_subject": "birm06",
+            "runs": [
+                {
+                    "file": "raw/sub-birm06/eeg/sub-birm06_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "43": {
+            "bids_subject": "birm07",
+            "runs": [
+                {
+                    "file": "raw/sub-birm07/eeg/sub-birm07_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "44": {
+            "bids_subject": "birm08",
+            "runs": [
+                {
+                    "file": "raw/sub-birm08/eeg/sub-birm08_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "45": {
+            "bids_subject": "birm09",
+            "runs": [
+                {
+                    "file": "raw/sub-birm09/eeg/sub-birm09_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "46": {
+            "bids_subject": "birm10",
+            "runs": [
+                {
+                    "file": "raw/sub-birm10/eeg/sub-birm10_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "47": {
+            "bids_subject": "birm11",
+            "runs": [
+                {
+                    "file": "raw/sub-birm11/eeg/sub-birm11_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "48": {
+            "bids_subject": "birm12",
+            "runs": [
+                {
+                    "file": "raw/sub-birm12/eeg/sub-birm12_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "49": {
+            "bids_subject": "birm13",
+            "runs": [
+                {
+                    "file": "raw/sub-birm13/eeg/sub-birm13_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "50": {
+            "bids_subject": "birm14",
+            "runs": [
+                {
+                    "file": "raw/sub-birm14/eeg/sub-birm14_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "51": {
+            "bids_subject": "birm15",
+            "runs": [
+                {
+                    "file": "raw/sub-birm15/eeg/sub-birm15_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "52": {
+            "bids_subject": "birm16",
+            "runs": [
+                {
+                    "file": "raw/sub-birm16/eeg/sub-birm16_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "53": {
+            "bids_subject": "birm17",
+            "runs": [
+                {
+                    "file": "raw/sub-birm17/eeg/sub-birm17_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "54": {
+            "bids_subject": "birm18",
+            "runs": [
+                {
+                    "file": "raw/sub-birm18/eeg/sub-birm18_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "55": {
+            "bids_subject": "birm19",
+            "runs": [
+                {
+                    "file": "raw/sub-birm19/eeg/sub-birm19_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "56": {
+            "bids_subject": "birm20",
+            "runs": [
+                {
+                    "file": "raw/sub-birm20/eeg/sub-birm20_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "57": {
+            "bids_subject": "birm21",
+            "runs": [
+                {
+                    "file": "raw/sub-birm21/eeg/sub-birm21_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "58": {
+            "bids_subject": "birm22",
+            "runs": [
+                {
+                    "file": "raw/sub-birm22/eeg/sub-birm22_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "59": {
+            "bids_subject": "birm23",
+            "runs": [
+                {
+                    "file": "raw/sub-birm23/eeg/sub-birm23_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "60": {
+            "bids_subject": "birm24",
+            "runs": [
+                {
+                    "file": "raw/sub-birm24/eeg/sub-birm24_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "61": {
+            "bids_subject": "birm25",
+            "runs": [
+                {
+                    "file": "raw/sub-birm25/eeg/sub-birm25_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "62": {
+            "bids_subject": "birm26",
+            "runs": [
+                {
+                    "file": "raw/sub-birm26/eeg/sub-birm26_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "63": {
+            "bids_subject": "birm27",
+            "runs": [
+                {
+                    "file": "raw/sub-birm27/eeg/sub-birm27_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "64": {
+            "bids_subject": "birm28",
+            "runs": [
+                {
+                    "file": "raw/sub-birm28/eeg/sub-birm28_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "65": {
+            "bids_subject": "birm29",
+            "runs": [
+                {
+                    "file": "raw/sub-birm29/eeg/sub-birm29_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "66": {
+            "bids_subject": "birm30",
+            "runs": [
+                {
+                    "file": "raw/sub-birm30/eeg/sub-birm30_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "67": {
+            "bids_subject": "birm31",
+            "runs": [
+                {
+                    "file": "raw/sub-birm31/eeg/sub-birm31_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "68": {
+            "bids_subject": "birm32",
+            "runs": [
+                {
+                    "file": "raw/sub-birm32/eeg/sub-birm32_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "69": {
+            "bids_subject": "birm33",
+            "runs": [
+                {
+                    "file": "raw/sub-birm33/eeg/sub-birm33_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "70": {
+            "bids_subject": "birm34",
+            "runs": [
+                {
+                    "file": "raw/sub-birm34/eeg/sub-birm34_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "71": {
+            "bids_subject": "birm35",
+            "runs": [
+                {
+                    "file": "raw/sub-birm35/eeg/sub-birm35_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "72": {
+            "bids_subject": "birm36",
+            "runs": [
+                {
+                    "file": "raw/sub-birm36/eeg/sub-birm36_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "73": {
+            "bids_subject": "birm37",
+            "runs": [
+                {
+                    "file": "raw/sub-birm37/eeg/sub-birm37_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "74": {
+            "bids_subject": "birm38",
+            "runs": [
+                {
+                    "file": "raw/sub-birm38/eeg/sub-birm38_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "75": {
+            "bids_subject": "birm39",
+            "runs": [
+                {
+                    "file": "raw/sub-birm39/eeg/sub-birm39_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "76": {
+            "bids_subject": "birm40",
+            "runs": [
+                {
+                    "file": "raw/sub-birm40/eeg/sub-birm40_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "77": {
+            "bids_subject": "birm41",
+            "runs": [
+                {
+                    "file": "raw/sub-birm41/eeg/sub-birm41_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "78": {
+            "bids_subject": "birm42",
+            "runs": [
+                {
+                    "file": "raw/sub-birm42/eeg/sub-birm42_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "79": {
+            "bids_subject": "birm43",
+            "runs": [
+                {
+                    "file": "raw/sub-birm43/eeg/sub-birm43_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "80": {
+            "bids_subject": "bris01",
+            "runs": [
+                {
+                    "file": "raw/sub-bris01/eeg/sub-bris01_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris01/eeg/sub-bris01_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "81": {
+            "bids_subject": "bris02",
+            "runs": [
+                {
+                    "file": "raw/sub-bris02/eeg/sub-bris02_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris02/eeg/sub-bris02_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "82": {
+            "bids_subject": "bris03",
+            "runs": [
+                {
+                    "file": "raw/sub-bris03/eeg/sub-bris03_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris03/eeg/sub-bris03_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "83": {
+            "bids_subject": "bris04",
+            "runs": [
+                {
+                    "file": "raw/sub-bris04/eeg/sub-bris04_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris04/eeg/sub-bris04_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "84": {
+            "bids_subject": "bris05",
+            "runs": [
+                {
+                    "file": "raw/sub-bris05/eeg/sub-bris05_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris05/eeg/sub-bris05_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "85": {
+            "bids_subject": "bris06",
+            "runs": [
+                {
+                    "file": "raw/sub-bris06/eeg/sub-bris06_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris06/eeg/sub-bris06_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "86": {
+            "bids_subject": "bris07",
+            "runs": [
+                {
+                    "file": "raw/sub-bris07/eeg/sub-bris07_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris07/eeg/sub-bris07_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "87": {
+            "bids_subject": "bris08",
+            "runs": [
+                {
+                    "file": "raw/sub-bris08/eeg/sub-bris08_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris08/eeg/sub-bris08_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "88": {
+            "bids_subject": "bris09",
+            "runs": [
+                {
+                    "file": "raw/sub-bris09/eeg/sub-bris09_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris09/eeg/sub-bris09_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "89": {
+            "bids_subject": "bris10",
+            "runs": [
+                {
+                    "file": "raw/sub-bris10/eeg/sub-bris10_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris10/eeg/sub-bris10_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "90": {
+            "bids_subject": "bris11",
+            "runs": [
+                {
+                    "file": "raw/sub-bris11/eeg/sub-bris11_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris11/eeg/sub-bris11_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "91": {
+            "bids_subject": "bris12",
+            "runs": [
+                {
+                    "file": "raw/sub-bris12/eeg/sub-bris12_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris12/eeg/sub-bris12_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "92": {
+            "bids_subject": "bris13",
+            "runs": [
+                {
+                    "file": "raw/sub-bris13/eeg/sub-bris13_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris13/eeg/sub-bris13_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "93": {
+            "bids_subject": "bris14",
+            "runs": [
+                {
+                    "file": "raw/sub-bris14/eeg/sub-bris14_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris14/eeg/sub-bris14_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "94": {
+            "bids_subject": "bris15",
+            "runs": [
+                {
+                    "file": "raw/sub-bris15/eeg/sub-bris15_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris15/eeg/sub-bris15_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "95": {
+            "bids_subject": "bris16",
+            "runs": [
+                {
+                    "file": "raw/sub-bris16/eeg/sub-bris16_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris16/eeg/sub-bris16_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "96": {
+            "bids_subject": "bris17",
+            "runs": [
+                {
+                    "file": "raw/sub-bris17/eeg/sub-bris17_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris17/eeg/sub-bris17_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "97": {
+            "bids_subject": "bris18",
+            "runs": [
+                {
+                    "file": "raw/sub-bris18/eeg/sub-bris18_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris18/eeg/sub-bris18_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "98": {
+            "bids_subject": "bris19",
+            "runs": [
+                {
+                    "file": "raw/sub-bris19/eeg/sub-bris19_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris19/eeg/sub-bris19_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "99": {
+            "bids_subject": "bris20",
+            "runs": [
+                {
+                    "file": "raw/sub-bris20/eeg/sub-bris20_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris20/eeg/sub-bris20_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "100": {
+            "bids_subject": "bris21",
+            "runs": [
+                {
+                    "file": "raw/sub-bris21/eeg/sub-bris21_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris21/eeg/sub-bris21_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "101": {
+            "bids_subject": "bris22",
+            "runs": [
+                {
+                    "file": "raw/sub-bris22/eeg/sub-bris22_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris22/eeg/sub-bris22_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "102": {
+            "bids_subject": "bris23",
+            "runs": [
+                {
+                    "file": "raw/sub-bris23/eeg/sub-bris23_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris23/eeg/sub-bris23_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "103": {
+            "bids_subject": "bris24",
+            "runs": [
+                {
+                    "file": "raw/sub-bris24/eeg/sub-bris24_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris24/eeg/sub-bris24_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "104": {
+            "bids_subject": "bris25",
+            "runs": [
+                {
+                    "file": "raw/sub-bris25/eeg/sub-bris25_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris25/eeg/sub-bris25_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "105": {
+            "bids_subject": "bris26",
+            "runs": [
+                {
+                    "file": "raw/sub-bris26/eeg/sub-bris26_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris26/eeg/sub-bris26_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "106": {
+            "bids_subject": "bris27",
+            "runs": [
+                {
+                    "file": "raw/sub-bris27/eeg/sub-bris27_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris27/eeg/sub-bris27_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "107": {
+            "bids_subject": "bris28",
+            "runs": [
+                {
+                    "file": "raw/sub-bris28/eeg/sub-bris28_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris28/eeg/sub-bris28_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "108": {
+            "bids_subject": "bris29",
+            "runs": [
+                {
+                    "file": "raw/sub-bris29/eeg/sub-bris29_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris29/eeg/sub-bris29_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "109": {
+            "bids_subject": "bris30",
+            "runs": [
+                {
+                    "file": "raw/sub-bris30/eeg/sub-bris30_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris30/eeg/sub-bris30_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "110": {
+            "bids_subject": "bris31",
+            "runs": [
+                {
+                    "file": "raw/sub-bris31/eeg/sub-bris31_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris31/eeg/sub-bris31_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "111": {
+            "bids_subject": "bris32",
+            "runs": [
+                {
+                    "file": "raw/sub-bris32/eeg/sub-bris32_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris32/eeg/sub-bris32_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "112": {
+            "bids_subject": "bris33",
+            "runs": [
+                {
+                    "file": "raw/sub-bris33/eeg/sub-bris33_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris33/eeg/sub-bris33_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "113": {
+            "bids_subject": "bris34",
+            "runs": [
+                {
+                    "file": "raw/sub-bris34/eeg/sub-bris34_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris34/eeg/sub-bris34_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "114": {
+            "bids_subject": "bris35",
+            "runs": [
+                {
+                    "file": "raw/sub-bris35/eeg/sub-bris35_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris35/eeg/sub-bris35_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "115": {
+            "bids_subject": "bris36",
+            "runs": [
+                {
+                    "file": "raw/sub-bris36/eeg/sub-bris36_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris36/eeg/sub-bris36_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "116": {
+            "bids_subject": "bris37",
+            "runs": [
+                {
+                    "file": "raw/sub-bris37/eeg/sub-bris37_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris37/eeg/sub-bris37_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "117": {
+            "bids_subject": "bris38",
+            "runs": [
+                {
+                    "file": "raw/sub-bris38/eeg/sub-bris38_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris38/eeg/sub-bris38_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "118": {
+            "bids_subject": "bris39",
+            "runs": [
+                {
+                    "file": "raw/sub-bris39/eeg/sub-bris39_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-bris39/eeg/sub-bris39_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "119": {
+            "bids_subject": "edin10",
+            "runs": [
+                {
+                    "file": "raw/sub-edin10/eeg/sub-edin10_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "120": {
+            "bids_subject": "edin11",
+            "runs": [
+                {
+                    "file": "raw/sub-edin11/eeg/sub-edin11_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "121": {
+            "bids_subject": "edin12",
+            "runs": [
+                {
+                    "file": "raw/sub-edin12/eeg/sub-edin12_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "122": {
+            "bids_subject": "edin13",
+            "runs": [
+                {
+                    "file": "raw/sub-edin13/eeg/sub-edin13_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "123": {
+            "bids_subject": "edin14",
+            "runs": [
+                {
+                    "file": "raw/sub-edin14/eeg/sub-edin14_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "124": {
+            "bids_subject": "edin15",
+            "runs": [
+                {
+                    "file": "raw/sub-edin15/eeg/sub-edin15_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "125": {
+            "bids_subject": "edin16",
+            "runs": [
+                {
+                    "file": "raw/sub-edin16/eeg/sub-edin16_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "126": {
+            "bids_subject": "edin17",
+            "runs": [
+                {
+                    "file": "raw/sub-edin17/eeg/sub-edin17_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "127": {
+            "bids_subject": "edin18",
+            "runs": [
+                {
+                    "file": "raw/sub-edin18/eeg/sub-edin18_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "128": {
+            "bids_subject": "edin19",
+            "runs": [
+                {
+                    "file": "raw/sub-edin19/eeg/sub-edin19_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "129": {
+            "bids_subject": "edin20",
+            "runs": [
+                {
+                    "file": "raw/sub-edin20/eeg/sub-edin20_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "130": {
+            "bids_subject": "edin21",
+            "runs": [
+                {
+                    "file": "raw/sub-edin21/eeg/sub-edin21_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "131": {
+            "bids_subject": "edin22",
+            "runs": [
+                {
+                    "file": "raw/sub-edin22/eeg/sub-edin22_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "132": {
+            "bids_subject": "edin23",
+            "runs": [
+                {
+                    "file": "raw/sub-edin23/eeg/sub-edin23_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "133": {
+            "bids_subject": "edin24",
+            "runs": [
+                {
+                    "file": "raw/sub-edin24/eeg/sub-edin24_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "134": {
+            "bids_subject": "edin25",
+            "runs": [
+                {
+                    "file": "raw/sub-edin25/eeg/sub-edin25_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "135": {
+            "bids_subject": "edin26",
+            "runs": [
+                {
+                    "file": "raw/sub-edin26/eeg/sub-edin26_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "136": {
+            "bids_subject": "edin27",
+            "runs": [
+                {
+                    "file": "raw/sub-edin27/eeg/sub-edin27_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "137": {
+            "bids_subject": "edin28",
+            "runs": [
+                {
+                    "file": "raw/sub-edin28/eeg/sub-edin28_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "138": {
+            "bids_subject": "edin29",
+            "runs": [
+                {
+                    "file": "raw/sub-edin29/eeg/sub-edin29_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "139": {
+            "bids_subject": "edin30",
+            "runs": [
+                {
+                    "file": "raw/sub-edin30/eeg/sub-edin30_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "140": {
+            "bids_subject": "edin31",
+            "runs": [
+                {
+                    "file": "raw/sub-edin31/eeg/sub-edin31_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "141": {
+            "bids_subject": "edin32",
+            "runs": [
+                {
+                    "file": "raw/sub-edin32/eeg/sub-edin32_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "142": {
+            "bids_subject": "edin33",
+            "runs": [
+                {
+                    "file": "raw/sub-edin33/eeg/sub-edin33_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "143": {
+            "bids_subject": "edin34",
+            "runs": [
+                {
+                    "file": "raw/sub-edin34/eeg/sub-edin34_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "144": {
+            "bids_subject": "edin35",
+            "runs": [
+                {
+                    "file": "raw/sub-edin35/eeg/sub-edin35_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "145": {
+            "bids_subject": "edin36",
+            "runs": [
+                {
+                    "file": "raw/sub-edin36/eeg/sub-edin36_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "146": {
+            "bids_subject": "edin37",
+            "runs": [
+                {
+                    "file": "raw/sub-edin37/eeg/sub-edin37_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "147": {
+            "bids_subject": "edin38",
+            "runs": [
+                {
+                    "file": "raw/sub-edin38/eeg/sub-edin38_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "148": {
+            "bids_subject": "edin39",
+            "runs": [
+                {
+                    "file": "raw/sub-edin39/eeg/sub-edin39_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "149": {
+            "bids_subject": "edin40",
+            "runs": [
+                {
+                    "file": "raw/sub-edin40/eeg/sub-edin40_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "150": {
+            "bids_subject": "oxfo10",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo10/eeg/sub-oxfo10_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "151": {
+            "bids_subject": "oxfo11",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo11/eeg/sub-oxfo11_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "152": {
+            "bids_subject": "oxfo12",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo12/eeg/sub-oxfo12_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "153": {
+            "bids_subject": "oxfo13",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo13/eeg/sub-oxfo13_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "154": {
+            "bids_subject": "oxfo14",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo14/eeg/sub-oxfo14_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "155": {
+            "bids_subject": "oxfo15",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo15/eeg/sub-oxfo15_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "156": {
+            "bids_subject": "oxfo16",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo16/eeg/sub-oxfo16_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "157": {
+            "bids_subject": "oxfo17",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo17/eeg/sub-oxfo17_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "158": {
+            "bids_subject": "oxfo18",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo18/eeg/sub-oxfo18_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "159": {
+            "bids_subject": "oxfo19",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo19/eeg/sub-oxfo19_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "160": {
+            "bids_subject": "oxfo20",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo20/eeg/sub-oxfo20_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "161": {
+            "bids_subject": "oxfo21",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo21/eeg/sub-oxfo21_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "162": {
+            "bids_subject": "oxfo22",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo22/eeg/sub-oxfo22_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "163": {
+            "bids_subject": "oxfo23",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo23/eeg/sub-oxfo23_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "164": {
+            "bids_subject": "oxfo24",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo24/eeg/sub-oxfo24_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "165": {
+            "bids_subject": "oxfo25",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo25/eeg/sub-oxfo25_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "166": {
+            "bids_subject": "oxfo26",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo26/eeg/sub-oxfo26_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "167": {
+            "bids_subject": "oxfo27",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo27/eeg/sub-oxfo27_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "168": {
+            "bids_subject": "oxfo28",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo28/eeg/sub-oxfo28_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "169": {
+            "bids_subject": "oxfo29",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo29/eeg/sub-oxfo29_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "170": {
+            "bids_subject": "oxfo30",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo30/eeg/sub-oxfo30_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "171": {
+            "bids_subject": "oxfo31",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo31/eeg/sub-oxfo31_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "172": {
+            "bids_subject": "oxfo32",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo32/eeg/sub-oxfo32_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "173": {
+            "bids_subject": "oxfo33",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo33/eeg/sub-oxfo33_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "174": {
+            "bids_subject": "oxfo34",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo34/eeg/sub-oxfo34_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "175": {
+            "bids_subject": "oxfo35",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo35/eeg/sub-oxfo35_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "176": {
+            "bids_subject": "oxfo36",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo36/eeg/sub-oxfo36_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "177": {
+            "bids_subject": "oxfo37",
+            "runs": [
+                {
+                    "file": "raw/sub-oxfo37/eeg/sub-oxfo37_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "178": {
+            "bids_subject": "stir10",
+            "runs": [
+                {
+                    "file": "raw/sub-stir10/eeg/sub-stir10_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "179": {
+            "bids_subject": "stir11",
+            "runs": [
+                {
+                    "file": "raw/sub-stir11/eeg/sub-stir11_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "180": {
+            "bids_subject": "stir12",
+            "runs": [
+                {
+                    "file": "raw/sub-stir12/eeg/sub-stir12_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "181": {
+            "bids_subject": "stir13",
+            "runs": [
+                {
+                    "file": "raw/sub-stir13/eeg/sub-stir13_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "182": {
+            "bids_subject": "stir14",
+            "runs": [
+                {
+                    "file": "raw/sub-stir14/eeg/sub-stir14_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "183": {
+            "bids_subject": "stir15",
+            "runs": [
+                {
+                    "file": "raw/sub-stir15/eeg/sub-stir15_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "184": {
+            "bids_subject": "stir16",
+            "runs": [
+                {
+                    "file": "raw/sub-stir16/eeg/sub-stir16_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "185": {
+            "bids_subject": "stir17",
+            "runs": [
+                {
+                    "file": "raw/sub-stir17/eeg/sub-stir17_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "186": {
+            "bids_subject": "stir18",
+            "runs": [
+                {
+                    "file": "raw/sub-stir18/eeg/sub-stir18_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "187": {
+            "bids_subject": "stir19",
+            "runs": [
+                {
+                    "file": "raw/sub-stir19/eeg/sub-stir19_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "188": {
+            "bids_subject": "stir20",
+            "runs": [
+                {
+                    "file": "raw/sub-stir20/eeg/sub-stir20_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "189": {
+            "bids_subject": "stir21",
+            "runs": [
+                {
+                    "file": "raw/sub-stir21/eeg/sub-stir21_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "190": {
+            "bids_subject": "stir22",
+            "runs": [
+                {
+                    "file": "raw/sub-stir22/eeg/sub-stir22_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "191": {
+            "bids_subject": "stir23",
+            "runs": [
+                {
+                    "file": "raw/sub-stir23/eeg/sub-stir23_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "192": {
+            "bids_subject": "stir24",
+            "runs": [
+                {
+                    "file": "raw/sub-stir24/eeg/sub-stir24_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "193": {
+            "bids_subject": "stir25",
+            "runs": [
+                {
+                    "file": "raw/sub-stir25/eeg/sub-stir25_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "194": {
+            "bids_subject": "stir26",
+            "runs": [
+                {
+                    "file": "raw/sub-stir26/eeg/sub-stir26_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "195": {
+            "bids_subject": "stir27",
+            "runs": [
+                {
+                    "file": "raw/sub-stir27/eeg/sub-stir27_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "196": {
+            "bids_subject": "stir28",
+            "runs": [
+                {
+                    "file": "raw/sub-stir28/eeg/sub-stir28_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "197": {
+            "bids_subject": "stir29",
+            "runs": [
+                {
+                    "file": "raw/sub-stir29/eeg/sub-stir29_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "198": {
+            "bids_subject": "stir30",
+            "runs": [
+                {
+                    "file": "raw/sub-stir30/eeg/sub-stir30_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "199": {
+            "bids_subject": "stir31",
+            "runs": [
+                {
+                    "file": "raw/sub-stir31/eeg/sub-stir31_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "200": {
+            "bids_subject": "stir32",
+            "runs": [
+                {
+                    "file": "raw/sub-stir32/eeg/sub-stir32_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "201": {
+            "bids_subject": "stir33",
+            "runs": [
+                {
+                    "file": "raw/sub-stir33/eeg/sub-stir33_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "202": {
+            "bids_subject": "stir34",
+            "runs": [
+                {
+                    "file": "raw/sub-stir34/eeg/sub-stir34_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "203": {
+            "bids_subject": "stir35",
+            "runs": [
+                {
+                    "file": "raw/sub-stir35/eeg/sub-stir35_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "204": {
+            "bids_subject": "stir36",
+            "runs": [
+                {
+                    "file": "raw/sub-stir36/eeg/sub-stir36_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "205": {
+            "bids_subject": "stir37",
+            "runs": [
+                {
+                    "file": "raw/sub-stir37/eeg/sub-stir37_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "206": {
+            "bids_subject": "stir38",
+            "runs": [
+                {
+                    "file": "raw/sub-stir38/eeg/sub-stir38_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "207": {
+            "bids_subject": "stir39",
+            "runs": [
+                {
+                    "file": "raw/sub-stir39/eeg/sub-stir39_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "208": {
+            "bids_subject": "stir40",
+            "runs": [
+                {
+                    "file": "raw/sub-stir40/eeg/sub-stir40_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "209": {
+            "bids_subject": "york10",
+            "runs": [
+                {
+                    "file": "raw/sub-york10/eeg/sub-york10_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "210": {
+            "bids_subject": "york11",
+            "runs": [
+                {
+                    "file": "raw/sub-york11/eeg/sub-york11_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "211": {
+            "bids_subject": "york12",
+            "runs": [
+                {
+                    "file": "raw/sub-york12/eeg/sub-york12_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "212": {
+            "bids_subject": "york13",
+            "runs": [
+                {
+                    "file": "raw/sub-york13/eeg/sub-york13_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "213": {
+            "bids_subject": "york14",
+            "runs": [
+                {
+                    "file": "raw/sub-york14/eeg/sub-york14_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "214": {
+            "bids_subject": "york15",
+            "runs": [
+                {
+                    "file": "raw/sub-york15/eeg/sub-york15_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "215": {
+            "bids_subject": "york16",
+            "runs": [
+                {
+                    "file": "raw/sub-york16/eeg/sub-york16_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "216": {
+            "bids_subject": "york17",
+            "runs": [
+                {
+                    "file": "raw/sub-york17/eeg/sub-york17_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "217": {
+            "bids_subject": "york18",
+            "runs": [
+                {
+                    "file": "raw/sub-york18/eeg/sub-york18_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "218": {
+            "bids_subject": "york19",
+            "runs": [
+                {
+                    "file": "raw/sub-york19/eeg/sub-york19_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "219": {
+            "bids_subject": "york20",
+            "runs": [
+                {
+                    "file": "raw/sub-york20/eeg/sub-york20_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "220": {
+            "bids_subject": "york21",
+            "runs": [
+                {
+                    "file": "raw/sub-york21/eeg/sub-york21_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "221": {
+            "bids_subject": "york22",
+            "runs": [
+                {
+                    "file": "raw/sub-york22/eeg/sub-york22_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "222": {
+            "bids_subject": "york23",
+            "runs": [
+                {
+                    "file": "raw/sub-york23/eeg/sub-york23_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "223": {
+            "bids_subject": "york24",
+            "runs": [
+                {
+                    "file": "raw/sub-york24/eeg/sub-york24_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "224": {
+            "bids_subject": "york25",
+            "runs": [
+                {
+                    "file": "raw/sub-york25/eeg/sub-york25_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "225": {
+            "bids_subject": "york26",
+            "runs": [
+                {
+                    "file": "raw/sub-york26/eeg/sub-york26_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "226": {
+            "bids_subject": "york27",
+            "runs": [
+                {
+                    "file": "raw/sub-york27/eeg/sub-york27_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "227": {
+            "bids_subject": "york28",
+            "runs": [
+                {
+                    "file": "raw/sub-york28/eeg/sub-york28_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "228": {
+            "bids_subject": "york29",
+            "runs": [
+                {
+                    "file": "raw/sub-york29/eeg/sub-york29_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "229": {
+            "bids_subject": "york30",
+            "runs": [
+                {
+                    "file": "raw/sub-york30/eeg/sub-york30_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "230": {
+            "bids_subject": "york31",
+            "runs": [
+                {
+                    "file": "raw/sub-york31/eeg/sub-york31_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "231": {
+            "bids_subject": "york32",
+            "runs": [
+                {
+                    "file": "raw/sub-york32/eeg/sub-york32_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "232": {
+            "bids_subject": "york33",
+            "runs": [
+                {
+                    "file": "raw/sub-york33/eeg/sub-york33_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "233": {
+            "bids_subject": "york34",
+            "runs": [
+                {
+                    "file": "raw/sub-york34/eeg/sub-york34_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "234": {
+            "bids_subject": "york35",
+            "runs": [
+                {
+                    "file": "raw/sub-york35/eeg/sub-york35_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "235": {
+            "bids_subject": "york36",
+            "runs": [
+                {
+                    "file": "raw/sub-york36/eeg/sub-york36_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "236": {
+            "bids_subject": "york37",
+            "runs": [
+                {
+                    "file": "raw/sub-york37/eeg/sub-york37_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "237": {
+            "bids_subject": "york38",
+            "runs": [
+                {
+                    "file": "raw/sub-york38/eeg/sub-york38_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "238": {
+            "bids_subject": "york39",
+            "runs": [
+                {
+                    "file": "raw/sub-york39/eeg/sub-york39_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "239": {
+            "bids_subject": "york40",
+            "runs": [
+                {
+                    "file": "raw/sub-york40/eeg/sub-york40_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "240": {
+            "bids_subject": "york41",
+            "runs": [
+                {
+                    "file": "raw/sub-york41/eeg/sub-york41_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "241": {
+            "bids_subject": "glas001",
+            "runs": [
+                {
+                    "file": "raw/sub-glas001/eeg/sub-glas001_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "242": {
+            "bids_subject": "glas002",
+            "runs": [
+                {
+                    "file": "raw/sub-glas002/eeg/sub-glas002_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "243": {
+            "bids_subject": "glas003",
+            "runs": [
+                {
+                    "file": "raw/sub-glas003/eeg/sub-glas003_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "244": {
+            "bids_subject": "glas004",
+            "runs": [
+                {
+                    "file": "raw/sub-glas004/eeg/sub-glas004_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "245": {
+            "bids_subject": "glas005",
+            "runs": [
+                {
+                    "file": "raw/sub-glas005/eeg/sub-glas005_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "246": {
+            "bids_subject": "glas006",
+            "runs": [
+                {
+                    "file": "raw/sub-glas006/eeg/sub-glas006_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "247": {
+            "bids_subject": "glas007",
+            "runs": [
+                {
+                    "file": "raw/sub-glas007/eeg/sub-glas007_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "248": {
+            "bids_subject": "glas008",
+            "runs": [
+                {
+                    "file": "raw/sub-glas008/eeg/sub-glas008_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "249": {
+            "bids_subject": "glas009",
+            "runs": [
+                {
+                    "file": "raw/sub-glas009/eeg/sub-glas009_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "250": {
+            "bids_subject": "glas010",
+            "runs": [
+                {
+                    "file": "raw/sub-glas010/eeg/sub-glas010_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "251": {
+            "bids_subject": "glas011",
+            "runs": [
+                {
+                    "file": "raw/sub-glas011/eeg/sub-glas011_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "252": {
+            "bids_subject": "glas012",
+            "runs": [
+                {
+                    "file": "raw/sub-glas012/eeg/sub-glas012_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "253": {
+            "bids_subject": "glas013",
+            "runs": [
+                {
+                    "file": "raw/sub-glas013/eeg/sub-glas013_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "254": {
+            "bids_subject": "glas014",
+            "runs": [
+                {
+                    "file": "raw/sub-glas014/eeg/sub-glas014_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "255": {
+            "bids_subject": "glas015",
+            "runs": [
+                {
+                    "file": "raw/sub-glas015/eeg/sub-glas015_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "256": {
+            "bids_subject": "glas016",
+            "runs": [
+                {
+                    "file": "raw/sub-glas016/eeg/sub-glas016_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "257": {
+            "bids_subject": "glas017",
+            "runs": [
+                {
+                    "file": "raw/sub-glas017/eeg/sub-glas017_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "258": {
+            "bids_subject": "glas018",
+            "runs": [
+                {
+                    "file": "raw/sub-glas018/eeg/sub-glas018_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "259": {
+            "bids_subject": "glas019",
+            "runs": [
+                {
+                    "file": "raw/sub-glas019/eeg/sub-glas019_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "260": {
+            "bids_subject": "glas020",
+            "runs": [
+                {
+                    "file": "raw/sub-glas020/eeg/sub-glas020_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "261": {
+            "bids_subject": "glas021",
+            "runs": [
+                {
+                    "file": "raw/sub-glas021/eeg/sub-glas021_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "262": {
+            "bids_subject": "glas022",
+            "runs": [
+                {
+                    "file": "raw/sub-glas022/eeg/sub-glas022_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "263": {
+            "bids_subject": "glas023",
+            "runs": [
+                {
+                    "file": "raw/sub-glas023/eeg/sub-glas023_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "264": {
+            "bids_subject": "glas024",
+            "runs": [
+                {
+                    "file": "raw/sub-glas024/eeg/sub-glas024_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "265": {
+            "bids_subject": "glas025",
+            "runs": [
+                {
+                    "file": "raw/sub-glas025/eeg/sub-glas025_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "266": {
+            "bids_subject": "glas026",
+            "runs": [
+                {
+                    "file": "raw/sub-glas026/eeg/sub-glas026_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "267": {
+            "bids_subject": "glas027",
+            "runs": [
+                {
+                    "file": "raw/sub-glas027/eeg/sub-glas027_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "268": {
+            "bids_subject": "glas028",
+            "runs": [
+                {
+                    "file": "raw/sub-glas028/eeg/sub-glas028_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "269": {
+            "bids_subject": "glas029",
+            "runs": [
+                {
+                    "file": "raw/sub-glas029/eeg/sub-glas029_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "270": {
+            "bids_subject": "glas030",
+            "runs": [
+                {
+                    "file": "raw/sub-glas030/eeg/sub-glas030_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "271": {
+            "bids_subject": "glas031",
+            "runs": [
+                {
+                    "file": "raw/sub-glas031/eeg/sub-glas031_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "272": {
+            "bids_subject": "glas032",
+            "runs": [
+                {
+                    "file": "raw/sub-glas032/eeg/sub-glas032_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "273": {
+            "bids_subject": "glas033",
+            "runs": [
+                {
+                    "file": "raw/sub-glas033/eeg/sub-glas033_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "274": {
+            "bids_subject": "glas034",
+            "runs": [
+                {
+                    "file": "raw/sub-glas034/eeg/sub-glas034_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "275": {
+            "bids_subject": "glas035",
+            "runs": [
+                {
+                    "file": "raw/sub-glas035/eeg/sub-glas035_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "276": {
+            "bids_subject": "glas036",
+            "runs": [
+                {
+                    "file": "raw/sub-glas036/eeg/sub-glas036_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "277": {
+            "bids_subject": "glas037",
+            "runs": [
+                {
+                    "file": "raw/sub-glas037/eeg/sub-glas037_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "278": {
+            "bids_subject": "glas038",
+            "runs": [
+                {
+                    "file": "raw/sub-glas038/eeg/sub-glas038_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "279": {
+            "bids_subject": "glas039",
+            "runs": [
+                {
+                    "file": "raw/sub-glas039/eeg/sub-glas039_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "280": {
+            "bids_subject": "glas040",
+            "runs": [
+                {
+                    "file": "raw/sub-glas040/eeg/sub-glas040_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "281": {
+            "bids_subject": "lond001",
+            "runs": [
+                {
+                    "file": "raw/sub-lond001/eeg/sub-lond001_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-lond001/eeg/sub-lond001_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "282": {
+            "bids_subject": "lond002",
+            "runs": [
+                {
+                    "file": "raw/sub-lond002/eeg/sub-lond002_task-control_eeg.bdf"
+                },
+                {
+                    "file": "raw/sub-lond002/eeg/sub-lond002_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "283": {
+            "bids_subject": "lond003",
+            "runs": [
+                {
+                    "file": "raw/sub-lond003/eeg/sub-lond003_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "284": {
+            "bids_subject": "lond004",
+            "runs": [
+                {
+                    "file": "raw/sub-lond004/eeg/sub-lond004_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "285": {
+            "bids_subject": "lond005",
+            "runs": [
+                {
+                    "file": "raw/sub-lond005/eeg/sub-lond005_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "286": {
+            "bids_subject": "lond006",
+            "runs": [
+                {
+                    "file": "raw/sub-lond006/eeg/sub-lond006_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "287": {
+            "bids_subject": "lond007",
+            "runs": [
+                {
+                    "file": "raw/sub-lond007/eeg/sub-lond007_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "288": {
+            "bids_subject": "lond008",
+            "runs": [
+                {
+                    "file": "raw/sub-lond008/eeg/sub-lond008_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "289": {
+            "bids_subject": "lond009",
+            "runs": [
+                {
+                    "file": "raw/sub-lond009/eeg/sub-lond009_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "290": {
+            "bids_subject": "lond010",
+            "runs": [
+                {
+                    "file": "raw/sub-lond010/eeg/sub-lond010_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "291": {
+            "bids_subject": "lond011",
+            "runs": [
+                {
+                    "file": "raw/sub-lond011/eeg/sub-lond011_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "292": {
+            "bids_subject": "lond012",
+            "runs": [
+                {
+                    "file": "raw/sub-lond012/eeg/sub-lond012_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "293": {
+            "bids_subject": "lond013",
+            "runs": [
+                {
+                    "file": "raw/sub-lond013/eeg/sub-lond013_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "294": {
+            "bids_subject": "lond014",
+            "runs": [
+                {
+                    "file": "raw/sub-lond014/eeg/sub-lond014_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "295": {
+            "bids_subject": "lond015",
+            "runs": [
+                {
+                    "file": "raw/sub-lond015/eeg/sub-lond015_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "296": {
+            "bids_subject": "lond016",
+            "runs": [
+                {
+                    "file": "raw/sub-lond016/eeg/sub-lond016_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "297": {
+            "bids_subject": "lond017",
+            "runs": [
+                {
+                    "file": "raw/sub-lond017/eeg/sub-lond017_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "298": {
+            "bids_subject": "lond018",
+            "runs": [
+                {
+                    "file": "raw/sub-lond018/eeg/sub-lond018_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "299": {
+            "bids_subject": "lond019",
+            "runs": [
+                {
+                    "file": "raw/sub-lond019/eeg/sub-lond019_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "300": {
+            "bids_subject": "lond020",
+            "runs": [
+                {
+                    "file": "raw/sub-lond020/eeg/sub-lond020_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "301": {
+            "bids_subject": "lond021",
+            "runs": [
+                {
+                    "file": "raw/sub-lond021/eeg/sub-lond021_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "302": {
+            "bids_subject": "lond022",
+            "runs": [
+                {
+                    "file": "raw/sub-lond022/eeg/sub-lond022_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "303": {
+            "bids_subject": "lond023",
+            "runs": [
+                {
+                    "file": "raw/sub-lond023/eeg/sub-lond023_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "304": {
+            "bids_subject": "lond024",
+            "runs": [
+                {
+                    "file": "raw/sub-lond024/eeg/sub-lond024_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "305": {
+            "bids_subject": "lond025",
+            "runs": [
+                {
+                    "file": "raw/sub-lond025/eeg/sub-lond025_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "306": {
+            "bids_subject": "lond026",
+            "runs": [
+                {
+                    "file": "raw/sub-lond026/eeg/sub-lond026_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "307": {
+            "bids_subject": "lond027",
+            "runs": [
+                {
+                    "file": "raw/sub-lond027/eeg/sub-lond027_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "308": {
+            "bids_subject": "lond028",
+            "runs": [
+                {
+                    "file": "raw/sub-lond028/eeg/sub-lond028_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "309": {
+            "bids_subject": "lond029",
+            "runs": [
+                {
+                    "file": "raw/sub-lond029/eeg/sub-lond029_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "310": {
+            "bids_subject": "lond030",
+            "runs": [
+                {
+                    "file": "raw/sub-lond030/eeg/sub-lond030_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "311": {
+            "bids_subject": "lond031",
+            "runs": [
+                {
+                    "file": "raw/sub-lond031/eeg/sub-lond031_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "312": {
+            "bids_subject": "lond032",
+            "runs": [
+                {
+                    "file": "raw/sub-lond032/eeg/sub-lond032_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "313": {
+            "bids_subject": "lond033",
+            "runs": [
+                {
+                    "file": "raw/sub-lond033/eeg/sub-lond033_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "314": {
+            "bids_subject": "lond034",
+            "runs": [
+                {
+                    "file": "raw/sub-lond034/eeg/sub-lond034_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "315": {
+            "bids_subject": "lond035",
+            "runs": [
+                {
+                    "file": "raw/sub-lond035/eeg/sub-lond035_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "316": {
+            "bids_subject": "lond036",
+            "runs": [
+                {
+                    "file": "raw/sub-lond036/eeg/sub-lond036_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "317": {
+            "bids_subject": "lond037",
+            "runs": [
+                {
+                    "file": "raw/sub-lond037/eeg/sub-lond037_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "318": {
+            "bids_subject": "lond038",
+            "runs": [
+                {
+                    "file": "raw/sub-lond038/eeg/sub-lond038_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "319": {
+            "bids_subject": "kent0001",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0001/eeg/sub-kent0001_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "320": {
+            "bids_subject": "kent0002",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0002/eeg/sub-kent0002_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "321": {
+            "bids_subject": "kent0003",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0003/eeg/sub-kent0003_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "322": {
+            "bids_subject": "kent0004",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0004/eeg/sub-kent0004_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "323": {
+            "bids_subject": "kent0005",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0005/eeg/sub-kent0005_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "324": {
+            "bids_subject": "kent0006",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0006/eeg/sub-kent0006_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "325": {
+            "bids_subject": "kent0007",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0007/eeg/sub-kent0007_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "326": {
+            "bids_subject": "kent0008",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0008/eeg/sub-kent0008_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "327": {
+            "bids_subject": "kent0009",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0009/eeg/sub-kent0009_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "328": {
+            "bids_subject": "kent0010",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0010/eeg/sub-kent0010_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "329": {
+            "bids_subject": "kent0011",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0011/eeg/sub-kent0011_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "330": {
+            "bids_subject": "kent0012",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0012/eeg/sub-kent0012_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "331": {
+            "bids_subject": "kent0013",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0013/eeg/sub-kent0013_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "332": {
+            "bids_subject": "kent0014",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0014/eeg/sub-kent0014_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "333": {
+            "bids_subject": "kent0015",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0015/eeg/sub-kent0015_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "334": {
+            "bids_subject": "kent0016",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0016/eeg/sub-kent0016_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "335": {
+            "bids_subject": "kent0017",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0017/eeg/sub-kent0017_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "336": {
+            "bids_subject": "kent0018",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0018/eeg/sub-kent0018_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "337": {
+            "bids_subject": "kent0019",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0019/eeg/sub-kent0019_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "338": {
+            "bids_subject": "kent0020",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0020/eeg/sub-kent0020_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "339": {
+            "bids_subject": "kent0021",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0021/eeg/sub-kent0021_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "340": {
+            "bids_subject": "kent0022",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0022/eeg/sub-kent0022_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "341": {
+            "bids_subject": "kent0023",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0023/eeg/sub-kent0023_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "342": {
+            "bids_subject": "kent0024",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0024/eeg/sub-kent0024_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "343": {
+            "bids_subject": "kent0025",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0025/eeg/sub-kent0025_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "344": {
+            "bids_subject": "kent0026",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0026/eeg/sub-kent0026_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "345": {
+            "bids_subject": "kent0027",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0027/eeg/sub-kent0027_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "346": {
+            "bids_subject": "kent0028",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0028/eeg/sub-kent0028_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "347": {
+            "bids_subject": "kent0029",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0029/eeg/sub-kent0029_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "348": {
+            "bids_subject": "kent0030",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0030/eeg/sub-kent0030_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "349": {
+            "bids_subject": "kent0031",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0031/eeg/sub-kent0031_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "350": {
+            "bids_subject": "kent0032",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0032/eeg/sub-kent0032_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "351": {
+            "bids_subject": "kent0033",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0033/eeg/sub-kent0033_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "352": {
+            "bids_subject": "kent0034",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0034/eeg/sub-kent0034_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "353": {
+            "bids_subject": "kent0035",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0035/eeg/sub-kent0035_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "354": {
+            "bids_subject": "kent0036",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0036/eeg/sub-kent0036_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "355": {
+            "bids_subject": "kent0037",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0037/eeg/sub-kent0037_task-delong_eeg.bdf"
+                }
+            ]
+        },
+        "356": {
+            "bids_subject": "kent0038",
+            "runs": [
+                {
+                    "file": "raw/sub-kent0038/eeg/sub-kent0038_task-delong_eeg.bdf"
+                }
+            ]
+        }
+    }
+}

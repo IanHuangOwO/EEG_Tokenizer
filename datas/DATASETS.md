@@ -39,36 +39,70 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Mimul-11 | Motor imagery (upper limb, 3-class) | B |  |  |  |  |  |  | open (GigaDB, Jeong 2020), not fetched |
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 
-## pretrain (26 datasets, 380.1 h compiled)
+## pretrain (60 datasets, 0.0 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| BCIC2020-3 | Imagined speech |  | 15 | 64 | 256 | 5 | — | 5.2 | compiled |
-| BCMI_MusicEmotion | Emotion (music) |  | 31 | 19 | 1000 | none | 0 s | 26.1 | compiled |
-| BETA_3s | SSVEP (40-class) |  | 15 | 64 | 250 | 40 | 0.5 s | 1.9 | compiled |
-| BETA_4s | SSVEP (40-class) |  | 55 | 64 | 250 | 40 | 0.5 s | 9.8 | compiled |
-| Cho2017 | Motor imagery (L/R hand) |  | 52 | 64 | 512 | 2 | 1 s | 14.6 | compiled (MOABB) |
-| Dreyer2023 | Motor imagery (L/R hand) |  | 87 | 27 | 512 | 2 | 1 s | 28.9 | compiled (MOABB) |
-| ERP_Longitudinal | RSVP oddball ERP |  | 15 | 57 | 1000 | none | — | 14.8 | compiled |
+| BCIC2020-3 | Imagined speech |  | 15 | 64 | 256 | 5 | — |  | not compiled |
+| BCMI_MusicEmotion | Emotion (music) |  | 31 | 19 | 1000 | none | 0 s |  | not compiled |
+| BETA_3s | SSVEP (40-class) |  | 15 | 64 | 250 | 40 | 0.5 s |  | not compiled |
+| BETA_4s | SSVEP (40-class) |  | 55 | 64 | 250 | 40 | 0.5 s |  | not compiled |
+| BI2014a | ? |  | 64 | 16 | 512 | 2 | 1 s |  | not compiled (MOABB) |
+| BI2014b | ? |  | 38 | 32 | 512 | 2 | 1 s |  | not compiled (MOABB) |
+| BI2015a | ? |  | 43 | 32 | 512 | 2 | 1 s |  | not compiled (MOABB) |
+| BI2015b | ? |  | 44 | 32 | 512 | 2 | 1 s |  | not compiled (MOABB) |
+| Chang2025 | ? |  | 28 | 59 | 1000 | 3 | 1 s |  | not compiled (MOABB) |
+| Cho2017 | Motor imagery (L/R hand) |  | 52 | 64 | 512 | 2 | 1 s |  | not compiled (MOABB) |
+| Dreyer2023 | Motor imagery (L/R hand) |  | 87 | 27 | 512 | 2 | 1 s |  | not compiled (MOABB) |
+| ERP_Longitudinal | RSVP oddball ERP |  | 15 | 57 | 1000 | none | — |  | not compiled |
+| ErpCore2021 | ? |  |  |  |  |  |  |  | raw complete (moabb ErpCore2021_P3, 40/40 subjects), not added |
+| ErpCore2021_ERN | ? |  | 40 | 30 | 1024 | 2 | 1 s |  | not compiled (MOABB) |
+| ErpCore2021_MMN | ? |  | 40 | 30 | 1024 | 2 | 1 s |  | not compiled (MOABB) |
+| ErpCore2021_N170 | ? |  | 40 | 30 | 1024 | 2 | 1 s |  | not compiled (MOABB) |
+| ErpCore2021_N2pc | ? |  | 40 | 30 | 1024 | 2 | 1 s |  | not compiled (MOABB) |
+| ErpCore2021_N400 | ? |  | 40 | 30 | 1024 | 2 | 1 s |  | not compiled (MOABB) |
+| ErpCore2021_P3 | ? |  | 40 | 30 | 1024 | 2 | 1 s |  | not compiled (MOABB) |
+| Gao2026 | ? |  | 22 | 32 | 1000 | 10 | 1 s |  | not compiled (MOABB) |
 | GoNoGo_Delorme(inhouse) | ? |  |  |  |  |  |  |  | in-house hold: downloaded, not compiled (2026-09-30) |
-| GraspAndLift_Test | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 1.7 | compiled |
-| GraspAndLift_Train | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 9.9 | compiled |
-| Inria_Test | Error-related potential |  | 10 | 57 | 200 | 2 | 1 s | 4.7 | compiled |
-| Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 1 s | 7.6 | compiled |
+| GraspAndLift_Test | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — |  | not compiled |
+| GraspAndLift_Train | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — |  | not compiled |
+| GuttmannFlury2025 | ? |  |  |  |  |  |  |  | raw failed (moabb GuttmannFlury2025_SSVEP, 30/31 subjects), not added |
+| GuttmannFlury2025_ME | ? |  | 31 | 64 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
+| GuttmannFlury2025_MI | ? |  | 31 | 64 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
+| GuttmannFlury2025_P300 | ? |  | 31 | 64 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
+| GuttmannFlury2025_SSVEP | ? |  | 30 | 64 | 1000 | 4 | 1 s |  | not compiled (MOABB) |
+| Inria_Test | Error-related potential |  | 10 | 57 | 200 | 2 | 1 s |  | not compiled |
+| Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 1 s |  | not compiled |
+| Kim2025BetaRange | ? |  | 40 | 31 | 1024 | 40 | 1 s |  | not compiled (MOABB) |
 | Lane_Keeping(inhouse) | ? |  |  |  |  |  |  |  | no metadata |
-| Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s | 30.0 | compiled (MOABB) |
-| Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s | 30.0 | compiled (MOABB) |
-| Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s | 8.8 | compiled (MOABB) |
-| MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
-| Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 110.5 | compiled |
-| NMT_Clinical | ? |  |  |  |  |  |  |  | raw downloading (nemar nm000181, 15/15 GB), not added |
-| Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s | 18.7 | compiled (MOABB) |
-| SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0 s | 0.8 | compiled |
-| SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.1 | compiled |
-| STEW | Mental workload (multitasking) |  | 48 | 14 | 128 | 2 | — | 4.0 | compiled |
-| UCSD_PD | Clinical: Parkinson's (rest) |  | 31 | 32 | 512 | 3 | — | 2.5 | compiled |
-| Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s | 11.3 | compiled (MOABB) |
-| Weibo2014 | Motor imagery (7-class) |  | 10 | 60 | 200 | 7 | 1 s | 7.7 | compiled (MOABB) |
+| Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
+| Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s |  | not compiled (MOABB) |
+| LEMON | ? |  | 215 | 61 | 2500 | none | — |  | not compiled |
+| Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s |  | not compiled (MOABB) |
+| Liu2024 | ? |  |  |  |  |  |  |  | raw complete (moabb Liu2024, 50/50 subjects), not added |
+| LSE_IndiaTanzania | ? |  | 2000 | 60 | 128 | none | — |  | not compiled |
+| Ma2020 | ? |  |  |  |  |  |  |  | raw failed (moabb Ma2020, 0/25 subjects), not added |
+| MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — |  | not compiled |
+| Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — |  | not compiled |
+| Nieuwland2018_N400 | ? |  | 356 | 74 | 500 | none | — |  | not compiled |
+| NMT_Clinical | ? |  | 2417 | 21 | 200 | none | — |  | not compiled |
+| PD_Rest | ? |  | 312 | 64 | 500 | none | — |  | not compiled |
+| PURSUE_LRP_ERN | ? |  | 292 | 39 | 500 | none | — |  | not compiled |
+| PURSUE_MMN | ? |  | 281 | 39 | 500 | none | — |  | not compiled |
+| PURSUE_N170 | ? |  | 292 | 39 | 500 | none | — |  | not compiled |
+| PURSUE_N2pc | ? |  | 294 | 39 | 500 | none | — |  | not compiled |
+| PURSUE_N400 | ? |  | 288 | 39 | 500 | none | — |  | not compiled |
+| PURSUE_P300 | ? |  | 286 | 39 | 500 | none | — |  | not compiled |
+| Rest_PrePostCognitive | ? |  | 608 | 64 | 1000 | none | — |  | not compiled |
+| Schirrmeister2017 | Motor execution (4-class) |  | 14 | 128 | 500 | 4 | 1 s |  | not compiled (MOABB) |
+| SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0 s |  | not compiled |
+| SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s |  | not compiled |
+| STEW | Mental workload (multitasking) |  | 48 | 14 | 128 | 2 | — |  | not compiled |
+| Stieger2021 | ? |  | 62 | 60 | 1000 | 4 | 1 s |  | not compiled (MOABB) |
+| UCSD_PD | Clinical: Parkinson's (rest) |  | 31 | 32 | 512 | 3 | — |  | not compiled |
+| Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s |  | not compiled (MOABB) |
+| Weibo2014 | Motor imagery (7-class) |  | 10 | 60 | 200 | 7 | 1 s |  | not compiled (MOABB) |
+| Yang2025 | ? |  | 51 | 59 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
 
 ## pretrain candidates on hold (TB scale or gated)
 

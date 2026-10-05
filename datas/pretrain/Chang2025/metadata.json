@@ -1,0 +1,362 @@
+{
+    "data_metadata": {
+        "dataset_name": "Chang2025",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.Chang2025.html",
+            "file_format": "via MOABB",
+            "description": "upper-limb rehabilitation, multi-paradigm motor imagery (pretraining only, continuous windows)."
+        },
+        "event_onset_seconds": 1.0,
+        "moabb": {
+            "class": "Chang2025",
+            "kwargs": {},
+            "code": "Chang2025"
+        },
+        "acquisition": {
+            "sample_frequency": 1000.0,
+            "window_size_seconds": 4,
+            "num_subjects": 28
+        },
+        "targets": {
+            "count": 3,
+            "type": "imagery",
+            "0": {
+                "label": "both_hands",
+                "moabb_event": "both_hands"
+            },
+            "1": {
+                "label": "left_hand",
+                "moabb_event": "left_hand"
+            },
+            "2": {
+                "label": "right_hand",
+                "moabb_event": "right_hand"
+            }
+        },
+        "channels": {
+            "count": 59,
+            "1": {
+                "label": "Fpz",
+                "original_label": "Fpz"
+            },
+            "2": {
+                "label": "Fp1",
+                "original_label": "Fp1"
+            },
+            "3": {
+                "label": "Fp2",
+                "original_label": "Fp2"
+            },
+            "4": {
+                "label": "AF3",
+                "original_label": "AF3"
+            },
+            "5": {
+                "label": "AF4",
+                "original_label": "AF4"
+            },
+            "6": {
+                "label": "AF7",
+                "original_label": "AF7"
+            },
+            "7": {
+                "label": "AF8",
+                "original_label": "AF8"
+            },
+            "8": {
+                "label": "Fz",
+                "original_label": "Fz"
+            },
+            "9": {
+                "label": "F1",
+                "original_label": "F1"
+            },
+            "10": {
+                "label": "F2",
+                "original_label": "F2"
+            },
+            "11": {
+                "label": "F3",
+                "original_label": "F3"
+            },
+            "12": {
+                "label": "F4",
+                "original_label": "F4"
+            },
+            "13": {
+                "label": "F5",
+                "original_label": "F5"
+            },
+            "14": {
+                "label": "F6",
+                "original_label": "F6"
+            },
+            "15": {
+                "label": "F7",
+                "original_label": "F7"
+            },
+            "16": {
+                "label": "F8",
+                "original_label": "F8"
+            },
+            "17": {
+                "label": "FCz",
+                "original_label": "FCz"
+            },
+            "18": {
+                "label": "FC1",
+                "original_label": "FC1"
+            },
+            "19": {
+                "label": "FC2",
+                "original_label": "FC2"
+            },
+            "20": {
+                "label": "FC3",
+                "original_label": "FC3"
+            },
+            "21": {
+                "label": "FC4",
+                "original_label": "FC4"
+            },
+            "22": {
+                "label": "FC5",
+                "original_label": "FC5"
+            },
+            "23": {
+                "label": "FC6",
+                "original_label": "FC6"
+            },
+            "24": {
+                "label": "FT7",
+                "original_label": "FT7"
+            },
+            "25": {
+                "label": "FT8",
+                "original_label": "FT8"
+            },
+            "26": {
+                "label": "Cz",
+                "original_label": "Cz"
+            },
+            "27": {
+                "label": "C1",
+                "original_label": "C1"
+            },
+            "28": {
+                "label": "C2",
+                "original_label": "C2"
+            },
+            "29": {
+                "label": "C3",
+                "original_label": "C3"
+            },
+            "30": {
+                "label": "C4",
+                "original_label": "C4"
+            },
+            "31": {
+                "label": "C5",
+                "original_label": "C5"
+            },
+            "32": {
+                "label": "C6",
+                "original_label": "C6"
+            },
+            "33": {
+                "label": "T7",
+                "original_label": "T7"
+            },
+            "34": {
+                "label": "T8",
+                "original_label": "T8"
+            },
+            "35": {
+                "label": "CP1",
+                "original_label": "CP1"
+            },
+            "36": {
+                "label": "CP2",
+                "original_label": "CP2"
+            },
+            "37": {
+                "label": "CP3",
+                "original_label": "CP3"
+            },
+            "38": {
+                "label": "CP4",
+                "original_label": "CP4"
+            },
+            "39": {
+                "label": "CP5",
+                "original_label": "CP5"
+            },
+            "40": {
+                "label": "CP6",
+                "original_label": "CP6"
+            },
+            "41": {
+                "label": "TP7",
+                "original_label": "TP7"
+            },
+            "42": {
+                "label": "TP8",
+                "original_label": "TP8"
+            },
+            "43": {
+                "label": "Pz",
+                "original_label": "Pz"
+            },
+            "44": {
+                "label": "P3",
+                "original_label": "P3"
+            },
+            "45": {
+                "label": "P4",
+                "original_label": "P4"
+            },
+            "46": {
+                "label": "P5",
+                "original_label": "P5"
+            },
+            "47": {
+                "label": "P6",
+                "original_label": "P6"
+            },
+            "48": {
+                "label": "P7",
+                "original_label": "P7"
+            },
+            "49": {
+                "label": "P8",
+                "original_label": "P8"
+            },
+            "50": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "51": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "52": {
+                "label": "PO4",
+                "original_label": "PO4"
+            },
+            "53": {
+                "label": "PO5",
+                "original_label": "PO5"
+            },
+            "54": {
+                "label": "PO6",
+                "original_label": "PO6"
+            },
+            "55": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "56": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "57": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "58": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "59": {
+                "label": "O2",
+                "original_label": "O2"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        },
+        "11": {
+            "moabb_subject": 11
+        },
+        "12": {
+            "moabb_subject": 12
+        },
+        "13": {
+            "moabb_subject": 13
+        },
+        "14": {
+            "moabb_subject": 14
+        },
+        "15": {
+            "moabb_subject": 15
+        },
+        "16": {
+            "moabb_subject": 16
+        },
+        "17": {
+            "moabb_subject": 17
+        },
+        "18": {
+            "moabb_subject": 18
+        },
+        "19": {
+            "moabb_subject": 19
+        },
+        "20": {
+            "moabb_subject": 20
+        },
+        "21": {
+            "moabb_subject": 21
+        },
+        "22": {
+            "moabb_subject": 22
+        },
+        "23": {
+            "moabb_subject": 23
+        },
+        "24": {
+            "moabb_subject": 24
+        },
+        "25": {
+            "moabb_subject": 25
+        },
+        "26": {
+            "moabb_subject": 26
+        },
+        "27": {
+            "moabb_subject": 27
+        },
+        "28": {
+            "moabb_subject": 28
+        }
+    }
+}
