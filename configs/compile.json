@@ -128,6 +128,75 @@
       },
       "SEED_V": {
         "dataset_path": "datas/finetune/SEED_V"
+      },
+      "PURSUE_P300": {
+        "dataset_path": "datas/pretrain/PURSUE_P300"
+      },
+      "BI2014a": {
+        "dataset_path": "datas/pretrain/BI2014a"
+      },
+      "BI2014b": {
+        "dataset_path": "datas/pretrain/BI2014b"
+      },
+      "BI2015a": {
+        "dataset_path": "datas/pretrain/BI2015a"
+      },
+      "BI2015b": {
+        "dataset_path": "datas/pretrain/BI2015b"
+      },
+      "Gao2026": {
+        "dataset_path": "datas/pretrain/Gao2026"
+      },
+      "Chang2025": {
+        "dataset_path": "datas/pretrain/Chang2025"
+      },
+      "Kim2025BetaRange": {
+        "dataset_path": "datas/pretrain/Kim2025BetaRange"
+      },
+      "PURSUE_LRP_ERN": {
+        "dataset_path": "datas/pretrain/PURSUE_LRP_ERN"
+      },
+      "PURSUE_MMN": {
+        "dataset_path": "datas/pretrain/PURSUE_MMN"
+      },
+      "PURSUE_N170": {
+        "dataset_path": "datas/pretrain/PURSUE_N170"
+      },
+      "PURSUE_N2pc": {
+        "dataset_path": "datas/pretrain/PURSUE_N2pc"
+      },
+      "PURSUE_N400": {
+        "dataset_path": "datas/pretrain/PURSUE_N400"
+      },
+      "PD_Rest": {
+        "dataset_path": "datas/pretrain/PD_Rest"
+      },
+      "Rest_PrePostCognitive": {
+        "dataset_path": "datas/pretrain/Rest_PrePostCognitive"
+      },
+      "NMT_Clinical": {
+        "dataset_path": "datas/pretrain/NMT_Clinical"
+      },
+      "LSE_IndiaTanzania": {
+        "dataset_path": "datas/pretrain/LSE_IndiaTanzania"
+      },
+      "ErpCore2021_ERN": {
+        "dataset_path": "datas/pretrain/ErpCore2021_ERN"
+      },
+      "ErpCore2021_MMN": {
+        "dataset_path": "datas/pretrain/ErpCore2021_MMN"
+      },
+      "ErpCore2021_N170": {
+        "dataset_path": "datas/pretrain/ErpCore2021_N170"
+      },
+      "ErpCore2021_N2pc": {
+        "dataset_path": "datas/pretrain/ErpCore2021_N2pc"
+      },
+      "ErpCore2021_N400": {
+        "dataset_path": "datas/pretrain/ErpCore2021_N400"
+      },
+      "ErpCore2021_P3": {
+        "dataset_path": "datas/pretrain/ErpCore2021_P3"
       }
     }
   }
