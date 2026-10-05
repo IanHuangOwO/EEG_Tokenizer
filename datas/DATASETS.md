@@ -40,7 +40,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Mimul-11 | Motor imagery (upper limb, 3-class) | B |  |  |  |  |  |  | open (GigaDB, Jeong 2020), not fetched |
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 
-## pretrain (60 datasets, 2041.6 h compiled)
+## pretrain (47 datasets, 2041.6 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -64,28 +64,17 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | ErpCore2021_N400 | ERP (N400) |  | 40 | 30 | 1024 | 2 | 1 s | 4.9 | compiled (MOABB) |
 | ErpCore2021_P3 | ERP (P3) |  | 40 | 30 | 1024 | 2 | 1 s | 4.2 | compiled (MOABB) |
 | Gao2026 | Visual imagery |  | 22 | 32 | 1000 | 10 | 1 s | 98.4 | compiled (MOABB) |
-| GoNoGo_Delorme(inhouse) | Go / No-go (in-house hold) |  |  |  |  |  |  |  | in-house hold: downloaded, not compiled (2026-09-30) |
 | GraspAndLift_Test | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 1.7 | compiled |
 | GraspAndLift_Train | Motor execution (grasp-and-lift) |  | 12 | 32 | 500 | none | — | 9.9 | compiled |
-| GuttmannFlury2025 | raw only (read by the GuttmannFlury2025_<task> folders) |  |  |  |  |  |  |  | raw failed (moabb GuttmannFlury2025_SSVEP, 30/31 subjects), not added |
-| GuttmannFlury2025_ME | Motor execution |  | 31 | 64 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
-| GuttmannFlury2025_MI | Motor imagery |  | 31 | 64 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
-| GuttmannFlury2025_P300 | P300 speller |  | 31 | 64 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
-| GuttmannFlury2025_SSVEP | SSVEP |  | 30 | 64 | 1000 | 4 | 1 s |  | not compiled (MOABB) |
 | Inria_Test | Error-related potential |  | 10 | 57 | 200 | 2 | 1 s | 11.0 | compiled |
 | Inria_Train | Error-related potential |  | 16 | 57 | 200 | 2 | 1 s | 19.0 | compiled |
 | Kim2025BetaRange | SSVEP (beta range) |  | 40 | 31 | 1024 | 40 | 1 s | 18.7 | compiled (MOABB) |
-| Lane_Keeping(inhouse) | Lane keeping (in-house hold) |  |  |  |  |  |  |  | no metadata |
 | Lee2019_MI | Motor imagery (L/R hand) |  | 54 | 62 | 1000 | 2 | 1 s | 91.4 | compiled (MOABB) |
 | Lee2019_SSVEP | SSVEP (4-class) |  | 54 | 62 | 1000 | 4 | 1 s | 81.0 | compiled (MOABB) |
-| LEMON | Resting state |  | 215 | 61 | 2500 | none | — |  | not compiled |
 | Liu2022EldBETA | SSVEP (9-class, elderly) |  | 100 | 64 | 1000 | 9 | 0 s | 19.7 | compiled (MOABB) |
-| Liu2024 | Motor imagery (stroke) |  |  |  |  |  |  |  | raw complete (moabb Liu2024, 50/50 subjects), not added |
 | LSE_IndiaTanzania | Resting state / task (consumer headsets) |  | 2000 | 60 | 128 | none | — | 275.1 | compiled |
-| Ma2020 | Motor imagery (multi-session) |  |  |  |  |  |  |  | raw failed (moabb Ma2020, 0/25 subjects), not added |
 | MDD_Mumtaz | Clinical: depression (rest + P300) |  | 64 | 19 | 256 | 2 | — | 20.5 | compiled |
 | Neonatal_Helsinki | Clinical: neonatal (NICU) |  | 79 | 19 | 256 | none | — | 110.5 | compiled |
-| Nieuwland2018_N400 | ERP (N400, sentence reading) |  | 356 | 74 | 500 | none | — |  | not compiled |
 | NMT_Clinical | Clinical (routine EEG) |  | 2417 | 21 | 200 | none | — | 488.5 | compiled |
 | PD_Rest | Resting state (Parkinson's) |  | 312 | 64 | 500 | none | — | 20.1 | compiled |
 | PURSUE_LRP_ERN | ERP (LRP_ERN) |  | 292 | 39 | 500 | none | — | 64.4 | partial (288/292) |
@@ -99,13 +88,31 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | SPIS | Resting state (eyes open/closed) |  | 10 | 64 | 256 | 2 | 0 s | 0.8 | compiled |
 | SRM_RestingState | Resting state |  | 111 | 64 | 1024 | 1 | 0 s | 10.1 | compiled |
 | STEW | Mental workload (multitasking) |  | 48 | 14 | 128 | 2 | — | 4.0 | compiled |
-| Stieger2021 | Motor imagery (cursor control) |  | 62 | 60 | 1000 | 4 | 1 s |  | not compiled (MOABB) |
 | UCSD_PD | Clinical: Parkinson's (rest) |  | 31 | 32 | 512 | 3 | — | 2.5 | compiled |
 | Wang2016 | SSVEP (40-class) |  | 34 | 64 | 250 | 40 | -0.5 s | 11.3 | compiled (MOABB) |
 | Weibo2014 | Motor imagery (7-class) |  | 10 | 60 | 200 | 7 | 1 s | 12.3 | compiled (MOABB) |
-| Yang2025 | Motor imagery (multi-day) |  | 51 | 59 | 1000 | 2 | 1 s |  | not compiled (MOABB) |
 
-## pretrain candidates on hold (TB scale or gated)
+## pretrain candidates
+
+### Downloaded, not compiled (13 folders in `datas/pretrain/`, not in the corpus)
+
+| Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Status | Why not compiled |
+|---|---|---|---|---|---|---|---|
+| GoNoGo_Delorme(inhouse) | Go / No-go (in-house hold) |  |  |  |  | in-house hold: downloaded, not compiled (2026-09-30) | in-house hold |
+| GuttmannFlury2025 | raw only (read by the GuttmannFlury2025_<task> folders) |  |  |  |  | raw failed (moabb GuttmannFlury2025_SSVEP, 30/31 subjects), not added | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| GuttmannFlury2025_ME | Motor execution | 31 | 64 | 1000 | 2 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| GuttmannFlury2025_MI | Motor imagery | 31 | 64 | 1000 | 2 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| GuttmannFlury2025_P300 | P300 speller | 31 | 64 | 1000 | 2 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| GuttmannFlury2025_SSVEP | SSVEP | 30 | 64 | 1000 | 4 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| Lane_Keeping(inhouse) | Lane keeping (in-house hold) |  |  |  |  | no metadata | in-house hold |
+| LEMON | Resting state | 215 | 61 | 2500 | none | not compiled | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| Liu2024 | Motor imagery (stroke) |  |  |  |  | raw complete (moabb Liu2024, 50/50 subjects), not added | MOABB metadata fails (figshare 403 on the electrodes file) |
+| Ma2020 | Motor imagery (multi-session) |  |  |  |  | raw failed (moabb Ma2020, 0/25 subjects), not added | download fails (dataverse 400 Bad Request) |
+| Nieuwland2018_N400 | ERP (N400, sentence reading) | 356 | 74 | 500 | none | not compiled | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| Stieger2021 | Motor imagery (cursor control) | 62 | 60 | 1000 | 4 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| Yang2025 | Motor imagery (multi-day) | 51 | 59 | 1000 | 2 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+
+### On hold, not downloaded (TB scale or gated)
 
 | Dataset | Source | Subjects / channels | Size | Note |
 |---|---|---|---|---|

@@ -114,6 +114,18 @@ ON_HOLD = [
     ('SEED-FRA / SEED-GER', 'BCMI (gated)', '8 + 8', '?', '3 emotions, French / German subjects; small'),
 ]
 
+RAW_SHARED_IN_CORPUS = {'ErpCore2021'}   # raw/ read by the compiled ErpCore2021_<task> folders
+
+# Why a downloaded pretrain dataset is not compiled (it is listed under the candidates, not the corpus table)
+NOT_COMPILED = {
+    **{d: 'raw > 100 GB, left out of corpus v2 for disk space (2026-10-05)' for d in (
+        'Stieger2021', 'Yang2025', 'LEMON', 'Nieuwland2018_N400', 'GuttmannFlury2025', 'GuttmannFlury2025_ME',
+        'GuttmannFlury2025_MI', 'GuttmannFlury2025_P300', 'GuttmannFlury2025_SSVEP')},
+    'Ma2020': 'download fails (dataverse 400 Bad Request)',
+    'Liu2024': 'MOABB metadata fails (figshare 403 on the electrodes file)',
+    'GoNoGo_Delorme(inhouse)': 'in-house hold', 'Lane_Keeping(inhouse)': 'in-house hold',
+}
+
 # Why each datas/archive/ dataset was dropped from pretraining (2026-09-24 rebalance).
 ARCHIVED = {
     'AAD_KUL': 'Public release (Zenodo 4004271) is downsampled to 128 Hz, 0.5 Hz high-passed and '
@@ -191,10 +203,15 @@ lines = ['# Datasets', '',
          'Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.17883).',
          'Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the',
          'trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).', '']
+candidates = []   # downloaded pretrain datasets without a compiled cache
 for split in ('finetune', 'pretrain'):
     rows, total = [], 0.0
     for p in sorted(glob.glob(f'datas/{split}/*/'), key=str.lower):
         r, h = row(split, p.rstrip('/'), suffix_of[split])
+        # a raw-only folder whose task folders are compiled (moabb raw_root) stays with the corpus
+        if split == 'pretrain' and not h and os.path.basename(p.rstrip('/')) not in RAW_SHARED_IN_CORPUS:
+            candidates.append(r)
+            continue
         rows.append(r)
         total += h
     lines += [f'## {split} ({len(rows)} datasets, {total:.1f} h compiled)', '',
@@ -204,7 +221,12 @@ for split in ('finetune', 'pretrain'):
     if split == 'finetune':
         lines += [f'| {n} | {p} | {b} |  |  |  |  |  |  | {st} |' for n, p, b, st in MISSING]
     lines.append('')
-lines += ['## pretrain candidates on hold (TB scale or gated)', '', '| Dataset | Source | Subjects / channels | Size | Note |',
+lines += ['## pretrain candidates', '',
+          f'### Downloaded, not compiled ({len(candidates)} folders in `datas/pretrain/`, not in the corpus)', '',
+          '| Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Status | Why not compiled |',
+          '|---|---|---|---|---|---|---|---|']
+lines += ['| ' + ' | '.join([r[0], r[2], r[4], r[5], r[6], r[7], r[10], NOT_COMPILED.get(r[0], '')]) + ' |' for r in candidates]
+lines += ['', '### On hold, not downloaded (TB scale or gated)', '', '| Dataset | Source | Subjects / channels | Size | Note |',
           '|---|---|---|---|---|'] + [f'| {" | ".join(r)} |' for r in ON_HOLD] + ['']
 archived = sorted(os.path.basename(p.rstrip('/')) for p in glob.glob('datas/archive/*/'))
 lines += [f'## archive ({len(archived)} datasets, not compiled into any run)', '',
