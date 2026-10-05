@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "Rest_PrePostCognitive",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on005385",
+        "source_version": "on005385 v1.0.0",
         "file_format": "BIDS (edf)",
         "description": "Resting-state EEG data before and after cognitive activity across the adult lifespan and a 5-year follow-up: resting state before / after a cognitive task",
     },

@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "PURSUE_MMN",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on007069",
+        "source_version": "on007069 v1.0.0",
         "file_format": "BIDS (set)",
         "description": "PURSUE MMN Auditory Oddball: PURSUE MMN (ERP CORE task replicated across labs)",
     },

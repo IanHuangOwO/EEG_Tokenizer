@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "PURSUE_P300",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on007056",
+        "source_version": "on007056 v1.0.0",
         "file_format": "BIDS (set)",
         "description": "PURSUE P300 Visual Oddball: PURSUE P300 (ERP CORE task replicated across labs)",
     },

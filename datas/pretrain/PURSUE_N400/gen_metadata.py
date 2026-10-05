@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "PURSUE_N400",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on007052",
+        "source_version": "on007052 v1.0.0",
         "file_format": "BIDS (set)",
         "description": "PURSUE N400 Word Processing: PURSUE N400 (ERP CORE task replicated across labs)",
     },

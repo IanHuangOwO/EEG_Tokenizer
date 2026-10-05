@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "PURSUE_LRP_ERN",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on007139",
+        "source_version": "on007139 v1.0.0",
         "file_format": "BIDS (set)",
         "description": "PURSUE LRP/ERN Flanker: PURSUE LRP_ERN (ERP CORE task replicated across labs)",
     },

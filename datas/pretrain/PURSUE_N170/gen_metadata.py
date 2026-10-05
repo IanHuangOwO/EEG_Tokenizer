@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "PURSUE_N170",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on007096",
+        "source_version": "on007096 v1.0.0",
         "file_format": "BIDS (set)",
         "description": "PURSUE N170 Face Perception: PURSUE N170 (ERP CORE task replicated across labs)",
     },

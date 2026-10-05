@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "PURSUE_N2pc",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on007137",
+        "source_version": "on007137 v1.0.0",
         "file_format": "BIDS (set)",
         "description": "PURSUE N2pc Visual Search: PURSUE N2pc (ERP CORE task replicated across labs)",
     },

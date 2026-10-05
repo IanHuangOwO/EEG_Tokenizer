@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "PD_Rest",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=on008768",
+        "source_version": "on008768 v1.0.0",
         "file_format": "BIDS (vhdr)",
         "description": "Resting-State EEG in Parkinson's Disease and Healthy Controls: Parkinson's disease resting state",
     },

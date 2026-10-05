@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "LEMON",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=nm000179",
+        "source_version": "nm000179 v1.0.0",
         "file_format": "BIDS (vhdr)",
         "description": "LEMON: MPI Leipzig Mind-Brain-Body EEG (Resting State): MPI LEMON resting state",
     },

@@ -13,6 +13,7 @@ write_bids_metadata(
     os.path.dirname(os.path.abspath(__file__)), "NMT_Clinical",
     dataset_info={
         "source_url": "https://nemar.org/dataexplorer/detail?dataset_id=nm000181",
+        "source_version": "nm000181 v1.0.0",
         "file_format": "BIDS (edf)",
         "description": "NMT: Neurodiagnostic Montage Template Scalp EEG: NMT clinical EEG (Pakistan, normal / abnormal routine recordings)",
     },
