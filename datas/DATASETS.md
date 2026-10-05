@@ -55,7 +55,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Cho2017 | Motor imagery (L/R hand) |  | 52 | 64 | 512 | 2 | 1 s | 20.5 | compiled (MOABB) |
 | Dreyer2023 | Motor imagery (L/R hand) |  | 87 | 27 | 512 | 2 | 1 s | 63.3 | compiled (MOABB) |
 | ERP_Longitudinal | RSVP oddball ERP |  | 15 | 57 | 1000 | none | — | 14.8 | compiled |
-| ErpCore2021 | raw only (read by the ErpCore2021_<task> folders) |  |  |  |  |  |  |  | raw complete (moabb ErpCore2021_P3, 40/40 subjects), not added |
+| ErpCore2021 | raw only (read by the ErpCore2021_<task> folders) |  |  |  |  |  |  |  | raw only: shared download read by the ErpCore2021_<task> folders |
 | ErpCore2021_ERN | ERP (ERN) |  | 40 | 30 | 1024 | 2 | 1 s | 8.6 | compiled (MOABB) |
 | ErpCore2021_MMN | ERP (MMN) |  | 40 | 30 | 1024 | 2 | 1 s | 6.7 | compiled (MOABB) |
 | ErpCore2021_N170 | ERP (N170) |  | 40 | 30 | 1024 | 2 | 1 s | 6.5 | compiled (MOABB) |
@@ -99,7 +99,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | Dataset | Paradigm | Subjects | Ch | Native Hz | Classes | Status | Why not compiled |
 |---|---|---|---|---|---|---|---|
 | GoNoGo_Delorme(inhouse) | Go / No-go (in-house hold) |  |  |  |  | in-house hold: downloaded, not compiled (2026-09-30) | in-house hold |
-| GuttmannFlury2025 | raw only (read by the GuttmannFlury2025_<task> folders) |  |  |  |  | raw failed (moabb GuttmannFlury2025_SSVEP, 30/31 subjects), not added | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
+| GuttmannFlury2025 | raw only (read by the GuttmannFlury2025_<task> folders) |  |  |  |  | raw only: shared download read by the GuttmannFlury2025_<task> folders | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
 | GuttmannFlury2025_ME | Motor execution | 31 | 64 | 1000 | 2 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
 | GuttmannFlury2025_MI | Motor imagery | 31 | 64 | 1000 | 2 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
 | GuttmannFlury2025_P300 | P300 speller | 31 | 64 | 1000 | 2 | not compiled (MOABB) | raw > 100 GB, left out of corpus v2 for disk space (2026-10-05) |
