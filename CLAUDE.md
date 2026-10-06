@@ -101,7 +101,8 @@ Key fields (templates show defaults):
   v2 backbones predate it): 1-2 holes splitting the ratio at random cut points, each >= 3 patches; `subsample` removes channels down to a
   `montages.json` sub-montage for part of the dense-cap windows (`prob` 0.1 in the templates since 2026-10-06, the
   user's choice without a test; earlier backbones used 0.2). Draw probabilities of the three masking methods: time
-  blocks 0.30, random channels 0.35, channel cluster 0.35.
+  blocks 0.30, random channels 0.35, channel cluster 0.35; maximum ratios 0.4 / 0.3 / 0.3 (cluster 0.2 before
+  2026-10-06).
 - `training_params.pretrain`: `model_name`, `output_path`, `epochs`, `tokenizer_epochs`, `freeze_atoms`,
   `warmup_epochs`, `batch_size`, LR fields, `train_val_split`, `seed`.
 - `model_params.Qtome.finetune` (the head, validated at build): `features` = a list of `{"type": <entry>,

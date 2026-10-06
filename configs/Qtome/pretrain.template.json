@@ -4804,7 +4804,7 @@
           {
             "type": "channel_cluster",
             "prob": 0.35,
-            "max_ratio": 0.2,
+            "max_ratio": 0.3,
             "radius_cm": [
               3.0,
               7.0
