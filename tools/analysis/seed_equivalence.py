@@ -15,12 +15,13 @@ import numpy as np
 from scipy import stats
 
 from tools.analysis.summarize_runs import load
+from tools.analysis import QTOME_OUTPUT
 
 
 def collect(backbone, head, metric='tail'):
     """-> {cell: {seed: {subject: score}}}"""
     out = {}
-    for d in glob.glob(f'output/{backbone}/finetune/{head}_seed*/*'):
+    for d in glob.glob(f'{QTOME_OUTPUT}/{backbone}/finetune/{head}_seed*/*'):
         m = re.search(r'_seed(\d+)$', os.path.basename(os.path.dirname(d)))
         if m and (subj := load(d, metric)):
             out.setdefault(os.path.basename(d), {})[int(m.group(1))] = subj

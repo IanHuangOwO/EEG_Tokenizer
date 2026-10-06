@@ -31,6 +31,7 @@ from IO.dataset import build_dataset_from_config, MontageBatchSampler
 from IO.masking import build_masking_strategy_from_config
 from model.factory import build_from_checkpoint, MODEL_REGISTRY, optimizer_param_groups
 from train_pretrain import _unpack_batch
+from tools.analysis import QTOME_OUTPUT
 
 MODES = ('fp16-amp', 'fp32+tf32', 'fp32')
 
@@ -98,8 +99,8 @@ def main():
 
     dev = torch.device('cuda')
     torch.manual_seed(0)
-    cfg = json.load(open(f'output/{a.run}/pretrain/artifacts/config.json'))
-    ckpt = torch.load(f'output/{a.run}/pretrain/checkpoint/last.pth', map_location='cpu', weights_only=False)
+    cfg = json.load(open(f'{QTOME_OUTPUT}/{a.run}/pretrain/artifacts/config.json'))
+    ckpt = torch.load(f'{QTOME_OUTPUT}/{a.run}/pretrain/checkpoint/last.pth', map_location='cpu', weights_only=False)
     c = copy.deepcopy(cfg)
     c['dataset_params']['pretrain'] = {a.dataset: dict(cfg['dataset_params']['pretrain'][a.dataset],
                                                        subject_to_use=a.subjects)}

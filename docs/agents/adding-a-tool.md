@@ -31,7 +31,7 @@ Discovery is by filename (`tools/panels/panel_*.py`), no registry. `ctx` is a
   its own dataset inside `run()`, capped with `tools.analysis.cap_subjects` (loading every subject of a
   large dataset once ran out of memory).
 - finetune: `groups` ({name: backbone}), `ref` (a group name or None), `head` (the finetune label: runs
-  are `output/<backbone>/finetune/<head>/<cell>/`).
+  are `output/Qtome/<backbone>/finetune/<head>/<cell>/`).
 
 `PRESETS` in `tools/panels/__init__.py` lists what each entrypoint runs by default; add a panel there
 only if it should run every time.

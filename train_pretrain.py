@@ -17,7 +17,7 @@ from IO.dataset import MontageBatchSampler, build_dataset_from_config, split_pre
 from IO.masking import build_masking_strategy_from_config
 from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, checkpoint_build_config, optimizer_param_groups, MODEL_REGISTRY
-from tools.analysis import apply_overrides, pick_trial, resolve_output_path
+from tools.analysis import apply_overrides, pick_trial, resolve_output_path, model_output_root
 from tools.analysis.snapshot import build_pretrain_bundle
 from tools.viz.snapshot import render_recon, render_atom_gallery
 
@@ -186,7 +186,7 @@ def main():
     model_name = train_params.get('model_name', 'default_run')
     train_params.setdefault('model_name', model_name)
 
-    base_output_dir = f"output/{resolve_output_path(config, mode='pretrain')}"
+    base_output_dir = os.path.join(model_output_root(config, 'pretrain'), resolve_output_path(config, mode='pretrain'))
     checkpoint_dir  = os.path.join(base_output_dir, "checkpoint")
     artifact_dir    = os.path.join(base_output_dir, "artifacts")
     vis_dir         = os.path.join(base_output_dir, "visualization")

@@ -38,7 +38,7 @@ python -m tools.misc.sweep configs/Qtome/sweeps/<sweep>.json > output/queue/<pla
 python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threads 8
 
 # Analysis: one panel mechanism (tools/panels/, presets in tools/panels/__init__.py PRESETS), failures don't stop
-# the other panels. Pretrain = one backbone -> output/<backbone>/pretrain/analysis/ (standard: backbone_eval,
+# the other panels. Pretrain = one backbone -> output/Qtome/<backbone>/pretrain/analysis/ (standard: backbone_eval,
 # attention_range, atom_usage, ridge_probe, atom_vs_raw, atom_templates, atom_duplicates, atom_distribution,
 # snapshot, codebook; quick: the first seven; on request: coord_robustness, atom_maps, probe_maps). Judge each
 # change by its own mechanism metric, not finetuning (ADR 0020).
@@ -47,7 +47,7 @@ python analysis_pretrain.py --panel profile [--train]     # parameter counts + t
 # Finetune = several backbones under one head label -> output/analysis/<groups>/ (standard: summary, report,
 # time_weights; also seed_equivalence, class_snapshots --checkpoint <head.pth>). Run backbone_eval first.
 python analysis_finetune.py --group base=<backbone> --group X=<backbone> --ref base [--head frozen_learned]
-python -m tools.analysis.summarize_runs 'output/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>] [--rank N]
+python -m tools.analysis.summarize_runs 'output/Qtome/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>] [--rank N]
 ```
 
 No test suite: modules carry runnable self-checks (e.g. `Qtome_modules._selfcheck_head_modules()`), and
@@ -180,13 +180,15 @@ dataset, kurtosis 6.7 -> 1.2). docs/adr/0011.
 
 ## Outputs
 
-A run writes to `output/<training_params.<mode>.output_path>` (default `<model_name>/pretrain` for pretrain).
-Per backbone: `output/<backbone>/pretrain/` (`checkpoint/last.pth` -- prefer it over `best.pth`, which locks
+Each model has its own output folder: a run writes to `output/<model_type>/<training_params.<mode>.output_path>`
+(default `<model_name>/pretrain` for pretrain; `model_type` defaults to Qtome; `tools/analysis` QTOME_OUTPUT). EEGNet:
+`output/EEGNet/finetune/compass/<dataset>_<mode>_seed<k>/`.
+Per Qtome backbone: `output/Qtome/<backbone>/pretrain/` (`checkpoint/last.pth` -- prefer it over `best.pth`, which locks
 onto an easy epoch of the mask curriculum; `artifacts/config.json`; `visualization/`; `analysis/`;
 `feature_cache/` -- regenerable, keyed by checkpoint, build_config, code hash and data fingerprint) and
-`output/<backbone>/finetune/<head>/<cell>/` (`artifacts/group_eval.json`: per-subject `tail` = mean of the last
+`output/Qtome/<backbone>/finetune/<head>/<cell>/` (`artifacts/group_eval.json`: per-subject `tail` = mean of the last
 10 epochs' balanced accuracy, `last`, kappa). `output/analysis/` holds generated multi-backbone analysis (regenerable),
-`output/queue/` queue state, `output/archive/<date>_<topic>/` superseded experiments. Once a result is final, write it up
+`output/queue/` queue state, `output/Qtome/archive/<date>_<topic>/` superseded experiments. Once a result is final, write it up
 in `docs/reports/` (fixed format and index in `docs/reports/README.md`; copy the figures, tables and
 pipeline scripts it cites) and delete the generated `output/analysis/` and queue folders.
 

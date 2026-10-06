@@ -15,6 +15,7 @@ from IO.dataset import resolve_canonical_channels
 from tools.analysis import lookup_event_onset_sample
 from tools.analysis.probe_maps import summarise
 from tools.viz.probe_plots import plot_probe_maps
+from tools.analysis import QTOME_OUTPUT
 
 STAGES = frozenset({'finetune'})
 
@@ -39,13 +40,13 @@ def _time_axis(cfg, n_patch, override):
 
 def run(ctx):
     cells = sorted({re.sub(r'_seed\d+$', '', os.path.basename(d)) for bb in ctx.groups.values()
-                    for d in glob.glob(f'output/{bb}/finetune/{ctx.head}/*')})
+                    for d in glob.glob(f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/*')})
     override = dict(e.split('=', 1) for e in getattr(ctx.args, 'event_onset', []))
     for cell in cells:
         maps, cfg, notes, has_event = {}, None, set(), False
         for g, bb in ctx.groups.items():
-            dirs = sorted(glob.glob(f'output/{bb}/finetune/{ctx.head}/{cell}')
-                          + glob.glob(f'output/{bb}/finetune/{ctx.head}/{cell}_seed*'))
+            dirs = sorted(glob.glob(f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/{cell}')
+                          + glob.glob(f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/{cell}_seed*'))
             heads = [p for d in dirs for p in sorted(glob.glob(f'{d}/finetune/run_*/head.pth'))]
             if not heads:
                 continue
@@ -62,7 +63,7 @@ def run(ctx):
             continue
         note = ''.join(sorted(n for n in notes if n))
         chans = resolve_canonical_channels(cfg['preprocess_params']['canonical_channels'])
-        hc = torch.load(glob.glob(f'output/{next(iter(ctx.groups.values()))}/finetune/{ctx.head}/{cell}*/finetune/run_*/head.pth')[0],
+        hc = torch.load(glob.glob(f'{QTOME_OUTPUT}/{next(iter(ctx.groups.values()))}/finetune/{ctx.head}/{cell}*/finetune/run_*/head.pth')[0],
                         map_location='cpu', weights_only=False)['head_config']
         names = [chans[i] for i in hc['channel_idx']]
         out = os.path.join(ctx.out_dir, f'probe_maps_{cell}.png')

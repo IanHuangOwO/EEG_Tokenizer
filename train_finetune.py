@@ -21,7 +21,7 @@ from cache_feature import CachedAtomDataset, get_atom_cache
 from model.factory import MODEL_REGISTRY, load_backbone
 from model.Qtome.Qtome_modules import (FeatureHead, AtomExtractor, make_head_checkpoint,
                                        resolve_head_config, needs_atom, needs_raw, needs_latent, feature_names)
-from tools.analysis import apply_overrides, load_config
+from tools.analysis import apply_overrides, load_config, model_output_root
 from IO.splits import SPLITS, all_subjects, load_sessions, make_runs, protocol_split, resolve_subjects
 
 QTOME_HEADS = 'configs/Qtome/protocol_heads.json'
@@ -362,10 +362,10 @@ def main():
         torch.set_num_threads(int(tp['num_threads']))
     if 'split' not in tp:
         raise ValueError(f"training_params.finetune.split is required (type: one of {sorted(SPLITS)})")
-    # output_path: where this run writes under output/ -- separate from model_name (a
+    # output_path: where this run writes under output/Qtome/ -- separate from model_name (a
     # clean identity string), same split as train_pretrain.py's. Falls back to
     # model_name for configs that don't set it.
-    base = f"output/{tp.get('output_path', tp.get('model_name', 'default_finetune_run'))}"
+    base = os.path.join(model_output_root(config, 'finetune'), tp.get('output_path', tp.get('model_name', 'default_finetune_run')))
     artifact_dir = os.path.join(base, 'artifacts')
     os.makedirs(artifact_dir, exist_ok=True)
     logger, timestamp = setup_logger(artifact_dir)

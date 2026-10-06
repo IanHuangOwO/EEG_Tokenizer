@@ -17,6 +17,7 @@ import torch
 
 from tools.analysis import _deep_merge, resolve_output_dir
 from tools.panels import PRESETS, PanelContext, discover_panel_names, resolve_panels, run_panels
+from tools.analysis import QTOME_OUTPUT
 
 
 def main():
@@ -37,7 +38,7 @@ def main():
     args = ap.parse_args()
 
     names = resolve_panels('pretrain', args.preset, args.panel)
-    checkpoint = args.checkpoint or (f'output/{args.run}/pretrain/checkpoint/last.pth' if args.run else None)
+    checkpoint = args.checkpoint or (f'{QTOME_OUTPUT}/{args.run}/pretrain/checkpoint/last.pth' if args.run else None)
     if checkpoint:
         config = json.load(open(os.path.join(os.path.dirname(os.path.dirname(checkpoint)), 'artifacts', 'config.json')))
     elif names == ['profile']:

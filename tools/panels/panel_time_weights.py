@@ -10,17 +10,18 @@ import numpy as np
 from tools.analysis import event_onset_patch
 from tools.analysis.atom_dist import time_pool_weights
 from tools.viz.atom_plots import plot_time_weights
+from tools.analysis import QTOME_OUTPUT
 
 STAGES = frozenset({'finetune'})
 
 
 def run(ctx):
     cells = sorted({os.path.basename(d) for bb in ctx.groups.values()
-                    for d in glob.glob(f'output/{bb}/finetune/{ctx.head}/*')})
+                    for d in glob.glob(f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/*')})
     for cell in cells:
         maps, cfg = {}, None
         for g, bb in ctx.groups.items():
-            run_dir = f'output/{bb}/finetune/{ctx.head}/{cell}'
+            run_dir = f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/{cell}'
             heads = [time_pool_weights(p) for p in sorted(glob.glob(f'{run_dir}/finetune/run_*/head.pth'))]
             for entry in sorted({e for w in heads for e in w}):
                 ws = [w[entry] for w in heads if entry in w]

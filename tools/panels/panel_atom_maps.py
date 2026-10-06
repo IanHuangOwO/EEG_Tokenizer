@@ -20,6 +20,7 @@ from cache_feature import CachedAtomDataset, get_atom_cache
 from tools.analysis.probe_maps import summarise, summarise_signed_atoms, summarise_atoms
 from tools.panels.panel_probe_maps import _time_axis
 from tools.viz.probe_plots import plot_atom_maps
+from tools.analysis import QTOME_OUTPUT
 
 STAGES = frozenset({'finetune'})
 
@@ -37,9 +38,9 @@ def _atom_labels(backbone_ckpt, sample_freq):
 def run(ctx):
     override = dict(e.split('=', 1) for e in getattr(ctx.args, 'event_onset', []))
     for g, bb in ctx.groups.items():
-        cells = sorted({re.sub(r'_seed\d+$', '', os.path.basename(d)) for d in glob.glob(f'output/{bb}/finetune/{ctx.head}/*')})
+        cells = sorted({re.sub(r'_seed\d+$', '', os.path.basename(d)) for d in glob.glob(f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/*')})
         for cell in cells:
-            dirs = sorted(glob.glob(f'output/{bb}/finetune/{ctx.head}/{cell}') + glob.glob(f'output/{bb}/finetune/{ctx.head}/{cell}_seed*'))
+            dirs = sorted(glob.glob(f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/{cell}') + glob.glob(f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/{cell}_seed*'))
             heads = [p for d in dirs for p in sorted(glob.glob(f'{d}/finetune/run_*/head.pth'))]
             if not heads:
                 continue

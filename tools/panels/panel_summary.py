@@ -6,12 +6,13 @@ import os
 
 from tools.analysis import write_csv
 from tools.analysis.summarize_runs import collect, mean_rows, render, subject_rows
+from tools.analysis import QTOME_OUTPUT
 
 STAGES = frozenset({'finetune'})
 
 
 def run(ctx):
-    table = collect([f'output/{bb}/finetune/{ctx.head}/*' for bb in ctx.groups.values()], ctx.args.metric)
+    table = collect([f'{QTOME_OUTPUT}/{bb}/finetune/{ctx.head}/*' for bb in ctx.groups.values()], ctx.args.metric)
     if not table:
         raise RuntimeError(f"no finetune runs with group_eval.json under output/<backbone>/finetune/{ctx.head}/")
     ref = f'{ctx.groups[ctx.ref]}:{ctx.head}' if ctx.ref else None

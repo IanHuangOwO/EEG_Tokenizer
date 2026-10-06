@@ -24,7 +24,7 @@ is a subset of a larger one.
 ## runs/
 
 A real run never points at a template. `runs/` is git-ignored because every run snapshots its effective
-config (overrides applied) into `output/<run>/artifacts/config.json`; those snapshots are the record.
+config (overrides applied) into `output/<model>/<run>/artifacts/config.json`; those snapshots are the record.
 
 ```bash
 cp configs/Qtome/pretrain.template.json configs/runs/<backbone>/pretrain.json    # set window_fraction for the size
@@ -33,7 +33,7 @@ cp configs/Qtome/finetune.template.json configs/runs/<backbone>/finetune/<head>/
 ```
 
 A finetune overlay holds only finetune keys; `load_config` (`tools/analysis/__init__.py`) deep-merges it onto
-its `base_config`. `model_name` is an identity string; `output_path` is where the run writes under `output/`
+its `base_config`. `model_name` is an identity string; `output_path` is where the run writes under `output/<model_type>/` (Qtome: `output/Qtome/`)
 (pretrain default `<model_name>/pretrain`; finetune e.g. `<backbone>/finetune/<head>/<cell>`). A trained
 backbone is always rebuilt from its checkpoint's own `build_config`, so editing `pretrain.json` afterwards
 cannot change what a finetune loads -- but keep it as the record of how the backbone was trained anyway.

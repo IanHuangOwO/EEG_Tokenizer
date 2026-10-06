@@ -15,6 +15,7 @@ import numpy as np
 from scipy import stats
 
 from tools.analysis.summarize_runs import load
+from tools.analysis import QTOME_OUTPUT
 
 CELLS = ['BNCI2014001_loso', 'BNCI2014001_fewshot', 'BNCI2014004_loso', 'BNCI2014004_fewshot',
          'BNCI2014008_loso', 'BNCI2014008_fewshot']
@@ -26,7 +27,7 @@ MSE_REL = 0.05                 # an MSE is "better" only when >= 5% lower (vs th
 
 
 def scores(bb, head, cell):
-    return load(f'output/{bb}/finetune/{head}/{cell}', 'tail') or {}
+    return load(f'{QTOME_OUTPUT}/{bb}/finetune/{head}/{cell}', 'tail') or {}
 
 
 def paired(a, b):
@@ -48,7 +49,7 @@ def holm(ps):
 
 
 def backbone_eval(bb):
-    p = f'output/{bb}/pretrain/analysis/backbone_eval.json'
+    p = f'{QTOME_OUTPUT}/{bb}/pretrain/analysis/backbone_eval.json'
     return json.load(open(p)) if os.path.exists(p) else None
 
 
@@ -177,7 +178,7 @@ def backbone_tables(groups):
     structure, per group of backbones (averaged over a group's seeds), from each backbone_eval.json."""
     print('\n## Backbone eval (held-out windows, identical masks; lower MSE is better)')
     evals = {g: [json.load(open(p)) for b in bbs
-                 if os.path.exists(p := f'output/{b}/pretrain/analysis/backbone_eval.json')] for g, bbs in groups.items()}
+                 if os.path.exists(p := f'{QTOME_OUTPUT}/{b}/pretrain/analysis/backbone_eval.json')] for g, bbs in groups.items()}
     kinds = ['token_runs', 'random_channel', 'channel_cluster', 'time_block', 'motor3_to_bci22']
     print(f'  {"test mask":17} {"windows":7}' + ''.join(f' | {g:>22}' for g in evals))
     for k in kinds:

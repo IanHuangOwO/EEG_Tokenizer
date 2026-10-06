@@ -8,10 +8,10 @@ tune/mi_loso/lr0.001_...: label 'tune/mi_loso', row 'lr0.001_...'). A cell is th
 subjects of each subject's mean over folds (metric: tail | last | kappa_tail | kappa_last).
 
     # backbones x heads on the benchmark cells, paired test of every column against a reference
-    python -m tools.analysis.summarize_runs 'output/qtome_tiny_static16_*_s1/finetune/learned/*' \\
+    python -m tools.analysis.summarize_runs 'output/Qtome/qtome_tiny_static16_*_s1/finetune/learned/*' \\
         --ref qtome_tiny_static16_base_s1:learned
     # a grid: rank the configs of each column (top 10)
-    python -m tools.analysis.summarize_runs 'output/qtome_tiny_static16_base_s1/finetune/tune/*/*' --rank 10
+    python -m tools.analysis.summarize_runs 'output/Qtome/qtome_tiny_static16_base_s1/finetune/tune/*/*' --rank 10
 """
 import argparse
 import glob
@@ -20,6 +20,7 @@ import os
 
 import numpy as np
 from scipy import stats
+from tools.analysis import QTOME_OUTPUT
 
 
 def load(run_dir, metric):
@@ -94,7 +95,7 @@ def subject_rows(groups, head):
     metrics (each a subject's mean over folds) -> a list of dicts, one per group x cell x subject."""
     rows = []
     for g, bb in groups.items():
-        for d in sorted(glob.glob(f'output/{bb}/finetune/{head}/*')):
+        for d in sorted(glob.glob(f'{QTOME_OUTPUT}/{bb}/finetune/{head}/*')):
             per = {m: load(d, m) for m in ('tail', 'last', 'kappa_tail', 'kappa_last')}
             if not per['tail']:
                 continue

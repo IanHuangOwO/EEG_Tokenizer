@@ -93,7 +93,7 @@ python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threa
 python analysis_pretrain.py --run <backbone> [--preset quick] [--panel <name> ...]
 python analysis_pretrain.py --panel profile [--train]            # parameter counts + timing
 python analysis_finetune.py --group base=<backbone> --group X=<backbone> --ref base
-python -m tools.analysis.summarize_runs 'output/<backbone>/finetune/<head>/*'
+python -m tools.analysis.summarize_runs 'output/Qtome/<backbone>/finetune/<head>/*'
 ```
 
 The files in `configs/*.template.json` are starting points and are never run directly. Real run
@@ -113,7 +113,7 @@ reads only the Q-atoms: `atom_power` (MI) and `signed_ab` (signed gains, P300); 
 ## Outputs
 
 ```
-output/<backbone>/
+output/Qtome/<backbone>/          # every Qtome run; archive/ beside the backbones
   pretrain/
     checkpoint/{best,last}.pth    # prefer last.pth: best.pth locks onto easy curriculum epochs
     artifacts/config.json
@@ -122,8 +122,9 @@ output/<backbone>/
     feature_cache/                # regenerable features for finetuning
   finetune/<head>/<dataset>_<split>/
     artifacts/group_eval.json     # per-subject balanced accuracy (tail = mean of the last 10 epochs)
+output/EEGNet/finetune/compass/<dataset>_<mode>_seed<k>/   # from-scratch baseline (train_baseline.py)
 output/analysis/                  # generated multi-backbone analysis (curated write-ups: docs/reports/)
-output/archive/<date>_<topic>/     # superseded experiments, grouped by topic
+output/Qtome/archive/<date>_<topic>/     # superseded experiments, grouped by topic
 ```
 
 ## Repository layout

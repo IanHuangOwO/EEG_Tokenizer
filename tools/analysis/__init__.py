@@ -103,6 +103,14 @@ def apply_overrides(cfg: dict, sets) -> dict:
     return cfg
 
 
+QTOME_OUTPUT = 'output/Qtome'   # every Qtome run (backbones, their finetune heads, archive); tools resolve backbones here
+
+
+def model_output_root(config: dict, mode: str = 'pretrain') -> str:
+    """output/<model_type>: each model's runs live in their own folder (output/Qtome/, output/EEGNet/, ...)."""
+    return os.path.join('output', config['training_params'][mode].get('model_type', 'Qtome'))
+
+
 def resolve_output_path(config: dict, mode: str = 'pretrain') -> str:
     """Return this run's path segment under output/ -- training_params.<mode>.output_path
     if set, else '<model_name>/pretrain' for a pretrain run (pretrain artifacts always
@@ -117,8 +125,8 @@ def resolve_output_path(config: dict, mode: str = 'pretrain') -> str:
 
 
 def resolve_output_dir(config: dict, *sub_dirs: str, mode: str = 'pretrain') -> str:
-    """Return output/{output_path}/{sub_dirs...} and create it."""
-    path = os.path.join('output', resolve_output_path(config, mode=mode), *sub_dirs)
+    """Return output/<model_type>/{output_path}/{sub_dirs...} and create it."""
+    path = os.path.join(model_output_root(config, mode), resolve_output_path(config, mode=mode), *sub_dirs)
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -138,9 +146,9 @@ def resolve_finetune_analysis_dir(config: dict, dataset_name: str) -> str:
     marker = '/finetune/'
     if marker in output_path:
         backbone, rest = output_path.split(marker, 1)   # rest = '<head>/<dataset>_<mode>'
-        path = os.path.join('output', backbone, 'finetune', 'analysis', rest, dataset_name)
+        path = os.path.join(model_output_root(config, 'finetune'), backbone, 'finetune', 'analysis', rest, dataset_name)
     else:
-        path = os.path.join('output', output_path, 'analysis', dataset_name)
+        path = os.path.join(model_output_root(config, 'finetune'), output_path, 'analysis', dataset_name)
     os.makedirs(path, exist_ok=True)
     return path
 
