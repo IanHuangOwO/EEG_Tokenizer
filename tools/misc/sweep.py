@@ -21,7 +21,7 @@ expressions over the job's own keys (the dotted names are available as-is). Opti
 "backbones": [...] repeats the whole sweep per backbone, replacing '{backbone}' anywhere in it
 (config path, output_path, set values); job names get a '<backbone>/' prefix.
 
-    python -m tools.misc.sweep configs/sweeps/tune_base_s1.json >> output/queue/tune.plan
+    python -m tools.misc.sweep configs/Qtome/sweeps/tune_base_s1.json >> output/queue/tune.plan
 """
 import itertools
 import json

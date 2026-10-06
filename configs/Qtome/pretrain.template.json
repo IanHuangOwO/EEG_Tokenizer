@@ -4844,9 +4844,9 @@
         "min_keep": 3
       }
     },
-    "window_fraction": 0.05,
-    "window_fraction_seed": 0,
-    "continuous_seconds": 5.0
+    "continuous_seconds": 5.0,
+    "window_fraction": 1.0,
+    "window_fraction_seed": 0
   },
   "model_params": {
     "Qtome": {
@@ -4931,12 +4931,12 @@
       "pretrain": {
         "targets": [
           {
-            "dataset": "Dreyer2023",
+            "dataset": "BETA_4s",
             "subject": null,
             "trial": 0
           },
           {
-            "dataset": "Liu2022EldBETA",
+            "dataset": "Inria_Train",
             "subject": null,
             "trial": 0
           }

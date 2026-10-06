@@ -9,7 +9,7 @@
 **Two kinds of model live under `model/`.** A *pretrained backbone* (Qtome) follows the plugin protocol below and is
 registered in `model/factory.py`. A *from-scratch baseline* (EEGNet) has no backbone and no plugin: put the
 architecture in `model/<Name>/<Name>.py` (citation at the top, an assert-based `_selfcheck()`), register the class in
-`train_baseline.py`'s `BASELINES`, and give it `configs/baselines/<Name>.json` (training and preprocessing settings per
+`train_baseline.py`'s `BASELINES`, and give it `configs/<Name>/settings.json` (training and preprocessing settings per
 split mode, per-dataset overrides marked published or ours). `train_baseline.py` runs it through the same caches,
 protocol splits (`train_finetune.make_runs`) and `group_eval.json` format as a Qtome cell. Feed it microvolts: the
 caches store volts.
@@ -234,7 +234,7 @@ No test suite exists for this repo — verify by hand:
 python -c "
 import json
 from model.factory import build_pretrain_from_config
-cfg = json.load(open('configs/pretrain.template.json'))
+cfg = json.load(open('configs/Qtome/pretrain.template.json'))
 cfg['training_params']['pretrain']['model_type'] = 'MeXXX'
 m = build_pretrain_from_config(cfg)
 print(type(m).__name__, sum(p.numel() for p in m.parameters()))

@@ -1,5 +1,5 @@
 {
-  "base_config": "configs/pretrain.template.json",
+  "base_config": "configs/Qtome/pretrain.template.json",
   "dataset_params": {
     "finetune": {
       "BNCI2014001": {

@@ -103,7 +103,7 @@ subjects. Differences within +-3 points are ties at one pretrain seed.
 
 ## Current Qtome defaults
 
-What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
+What `configs/Qtome/pretrain.template.json` builds (2.26M parameters; the same at every corpus size):
 
 | module | params | what |
 |---|---|---|

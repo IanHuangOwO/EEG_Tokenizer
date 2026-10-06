@@ -7,9 +7,10 @@ TOTAL_HOURS is the full corpus. Each group's budget is split over its datasets b
 the same cap, a dataset under the cap is used whole, one over it gets a per-dataset window_fraction = cap / its hours
 (IO/dataset.py keeps that fraction of every subject's windows). Balancing never drops subjects (2026-09-29: the model
 has to see cross-subject variation), except the MAX_SUBJECTS cap below. Hours are seconds of real signal (valid samples) in the _cont5 caches. The
-corpus sizes multiply in on top: configs/pretrain_tiny.template.json sets preprocess_params.window_fraction = 0.05.
+corpus sizes multiply in on top: a run sets preprocess_params.window_fraction (tiny 0.05 / small 0.2 / medium 0.5; the
+template's 1.0 = large). One template, one corpus list for every size.
 
-    python -m tools.misc.build_pretrain_corpus --out configs/pretrain.template.json
+    python -m tools.misc.build_pretrain_corpus --out configs/Qtome/pretrain.template.json
 
 --out must already exist (a pretrain config); only its dataset_params.pretrain is replaced.
 """

@@ -3,7 +3,7 @@ Closed-form linear probe on the frozen pre-atom z: a deterministic readout of ho
 the representation is, without SGD head training (the finetune heads' run-to-run noise).
 
 Per dataset (BNCI2014004 / BNCI2014001 / BNCI2014008), Compass LOSO split (the protocol's session
-selection, configs/finetune_protocols.json incl. _dataset_split). Per held-out subject: PCA of the
+selection, configs/finetune_protocols.json incl. _dataset_split, Qtome heads in configs/Qtome/protocol_heads.json). Per held-out subject: PCA of the
 training trials' z tokens (D -> n_pca, like latent_proj 'pca'), flatten [patches, channels, n_pca],
 standardise on the training trials, ridge classifier (balanced class weights; alpha by leave-one-subject-
 out over the training subjects). Score: balanced accuracy on the held-out subject, mean over subjects.
@@ -25,7 +25,8 @@ from sklearn.model_selection import GridSearchCV, LeaveOneGroupOut
 from sklearn.metrics import balanced_accuracy_score
 
 from cache_feature import CachedAtomDataset, get_atom_cache
-from train_finetune import _load_sessions, apply_protocol
+from IO.splits import load_sessions, make_runs
+from train_finetune import apply_protocol
 
 DATASETS = (('BNCI2014004', 'mi_loso'), ('BNCI2014001', 'mi_loso'), ('BNCI2014008', 'p300_loso'))
 ALPHAS = np.logspace(-1, 5, 7)
@@ -109,7 +110,7 @@ def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1
         subj = data.subject_data.numpy()
         keep = np.ones(len(y), bool)
         if sessions is not None:
-            keep = np.isin(_load_sessions(cfg, ds_args, subs, subj), sessions)
+            keep = np.isin(load_sessions(cfg, ds_args, subs, subj), sessions)
         T, Np, Cv, D = z.shape
         scores = {}
         for s in subs:
@@ -170,7 +171,7 @@ def atom_vs_raw(config, checkpoint, out_path, datasets=DATASETS):
         raw = RawSource(cfg, ds, subs)
         assert torch.equal(data.labels, raw.labels), 'atom cache and raw trials are not in the same order'
         y, subj = data.labels.numpy(), data.subject_data.numpy()
-        keep = np.isin(_load_sessions(cfg, ds_args, subs, subj), sessions) if sessions is not None else np.ones(len(y), bool)
+        keep = np.isin(load_sessions(cfg, ds_args, subs, subj), sessions) if sessions is not None else np.ones(len(y), bool)
         amp = data.amp.float()                                                    # [T, N', Cv, S, 2]
         P = amp.pow(2).sum(-1)                                                    # [T, N', Cv, S]
         seg = torch.stack([c.mean(1) for c in P.tensor_split(min(N_SEG, P.shape[1]), dim=1)], 1)
@@ -213,7 +214,6 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
     square of the same projections per segment (power, what MI carries); 'Q-atom' = log Q-atom
     power (a^2 + b^2) averaged over the same segments. -> {dataset: {feature: {mean, per_subject}}}."""
     from sklearn.linear_model import RidgeClassifierCV
-    from train_finetune import make_runs
     res = {}
     for ds, proto in datasets:
         ds_args = {'dataset_path': f'datas/finetune/{ds}', 'subject_to_use': ['all'], 'channels_to_use': ['all']}
@@ -228,7 +228,7 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
         data = CachedAtomDataset(get_atom_cache(cfg, ds, subs, latent='output'), subs)
         z, y, subj = _features(feature, data, checkpoint), data.labels.numpy(), data.subject_data.numpy()
         atom = _segment_means((data.amp.float().pow(2).sum(-1) + 1e-6).log(), n_seg).numpy()
-        runs = make_runs(split, subs, subj, y, _load_sessions(cfg, ds_args, subs, subj))
+        runs = make_runs(split, subs, subj, y, load_sessions(cfg, ds_args, subs, subj))
         scores = {'z': {}, 'z_power': {}, 'atom': {}}
         for run in runs:
             tr = run['train']
@@ -346,7 +346,7 @@ def coord_robustness(config, checkpoint, out_path, n_pca=8, transforms=COORD_TRA
         z, y, subj = data.z.float(), data.labels.numpy(), data.subject_data.numpy()
         zt = {tf: load(tf)[2].z.float() for tf in transforms}
         sessions = cfg['training_params']['finetune']['split'].get('sessions')
-        keep = np.isin(_load_sessions(cfg, args, subs, subj), sessions) if sessions is not None else np.ones(len(y), bool)
+        keep = np.isin(load_sessions(cfg, args, subs, subj), sessions) if sessions is not None else np.ones(len(y), bool)
         T, Np, Cv, D = z.shape
         per = {k: {} for k in ('normal',) + tuple(transforms)}
         changed, flipped = {tf: [] for tf in transforms}, {tf: [] for tf in transforms}

@@ -1,6 +1,6 @@
 """Train a from-scratch baseline (model/<Name>/, no pretrained backbone) on one finetune cell, through the same caches,
-splits (finetune_protocols.json + train_finetune.make_runs) and result format as train_finetune.py, so a baseline cell
-sits next to a Qtome cell in summarize_runs. Settings: configs/baselines/<Name>.json (Compass's, per split mode, with
+splits (configs/finetune_protocols.json via IO/splits.py) and result format as train_finetune.py, so a baseline cell
+sits next to a Qtome cell in summarize_runs. Settings: configs/<Name>/settings.json (Compass's, per split mode, with
 per-dataset overrides). One seed per run; scored every epoch on the evaluation trials (tail = mean of the last 10
 epochs, last = Compass's number).
 
@@ -17,10 +17,14 @@ from scipy import signal
 from sklearn.metrics import balanced_accuracy_score, cohen_kappa_score
 
 from model.EEGNet.EEGNet import EEGNet
-from train_finetune import apply_protocol, make_runs
+from IO.splits import make_runs, protocol_split
 from tools.analysis import apply_overrides
 
 BASELINES = {'EEGNet': EEGNet}
+# deterministic cuDNN: without it two runs of one seed differ (EEGNet's convolutions picked non-deterministic
+# algorithms; 2026-10-06), and refactors here are checked by bit-identical reruns
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 CACHE_FS = 200.0
 CACHE_GLOB = 'datas/finetune/{ds}/cache/*_fs200_bp0.5-100.0_pre1_post4.npz'
 
@@ -113,19 +117,16 @@ def main():
     ap = argparse.ArgumentParser(description='Train a from-scratch baseline on one finetune cell')
     ap.add_argument('--model', default='EEGNet', choices=sorted(BASELINES))
     ap.add_argument('--dataset', required=True)
-    ap.add_argument('--protocol', required=True, help='a configs/finetune_protocols.json entry: its split is used')
+    ap.add_argument('--protocol', required=True, help='a configs/finetune_protocols.json entry (shared split)')
     ap.add_argument('--seeds', type=int, nargs='+', default=[1, 2, 3])
     ap.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                     help='override a setting (dotted path into {"settings": ..., "split": ...}), JSON value')
     ap.add_argument('--device', default='cuda')
     a = ap.parse_args()
 
-    # the split comes from the protocol table exactly as for a Qtome cell (sessions, few-shot fraction, purge)
-    cfg = {'training_params': {'finetune': {'protocol': a.protocol, 'split': {}}},
-           'dataset_params': {'finetune': {a.dataset: {}}}, 'model_params': {'Qtome': {'finetune': {}}}}
-    split = apply_protocol(cfg)['training_params']['finetune']['split']
+    split = protocol_split(a.protocol, [a.dataset])     # the shared split of a Qtome cell (sessions, fraction, purge)
     mode = 'loso' if split['type'] in ('loso', 'subject_kfold') else 'fewshot'
-    presets = json.load(open(f'configs/baselines/{a.model}.json'))
+    presets = json.load(open(f'configs/{a.model}/settings.json'))
     settings = {**presets[mode], **presets.get('cells', {}).get(a.dataset, {}).get(mode, {})}
     run_cfg = apply_overrides({'settings': settings, 'split': split}, a.set)
     s, split = run_cfg['settings'], run_cfg['split']

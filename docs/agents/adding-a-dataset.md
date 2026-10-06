@@ -483,7 +483,7 @@ your config JSON:
 python -c "
 import json
 from IO.dataset import build_dataset_from_config
-config = json.load(open('configs/pretrain.template.json'))
+config = json.load(open('configs/Qtome/pretrain.template.json'))
 config['dataset_params']['pretrain'] = {
     'MyDataset': {'dataset_path': 'datas/MyDataset', 'subject_to_use': ['all'], 'channels_to_use': ['all']}
 }

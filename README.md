@@ -73,11 +73,12 @@ python cache_dataset.py --config configs/compile.json            # --dataset NAM
 
 # 2. Pretrain a backbone
 mkdir -p configs/runs/<backbone>
-cp configs/pretrain_tiny.template.json configs/runs/<backbone>/pretrain.json   # set model_name, output_path
+cp configs/Qtome/pretrain.template.json configs/runs/<backbone>/pretrain.json   # set model_name, output_path,
+#                                                            window_fraction (tiny 0.05 / small 0.2)
 python train_pretrain.py --config configs/runs/<backbone>/pretrain.json
 
 # 3. Finetune a head on the frozen backbone (the feature cache is built on first use)
-cp configs/finetune.template.json configs/runs/<backbone>/finetune/<head>/<dataset>_<split>.json
+cp configs/Qtome/finetune.template.json configs/runs/<backbone>/finetune/<head>/<dataset>_<split>.json
 #    set base_config, pretrained_checkpoint, output_path, protocol / split in the copy
 python train_finetune.py --config configs/runs/<backbone>/finetune/<head>/<dataset>_<split>.json
 
@@ -85,7 +86,7 @@ python train_finetune.py --config configs/runs/<backbone>/finetune/<head>/<datas
 python train_finetune.py --config <cfg> --set model_params.Qtome.finetune.spatial_k=8
 
 # Experiments: a sweep file -> queue plan; run_queue runs it resumably, a few jobs at a time
-python -m tools.misc.sweep configs/sweeps/<sweep>.json > output/queue/<plan>.plan
+python -m tools.misc.sweep configs/Qtome/sweeps/<sweep>.json > output/queue/<plan>.plan
 python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threads 8
 
 # Analysis

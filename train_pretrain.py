@@ -170,7 +170,7 @@ def validate_one_epoch(model, trainer, data_loader, device, masked, **loss_hpara
 def main():
     parser = argparse.ArgumentParser(description='Qtome pretraining, one run, two phases: unmasked tokenizer phase '
                                                    '(training_params.pretrain.tokenizer_epochs), then masked phase.')
-    parser.add_argument('--config', type=str, default='configs/pretrain.template.json')
+    parser.add_argument('--config', type=str, default='configs/Qtome/pretrain.template.json')
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                         help='override a config value, dotted path, JSON value (repeatable), '
                              'e.g. --set training_params.pretrain.seed=2')

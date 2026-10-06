@@ -41,7 +41,7 @@ def main():
     if checkpoint:
         config = json.load(open(os.path.join(os.path.dirname(os.path.dirname(checkpoint)), 'artifacts', 'config.json')))
     elif names == ['profile']:
-        config = json.load(open('configs/pretrain.template.json'))
+        config = json.load(open('configs/Qtome/pretrain.template.json'))
     else:
         ap.error('--run or --checkpoint is required (only the profile panel runs without one)')
     if args.config:

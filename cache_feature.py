@@ -225,7 +225,7 @@ def _subjects(ds_args):
 
 def main():
     ap = argparse.ArgumentParser(description="Build the atom-amplitude cache for every finetune dataset in a config.")
-    ap.add_argument('--config', default='configs/finetune.template.json')
+    ap.add_argument('--config', default='configs/Qtome/finetune.template.json')
     ap.add_argument('--batch-size', type=int, default=64)
     args = ap.parse_args()
     from tools.analysis import load_config  # merges a finetune overlay onto its base_config
