@@ -1,7 +1,7 @@
 """
 Per-layer size and speed of a trained pretrain backbone, and what fp32 would cost vs the fp16 AMP it trains with.
 
-    python -m tools.misc.profile_precision [--run mesae_tiny_p50_s16_real_s1] [--dataset Lee2019_MI] [--rounds 5]
+    python -m tools.misc.profile_precision [--run qtome_tiny_p50_s16_real_s1] [--dataset Lee2019_MI] [--rounds 5]
 
 Modes: fp16-amp (train_pretrain.py: fp16 autocast + GradScaler, TF32 on), fp32+tf32 (no autocast, TF32 matmuls),
 fp32 (no autocast, TF32 off). Every mode trains a copy of the checkpoint's weights on the same real masked-phase
@@ -88,7 +88,7 @@ class Hooks:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--run', default='mesae_tiny_p50_s16_real_s1')
+    ap.add_argument('--run', default='qtome_tiny_p50_s16_real_s1')
     ap.add_argument('--dataset', default='Lee2019_MI')
     ap.add_argument('--subjects', nargs='+', default=['2', '7', '8', '9', '15', '16', '18', '41'])
     ap.add_argument('--batch-size', type=int, default=16)

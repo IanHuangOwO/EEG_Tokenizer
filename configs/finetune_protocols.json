@@ -1,5 +1,5 @@
 {
-  "_comment": "Named finetune protocols: training_params.finetune.protocol = <name> applies one entry (dotted keys, in order, like --set) after base_config merging; --set on the command line still wins over it. Frozen 2026-09-25 from the DEV-set grid configs/sweeps/tune_base_s1.json (BNCI2015001 MI, BNCI2014009 P300, never reported): the top config per cell, top-10 within 1.6 points. Don't retune these per backbone -- that would confound a backbone comparison. Head: the all-stamp head (stamp_power + signed_ab, spatial_k 8, dropout 0.3) in every protocol since 2026-10-02 (docs/reports/2026-10-02-head-ablation.md): every feature reads the stamps. The stronger head is stamp_power + latent_signed (pca), the protocol head 2026-10-01..02, better on MI few-shot (BNCI2014004 +3.5); set it with --set model_params.MeSAE.finetune.features=... The tuned split / LR / weight-decay / epoch values are unchanged. Earlier protocol heads: stamp_power (MI) or stamp_power + signed_ab (P300), spatial_k 2 / 8. Few-shot fit (2026-10-04): mi_fewshot / p300_fewshot fit the closed-form head (model/MeSAE/closed_form.py, no SGD: per-stamp CSP + shrinkage LDA for MI, stamp xDAWN covariances + tangent space + LR for P300), picked on DEV few-shot (+7.5 / +5.4 over the SGD head); their SGD keys stay for --set training_params.finetune.fit=\"sgd\". Few-shot head (2026-10-05): both few-shot protocols fit closed_form branch 'structured' -- the all-stamp head's own factors (spatial filter x stamp weights x time course, same ranks) set in closed form, one head for every paradigm; picked on DEV few-shot over BNCI2015001 / BNCI2014009 / Kalunga2016 (SSVEP): mean +2.9 over the per-paradigm power / signed branches (MI +1.6, SSVEP +11.0, P300 -4.1). signed_time_rank 'full' (2026-10-06): the signed half keeps every patch; picked on the DEV mean over BNCI2015001 / BNCI2014009 / Kalunga2016 / Wang2016_dev (phase-locked SSVEP) by a rule set before the runs (rank 2 / 4 / 8 / full: 53.2 / 54.9 / 56.7 / 59.7).",
+  "_comment": "Named finetune protocols: training_params.finetune.protocol = <name> applies one entry (dotted keys, in order, like --set) after base_config merging; --set on the command line still wins over it. Frozen 2026-09-25 from the DEV-set grid configs/sweeps/tune_base_s1.json (BNCI2015001 MI, BNCI2014009 P300, never reported): the top config per cell, top-10 within 1.6 points. Don't retune these per backbone -- that would confound a backbone comparison. Head: the all-atom head (atom_power + signed_ab, spatial_k 8, dropout 0.3) in every protocol since 2026-10-02 (docs/reports/2026-10-02-head-ablation.md): every feature reads the atoms. The stronger head is atom_power + latent_signed (pca), the protocol head 2026-10-01..02, better on MI few-shot (BNCI2014004 +3.5); set it with --set model_params.Qtome.finetune.features=... The tuned split / LR / weight-decay / epoch values are unchanged. Earlier protocol heads: atom_power (MI) or atom_power + signed_ab (P300), spatial_k 2 / 8. Few-shot fit (2026-10-04): mi_fewshot / p300_fewshot fit the closed-form head (model/Qtome/closed_form.py, no SGD: per-atom CSP + shrinkage LDA for MI, atom xDAWN covariances + tangent space + LR for P300), picked on DEV few-shot (+7.5 / +5.4 over the SGD head); their SGD keys stay for --set training_params.finetune.fit=\"sgd\". Few-shot head (2026-10-05): both few-shot protocols fit closed_form branch 'structured' -- the all-atom head's own factors (spatial filter x atom weights x time course, same ranks) set in closed form, one head for every paradigm; picked on DEV few-shot over BNCI2015001 / BNCI2014009 / Kalunga2016 (SSVEP): mean +2.9 over the per-paradigm power / signed branches (MI +1.6, SSVEP +11.0, P300 -4.1). signed_time_rank 'full' (2026-10-06): the signed half keeps every patch; picked on the DEV mean over BNCI2015001 / BNCI2014009 / Kalunga2016 / Wang2016_dev (phase-locked SSVEP) by a rule set before the runs (rank 2 / 4 / 8 / full: 53.2 / 54.9 / 56.7 / 59.7).",
   "mi_loso": {
     "training_params.finetune.split": {
       "type": "loso",
@@ -8,16 +8,16 @@
       ]
     },
     "training_params.finetune.class_weight": null,
-    "model_params.MeSAE.finetune": {
+    "model_params.Qtome.finetune": {
       "features": [
         {
-          "type": "stamp_power",
+          "type": "atom_power",
           "time_pool": "learned",
           "time_rank": 2
         },
         {
           "type": "signed_ab",
-          "stamp_rank": 4,
+          "atom_rank": 4,
           "time_rank": 2
         }
       ],
@@ -38,16 +38,16 @@
       ]
     },
     "training_params.finetune.class_weight": null,
-    "model_params.MeSAE.finetune": {
+    "model_params.Qtome.finetune": {
       "features": [
         {
-          "type": "stamp_power",
+          "type": "atom_power",
           "time_pool": "learned",
           "time_rank": 2
         },
         {
           "type": "signed_ab",
-          "stamp_rank": 4,
+          "atom_rank": 4,
           "time_rank": 2
         }
       ],
@@ -62,7 +62,7 @@
     "training_params.finetune.closed_form": {
       "branch": "structured",
       "spatial_k": 8,
-      "stamp_rank": 4,
+      "atom_rank": 4,
       "time_rank": 2,
       "signed_time_rank": "full"
     }
@@ -75,16 +75,16 @@
       ]
     },
     "training_params.finetune.class_weight": "balanced",
-    "model_params.MeSAE.finetune": {
+    "model_params.Qtome.finetune": {
       "features": [
         {
-          "type": "stamp_power",
+          "type": "atom_power",
           "time_pool": "learned",
           "time_rank": 2
         },
         {
           "type": "signed_ab",
-          "stamp_rank": 4,
+          "atom_rank": 4,
           "time_rank": 2
         }
       ],
@@ -106,16 +106,16 @@
       ]
     },
     "training_params.finetune.class_weight": "balanced",
-    "model_params.MeSAE.finetune": {
+    "model_params.Qtome.finetune": {
       "features": [
         {
-          "type": "stamp_power",
+          "type": "atom_power",
           "time_pool": "learned",
           "time_rank": 2
         },
         {
           "type": "signed_ab",
-          "stamp_rank": 4,
+          "atom_rank": 4,
           "time_rank": 2
         }
       ],
@@ -130,7 +130,7 @@
     "training_params.finetune.closed_form": {
       "branch": "structured",
       "spatial_k": 8,
-      "stamp_rank": 4,
+      "atom_rank": 4,
       "time_rank": 2,
       "signed_time_rank": "full"
     }

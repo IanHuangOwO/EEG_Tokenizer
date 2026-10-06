@@ -28,9 +28,9 @@ stage owns, then trains masked.
 Answer these — they shape steps 2-3 below:
 
 - Does the model need a **Tokenizer-stage-only component to freeze** before masked
-  training (Qtome: the StampBank, `freeze_stamps`)? If not, `on_pretrain_start` can be a
+  training (Qtome: the AtomBank, `freeze_atoms`)? If not, `on_pretrain_start` can be a
   no-op.
-- What per-Expert/Stamp/Unit **health metrics** does it need on the dashboard? List them
+- What per-Expert/Atom/Unit **health metrics** does it need on the dashboard? List them
   now — they become `MeXXXPlotter`'s panel specs in step 3.
 - What per-step **loss hyperparameters** does it need beyond `masked_mse_weight`/
   `unmasked_mse_weight` (which every model gets for free)? These become keys under
@@ -53,8 +53,8 @@ def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels
       recon: [B, C, N, L]
       attn:  [B, N, Q, C] — each Unit's own channel-attention weights (rows sum to 1
              per Unit) — read by the extraction hooks in step 2
-    Plus whatever extra fields get_loss/get_metrics/extract_psd need (MeSAE's output carries
-    its stamp gains and the FFN load-balance loss, model/MeSAE/MeSAE.py).
+    Plus whatever extra fields get_loss/get_metrics/extract_psd need (Qtome's output carries
+    its atom gains and the FFN load-balance loss, model/Qtome/Qtome.py).
     """
 
 def get_loss(self, x, recon, bool_masked_pos, masked_mse_weight=1.0, unmasked_mse_weight=1.0, **extra):
@@ -75,7 +75,7 @@ def enable_spatial(self):
 
 def enable_temporal(self):
     """Optional — only if the model has a temporal-mixing gate to unlock separately from
-    spatial (MeSAE has one). Checked via hasattr(model, 'enable_temporal')
+    spatial (Qtome has one). Checked via hasattr(model, 'enable_temporal')
     at call sites, so omit entirely if not needed."""
 
 def freeze_<whatever_is_tokenizer_only>(self):
@@ -131,7 +131,7 @@ def build_model(bp, num_channels):
 
 @torch.no_grad()
 def _run_reconstruction(model, dataset, trial_idx, device):
-    """One trial -> dict(raw, recon, coords, T, N, L, fs). See MeSAE/plugin.py
+    """One trial -> dict(raw, recon, coords, T, N, L, fs). See Qtome/plugin.py
     for the full pattern (unsqueeze batch dim, forward unmasked, reshape
     back to [C, T])."""
     ...
@@ -155,7 +155,7 @@ class MeXXXTrainer(BaseTrainer):
 
 ## 2b. Snapshot rendering: nothing to write per-model
 
-Snapshot rendering (recon_signal/stamp_by_patch/stamp_gallery) is no
+Snapshot rendering (recon_signal/atom_by_patch/atom_gallery) is no
 longer part of the plugin contract. `tools/analysis/snapshot.py`'s
 `build_pretrain_bundle`/`build_finetune_bundle` call `model(...)`
 generically (forward, coords, time_idx, valid_channels — the same
@@ -201,7 +201,7 @@ Two lines:
 from model.MeXXX.plugin import PLUGIN as MEXXX_PLUGIN
 # ...
 MODEL_REGISTRY = {
-    'MeSAE': MESAE_PLUGIN,
+    'Qtome': QTOME_PLUGIN,
     'MeXXX': MEXXX_PLUGIN,
 }
 ```

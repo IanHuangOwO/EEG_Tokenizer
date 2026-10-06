@@ -20,8 +20,8 @@ def overlap_add_patches(patches, stride):
     duplicate copies are byte-identical — the same real samples read twice), the two
     patches' independently-computed views of that same shared moment generally
     disagree, showing a real discontinuity at every patch boundary. See
-    model/MeSAE/plugin.py's _run_reconstruction_sae for the diagnostic-display use of
-    this, and MeSAEPretrain._recon_loss for the differentiable training-loss use.
+    model/Qtome/plugin.py's _run_reconstruction_sae for the diagnostic-display use of
+    this, and QtomePretrain._recon_loss for the differentiable training-loss use.
 
     Linear-crossfade overlap-add instead: each patch gets a trapezoidal window — ramps
     0->1 over the incoming overlap it shares with the PREVIOUS patch, flat 1 over its
@@ -142,7 +142,7 @@ class SpatialTemporalEmbeddings(nn.Module):
         self.pos_emb = nn.Parameter(get_sinusoidal_pos(max_patches, dim, torch.device('cpu')))
         self.spatial_active = False
         # spatial=False: no coordinate embedding at all (the spatial-embedding ablation; the model
-        # then pairs it with no RelativeSpatialBias either, see MeSAEPretrain).
+        # then pairs it with no RelativeSpatialBias either, see QtomePretrain).
         # bias=False on BOTH linears: a bias on either one is a channel-INDEPENDENT constant the
         # network can add regardless of coords (it collapsed to exactly that before); with no bias
         # anywhere, per-channel variation is the only thing this path can produce.
@@ -159,7 +159,7 @@ class SpatialTemporalEmbeddings(nn.Module):
         B, C, N, L = x.shape
         z = self.proj(x.reshape(B * C, N, L))  # [B*C, N, D]
         if bool_masked_pos is not None:
-            # masked content -> mask_token BEFORE the position terms below (see MeSAEPretrain)
+            # masked content -> mask_token BEFORE the position terms below (see QtomePretrain)
             z = torch.where(bool_masked_pos.reshape(B * C, N, 1), mask_token.reshape(1, 1, -1).to(z.dtype), z)
 
         if time_idx is not None:
@@ -273,7 +273,7 @@ class MoEFFN(nn.Module):
 
     @torch.no_grad()
     def _record_health(self, gate_mask):
-        """Same router-health formulas as MeSAEPretrain.update_head_metrics (entropy of the
+        """Same router-health formulas as QtomePretrain.update_head_metrics (entropy of the
         LOAD distribution across routed Experts, entropy of the WITHIN-token gate weights,
         load std) — computed every forward call (cheap, R is small) and stashed on self so
         TSAEncoder.forward can average across all TSABlocks' MoEFFNs into one dashboard
@@ -288,7 +288,7 @@ class MoEFFN(nn.Module):
         # .float() matters here: this runs inside forward(), under autocast during
         # training, so gate_mask is fp16 — 1e-10 underflows to exactly 0.0 in fp16, making
         # log(0+0)=-inf and 0*-inf=NaN for every masked-out (always-present) entry, which
-        # _ema_update's NaN-guard then silently skips forever (see MeSAEPretrain.
+        # _ema_update's NaN-guard then silently skips forever (see QtomePretrain.
         # update_head_metrics's gate_routed.detach().float().clamp(...) for the same fix
         # applied to the SAE Filter router's equivalent metric).
         gm = gate_mask.float().clamp(min=0)
@@ -666,7 +666,7 @@ class TSAEncoder(nn.Module):
 # Decoder & channel pooling
 # ==========================================
 
-class StampBank(nn.Module):
+class AtomBank(nn.Module):
     """
     Static Q-atom dictionary over CHANNEL-GROUPED tokens: input is [G, C, D] where each group g is one
     patch POSITION (G = B*N) carrying all C channels' embeddings for that moment. Every Q-atom is active
@@ -685,31 +685,31 @@ class StampBank(nn.Module):
     (no per-token shape warping). A free [patch_len] template's frequency content is
     bound to the patch_len FFT grid (Df = fs/patch_len); oscillator atoms were withdrawn (0010).
     """
-    def __init__(self, dim, patch_len, n_stamps=16, hidden_width=16, spatial_rank=0):
+    def __init__(self, dim, patch_len, n_atoms=16, hidden_width=16, spatial_rank=0):
         super().__init__()
-        self.n_stamps = n_stamps
+        self.n_atoms = n_atoms
         # spatial_rank K > 0: source-factorized gains. Each Q-atom's
         # [C] gain column is forced to rank K: src_sk = mean_c W_s[c, k] * g_cs (unmixing), g_cs <- sum_k
         # A_s[c, k] * src_sk (mixing). W and A are functions of the electrode position only (fixed scalp
         # fields, any montage); A_s[:, k] is source (s, k)'s topography, src_sk its (a, b) activation.
         self.spatial_rank = spatial_rank
         if spatial_rank:
-            self.topo = nn.Sequential(nn.Linear(FOURIER_DIM, 64), nn.GELU(), nn.Linear(64, 2 * n_stamps * spatial_rank))
+            self.topo = nn.Sequential(nn.Linear(FOURIER_DIM, 64), nn.GELU(), nn.Linear(64, 2 * n_atoms * spatial_rank))
         # Normalizes z before it's used (z inherits whatever scale the encoder drifts to).
         self.input_norm = nn.LayerNorm(dim)
         # amp_s(z): per-atom MLP z -> hidden (GELU) -> quadrature gain pair (a, b). Because H is derived
         # from the SAME template, (a, b) can only re-phase and scale the shape, never morph it.
-        self.W_down = nn.Parameter(torch.empty(n_stamps, dim, hidden_width))
-        self.b_down = nn.Parameter(torch.zeros(n_stamps, hidden_width))
+        self.W_down = nn.Parameter(torch.empty(n_atoms, dim, hidden_width))
+        self.b_down = nn.Parameter(torch.zeros(n_atoms, hidden_width))
         nn.init.kaiming_uniform_(self.W_down, a=math.sqrt(5))
-        self.w_amp = nn.Parameter(torch.empty(n_stamps, hidden_width, 2))
-        self.b_amp = nn.Parameter(torch.zeros(n_stamps, 2))
+        self.w_amp = nn.Parameter(torch.empty(n_atoms, hidden_width, 2))
+        self.b_amp = nn.Parameter(torch.zeros(n_atoms, 2))
         nn.init.kaiming_uniform_(self.w_amp, a=math.sqrt(5))
         # D_s: the Q-atom's waveform template, used unit-normalized; the raw parameter's norm is irrelevant.
-        self.D = nn.Parameter(torch.randn(n_stamps, patch_len) * 0.02)
+        self.D = nn.Parameter(torch.randn(n_atoms, patch_len) * 0.02)
 
     def _amp(self, z):
-        """z: [G, C, D] ALREADY input_norm'd tokens -> per-channel quadrature gains [G, C, n_stamps, 2],
+        """z: [G, C, D] ALREADY input_norm'd tokens -> per-channel quadrature gains [G, C, n_atoms, 2],
         no rms. GELU between the two maps: without it they collapse into one of rank <= 2."""
         hidden = F.gelu(torch.einsum('gcd,hdk->gchk', z, self.W_down) + self.b_down)
         return torch.einsum('gchk,hkp->gchp', hidden, self.w_amp) + self.b_amp
@@ -730,13 +730,13 @@ class StampBank(nn.Module):
         return F.normalize(H, dim=-1).to(D.dtype)
 
     def templates(self):
-        """(D_hat, H_hat): unit templates and their quadrature partners, each [n_stamps, patch_len]."""
+        """(D_hat, H_hat): unit templates and their quadrature partners, each [n_atoms, patch_len]."""
         D = F.normalize(self.D, dim=-1)
         return D, self._quadrature(D)
 
     def decode(self, amp):
-        """amp: [G, C, n_stamps, 2] per-channel gains WITH rms (forward()'s out.amp) -> per-atom
-        contribution [G, C, n_stamps, patch_len] = a*D_hat + b*H_hat, unsummed (forward's recon is its
+        """amp: [G, C, n_atoms, 2] per-channel gains WITH rms (forward()'s out.amp) -> per-atom
+        contribution [G, C, n_atoms, patch_len] = a*D_hat + b*H_hat, unsummed (forward's recon is its
         sum over Q-atoms). Pure re-expansion, no model re-evaluation."""
         D, H = self.templates()
         return amp[..., 0, None] * D + amp[..., 1, None] * H
@@ -753,7 +753,7 @@ class StampBank(nn.Module):
 
     @torch.no_grad()
     def dense_amp(self, z, rms=None, coords=None, valid_channels=None):
-        """z: [G, C, D] channel-grouped embeddings (same input forward() takes) -> amp [G, C, n_stamps, 2],
+        """z: [G, C, D] channel-grouped embeddings (same input forward() takes) -> amp [G, C, n_atoms, 2],
         input_norm'd, rms-scaled and (spatial_rank > 0) factorized the same way forward() is."""
         amp = self._amp(self.input_norm(z))
         amp = amp if rms is None else amp * rms.unsqueeze(-1)
@@ -767,8 +767,8 @@ class StampBank(nn.Module):
         valid_channels: [G, C] bool (True = real channel) or None -- excludes zero-padded channels from
         h and mp_loss; padded channels still decode.
 
-        Returns recon [G, C, patch_len], amp [G, C, n_stamps, 2] (per-channel (a, b), rms included -- a
-        Q-atom's [C] magnitude column is its phase-invariant topomap at this patch time), h [G, n_stamps]
+        Returns recon [G, C, patch_len], amp [G, C, n_atoms, 2] (per-channel (a, b), rms included -- a
+        Q-atom's [C] magnitude column is its phase-invariant topomap at this patch time), h [G, n_atoms]
         (post-rms amp magnitude averaged over valid channels: reconstruction-energy importance, orders
         mp_loss), mp_loss (scalar, valid-channel mean, for logging) and mp_map ([G, C], per position, what
         get_loss weights and trains on).
@@ -819,7 +819,7 @@ class StampBank(nn.Module):
 # Everything above this line is the pretrain side.
 # Shapes: a, b are the spatially mixed code amplitudes [B, N', K, S] (B trials, N' patches,
 # K spatial filters, S Q-atoms); power = a^2 + b^2. Parameter names (p, q) and init match
-# the MeSAEFeatureHead so saved checkpoints load unchanged.
+# the QtomeFeatureHead so saved checkpoints load unchanged.
 # ==========================================
 
 def spatial_mix(spatial, t, dim):
@@ -830,14 +830,14 @@ def spatial_mix(spatial, t, dim):
     return torch.movedim(spatial(torch.movedim(t, dim, -1).float()), -1, dim)
 
 
-class PerStampSpatial(nn.Module):
+class PerAtomSpatial(nn.Module):
     """One signed spatial filter bank per Q-atom (filter-bank-CSP style): weight [S, K, C], so Q-atom s's code is mixed
     by its own K filters. [B, N', C, S] -> [B, N', K, S], the same shape the shared nn.Linear(C, K) gives.
     Init as nn.Linear's (uniform, bound 1/sqrt(C))."""
-    def __init__(self, num_channels, k, num_stamps):
+    def __init__(self, num_channels, k, num_atoms):
         super().__init__()
         b = 1.0 / math.sqrt(num_channels)
-        self.weight = nn.Parameter(torch.empty(num_stamps, k, num_channels).uniform_(-b, b))
+        self.weight = nn.Parameter(torch.empty(num_atoms, k, num_channels).uniform_(-b, b))
 
     def forward(self, t):
         return torch.einsum('bncs,skc->bnks', t.float(), self.weight)
@@ -852,9 +852,9 @@ class FlatTimePool(nn.Module):
 class LearnedTimePool(nn.Module):
     """Low-rank softmax time weights w[s, n] = softmax_n(sum_r p[r, s] q[r, n]).
     Small init => starts equal to the flat mean."""
-    def __init__(self, rank, num_stamps, num_patches):
+    def __init__(self, rank, num_atoms, num_patches):
         super().__init__()
-        self.p = nn.Parameter(torch.randn(rank, num_stamps) * 0.02)
+        self.p = nn.Parameter(torch.randn(rank, num_atoms) * 0.02)
         self.q = nn.Parameter(torch.randn(rank, num_patches) * 0.02)
 
     def weights(self):                                           # [S, N']
@@ -867,9 +867,9 @@ class LearnedTimePool(nn.Module):
 class EvokedBranch(nn.Module):
     """Signed low-rank time filter T[s, n] = 1/N' + sum_r p[r, s] q[r, n] applied LINEARLY to
     a and b (phase-locked content survives a linear functional, not power)."""
-    def __init__(self, rank, num_stamps, num_patches):
+    def __init__(self, rank, num_atoms, num_patches):
         super().__init__()
-        self.p = nn.Parameter(torch.randn(rank, num_stamps) * 0.02)
+        self.p = nn.Parameter(torch.randn(rank, num_atoms) * 0.02)
         self.q = nn.Parameter(torch.randn(rank, num_patches) * 0.02)
 
     def forward(self, a, b):                                     # -> [B, K, 2*S]
@@ -916,46 +916,46 @@ def _selfcheck_head_modules():
     assert [n for n, _ in ltp.named_parameters()] == ['p', 'q'] and [n for n, _ in ev.named_parameters()] == ['p', 'q']
 
     # -- head config: one form, features = [{"type": ...}] with top-level defaults --
-    base = dict(num_channels=22, num_stamps=25, sample_freq=200.0, patch_len=50, patch_stride=50)
-    two = resolve_head_config(dict(features=[{'type': 'stamp_power'}, {'type': 'raw_band', 'time_pool': 'flat'}],
+    base = dict(num_channels=22, num_atoms=25, sample_freq=200.0, patch_len=50, patch_stride=50)
+    two = resolve_head_config(dict(features=[{'type': 'atom_power'}, {'type': 'raw_band', 'time_pool': 'flat'}],
                                    spatial_k=8, time_pool='learned', time_rank=2), num_patches=16, **base)
-    assert needs_stamp(two) and needs_raw(two) and feature_names(two) == ['stamp_power', 'raw_band']
-    assert _entry_cfg(two, 'stamp_power')['time_pool'] == 'learned' and _entry_cfg(two, 'raw_band')['time_pool'] == 'flat'
-    assert feature_dim(two) == _entry_dim(two, 'stamp_power') + _entry_dim(two, 'raw_band')
-    for bad in (dict(features=['stamp_power']), dict(features=[{'type': 'stamp_power'}] * 2),
-                dict(features=[{'type': 'nope'}]), dict(features=[{'type': 'stamp_power', 'typo': 1}]),
-                dict(features=[{'type': 'stamp_power'}], overrides={})):
+    assert needs_atom(two) and needs_raw(two) and feature_names(two) == ['atom_power', 'raw_band']
+    assert _entry_cfg(two, 'atom_power')['time_pool'] == 'learned' and _entry_cfg(two, 'raw_band')['time_pool'] == 'flat'
+    assert feature_dim(two) == _entry_dim(two, 'atom_power') + _entry_dim(two, 'raw_band')
+    for bad in (dict(features=['atom_power']), dict(features=[{'type': 'atom_power'}] * 2),
+                dict(features=[{'type': 'nope'}]), dict(features=[{'type': 'atom_power', 'typo': 1}]),
+                dict(features=[{'type': 'atom_power'}], overrides={})):
         try:
             resolve_head_config(bad, num_patches=16, **base)
             assert False, f"{bad} should have raised"
         except ValueError:
             pass
-    hcfg = resolve_head_config(dict(features=[{'type': 'stamp_power', 'spatial_k': 4}, {'type': 'raw_band'},
+    hcfg = resolve_head_config(dict(features=[{'type': 'atom_power', 'spatial_k': 4}, {'type': 'raw_band'},
                                               {'type': 'signed_ab'}, {'type': 'evoked', 'evoked_rank': 2}],
                                     time_pool='flat', dropout=0.0, time_rank=2),
-                               num_patches=8, num_channels=6, num_classes=3, num_stamps=S,
+                               num_patches=8, num_channels=6, num_classes=3, num_atoms=S,
                                sample_freq=200.0, patch_len=50, patch_stride=50)
-    out = FeatureHead(hcfg)({'stamp': torch.randn(2, 8, 6, S, 2), 'raw': torch.randn(2, 6, 8, 50)})
+    out = FeatureHead(hcfg)({'atom': torch.randn(2, 8, 6, S, 2), 'raw': torch.randn(2, 6, 8, 50)})
     assert out.shape == (2, 3), out.shape
-    ps = resolve_head_config(dict(features=[{'type': 'stamp_power', 'spatial_k': 2, 'spatial_per_stamp': True}], time_pool='flat',
-                                  dropout=0.0), num_patches=8, num_channels=6, num_classes=3, num_stamps=S,
+    ps = resolve_head_config(dict(features=[{'type': 'atom_power', 'spatial_k': 2, 'spatial_per_atom': True}], time_pool='flat',
+                                  dropout=0.0), num_patches=8, num_channels=6, num_classes=3, num_atoms=S,
                              sample_freq=200.0, patch_len=50, patch_stride=50)
     ph = FeatureHead(ps)
     x = torch.randn(2, 8, 6, S, 2)
-    assert ph({'stamp': x}).shape == (2, 3)
-    W = ph.spatials['stamp_power'].weight                        # [S, K, C]: Q-atom s mixed by its own filters only
+    assert ph({'atom': x}).shape == (2, 3)
+    W = ph.spatials['atom_power'].weight                        # [S, K, C]: Q-atom s mixed by its own filters only
     ref = torch.stack([x[..., s, 0] @ W[s].T for s in range(S)], -1)
-    assert torch.allclose(ph.spatials['stamp_power'](x[..., 0]), ref, atol=1e-5)
+    assert torch.allclose(ph.spatials['atom_power'](x[..., 0]), ref, atol=1e-5)
 
     print('head_modules self-check OK')
 
 
 BANDS = ((8.0, 13.0), (13.0, 30.0))   # mu, beta
 # Per-entry keys: set at the top level as the default for every entry, or inside one entry.
-_ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'stamp_rank', 'latent_proj',
-               'spatial_per_stamp')
-_HEAD_DEFAULTS = dict(features=[{'type': 'stamp_power'}], spatial_k=8, time_pool='learned', time_rank=2,
-                      window=None, evoked_rank=0, stamp_rank=4, latent_proj='learned', spatial_per_stamp=False, dropout=0.5,
+_ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'atom_rank', 'latent_proj',
+               'spatial_per_atom')
+_HEAD_DEFAULTS = dict(features=[{'type': 'atom_power'}], spatial_k=8, time_pool='learned', time_rank=2,
+                      window=None, evoked_rank=0, atom_rank=4, latent_proj='learned', spatial_per_atom=False, dropout=0.5,
                       latent_source='output')
 
 
@@ -1001,8 +1001,8 @@ def resolve_head_config(ft_params, **derived):
         if etp not in ('flat', 'learned', 'window', 'none'):
             raise ValueError(f"features['{name}'] time_pool must be flat|learned|window|none, got {etp!r}")
         ENTRY_TYPES[name].check(e)
-        if e['spatial_per_stamp'] and (ENTRY_TYPES[name].source != 'stamp' or not k):
-            raise ValueError(f"spatial_per_stamp ('{name}') needs a stamp-code entry and spatial_k > 0")
+        if e['spatial_per_atom'] and (ENTRY_TYPES[name].source != 'atom' or not k):
+            raise ValueError(f"spatial_per_atom ('{name}') needs a atom-code entry and spatial_k > 0")
         if etp == 'window' and not e['window']:
             raise ValueError(f"features['{name}'] time_pool='window' requires a window=[lo, hi]")
         if etp == 'learned' and int(e['time_rank']) < 1:
@@ -1018,14 +1018,14 @@ def _entry_cfg(cfg, name):
     shape keys every entry needs."""
     eff = {k: cfg.get(k, _HEAD_DEFAULTS[k]) for k in _ENTRY_KEYS}    # saved heads predate newer keys
     eff.update({k: v for k, v in next(f for f in cfg['features'] if f['type'] == name).items() if k != 'type'})
-    for k in ('num_patches', 'num_stamps', 'sample_freq', 'patch_stride', 'patch_len', 'num_channels', 'latent_dim'):
+    for k in ('num_patches', 'num_atoms', 'sample_freq', 'patch_stride', 'patch_len', 'num_channels', 'latent_dim'):
         eff[k] = cfg.get(k)
     return eff
 
 
-def needs_stamp(cfg):
+def needs_atom(cfg):
     """Whether any entry in cfg['features'] needs the frozen backbone (Q-atom codes, or z)."""
-    return any(ENTRY_TYPES[f['type']].source in ('stamp', 'latent') for f in cfg.get('features', _HEAD_DEFAULTS['features']))
+    return any(ENTRY_TYPES[f['type']].source in ('atom', 'latent') for f in cfg.get('features', _HEAD_DEFAULTS['features']))
 
 
 def needs_raw(cfg):
@@ -1054,7 +1054,7 @@ def feature_dim(cfg):
     return sum(_entry_dim(cfg, name) for name in feature_names(cfg))
 
 
-class StampExtractor(nn.Module):
+class AtomExtractor(nn.Module):
     """Everything that needs the frozen backbone: Q-atom code (a, b) per patch, channel and
     Q-atom, scaled by patch RMS. Output [B, N', C_valid, S, 2] float32, padded channels dropped."""
     def __init__(self, backbone, channel_idx):
@@ -1091,7 +1091,7 @@ class StampExtractor(nn.Module):
         rg = rms.permute(0, 2, 1).reshape(B * N, C, 1)
         cg = coords.unsqueeze(1).expand(B, N, C, 3).reshape(B * N, C, 3)
         vg = vmask.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
-        amp = self.backbone.stamps.dense_amp(zg, rms=rg, coords=cg, valid_channels=vg)
+        amp = self.backbone.atoms.dense_amp(zg, rms=rg, coords=cg, valid_channels=vg)
         amp = amp.reshape(B, N, C, -1, 2).float() * vmask.float()[:, None, :, None, None]
         amp = amp[:, :, self.channel_idx]                                                 # [B, N, Cv, S, 2]
         if return_z:   # z for the latent_* head entries: [B, N, Cv, D]
@@ -1101,9 +1101,9 @@ class StampExtractor(nn.Module):
         return amp
 
     def band_tables(self, sample_freq):
-        """Per-atom template band energies (E_D, E_H), each [S, len(BANDS)], for feature='stamp_band'."""
+        """Per-atom template band energies (E_D, E_H), each [S, len(BANDS)], for feature='atom_band'."""
         with torch.no_grad():
-            D_tab, H_tab = (t.float() for t in self.backbone.stamps.templates())
+            D_tab, H_tab = (t.float() for t in self.backbone.atoms.templates())
             fr = torch.fft.rfftfreq(D_tab.shape[-1], 1.0 / sample_freq)
             sel = [((fr >= lo) & (fr < hi)).to(D_tab.device) for lo, hi in BANDS]
             spec = lambda T: torch.stack([torch.fft.rfft(T, dim=-1).abs().pow(2)[:, m].sum(-1) for m in sel], -1)
@@ -1151,7 +1151,7 @@ def _pooled_dim(e, K, n_feat):
 
 
 class _Entry(nn.Module):
-    source = 'stamp'
+    source = 'atom'
 
     def __init__(self, e):
         super().__init__()
@@ -1166,29 +1166,29 @@ class _Entry(nn.Module):
         return e['time_pool'] in ('learned', 'none')
 
 
-class StampPowerEntry(_Entry):
+class AtomPowerEntry(_Entry):
     """log of time-pooled a^2 + b^2 per Q-atom: phase-invariant power (induced activity)."""
     def __init__(self, e):
         super().__init__(e)
-        self.time = _time_pool(e, e['num_stamps'])
+        self.time = _time_pool(e, e['num_atoms'])
 
     @staticmethod
     def dim(e, K):
-        return _pooled_dim(e, K, e['num_stamps'])
+        return _pooled_dim(e, K, e['num_atoms'])
 
     def forward(self, a, b):
         a, b = _window(self.e, a, b)
         return torch.log(self.time(a.pow(2) + b.pow(2)) + 1e-12).flatten(1)
 
 
-class StampBandEntry(_Entry):
+class AtomBandEntry(_Entry):
     """Q-atom power projected onto each Q-atom's template band energy (E_D/E_H, set from the
     backbone by the caller) -> mu / beta power."""
     def __init__(self, e):
         super().__init__(e)
         self.time = _time_pool(e, len(BANDS))
-        self.register_buffer('E_D', torch.zeros(e['num_stamps'], len(BANDS)))
-        self.register_buffer('E_H', torch.zeros(e['num_stamps'], len(BANDS)))
+        self.register_buffer('E_D', torch.zeros(e['num_atoms'], len(BANDS)))
+        self.register_buffer('E_H', torch.zeros(e['num_atoms'], len(BANDS)))
 
     @staticmethod
     def dim(e, K):
@@ -1254,7 +1254,7 @@ class PhaseAdvanceEntry(_Entry):
 
     @staticmethod
     def dim(e, K):
-        return 2 * K * e['num_stamps']
+        return 2 * K * e['num_atoms']
 
     def forward(self, a, b):
         return phase_advance(*_window(self.e, a, b)).flatten(1)
@@ -1265,7 +1265,7 @@ class EvokedEntry(_Entry):
 
     def __init__(self, e):
         super().__init__(e)
-        self.branch = EvokedBranch(int(e['evoked_rank']), e['num_stamps'], e['num_patches'])
+        self.branch = EvokedBranch(int(e['evoked_rank']), e['num_atoms'], e['num_patches'])
 
     @staticmethod
     def check(e):
@@ -1280,30 +1280,30 @@ class EvokedEntry(_Entry):
 
     @staticmethod
     def dim(e, K):
-        return 2 * K * e['num_stamps']
+        return 2 * K * e['num_atoms']
 
     def forward(self, a, b):
         return self.branch(a, b).flatten(1)
 
 
 class SignedABEntry(_Entry):
-    """signed_ab (2026-09-25): the signed, phase-locked counterpart of stamp_power. Fully linear
+    """signed_ab (2026-09-25): the signed, phase-locked counterpart of atom_power. Fully linear
     and factored: spatially mixed a and b (kept signed, so polarity and phase survive) ->
-    learned Q-atom pooling S -> stamp_rank -> learned time filters N' -> time_rank (init: flat
+    learned Q-atom pooling S -> atom_rank -> learned time filters N' -> time_rank (init: flat
     average + small noise). A free linear readout on raw a/b would be the same function class
     but ~10^4 weights per class; the factoring is the regularisation. Carries evoked /
     phase-locked content only: induced (random-phase) power averages out, pair it with
-    stamp_power for that. -> [B, 2 * K * stamp_rank * time_rank]."""
+    atom_power for that. -> [B, 2 * K * atom_rank * time_rank]."""
     def __init__(self, e):
         super().__init__(e)
-        M, R, N = int(e['stamp_rank']), int(e['time_rank']), e['num_patches']
-        self.stamp = nn.Linear(e['num_stamps'], M, bias=False)
+        M, R, N = int(e['atom_rank']), int(e['time_rank']), e['num_patches']
+        self.atom = nn.Linear(e['num_atoms'], M, bias=False)
         self.q = nn.Parameter(torch.full((R, N), 1.0 / N) + torch.randn(R, N) * 0.02)
 
     @staticmethod
     def check(e):
-        if int(e['stamp_rank']) < 1 or int(e['time_rank']) < 1:
-            raise ValueError("features entry 'signed_ab' requires stamp_rank >= 1 and time_rank >= 1")
+        if int(e['atom_rank']) < 1 or int(e['time_rank']) < 1:
+            raise ValueError("features entry 'signed_ab' requires atom_rank >= 1 and time_rank >= 1")
 
     @staticmethod
     def needs_patches(e):
@@ -1311,10 +1311,10 @@ class SignedABEntry(_Entry):
 
     @staticmethod
     def dim(e, K):
-        return 2 * K * int(e['stamp_rank']) * int(e['time_rank'])
+        return 2 * K * int(e['atom_rank']) * int(e['time_rank'])
 
     def forward(self, a, b):
-        return torch.cat([torch.einsum('rn,bnkm->bkmr', self.q, self.stamp(t)) for t in (a, b)], dim=1).flatten(1)
+        return torch.cat([torch.einsum('rn,bnkm->bkmr', self.q, self.atom(t)) for t in (a, b)], dim=1).flatten(1)
 
 
 def _latent_proj(e, m):
@@ -1329,19 +1329,19 @@ def _latent_proj(e, m):
 
 
 class LatentPowerEntry(_Entry):
-    """The stamp_power pipeline on the encoder output z instead of the Q-atom codes: a learned
-    projection shared over channels and time (D -> num_stamps, so the width equals stamp_power's),
+    """The atom_power pipeline on the encoder output z instead of the Q-atom codes: a learned
+    projection shared over channels and time (D -> num_atoms, so the width equals atom_power's),
     squared, time-pooled, log."""
     source = 'latent'
 
     def __init__(self, e):
         super().__init__(e)
-        self.proj = _latent_proj(e, e['num_stamps'])
-        self.time = _time_pool(e, e['num_stamps'])
+        self.proj = _latent_proj(e, e['num_atoms'])
+        self.time = _time_pool(e, e['num_atoms'])
 
     @staticmethod
     def dim(e, K):
-        return _pooled_dim(e, K, e['num_stamps'])
+        return _pooled_dim(e, K, e['num_atoms'])
 
     def forward(self, z):
         z = _window(self.e, z, z)[0]
@@ -1349,13 +1349,13 @@ class LatentPowerEntry(_Entry):
 
 
 class LatentSignedEntry(_Entry):
-    """The signed_ab pipeline on z: learned projection D -> 2 * stamp_rank (signed_ab has a and b
-    at stamp_rank each, so the width matches), learned time filters -> time_rank."""
+    """The signed_ab pipeline on z: learned projection D -> 2 * atom_rank (signed_ab has a and b
+    at atom_rank each, so the width matches), learned time filters -> time_rank."""
     source = 'latent'
 
     def __init__(self, e):
         super().__init__(e)
-        M, R, N = 2 * int(e['stamp_rank']), int(e['time_rank']), e['num_patches']
+        M, R, N = 2 * int(e['atom_rank']), int(e['time_rank']), e['num_patches']
         self.proj = _latent_proj(e, M)
         self.q = nn.Parameter(torch.full((R, N), 1.0 / N) + torch.randn(R, N) * 0.02)
 
@@ -1370,7 +1370,7 @@ class LatentSignedEntry(_Entry):
         return torch.einsum('rn,bnkm->bkmr', self.q, self.proj(z)).flatten(1)
 
 
-ENTRY_TYPES = {'stamp_power': StampPowerEntry, 'stamp_band': StampBandEntry, 'raw_band': RawBandEntry,
+ENTRY_TYPES = {'atom_power': AtomPowerEntry, 'atom_band': AtomBandEntry, 'raw_band': RawBandEntry,
                'raw_signal': RawSignalEntry, 'phase_advance': PhaseAdvanceEntry, 'evoked': EvokedEntry,
                'signed_ab': SignedABEntry, 'latent_power': LatentPowerEntry, 'latent_signed': LatentSignedEntry}
 FEATURES_ALL = tuple(ENTRY_TYPES)
@@ -1387,8 +1387,8 @@ class FeatureHead(nn.Module):
         self.entries = nn.ModuleDict({name: ENTRY_TYPES[name](_entry_cfg(cfg, name)) for name in names})
         # spatial_k None/0 = no mixing (ablation control): spatial_mix(None, ...) is identity,
         # so each real channel stays its own feature row instead of being pooled to K filters.
-        self.spatials = nn.ModuleDict({name: (PerStampSpatial(cfg['num_channels'], k, cfg['num_stamps'])
-                                              if _entry_cfg(cfg, name)['spatial_per_stamp']
+        self.spatials = nn.ModuleDict({name: (PerAtomSpatial(cfg['num_channels'], k, cfg['num_atoms'])
+                                              if _entry_cfg(cfg, name)['spatial_per_atom']
                                               else nn.Linear(cfg['num_channels'], k, bias=False))
                                        for name in names if (k := _entry_cfg(cfg, name)['spatial_k'])})
         n_feat = feature_dim(cfg)
@@ -1402,7 +1402,7 @@ class FeatureHead(nn.Module):
         # epsilon rounds to 0 (NaN loss). The readout stays outside, as before.
         with torch.autocast(device_type=next(iter(inp.values())).device.type, enabled=False):
             raw = inp['raw'].float() if 'raw' in inp else None
-            amp = inp['stamp'].float() if 'stamp' in inp else None
+            amp = inp['atom'].float() if 'atom' in inp else None
             latent = inp['latent'].float() if 'latent' in inp else None                # [B, N', C, D]
             outs = []
             for name, mod in self.entries.items():
@@ -1411,7 +1411,7 @@ class FeatureHead(nn.Module):
                     outs.append(mod(spatial_mix(spatial, raw, 1)))                           # [B, K, N', L]
                 elif mod.source == 'latent':
                     outs.append(mod(spatial_mix(spatial, latent, 2)))                        # [B, N', K, D]
-                elif isinstance(spatial, PerStampSpatial):
+                elif isinstance(spatial, PerAtomSpatial):
                     outs.append(mod(spatial(amp[..., 0]), spatial(amp[..., 1])))              # each [B, N', K, S]
                 else:
                     outs.append(mod(spatial_mix(spatial, amp[..., 0], 2),

@@ -7,31 +7,31 @@ import random
 import numpy as np
 import torch
 
-from model.MeSAE.MeSAE import MeSAEPretrain, build_finetune
-from model.MeSAE.MeSAE_modules import overlap_add_patches
+from model.Qtome.Qtome import QtomePretrain, build_finetune
+from model.Qtome.Qtome_modules import overlap_add_patches
 from model.base_trainer import BaseTrainer
 from model.base_codebook_checker import BaseCodebookChecker
 from model.base_plotter import BasePlotter
 from model.base_plugin import BasePlugin
-from tools.viz.extract import extract_stamp_psd_by_patch
-from tools.viz.stamp_plots import plot_event_stamp_dynamics
-from tools.viz.codebook import (plot_stamp_identity_consistency, plot_fingerprint_similarity,
-                           plot_stamp_phase_consistency, plot_topography_distance)
+from tools.viz.extract import extract_atom_psd_by_patch
+from tools.viz.atom_plots import plot_event_atom_dynamics
+from tools.viz.codebook import (plot_atom_identity_consistency, plot_fingerprint_similarity,
+                           plot_atom_phase_consistency, plot_topography_distance)
 from tools.analysis import lookup_event_onset_sample
 from IO.preprocessing import slice_patches
 
 
 def build_model(bp, num_channels):
-    """bp: config['model_params']['Qtome']['pretrain']. stamp_bank: n_stamps, hidden_width (a static
-    checkpoint's build_config from before routed Q-atoms were removed names them n_shared_stamps /
-    stamp_shared_hidden_width, with n_routed_stamps 0 -- still read)."""
-    sb = bp.get('stamp_bank', {})
+    """bp: config['model_params']['Qtome']['pretrain']. atom_bank: n_atoms, hidden_width (a static
+    checkpoint's build_config from before routed Q-atoms were removed names them n_shared_atoms /
+    atom_shared_hidden_width, with n_routed_atoms 0 -- still read)."""
+    sb = bp.get('atom_bank', {})
     moe_ffn = bp.get('moe_ffn', {})
-    if sb.get('n_routed_stamps', 0):
-        raise ValueError("routed stamps were removed: use the `routed-stamps` branch, "
-                         "or set stamp_bank to {n_stamps, hidden_width}")
+    if sb.get('n_routed_atoms', 0):
+        raise ValueError("routed atoms were removed: use the `routed-stamps` branch, "
+                         "or set atom_bank to {n_atoms, hidden_width}")
 
-    return MeSAEPretrain(
+    return QtomePretrain(
         embed_dim=bp.get('embed_dim', 100),
         enc_depth=bp.get('enc_depth', 12),
         mlp_ratio=moe_ffn.get('mlp_ratio', 4.0),
@@ -41,9 +41,9 @@ def build_model(bp, num_channels):
         blocks_per_stage=bp.get('blocks_per_stage', 2),
         num_channels=num_channels,
         spatial_embedding=bp.get('spatial_embedding', True),
-        n_stamps=sb.get('n_stamps', sb.get('n_shared_stamps', 16)),
-        stamp_hidden_width=sb.get('hidden_width', sb.get('stamp_shared_hidden_width', 16)),
-        stamp_spatial_rank=sb.get('spatial_rank', 0),
+        n_atoms=sb.get('n_atoms', sb.get('n_shared_atoms', 16)),
+        atom_hidden_width=sb.get('hidden_width', sb.get('atom_shared_hidden_width', 16)),
+        atom_spatial_rank=sb.get('spatial_rank', 0),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
@@ -59,7 +59,7 @@ def build_model(bp, num_channels):
     )
 
 
-class MeSAETrainer(BaseTrainer):
+class QtomeTrainer(BaseTrainer):
     def compute_loss(self, model, x, out, mp, **hparams):
         removed = {'hierarchical_mse_weight': '0011', 'mse_trial_weight': '0021', 'stft_weight': '0019',
                    'stft_sizes': '0019', 'nested_sizes': '0018', 'nested_weights': '0018', 'aux_weight': '0022'}
@@ -89,26 +89,26 @@ class MeSAETrainer(BaseTrainer):
         return metrics
 
 
-class MeSAECodebookChecker(BaseCodebookChecker):
-    unit_label = 'Stamp'
+class QtomeCodebookChecker(BaseCodebookChecker):
+    unit_label = 'Atom'
     needs_raw_tensors = True  # identity consistency and event dynamics re-run the Q-atom bank on a
     # subsample of trials (see needs_raw_tensors' docstring on the base class)
 
     @torch.no_grad()
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
-        """[N, n_stamps] usage, one row per PATCH POSITION: each Q-atom's post-rms amp magnitude
-        (StampBank.forward's h; G = N for a B=1 trial)."""
-        return model.encode_stamps(x_in, c_in, time_idx=t_in, valid_channels=vc_in).h.cpu().numpy()
+        """[N, n_atoms] usage, one row per PATCH POSITION: each Q-atom's post-rms amp magnitude
+        (AtomBank.forward's h; G = N for a B=1 trial)."""
+        return model.encode_atoms(x_in, c_in, time_idx=t_in, valid_channels=vc_in).h.cpu().numpy()
 
     def decoder_fingerprint_matrix(self, model):
         """Pairwise cosine similarity of the unit templates D_s (content-free: D never depends on
         input) -- the check on template diversity that mp_loss is meant to keep."""
-        D = model.stamps.templates()[0].detach().cpu().numpy()        # [n_stamps, patch_len], unit rows
+        D = model.atoms.templates()[0].detach().cpu().numpy()        # [n_atoms, patch_len], unit rows
         return D @ D.T
 
     def _render_fingerprint_similarity(self, viz_dir, model):
         plot_fingerprint_similarity(
-            os.path.join(viz_dir, 'stamp_fingerprint_similarity.png'),
+            os.path.join(viz_dir, 'atom_fingerprint_similarity.png'),
             self.decoder_fingerprint_matrix(model), unit_label=self.unit_label)
 
     @torch.no_grad()
@@ -125,10 +125,10 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         occurrence's mixing column, compared within-id vs between-id. Nothing in the
         architecture ties a Q-atom's topography across patches, so this is a real open
         question, not a formality. See
-        viz.codebook.plot_stamp_identity_consistency for the metric's construction (and
+        viz.codebook.plot_atom_identity_consistency for the metric's construction (and
         the two biases it has to avoid)."""
         from collections import defaultdict
-        from tools.viz.codebook import plot_stamp_identity_consistency
+        from tools.viz.codebook import plot_atom_identity_consistency
 
         # Keyed by (dataset, Q-atom id): channel-validity differs per dataset (e.g. Nakanishi2015
         # maps 8 of 64 channels, BETA_4s 58), so mixing columns from different datasets
@@ -146,7 +146,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         for t in trial_records:
             ds_name = t.get('dataset', '_')
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])
-            o = model.encode_stamps(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
+            o = model.encode_atoms(x_in, c_in, time_idx=t_in, valid_channels=vc_in)
             m = vc_in[0].bool()
             amp = o.amp[:, m].cpu()                                # [G, Cv, S, 2]
             mag = amp.pow(2).sum(-1).sqrt()                        # [G, Cv, S]
@@ -158,15 +158,15 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                     ab_cols[(ds_name, sid)].append(amp[g, :, sid].numpy())
                     phase_cols[sid].append(float(phase[g, sid]))
 
-        n_stamps = model.n_stamps
-        circ_var = np.full(n_stamps, np.nan)
-        fire_count = np.zeros(n_stamps, dtype=np.int64)
+        n_atoms = model.n_atoms
+        circ_var = np.full(n_atoms, np.nan)
+        fire_count = np.zeros(n_atoms, dtype=np.int64)
         for sid, ph in phase_cols.items():
             ph = np.asarray(ph)
             fire_count[sid] = len(ph)
             circ_var[sid] = 1.0 - np.abs(np.exp(1j * ph).mean())
-        plot_stamp_phase_consistency(
-            os.path.join(viz_dir, 'stamp_phase_consistency.png'), circ_var, fire_count,
+        plot_atom_phase_consistency(
+            os.path.join(viz_dir, 'atom_phase_consistency.png'), circ_var, fire_count,
             unit_label=self.unit_label)
 
         def prep(a):
@@ -181,12 +181,12 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         for ds_name, sid in keys:
             by_ds[ds_name].append(sid)
         if not any(len(v) >= 2 for v in by_ds.values()):
-            print('  [codebook] identity consistency skipped (too few repeated stamps)')
+            print('  [codebook] identity consistency skipped (too few repeated atoms)')
             return
         P = {k: prep(np.stack(cols[k])) for k in keys}
 
         # Topography distance matrix, per dataset: same coherent per-occurrence (a, b) average
-        # + reference-phase projection _stamp_summary uses for one trial's amp_topo, here
+        # + reference-phase projection _atom_summary uses for one trial's amp_topo, here
         # pooled across every occurrence in this dataset's sampled trials instead of one trial's
         # N patches — see plot_topography_distance's docstring for what this adds on top of
         # decoder_fingerprint_matrix (raw waveform shape) and the within/between stats above
@@ -205,16 +205,16 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             V = np.stack(topo_vecs)                                        # [n, C]
             mats[ds_name] = (1.0 - V @ V.T, sids)
         plot_topography_distance(
-            os.path.join(viz_dir, 'stamp_topography_distance.png'), mats, unit_label=self.unit_label)
+            os.path.join(viz_dir, 'atom_topography_distance.png'), mats, unit_label=self.unit_label)
 
         rng = np.random.default_rng(0)
-        within, between, per_stamp, ids = [], [], [], []
+        within, between, per_atom, ids = [], [], [], []
         for ds_name, sids in by_ds.items():
             if len(sids) < 2:
                 continue
             for sid in sids:
                 U = P[(ds_name, sid)]; S = U @ U.T; n = len(U)
-                per_stamp.append(float((S.sum() - n) / (n * (n - 1)))); ids.append(sid)
+                per_atom.append(float((S.sum() - n) / (n * (n - 1)))); ids.append(sid)
             # within- and between-id pairs both drawn WITHIN this dataset as pairs of INDIVIDUAL
             # occurrences, same count, so the two histograms (and their means) are comparable
             for _ in range(4000 // max(1, len(by_ds))):
@@ -224,14 +224,14 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                 a, b = rng.choice(len(sids), 2, replace=False)
                 Ua, Ub = P[(ds_name, sids[a])], P[(ds_name, sids[b])]
                 between.append(float(Ua[rng.integers(len(Ua))] @ Ub[rng.integers(len(Ub))]))
-        plot_stamp_identity_consistency(
-            os.path.join(viz_dir, 'stamp_identity_consistency.png'),
-            np.asarray(within), np.asarray(between), ids, per_stamp,
+        plot_atom_identity_consistency(
+            os.path.join(viz_dir, 'atom_identity_consistency.png'),
+            np.asarray(within), np.asarray(between), ids, per_atom,
             unit_label=self.unit_label)
 
     @torch.no_grad()
-    def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
-        """Event-locked Q-atom-strength / power trajectory -> event_stamp_dynamics_<ds_name>.png.
+    def _render_event_atom_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
+        """Event-locked Q-atom-strength / power trajectory -> event_atom_dynamics_<ds_name>.png.
 
         The tokenizer was trained at one patch stride; to read Q-atom strength/power on a finer
         time axis WITHOUT an out-of-distribution token spacing, this does a sliding-window
@@ -272,9 +272,9 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         rng = random.Random(seed)
         sample = ds_trials if len(ds_trials) <= max_trials else rng.sample(ds_trials, max_trials)
 
-        n_stamps = int(model.n_stamps)
+        n_atoms = int(model.n_atoms)
         # One accumulator per time-bin center `c`, so the per-bin fields can't drift out of sync.
-        bins = defaultdict(lambda: {'amp': np.zeros(n_stamps), 'obs': 0, 'pow': 0.0, 'pow_sq': 0.0})
+        bins = defaultdict(lambda: {'amp': np.zeros(n_atoms), 'obs': 0, 'pow': 0.0, 'pow_sq': 0.0})
 
         for t in sample:
             x_in, c_in, t_in, vc_in = (v.to(device) for v in t['raw'])   # x_in [1,C,N,L] native-stride patches
@@ -294,10 +294,10 @@ class MeSAECodebookChecker(BaseCodebookChecker):
                 xps, tidx = slice_patches(raw[:, off:], patch_len, native_stride)  # [C, P, L]
                 if xps.shape[1] == 0:
                     continue
-                grid = extract_stamp_psd_by_patch(
+                grid = extract_atom_psd_by_patch(
                     model, xps.unsqueeze(0), c_in, time_idx=tidx.unsqueeze(0).to(device),
                     valid_channels=vc_in, fs=fs, freq_resolution=None, patch_stride=1)
-                hh = grid.h                                               # [P, n_stamps]
+                hh = grid.h                                               # [P, n_atoms]
                 re = (grid.recon_topo ** 2).mean(axis=1)                  # [P]
                 for pi in range(hh.shape[0]):
                     b = bins[off + pi * native_stride + patch_len // 2]
@@ -307,7 +307,7 @@ class MeSAECodebookChecker(BaseCodebookChecker):
         if len(centers) == 0:
             return
         B = len(centers)
-        am = np.zeros((n_stamps, B))
+        am = np.zeros((n_atoms, B))
         pm, ps_ = np.zeros(B), np.zeros(B)
         for j, c in enumerate(centers):
             b = bins[c]
@@ -317,14 +317,14 @@ class MeSAECodebookChecker(BaseCodebookChecker):
             ps_[j] = np.sqrt(max(b['pow_sq'] / o - pm[j] ** 2, 0.0))
         t_axis = centers / fs if fs else centers.astype(float)
 
-        plot_event_stamp_dynamics(
-            os.path.join(viz_dir, f'event_stamp_dynamics_{ds_name}.png'),
+        plot_event_atom_dynamics(
+            os.path.join(viz_dir, f'event_atom_dynamics_{ds_name}.png'),
             t_axis, am, pm, ps_, onset_sec=onset_sec, unit_label=self.unit_label,
             title_suffix=f' — {ds_name} ({len(sample)} trials x {len(offsets)} offsets, '
                          f'step {fine} samp)')
 
 
-class MeSAEPlotter(BasePlotter):
+class QtomePlotter(BasePlotter):
     def plot_pretrain(self, filename='training_dashboard.png'):
         # Grouped: loss/reconstruction -> FFN routing -> architecture diagnostics. Order is the only grouping lever
         # `render`'s flat ncols grid gives us — no row breaks/section labels, so panels of a
@@ -344,7 +344,7 @@ class MeSAEPlotter(BasePlotter):
             loss_panels[1]['series'].append(dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss'))
 
         # FFN Router Health — the MoEFFN routers inside every TSABlock (averaged across blocks),
-        # see MeSAE.update_ffn_router_metrics.
+        # see Qtome.update_ffn_router_metrics.
         ffn_router_series, ffn_twin_series = self.router_health_series(
             'ffn', entropy_label='Router entropy (load balance)')
 
@@ -363,7 +363,7 @@ class MeSAEPlotter(BasePlotter):
         ]
 
         panels = loss_panels + routing_panels + architecture_panels
-        self.render(panels, filename, suptitle='Tokenizer (Stamp) Training Dashboard', ncols=4)
+        self.render(panels, filename, suptitle='Tokenizer (Atom) Training Dashboard', ncols=4)
 
     def plot_finetune(self, filename='training_dashboard.png', freeze_backbone=False):
         panels = [
@@ -381,7 +381,7 @@ class MeSAEPlotter(BasePlotter):
 PLUGIN = BasePlugin(
     build=build_model,
     finetune_cls=build_finetune,
-    trainer_cls=MeSAETrainer,
-    plotter_cls=MeSAEPlotter,
-    codebook_checker_cls=MeSAECodebookChecker,
+    trainer_cls=QtomeTrainer,
+    plotter_cls=QtomePlotter,
+    codebook_checker_cls=QtomeCodebookChecker,
 )

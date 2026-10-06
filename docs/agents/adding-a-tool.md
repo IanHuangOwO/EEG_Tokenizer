@@ -4,7 +4,7 @@
 
 - **`tools/analysis/`**: calculation. Anything that touches a model, a dataset, run outputs or a cached
   artifact and turns it into numbers or text (e.g. `backbone_eval.evaluate` writes its JSON,
-  `backbone_report.report` returns markdown, `stamp_dist.stamp_similarity` returns a matrix).
+  `backbone_report.report` returns markdown, `atom_dist.atom_similarity` returns a matrix).
 - **`tools/viz/`**: pure rendering. Takes computed data and an output path, writes an image. No model or
   dataset access. (`tools/viz/extract.py` is computation despite its location, a pre-existing mismatch; new
   computation goes in `tools/analysis/`.)
@@ -39,7 +39,7 @@ only if it should run every time.
 ## Procedure
 
 1. Calculation in `tools/analysis/<topic>.py` (extend an existing topic file when it fits:
-   `stamp_dist.py` for Q-atom statistics, `snapshot.py` for per-trial bundles).
+   `atom_dist.py` for Q-atom statistics, `snapshot.py` for per-trial bundles).
 2. Rendering in `tools/viz/<topic>.py` if there is a figure: `plot_<name>(out_path, data...)` that saves
    and closes. Never name a file `panels.py` (clashes with `tools/panels/`).
 3. `tools/panels/panel_<name>.py`: docstring naming what it writes and its options, `STAGES`, `run(ctx)`.

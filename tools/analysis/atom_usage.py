@@ -10,8 +10,8 @@ Per Q-atom:
               (~0 = redundant: another Q-atom covers it, e.g. a near-duplicate)
 Summary: Q-atoms ranked first in >= 5% of patches, redundant Q-atoms (remove_cost < 1%).
 
-Panel: `python analysis_pretrain.py --run <backbone> --panel stamp_usage` writes
-output/<backbone>/pretrain/analysis/stamp_usage.json.
+Panel: `python analysis_pretrain.py --run <backbone> --panel atom_usage` writes
+output/<backbone>/pretrain/analysis/atom_usage.json.
 """
 import json
 
@@ -22,16 +22,16 @@ from tools.analysis.backbone_eval import batches, eval_windows
 
 
 @torch.no_grad()
-def stamp_usage(model, config, out_path, max_windows=256):
+def atom_usage(model, config, out_path, max_windows=256):
     model = model.cpu().eval()
-    st = model.stamps
-    S = st.n_stamps
+    st = model.atoms
+    S = st.n_atoms
     ds, idx = eval_windows(config, max_windows)
     first, ranks = np.zeros(S), np.zeros((S, S))
     energy, cost, base = np.zeros(S), np.zeros(S), 0.0
     for _, x, coords, t, valid in batches(ds, idx):
         B, C, N, L = x.shape
-        out = model.encode_stamps(x, coords, t, valid_channels=valid)
+        out = model.encode_atoms(x, coords, t, valid_channels=valid)
         G = B * N
         x_g = x.permute(0, 2, 1, 3).reshape(G, C, L)                         # G = b*N + n, as in forward
         v = valid[:, None, :].expand(B, N, C).reshape(G, C, 1).float() \
@@ -52,17 +52,17 @@ def stamp_usage(model, config, out_path, max_windows=256):
     p = ranks / np.maximum(ranks.sum(1, keepdims=True), 1)
     rank_ent = -(p * np.log(p + 1e-12)).sum(1) / np.log(ranks.shape[1])
     res = {'windows': len(idx), 'patches': int(n_patch),
-           'per_stamp': [{'stamp': s, 'first': first[s] / n_patch, 'rank_entropy': float(rank_ent[s]),
+           'per_atom': [{'atom': s, 'first': first[s] / n_patch, 'rank_entropy': float(rank_ent[s]),
                           'energy_share': energy[s] / energy.sum(), 'remove_cost': cost[s] / base}
                          for s in range(S)]}
-    res['stamps_first_ge_5pct'] = int(sum(d['first'] >= 0.05 for d in res['per_stamp']))
-    res['redundant_stamps'] = [d['stamp'] for d in res['per_stamp'] if d['remove_cost'] < 0.01]
+    res['atoms_first_ge_5pct'] = int(sum(d['first'] >= 0.05 for d in res['per_atom']))
+    res['redundant_atoms'] = [d['atom'] for d in res['per_atom'] if d['remove_cost'] < 0.01]
     json.dump(res, open(out_path, 'w'), indent=2)
 
-    print(f'  {"stamp":>5} {"first%":>7} {"rank_ent":>8} {"energy%":>8} {"remove_cost":>11}')
-    for d in sorted(res['per_stamp'], key=lambda d: -d['first']):
-        print(f'  {d["stamp"]:5d} {d["first"]*100:7.1f} {d["rank_entropy"]:8.2f} {d["energy_share"]*100:8.1f} '
+    print(f'  {"atom":>5} {"first%":>7} {"rank_ent":>8} {"energy%":>8} {"remove_cost":>11}')
+    for d in sorted(res['per_atom'], key=lambda d: -d['first']):
+        print(f'  {d["atom"]:5d} {d["first"]*100:7.1f} {d["rank_entropy"]:8.2f} {d["energy_share"]*100:8.1f} '
               f'{d["remove_cost"]*100:10.1f}%')
-    print(f'  stamps ranked first in >= 5% of patches: {res["stamps_first_ge_5pct"]}/{S} | '
-          f'redundant (remove_cost < 1%): {res["redundant_stamps"]}')
+    print(f'  atoms ranked first in >= 5% of patches: {res["atoms_first_ge_5pct"]}/{S} | '
+          f'redundant (remove_cost < 1%): {res["redundant_atoms"]}')
     return res

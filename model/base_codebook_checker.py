@@ -44,7 +44,7 @@ class BaseCodebookChecker:
     def _render_patch_position_consistency(self, ds_trials, ds_name, viz_dir, model, device, seed, config=None):
         """Default: plot_patch_position_consistency off the already-computed (cheap,
         gating-strength) usage in ds_trials -> patch_position_consistency_<ds_name>.png.
-        Override (e.g. MeSAECodebookChecker) to render a different question/basis
+        Override (e.g. QtomeCodebookChecker) to render a different question/basis
         instead -- model/device are passed through only for overrides that need a fresh
         forward pass per trial (see needs_raw_tensors), unused by this default."""
         plot_patch_position_consistency(
@@ -52,9 +52,9 @@ class BaseCodebookChecker:
             unit_label=self.unit_label, seed=seed,
             event_patch=event_onset_patch(config, ds_name) if config else None)
 
-    def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
-        """Default: no-op. Override (e.g. MeSAECodebookChecker) to render an event-locked
-        unit-selection / power trajectory -> event_stamp_dynamics_<ds_name>.png. Needs a
+    def _render_event_atom_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
+        """Default: no-op. Override (e.g. QtomeCodebookChecker) to render an event-locked
+        unit-selection / power trajectory -> event_atom_dynamics_<ds_name>.png. Needs a
         fresh sliding-window forward pass per trial, so only subclasses with
         needs_raw_tensors can implement it. Event onset per dataset comes from that
         dataset's own metadata.json event_onset_sample (see
@@ -161,6 +161,6 @@ class BaseCodebookChecker:
         for ds_name in dataset_order:
             ds_trials = [t for t in trial_records if t['dataset'] == ds_name]
             self._render_patch_position_consistency(ds_trials, ds_name, viz_dir, model, device, seed, config=config)
-            self._render_event_stamp_dynamics(ds_trials, ds_name, viz_dir, model, device, seed, config)
+            self._render_event_atom_dynamics(ds_trials, ds_name, viz_dir, model, device, seed, config)
 
         print(f"  [codebook] -> {viz_dir}")

@@ -1,4 +1,4 @@
-"""time_weights: where in the trial a learned time pool reads from (tools.analysis.stamp_dist.
+"""time_weights: where in the trial a learned time pool reads from (tools.analysis.atom_dist.
 time_pool_weights). Per cell, one Q-atom x patch heatmap per group and head entry, averaged over the
 cell's fold/subject heads (each trains its own) -> time_weights_<cell>.png, event onset marked."""
 import glob
@@ -8,8 +8,8 @@ import os
 import numpy as np
 
 from tools.analysis import event_onset_patch
-from tools.analysis.stamp_dist import time_pool_weights
-from tools.viz.stamp_plots import plot_time_weights
+from tools.analysis.atom_dist import time_pool_weights
+from tools.viz.atom_plots import plot_time_weights
 
 STAGES = frozenset({'finetune'})
 

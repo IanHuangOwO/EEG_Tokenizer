@@ -94,7 +94,7 @@ def run_profile(config, device, train_mode=False):
     component-by-component via forward hooks. No checkpoint, no dataset -- dummy input
     shaped from preprocess_params. Returns a ProfileResult; printing the report is the
     caller's (panel_profile.py's) job, not this function's."""
-    model_type = config['training_params']['pretrain'].get('model_type', 'MeSAE')
+    model_type = config['training_params']['pretrain'].get('model_type', 'Qtome')
     preprocess = config['preprocess_params']
 
     B, C = 16, 64

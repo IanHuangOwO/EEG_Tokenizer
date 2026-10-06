@@ -24,7 +24,7 @@ from sklearn.linear_model import RidgeClassifier
 from sklearn.model_selection import GridSearchCV, LeaveOneGroupOut
 from sklearn.metrics import balanced_accuracy_score
 
-from cache_feature import CachedStampDataset, get_stamp_cache
+from cache_feature import CachedAtomDataset, get_atom_cache
 from train_finetune import _load_sessions, apply_protocol
 
 DATASETS = (('BNCI2014004', 'mi_loso'), ('BNCI2014001', 'mi_loso'), ('BNCI2014008', 'p300_loso'))
@@ -39,16 +39,16 @@ def _pca_axes(tokens, n):
     return mu, vecs[:, -n:].flip(1).to(tokens.dtype)
 
 
-def _stamp_bank(checkpoint):
-    """The trained StampBank of a pretrain checkpoint (rebuilt from its build_config, legacy names mapped)."""
+def _atom_bank(checkpoint):
+    """The trained AtomBank of a pretrain checkpoint (rebuilt from its build_config, legacy names mapped)."""
     from model.factory import build_from_checkpoint
-    return build_from_checkpoint(torch.load(checkpoint, map_location='cpu', weights_only=False)).stamps.eval()
+    return build_from_checkpoint(torch.load(checkpoint, map_location='cpu', weights_only=False)).atoms.eval()
 
 
 @torch.no_grad()
-def stamp_hidden(z, bank, chunk=256):
+def atom_hidden(z, bank, chunk=256):
     """z [T, N', Cv, D] (the cached encoder output the Q-atoms read) -> Q-atom hidden u [T, N', Cv, S * K]:
-    every Q-atom's MLP hidden GELU(LN(z) W_down_s + b_down_s), Q-atoms concatenated (StampBank._amp's first map)."""
+    every Q-atom's MLP hidden GELU(LN(z) W_down_s + b_down_s), Q-atoms concatenated (AtomBank._amp's first map)."""
     out = []
     for c in z.split(chunk):
         u = F.gelu(torch.einsum('tncd,sdk->tncsk', bank.input_norm(c.float()), bank.W_down) + bank.b_down)
@@ -68,28 +68,28 @@ def token_rms(amp, u, bank):
 
 
 def _features(feature, data, checkpoint):
-    """The token features a probe reads [T, N', Cv, F]: 'z' (as cached), 'stamp_hidden' (u), 'ln_z' (z after the
-    Q-atom bank's LayerNorm: z without its scale), 'stamp_hidden_rms' (u times the token's input rms: scale put
+    """The token features a probe reads [T, N', Cv, F]: 'z' (as cached), 'atom_hidden' (u), 'ln_z' (z after the
+    Q-atom bank's LayerNorm: z without its scale), 'atom_hidden_rms' (u times the token's input rms: scale put
     back) or 'ab' (the cached signed Q-atom gains a, b, rms included)."""
     z = data.z.float()
     if feature == 'z':
         return z
     if feature == 'ab':
         return data.amp.float().flatten(-2)
-    bank = _stamp_bank(checkpoint)
+    bank = _atom_bank(checkpoint)
     if feature == 'ln_z':
         with torch.no_grad():
             return torch.cat([bank.input_norm(c) for c in z.split(256)])
-    u = stamp_hidden(z, bank)
-    if feature == 'stamp_hidden':
+    u = atom_hidden(z, bank)
+    if feature == 'atom_hidden':
         return u
-    assert feature == 'stamp_hidden_rms', feature
+    assert feature == 'atom_hidden_rms', feature
     return u * token_rms(data.amp, u, bank)
 
 
 def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1, feature='z'):
     """pool > 1: average `pool` adjacent z tokens first (train_finetune.pool_tokens). feature: 'z' or
-    'stamp_hidden' (the probe reads every Q-atom's MLP hidden instead of z; same PCA pipeline)."""
+    'atom_hidden' (the probe reads every Q-atom's MLP hidden instead of z; same PCA pipeline)."""
     from train_finetune import pool_tokens
     res = {}
     for ds, proto in datasets:
@@ -98,11 +98,11 @@ def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1
         cfg['dataset_params']['finetune'] = {ds: ds_args}
         cfg['training_params']['finetune'] = {'pretrained_checkpoint': checkpoint, 'protocol': proto,
                                               'split': {'type': 'loso'}}
-        cfg['model_params'].setdefault('MeSAE', {}).setdefault('finetune', {})
+        cfg['model_params'].setdefault('Qtome', {}).setdefault('finetune', {})
         cfg = apply_protocol(cfg)
         sessions = cfg['training_params']['finetune']['split'].get('sessions')
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
-        data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
+        data = CachedAtomDataset(get_atom_cache(cfg, ds, subs, latent='output'), subs)
         z, y = _features(feature, data, checkpoint), data.labels.numpy()   # [T, N', Cv, D]
         if pool > 1:
             z = pool_tokens(z, pool)
@@ -149,7 +149,7 @@ def _loso_ridge(X, y, subj, keep, subs):
     return out
 
 
-def stamp_vs_raw(config, checkpoint, out_path, datasets=DATASETS):
+def atom_vs_raw(config, checkpoint, out_path, datasets=DATASETS):
     """Per dataset, the same closed-form loso ridge on two fixed feature sets of the same trials:
     log Q-atom power (a^2 + b^2 per channel x Q-atom, mean over N_SEG time segments) and log raw band
     power (per channel x band, same segments). Q-atom - raw > 0: the Q-atom code carries class
@@ -162,19 +162,19 @@ def stamp_vs_raw(config, checkpoint, out_path, datasets=DATASETS):
         cfg['dataset_params']['finetune'] = {ds: ds_args}
         cfg['training_params']['finetune'] = {'pretrained_checkpoint': checkpoint, 'protocol': proto,
                                               'split': {'type': 'loso'}}
-        cfg['model_params'].setdefault('MeSAE', {}).setdefault('finetune', {})
+        cfg['model_params'].setdefault('Qtome', {}).setdefault('finetune', {})
         cfg = apply_protocol(cfg)
         sessions = cfg['training_params']['finetune']['split'].get('sessions')
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
-        data = CachedStampDataset(get_stamp_cache(cfg, ds, subs), subs)
+        data = CachedAtomDataset(get_atom_cache(cfg, ds, subs), subs)
         raw = RawSource(cfg, ds, subs)
-        assert torch.equal(data.labels, raw.labels), 'stamp cache and raw trials are not in the same order'
+        assert torch.equal(data.labels, raw.labels), 'atom cache and raw trials are not in the same order'
         y, subj = data.labels.numpy(), data.subject_data.numpy()
         keep = np.isin(_load_sessions(cfg, ds_args, subs, subj), sessions) if sessions is not None else np.ones(len(y), bool)
         amp = data.amp.float()                                                    # [T, N', Cv, S, 2]
         P = amp.pow(2).sum(-1)                                                    # [T, N', Cv, S]
         seg = torch.stack([c.mean(1) for c in P.tensor_split(min(N_SEG, P.shape[1]), dim=1)], 1)
-        X_stamp = (seg + 1e-6).log().reshape(len(y), -1).numpy()
+        X_atom = (seg + 1e-6).log().reshape(len(y), -1).numpy()
         sf = float(cfg['preprocess_params']['sample_freq'])
         xr = raw.x.float()                                                        # [T, Cv, samples]
         spans = xr.tensor_split(N_SEG, dim=-1)
@@ -183,14 +183,14 @@ def stamp_vs_raw(config, checkpoint, out_path, datasets=DATASETS):
         bp = torch.stack([torch.stack([(torch.fft.rfft(sp, n=nfft, dim=-1).abs().pow(2)[..., (f >= lo) & (f < hi)]).mean(-1)
                                        for lo, hi in BANDS_HZ], -1) for sp in spans], 1)   # [T, seg, Cv, bands]
         X_raw = (bp + 1e-6).log().reshape(len(y), -1).numpy()
-        st, rw = _loso_ridge(X_stamp, y, subj, keep, subs), _loso_ridge(X_raw, y, subj, keep, subs)
+        st, rw = _loso_ridge(X_atom, y, subj, keep, subs), _loso_ridge(X_raw, y, subj, keep, subs)
         d = np.array([st[s] - rw[s] for s in subs])
-        res[ds] = {'sessions': sessions, 'stamp_power': float(np.mean(list(st.values()))),
+        res[ds] = {'sessions': sessions, 'atom_power': float(np.mean(list(st.values()))),
                    'raw_band': float(np.mean(list(rw.values()))), 'diff': float(d.mean()),
                    'subjects_better': int((d > 0).sum()), 'n_subjects': len(subs),
-                   'per_subject': {'stamp_power': st, 'raw_band': rw}}
-        print(f'  {ds:12s} loso ridge: stamp power {res[ds]["stamp_power"] * 100:5.1f} | raw band power '
-              f'{res[ds]["raw_band"] * 100:5.1f} | stamp - raw {d.mean() * 100:+.1f} ({(d > 0).sum()}/{len(subs)} subjects)')
+                   'per_subject': {'atom_power': st, 'raw_band': rw}}
+        print(f'  {ds:12s} loso ridge: atom power {res[ds]["atom_power"] * 100:5.1f} | raw band power '
+              f'{res[ds]["raw_band"] * 100:5.1f} | atom - raw {d.mean() * 100:+.1f} ({(d > 0).sum()}/{len(subs)} subjects)')
     json.dump(res, open(out_path, 'w'), indent=2)
     return res
 
@@ -221,15 +221,15 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
         cfg['dataset_params']['finetune'] = {ds: ds_args}
         cfg['training_params']['finetune'] = {'pretrained_checkpoint': checkpoint, 'protocol': proto,
                                               'split': {'type': 'fewshot', 'train_fraction': 0.3}}
-        cfg['model_params'].setdefault('MeSAE', {}).setdefault('finetune', {})
+        cfg['model_params'].setdefault('Qtome', {}).setdefault('finetune', {})
         cfg = apply_protocol(cfg)
         split = cfg['training_params']['finetune']['split']
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
-        data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
+        data = CachedAtomDataset(get_atom_cache(cfg, ds, subs, latent='output'), subs)
         z, y, subj = _features(feature, data, checkpoint), data.labels.numpy(), data.subject_data.numpy()
-        stamp = _segment_means((data.amp.float().pow(2).sum(-1) + 1e-6).log(), n_seg).numpy()
+        atom = _segment_means((data.amp.float().pow(2).sum(-1) + 1e-6).log(), n_seg).numpy()
         runs = make_runs(split, subs, subj, y, _load_sessions(cfg, ds_args, subs, subj))
-        scores = {'z': {}, 'z_power': {}, 'stamp': {}}
+        scores = {'z': {}, 'z_power': {}, 'atom': {}}
         for run in runs:
             tr = run['train']
             (s, te), = run['eval']['heldout'].items()
@@ -237,7 +237,7 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
             proj = (z[np.concatenate([tr, te])] - mu) @ W                              # [T, N', Cv, n_pca]
             feats = {'z': _segment_means(proj, n_seg).numpy(),
                      'z_power': _segment_means(proj.pow(2), n_seg).add(1e-6).log().numpy(),
-                     'stamp': stamp[np.concatenate([tr, te])]}
+                     'atom': atom[np.concatenate([tr, te])]}
             for k, f in feats.items():
                 ftr, fte = f[:len(tr)], f[len(tr):]
                 m, sd = ftr.mean(0), ftr.std(0) + 1e-6
@@ -246,7 +246,7 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
         res[ds] = {k: {'mean': float(np.mean(list(v.values()))), 'per_subject': v} for k, v in scores.items()}
         res[ds]['split'] = split
         print(f"  {ds:12s} few-shot closed-form ridge: z {res[ds]['z']['mean'] * 100:5.1f} | z log-power "
-              f"{res[ds]['z_power']['mean'] * 100:5.1f} | stamp power {res[ds]['stamp']['mean'] * 100:5.1f}"
+              f"{res[ds]['z_power']['mean'] * 100:5.1f} | atom power {res[ds]['atom']['mean'] * 100:5.1f}"
               f"  (train_fraction {split.get('train_fraction')})")
     json.dump(res, open(out_path, 'w'), indent=2)
     return res
@@ -255,16 +255,16 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
 # ---------- Q-atom hidden: does each Q-atom's MLP hidden carry more than z? ----------
 
 @torch.no_grad()
-def stamp_hidden_stats(config, checkpoint, out_path, datasets=DATASETS, n_tokens=20000, seed=0):
+def atom_hidden_stats(config, checkpoint, out_path, datasets=DATASETS, n_tokens=20000, seed=0):
     """Per dataset, on n_tokens random (trial, patch, channel) tokens of the cached z:
-    check -- the cached amp is u w_amp + b_amp times one per-token scalar (the rms), i.e. u is what the StampBank
+    check -- the cached amp is u w_amp + b_amp times one per-token scalar (the rms), i.e. u is what the AtomBank
     computed (relative residual, fp16-level expected);
     free_share -- per Q-atom, share of centred u_s variance outside the column space of w_amp_s (never read by the
     reconstruction; random directions: 1 - 2 / hidden_width);
     copy_r2 -- held-out R^2 of a least-squares map [z, 1] -> u (1 = a linear copy of z);
     rank -- participation-ratio effective rank of u and of z;
     pair_cc -- mean over Q-atom pairs of the top canonical correlation between u_s and u_t (1 = same subspace)."""
-    bank = _stamp_bank(checkpoint)
+    bank = _atom_bank(checkpoint)
     S, K = bank.W_down.shape[0], bank.W_down.shape[2]
     g = torch.Generator().manual_seed(seed)
     res = {}
@@ -274,15 +274,15 @@ def stamp_hidden_stats(config, checkpoint, out_path, datasets=DATASETS, n_tokens
         cfg['dataset_params']['finetune'] = {ds: ds_args}
         cfg['training_params']['finetune'] = {'pretrained_checkpoint': checkpoint, 'protocol': proto,
                                               'split': {'type': 'loso'}}
-        cfg['model_params'].setdefault('MeSAE', {}).setdefault('finetune', {})
+        cfg['model_params'].setdefault('Qtome', {}).setdefault('finetune', {})
         cfg = apply_protocol(cfg)
         subs = list(json.load(open(f"{ds_args['dataset_path']}/metadata.json"))['data_structure'])
-        data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
+        data = CachedAtomDataset(get_atom_cache(cfg, ds, subs, latent='output'), subs)
         z = data.z.float().flatten(0, 2)                                         # [T*N'*Cv, D]
         amp = data.amp.float().flatten(0, 2)                                     # [T*N'*Cv, S, 2]
         idx = torch.randperm(len(z), generator=g)[:n_tokens]
         z, amp = z[idx], amp[idx]
-        u = stamp_hidden(z[:, None, None], bank)[:, 0, 0].view(-1, S, K)        # [M, S, K]
+        u = atom_hidden(z[:, None, None], bank)[:, 0, 0].view(-1, S, K)        # [M, S, K]
         r = torch.einsum('msk,skp->msp', u, bank.w_amp) + bank.b_amp             # [M, S, 2], no rms
         a, r = amp.flatten(1), r.flatten(1)
         rms = (a * r).sum(1, keepdim=True) / r.pow(2).sum(1, keepdim=True).clamp(min=1e-12)
@@ -300,10 +300,10 @@ def stamp_hidden_stats(config, checkpoint, out_path, datasets=DATASETS, n_tokens
         Qs = [torch.linalg.qr(uc[:, s].double())[0] for s in range(S)]
         cc = [float(torch.linalg.svdvals(Qs[s].T @ Qs[t])[0]) for s in range(S) for t in range(s + 1, S)]
         res[ds] = {'check_rel_residual': check, 'free_share': {'mean': float(np.mean(free)), 'min': min(free),
-                   'max': max(free), 'per_stamp': free, 'random': 1 - 2 / K}, 'copy_r2': copy_r2,
+                   'max': max(free), 'per_atom': free, 'random': 1 - 2 / K}, 'copy_r2': copy_r2,
                    'rank_u': pr(U), 'rank_z': pr(z), 'dim_u': S * K, 'dim_z': z.shape[1],
                    'pair_cc': float(np.mean(cc)), 'n_tokens': len(z)}
-        print(f"  {ds:12s} stamp hidden: check {check:.1e} | free share {np.mean(free):.2f} ({min(free):.2f}-{max(free):.2f}, "
+        print(f"  {ds:12s} atom hidden: check {check:.1e} | free share {np.mean(free):.2f} ({min(free):.2f}-{max(free):.2f}, "
               f"random {1 - 2 / K:.2f}) | z->u R^2 {copy_r2:.3f} | rank u {res[ds]['rank_u']:.1f}/{S * K} vs z "
               f"{res[ds]['rank_z']:.1f}/{z.shape[1]} | pair cc {np.mean(cc):.2f}")
         assert check < 0.02, f'{ds}: cached amp is not u w_amp + b_amp times rms (rel residual {check:.3g})'
@@ -337,9 +337,9 @@ def coord_robustness(config, checkpoint, out_path, n_pca=8, transforms=COORD_TRA
             cfg['dataset_params']['finetune'] = {ds: args}
             cfg['training_params']['finetune'] = {'pretrained_checkpoint': checkpoint, 'protocol': proto,
                                                   'split': {'type': 'loso'}}
-            cfg['model_params'].setdefault('MeSAE', {}).setdefault('finetune', {})
+            cfg['model_params'].setdefault('Qtome', {}).setdefault('finetune', {})
             cfg = apply_protocol(cfg)
-            data = CachedStampDataset(get_stamp_cache(cfg, ds, subs, latent='output'), subs)
+            data = CachedAtomDataset(get_atom_cache(cfg, ds, subs, latent='output'), subs)
             return cfg, args, data
 
         cfg, args, data = load(None)

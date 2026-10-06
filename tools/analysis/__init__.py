@@ -82,7 +82,7 @@ def load_config(path: str) -> dict:
 def apply_overrides(cfg: dict, sets) -> dict:
     """In place: each 'dotted.key.path=value' in sets. value is parsed as JSON (numbers, true,
     null, lists, objects) and falls back to a plain string; a numeric path segment indexes a
-    list (model_params.MeSAE.finetune.features.0.time_rank=1). Missing dict keys are created,
+    list (model_params.Qtome.finetune.features.0.time_rank=1). Missing dict keys are created,
     so a typo adds a key rather than failing -- check the config.json snapshot a run writes."""
     for item in sets or []:
         key, sep, raw = item.partition('=')

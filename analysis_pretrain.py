@@ -29,10 +29,10 @@ def main():
     ap.add_argument('--panel', action='append', default=[],
                     help=f'run these panels instead of the preset: {discover_panel_names("pretrain")}')
     ap.add_argument('--device', default='cuda' if torch.cuda.is_available() else 'cpu')
-    ap.add_argument('--datasets', nargs='+', help='snapshot/stamp_distribution/codebook: these pretrain datasets')
-    ap.add_argument('--max-trials', type=int, default=1000, help='codebook/stamp_distribution: trials per dataset')
+    ap.add_argument('--datasets', nargs='+', help='snapshot/atom_distribution/codebook: these pretrain datasets')
+    ap.add_argument('--max-trials', type=int, default=1000, help='codebook/atom_distribution: trials per dataset')
     ap.add_argument('--max-windows', type=int, default=512, help='backbone_eval: held-out windows')
-    ap.add_argument('--dup-threshold', type=float, default=0.9, help='stamp_duplicates: pair threshold')
+    ap.add_argument('--dup-threshold', type=float, default=0.9, help='atom_duplicates: pair threshold')
     ap.add_argument('--train', action='store_true', help='profile: train-mode timing')
     args = ap.parse_args()
 

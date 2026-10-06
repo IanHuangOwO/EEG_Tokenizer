@@ -1,6 +1,6 @@
 """
-Plotting functions for the stamp_by_patch/stamp_gallery panels (tools/panels/) and the
-event_stamp_dynamics codebook diagnostic (model/MeSAE/plugin.py's MeSAECodebookChecker).
+Plotting functions for the atom_by_patch/atom_gallery panels (tools/panels/) and the
+event_atom_dynamics codebook diagnostic (model/Qtome/plugin.py's QtomeCodebookChecker).
 Pure rendering only -- calculation lives in tools/analysis/ and tools/viz/extract.py.
 """
 
@@ -14,7 +14,7 @@ from tools.viz.topomap import draw_topomap, build_triangulation
 def _log_pow(x):
     """log1p of a nonnegative power/PSD quantity (topo=L2 norm, psd=real^2+imag^2 — both
     always >=0, np.maximum guards float rounding noise below 0). log1p(0)=0 exactly, so
-    the zero-fill "unused" floor (see plot_stamp_by_patch/_cell's vmin=0 anchoring)
+    the zero-fill "unused" floor (see plot_atom_by_patch/_cell's vmin=0 anchoring)
     survives the log transform unchanged, while still compressing the large dynamic range
     a handful of high-power channels/bins would otherwise dominate on a linear scale."""
     return np.log1p(np.maximum(x, 0.0))
@@ -29,8 +29,8 @@ def _log_signed(x):
     return np.sign(x) * np.log1p(np.abs(x))
 
 
-def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
-                            trial_idx=None, epoch_tag='', unit_label='Stamp',
+def plot_atom_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
+                            trial_idx=None, epoch_tag='', unit_label='Atom',
                             raw_power=None, recon_power=None, psd_raw=None, psd_recon=None,
                             onset_col=None):
     """
@@ -39,12 +39,12 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
     Row 1: that same patch's own real full reconstruction (grid.recon_topo/recon_psd).
     Rows 2..: every Q-atom at that patch, sorted per patch by strength h (row k = the patch's k-th
     strongest Q-atom) — per-patch content, not trial-averaged (see
-    viz/extract.extract_stamp_psd_by_patch/PatchGridResult), unlike plot_stamp_gallery's rows.
+    viz/extract.extract_atom_psd_by_patch/PatchGridResult), unlike plot_atom_gallery's rows.
 
     raw_power/recon_power/psd_raw/psd_recon: optional whole-trial (not per-patch) Raw/
     Full-Recon topo+PSD, rendered as an extra header row above the per-patch grid when all
     four are given — omit (None, the default) to skip it, e.g. when that whole-trial view
-    is rendered separately instead (see plot_stamp_gallery, Qtome's split panel).
+    is rendered separately instead (see plot_atom_gallery, Qtome's split panel).
 
     Every topo/PSD cell is log1p-scaled (see _log_pow) before display — power/PSD values
     span orders of magnitude (a few strongly-selected channels/bins next to many
@@ -74,7 +74,7 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
     fig, axes = plt.subplots(n_rows, n_col_pairs * 2, figsize=(6 * n_col_pairs, 3.0 * n_rows),
                               squeeze=False, constrained_layout=True)
     fig.suptitle(f"Per-Patch {unit_label} Topo + PSD (every {P and patch_ids[1]-patch_ids[0] or 1}th "
-                 f"patch's stamps, sorted by strength) — "
+                 f"patch's atoms, sorted by strength) — "
                  f"Sub {subject_id}, Trial {trial_idx}{epoch_tag}", fontsize=13, fontweight='bold')
 
     triang = build_triangulation(pos2d)
@@ -84,7 +84,7 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
         # construction, sequential cmap, per-cell vmax so each cell's own peak uses the
         # full range.
         # Signed cells (Q-atom topo = the Q-atom's per-channel amp, its mixing/topomap
-        # column — see viz.extract.extract_stamp_psd_by_patch): diverging RdBu_r
+        # column — see viz.extract.extract_atom_psd_by_patch): diverging RdBu_r
         # with SYMMETRIC limits so 0 = white and polarity reads directly — a dipolar
         # source's positive and negative lobes are the whole point of the plot; the old
         # abs+sequential rendering made a dipole look like two disconnected same-color
@@ -165,17 +165,17 @@ def plot_stamp_by_patch(out_path, pos2d, grid, cmap='YlOrRd', subject_id=None,
     plt.close(fig)
 
 
-def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
+def plot_atom_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
                         psd_ch_x, psd_x, freqs, importance, cmap='YlOrRd',
                         phase_ch_x=None, waveforms=None,
                         subject_id=None, trial_idx=None, epoch_tag='',
-                        unit_label='Stamp', n_per_row=5):
+                        unit_label='Atom', n_per_row=5):
     """
     Whole-trial panel: the trial-wide Raw/Full-Recon view and every Q-atom's trial summary.
 
     Header row: Raw and Full-Recon (whole trial) topo + PSD, one block each. Below: a
     grid of `n_per_row` blocks per row, one block per Q-atom (see
-    viz.extract.extract_stamp_gallery), sorted by accumulated importance descending,
+    viz.extract.extract_atom_gallery), sorted by accumulated importance descending,
     reading left-to-right then top-to-bottom. Each block: topo on the LEFT (spanning
     the block's full height), PSD (channel x freq, from psd_x) top-right, and — when
     phase_ch_x is given — a per-channel PHASE bar chart bottom-right, directly under
@@ -188,13 +188,13 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     reads directly alongside "what did it actually look like".
 
     psd_ch_x: [C, Q]. psd_x: [Q, C, F]. phase_ch_x: [C, Q] radians or None (Raw/Recon
-    header cells never show phase — there's no stamp/quadrature structure to a raw
+    header cells never show phase — there's no atom/quadrature structure to a raw
     signal — and passing None here entirely skips the phase row for Q-atom cells too).
     importance: [Q], Q-atom q = column q. All topo/PSD cells are log1p-scaled (see _log_pow), same reasoning as
-    plot_stamp_by_patch.
+    plot_atom_by_patch.
 
     waveforms: optional list of Q 1-D arrays of the real trial length (see
-    viz.extract.extract_stamp_gallery): the Q-atom's decoded content at ONE pinned channel over
+    viz.extract.extract_atom_gallery): the Q-atom's decoded content at ONE pinned channel over
     the whole trial, rendered as an extra full-block-width row under each Q-atom's PSD/phase pair.
 
     """
@@ -209,7 +209,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     # spans both of the block's rows on the left, PSD/phase stack on the right, so
     # topo_w/right_w need to roughly sum-match (psd_h+phase_h) for topo to land near
     # square (draw_topomap forces equal aspect, same col_w-matching rationale as
-    # plot_stamp_panel).
+    # plot_atom_panel).
     topo_w, right_w, bar_w = 2.6, 2.6, 3.5
     psd_h, phase_h = 1.4, 1.3
     wave_h = 0.8   # waveform row height (only present when waveforms given)
@@ -217,17 +217,17 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     rows_per_block = 2 + (1 if has_wave else 0)
     block_h = psd_h + phase_h + (wave_h if has_wave else 0)
     n_per_row = max(2, n_per_row)  # header needs 2 blocks (Raw, Full Recon) side by side
-    n_stamp_rows = math.ceil(Q / n_per_row) if Q else 0
+    n_atom_rows = math.ceil(Q / n_per_row) if Q else 0
     n_cols = n_per_row * 2
     header_rows = 2  # psd-height row, phase-height row (topo spans both)
-    total_rows = header_rows + n_stamp_rows * rows_per_block
+    total_rows = header_rows + n_atom_rows * rows_per_block
     suptitle_in, margin_in = 1.6, 0.15
     fig_w = (topo_w + right_w) * n_per_row + bar_w
-    fig_h = (psd_h + phase_h) + block_h * n_stamp_rows + suptitle_in + margin_in
+    fig_h = (psd_h + phase_h) + block_h * n_atom_rows + suptitle_in + margin_in
     block_ratios = [psd_h, phase_h] + ([wave_h] if has_wave else [])
     fig = plt.figure(figsize=(fig_w, fig_h))
     gs = fig.add_gridspec(total_rows, n_cols + 1,
-                           height_ratios=[psd_h, phase_h] + block_ratios * n_stamp_rows,
+                           height_ratios=[psd_h, phase_h] + block_ratios * n_atom_rows,
                            width_ratios=[topo_w, right_w] * n_per_row + [bar_w],
                            left=0.02, right=0.98, top=1 - suptitle_in / fig_h, bottom=margin_in / fig_h,
                            hspace=0.6, wspace=0.35)
@@ -237,9 +237,9 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
 
     def _cell(topo_row, block_col, power, psd_cf, phase_c, label, color, signed=False):
         # signed: Q-atom topos are the SIGNED trial-mean per-channel amp (the mixing/
-        # topomap column, see extract_stamp_gallery) — diverging RdBu_r, symmetric
+        # topomap column, see extract_atom_gallery) — diverging RdBu_r, symmetric
         # limits, 0 = white, so dipole polarity reads directly (same rationale as
-        # plot_stamp_by_patch's Q-atom cells). Raw/Recon header stays unsigned power.
+        # plot_atom_by_patch's Q-atom cells). Raw/Recon header stays unsigned power.
         topo_col, right_col = block_col * 2, block_col * 2 + 1
         psd_cf = _log_pow(psd_cf)
         ax_topo = fig.add_subplot(gs[topo_row:topo_row + 2, topo_col])
@@ -297,7 +297,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
 
     def _waveform_cell(row, block_col, sig, color, label):
         # Decoded time-domain content at ONE pinned channel (the channel with the most total
-        # energy for this Q-atom, see viz.extract.extract_stamp_gallery), over the whole trial.
+        # energy for this Q-atom, see viz.extract.extract_atom_gallery), over the whole trial.
         topo_col = block_col * 2
         ax = fig.add_subplot(gs[row, topo_col:topo_col + 2])
         if sig is None or not np.isfinite(sig).any():
@@ -323,7 +323,7 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
         if has_wave:
             _waveform_cell(next_row, block_col, waveforms[q], color, label)
 
-    for i in range(Q, n_stamp_rows * n_per_row):
+    for i in range(Q, n_atom_rows * n_per_row):
         block_row, block_col = divmod(i, n_per_row)
         topo_row = header_rows + block_row * rows_per_block
         topo_col, right_col = block_col * 2, block_col * 2 + 1
@@ -349,8 +349,8 @@ def plot_stamp_gallery(out_path, pos2d, raw_power, recon_power, psd_raw, psd_rec
     plt.close(fig)
 
 
-def plot_event_stamp_dynamics(out_path, t_sec, amp_mean, pow_mean, pow_std, onset_sec=None,
-                              unit_label='Stamp', title_suffix='', n_movers=15):
+def plot_event_atom_dynamics(out_path, t_sec, amp_mean, pow_mean, pow_std, onset_sec=None,
+                              unit_label='Atom', title_suffix='', n_movers=15):
     """Event-locked Q-atom-strength / power trajectory for an epoch-structured dataset.
 
     Trials are onset-aligned (one epoch each), so a fixed time offset within the trial means the
@@ -420,14 +420,14 @@ def plot_event_stamp_dynamics(out_path, t_sec, amp_mean, pow_mean, pow_std, onse
     plt.close(fig)
 
 
-def plot_stamp_ab_violin(out_path, stamp_ab, title=''):
+def plot_atom_ab_violin(out_path, atom_ab, title=''):
     """4-row violin grid (a, b, amp=sqrt(a^2+b^2), phase=atan2(b,a)) -- one violin per
-    Q-atom id, x-axis ordered by mean amplitude (tools/analysis/stamp_dist.py's
-    accumulate_stamp_ab already ranks/caps stamp_ab that way). stamp_ab: {stamp_id: (a
+    Q-atom id, x-axis ordered by mean amplitude (tools/analysis/atom_dist.py's
+    accumulate_atom_ab already ranks/caps atom_ab that way). atom_ab: {atom_id: (a
     [n], b [n])} np.ndarray pairs."""
-    ids = list(stamp_ab.keys())
-    a_list = [stamp_ab[i][0] for i in ids]
-    b_list = [stamp_ab[i][1] for i in ids]
+    ids = list(atom_ab.keys())
+    a_list = [atom_ab[i][0] for i in ids]
+    b_list = [atom_ab[i][1] for i in ids]
     amp_list = [np.hypot(a, b) for a, b in zip(a_list, b_list)]
     phase_list = [np.arctan2(b, a) for a, b in zip(a_list, b_list)]
 
@@ -447,14 +447,14 @@ def plot_stamp_ab_violin(out_path, stamp_ab, title=''):
 
     axes[-1].set_xticks(positions)
     axes[-1].set_xticklabels([str(i) for i in ids], rotation=90, fontsize=6)
-    axes[-1].set_xlabel('Stamp id (ranked by mean amplitude)')
+    axes[-1].set_xlabel('Atom id (ranked by mean amplitude)')
     fig.suptitle(title, fontweight='bold')
     fig.tight_layout()
     fig.savefig(out_path, dpi=100)
     plt.close(fig)
 
 
-def plot_stamp_templates(out_path, D, H, ids):
+def plot_atom_templates(out_path, D, H, ids):
     """Grid of Q-atom templates: D solid, its quadrature partner H dashed."""
     ncols = 8
     nrows = (len(ids) + ncols - 1) // ncols
@@ -469,7 +469,7 @@ def plot_stamp_templates(out_path, D, H, ids):
     for ax in axes.flat[len(ids):]:
         ax.axis('off')
     axes[0][0].legend(fontsize=6, loc='upper right')
-    fig.suptitle(f'Stamp templates (D solid, H dashed): {len(ids)}/{D.shape[0]} alive', fontweight='bold')
+    fig.suptitle(f'Atom templates (D solid, H dashed): {len(ids)}/{D.shape[0]} alive', fontweight='bold')
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)
     plt.close(fig)
@@ -497,7 +497,7 @@ def plot_time_weights(out_path, maps, title, event_patch=None):
         if event_patch is not None:
             ax.axvline(event_patch, color='w', ls='--', lw=1.2)
         ax.set_title(name, fontsize=9)
-        ax.set_ylabel('stamp')
+        ax.set_ylabel('atom')
         fig.colorbar(im, ax=ax, fraction=0.03)
     axes[-1, 0].set_xlabel('patch (time)' + ('; dashed = event onset' if event_patch is not None else ''))
     fig.suptitle(title, fontweight='bold')

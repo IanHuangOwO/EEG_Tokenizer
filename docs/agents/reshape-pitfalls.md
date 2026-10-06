@@ -46,7 +46,7 @@ preceding permute:
    Fix: `trials.permute(1, 0, 2).reshape(C, N * T)` — permute first so the merge
    only ever combines the now-adjacent `N`,`T`.
 
-2 & 3. **`model/MeSAE/MeSAE.py` `_patch_pyramid_levels`** (feeds
+2 & 3. **`model/Qtome/Qtome.py` `_patch_pyramid_levels`** (feeds
    `_hierarchical_recon_loss`, the actual training loss for Qtome tokenizer +
    pretrain stages) — two separate instances in the same function:
    - `recon.reshape(B*C, L, N)` on a `(B, C, N, L)` tensor, intending to swap `N`

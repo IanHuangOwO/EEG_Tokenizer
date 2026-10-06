@@ -4847,7 +4847,7 @@
     "continuous_seconds": 5.0
   },
   "model_params": {
-    "MeSAE": {
+    "Qtome": {
       "pretrain": {
         "patch_len": 100,
         "embed_dim": 100,
@@ -4862,8 +4862,8 @@
           "n_shared_experts": 1,
           "top_k": 2
         },
-        "stamp_bank": {
-          "n_stamps": 16,
+        "atom_bank": {
+          "n_atoms": 16,
           "hidden_width": 8
         },
         "loss": {
@@ -4887,10 +4887,10 @@
   },
   "training_params": {
     "pretrain": {
-      "model_type": "MeSAE",
-      "model_name": "mesae_vXX_small",
+      "model_type": "Qtome",
+      "model_name": "qtome_vXX_small",
       "tokenizer_epochs": 10,
-      "freeze_stamps": false,
+      "freeze_atoms": false,
       "learning_rate": 0.001,
       "min_learning_rate": 0.0001,
       "epochs": 50,

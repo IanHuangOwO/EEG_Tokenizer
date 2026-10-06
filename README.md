@@ -2,7 +2,7 @@
 
 An EEG foundation model that turns multi-channel EEG into interpretable per-patch features.
 The model is **Qtome**: a temporal-spatial attention (TSA) encoder feeds a **Q-atom dictionary**
-(StampBank), and each patch is reconstructed as a linear sum of learned waveform templates. It is
+(AtomBank), and each patch is reconstructed as a linear sum of learned waveform templates. It is
 pretrained with masked reconstruction on a multi-dataset corpus, then frozen. Downstream tasks read
 either the encoder output directly (a linear probe) or the Q-atom codes (a structured head).
 
@@ -35,7 +35,7 @@ raw dataset files
   per-channel gains of one Q-atom form a topography. The dictionary is static: 16 Q-atoms, all active
   on every patch (routed top-k Q-atoms were removed, `docs/adr/0022`). Downstream heads read the
   encoder output z; the Q-atoms are the reconstruction objective and an interpretable view.
-- **Sparsity budget (a hard limit).** Keep `2·n_stamps < patch_len` with
+- **Sparsity budget (a hard limit).** Keep `2·n_atoms < patch_len` with
   margin. Past that line the active Q-atoms can fit any patch exactly and the model stops doing
   sparse coding (`docs/adr/0011`). The current budget is 2·16 = 32 against a `patch_len` of 50.
 - **Two-phase pretraining** (`docs/adr/0013`). In the *tokenizer phase* every block runs with
@@ -52,7 +52,7 @@ raw dataset files
   power, a closed-form ridge probe), not by single-seed finetuning, which runs only when a recipe is
   frozen.
 
-The default model has about 2.26M parameters; the StampBank is under 1 % of them. `CONTEXT.md`
+The default model has about 2.26M parameters; the AtomBank is under 1 % of them. `CONTEXT.md`
 has the canonical terms and `docs/adr/` the reasoning behind each choice.
 
 ## Setup
@@ -82,7 +82,7 @@ cp configs/finetune.template.json configs/runs/<backbone>/finetune/<head>/<datas
 python train_finetune.py --config configs/runs/<backbone>/finetune/<head>/<dataset>_<split>.json
 
 # Any config value can be overridden on the command line (dotted path, JSON value)
-python train_finetune.py --config <cfg> --set model_params.MeSAE.finetune.spatial_k=8
+python train_finetune.py --config <cfg> --set model_params.Qtome.finetune.spatial_k=8
 
 # Experiments: a sweep file -> queue plan; run_queue runs it resumably, a few jobs at a time
 python -m tools.misc.sweep configs/sweeps/<sweep>.json > output/queue/<plan>.plan
@@ -99,10 +99,10 @@ The files in `configs/*.template.json` are starting points and are never run dir
 configs go in `configs/runs/`, which is git-ignored because every run saves its effective config
 in `output/.../artifacts/config.json`. See `configs/README.md`.
 
-**Finetune.** A head is a list of feature entries (`model_params.MeSAE.finetune.features`), each
-with its own spatial filter: Q-atom-code entries (`stamp_power`, `signed_ab`, ...), latent entries
+**Finetune.** A head is a list of feature entries (`model_params.Qtome.finetune.features`), each
+with its own spatial filter: Q-atom-code entries (`atom_power`, `signed_ab`, ...), latent entries
 on the encoder output z (`latent_signed` is the linear probe), and raw-signal baselines. The default head
-reads only the Q-atoms: `stamp_power` (MI) and `signed_ab` (signed gains, P300); swapping `signed_ab` for
+reads only the Q-atoms: `atom_power` (MI) and `signed_ab` (signed gains, P300); swapping `signed_ab` for
 `latent_signed` gives a stronger head on MI few-shot. Splits
 (`training_params.finetune.split.type`): `loso`, `subject_kfold`, `eval_subjects`, `kfold`,
 `blocked_kfold`, `fewshot`. Frozen protocols (`configs/finetune_protocols.json`: `mi_loso`,
@@ -132,7 +132,7 @@ output/archive/<date>_<topic>/     # superseded experiments, grouped by topic
 | `train_pretrain.py`, `train_finetune.py` | Training entry points |
 | `cache_dataset.py`, `cache_feature.py` | Dataset compilation and frozen-backbone feature caching |
 | `analysis_pretrain.py`, `analysis_finetune.py` | Analysis entry points (panels in `tools/panels/`) |
-| `model/MeSAE/` | `MeSAE_modules.py` (embeddings, `TSABlock`, `TSAEncoder`, `StampBank`, finetune `FeatureHead`), `MeSAE.py` (`MeSAEPretrain`, losses, `FinetuneModel`), `plugin.py` |
+| `model/Qtome/` | `Qtome_modules.py` (embeddings, `TSABlock`, `TSAEncoder`, `AtomBank`, finetune `FeatureHead`), `Qtome.py` (`QtomePretrain`, losses, `FinetuneModel`), `plugin.py` |
 | `model/` | Plugin base classes and `factory.py` (`MODEL_REGISTRY`, `build_from_checkpoint`) |
 | `IO/` | Loading, preprocessing (windowing, patching, normalization), masking |
 | `datas/pretrain/`, `datas/finetune/` | One folder per dataset: `loader.py`, `metadata.json`, git-ignored `raw/` and `cache/` |

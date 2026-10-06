@@ -23,7 +23,7 @@ def run(ctx):
         cfg['dataset_params']['pretrain'] = {name: {**ds_params[name], 'subject_to_use': subjects}}
         by_name[name] = build_dataset_from_config(cfg, mode='pretrain', assemble_trials=False)
         print(f"  {name}: {len(subjects)} subject(s)")
-    checker = MODEL_REGISTRY['MeSAE'].codebook_checker_cls()
+    checker = MODEL_REGISTRY['Qtome'].codebook_checker_cls()
     checker.check_codebook(ctx.config, ctx.out_dir, ctx.model, by_name, max_trials_per_dataset=max_trials)
     del by_name
     gc.collect()

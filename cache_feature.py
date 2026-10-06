@@ -5,7 +5,7 @@ Pipeline stage between the compiled data (cache_dataset.py) and the finetune hea
 The backbone never changes during finetuning, so its Q-atom amplitudes are computed once per
 (checkpoint, dataset, preprocessing) and stored next to the backbone:
     <backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz
-Only Q-atom features use it (StampExtractor output); raw features never touch the backbone."""
+Only Q-atom features use it (AtomExtractor output); raw features never touch the backbone."""
 import argparse
 import hashlib
 import json
@@ -20,7 +20,7 @@ from IO.dataset import build_dataset_from_config
 from IO.loader import get_standard_coords
 from IO.preprocessing import cache_suffix, slice_patches
 from model.factory import build_from_checkpoint
-from model.MeSAE.MeSAE_modules import StampExtractor
+from model.Qtome.Qtome_modules import AtomExtractor
 
 
 def _fingerprint(path):
@@ -39,7 +39,7 @@ def _mne_version():
         return 'none'   # coordinates fall back to the flat metadata polar values
 
 
-_CODE_FILES = ('model/MeSAE/MeSAE.py', 'model/MeSAE/MeSAE_modules.py', 'cache_feature.py')
+_CODE_FILES = ('model/Qtome/Qtome.py', 'model/Qtome/Qtome_modules.py', 'cache_feature.py')
 
 
 def _code_hash():
@@ -117,7 +117,7 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
     valid = base.all_valid_channels[0]
     coords, vlen = base.all_coords[0].clone(), int(base.all_valid_length[0])
     # dataset_params.finetune.<ds>.impute_missing_channels (experiment): keep every canonical
-    # channel, missing ones filled in by the backbone (StampExtractor impute_missing) at their
+    # channel, missing ones filled in by the backbone (AtomExtractor impute_missing) at their
     # standard 10-10 position. Part of the dataset dict, so cache_key already separates it.
     impute = bool(config['dataset_params']['finetune'][dataset_name].get('impute_missing_channels'))
     if impute:
@@ -131,7 +131,7 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
     if tf:
         coords = transform_coords(coords, tf, seed=int(subject))
     channel_idx = list(range(len(valid))) if impute else torch.nonzero(valid).flatten().tolist()
-    extractor = StampExtractor(backbone, channel_idx).to(device).eval()
+    extractor = AtomExtractor(backbone, channel_idx).to(device).eval()
     out, zs = [], []
     for i in range(0, len(base.data), batch_size):
         x = base.data[i:i + batch_size]                                   # [b, C, T]
@@ -147,7 +147,7 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
         out.append(amp.cpu())
     amp = torch.cat(out)
     if not torch.isfinite(amp).all() or amp.abs().max() >= 6e4:
-        raise ValueError(f"subject {subject}: stamp amplitudes are not finite or exceed the fp16 range "
+        raise ValueError(f"subject {subject}: atom amplitudes are not finite or exceed the fp16 range "
                          f"(max abs {amp.abs().max().item():.3g})")
     data_fp = _fingerprint(_data_path(config, dataset_name, subject))
     # write-then-rename: parallel finetune runs on the same backbone/dataset share this folder,
@@ -161,7 +161,7 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
     return amp.shape
 
 
-def get_stamp_cache(config, dataset_name, subjects, device=None, batch_size=64, latent=False):
+def get_atom_cache(config, dataset_name, subjects, device=None, batch_size=64, latent=False):
     """Build any missing or stale per-subject file and return the cache folder."""
     device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
     ckpt = config['training_params']['finetune']['pretrained_checkpoint']
@@ -182,7 +182,7 @@ def get_stamp_cache(config, dataset_name, subjects, device=None, batch_size=64, 
     return folder
 
 
-class CachedStampDataset(Dataset):
+class CachedAtomDataset(Dataset):
     """Q-atom amplitudes of the given subjects, in RAM. See the plan's Interfaces section."""
     def __init__(self, folder, subjects):
         parts = []
@@ -197,7 +197,7 @@ class CachedStampDataset(Dataset):
         self.subject_data = torch.cat([torch.full((len(p['labels']),), int(s), dtype=torch.long)
                                        for s, p in zip(subjects, parts)])
         self.channel_idx = parts[0]['channel_idx'].tolist()
-        self.num_patches, self.num_channels, self.num_stamps = self.amp.shape[1], self.amp.shape[2], self.amp.shape[3]
+        self.num_patches, self.num_channels, self.num_atoms = self.amp.shape[1], self.amp.shape[2], self.amp.shape[3]
         self.z = torch.from_numpy(np.concatenate([p['z'] for p in parts])) if 'z' in parts[0] else None   # [T, N', Cv, D]
 
     def __len__(self):
@@ -220,14 +220,14 @@ def _subjects(ds_args):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Build the stamp-amplitude cache for every finetune dataset in a config.")
+    ap = argparse.ArgumentParser(description="Build the atom-amplitude cache for every finetune dataset in a config.")
     ap.add_argument('--config', default='configs/finetune.template.json')
     ap.add_argument('--batch-size', type=int, default=64)
     args = ap.parse_args()
     from tools.analysis import load_config  # merges a finetune overlay onto its base_config
     config = load_config(args.config)
     for name, ds_args in config['dataset_params']['finetune'].items():
-        folder = get_stamp_cache(config, name, _subjects(ds_args), batch_size=args.batch_size)
+        folder = get_atom_cache(config, name, _subjects(ds_args), batch_size=args.batch_size)
         print(f"{name}: cache ready in {folder}")
 
 

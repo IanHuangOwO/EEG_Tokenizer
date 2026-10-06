@@ -3,9 +3,9 @@
  "script": "train_finetune.py",
  "config": "configs/runs/{backbone}/finetune/combined/BNCI2014001_loso_seed1.json",
  "backbones": [
-  "mesae_tiny_p50_s16_s1",
-  "mesae_tiny_p50_s16_s2",
-  "mesae_tiny_p50_s16_s3"
+  "qtome_tiny_p50_s16_s1",
+  "qtome_tiny_p50_s16_s2",
+  "qtome_tiny_p50_s16_s3"
  ],
  "set": {
   "training_params.finetune.seed": 1

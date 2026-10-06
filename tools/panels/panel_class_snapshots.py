@@ -11,7 +11,7 @@ import numpy as np
 from IO.dataset import build_dataset_from_config
 from tools.analysis import load_model
 from tools.analysis.snapshot import build_finetune_bundle, predict_all
-from tools.viz.snapshot import render_recon, render_stamp_gallery
+from tools.viz.snapshot import render_recon, render_atom_gallery
 
 STAGES = frozenset({'finetune'})
 
@@ -49,4 +49,4 @@ def run(ctx):
                                               subject_id=int(ds.base_dataset.subject_data[i]),
                                               tag=f'_class{c}_{cname}_{status}')
             render_recon(bundle, cfg, out_dir)
-            render_stamp_gallery(bundle, cfg, out_dir, cmap=ctx.cmap)
+            render_atom_gallery(bundle, cfg, out_dir, cmap=ctx.cmap)

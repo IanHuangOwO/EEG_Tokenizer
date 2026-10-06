@@ -15,7 +15,7 @@ is sign-aligned to the first head's before averaging.
 """
 import torch
 
-from model.MeSAE.MeSAE_modules import _entry_dim, feature_names
+from model.Qtome.Qtome_modules import _entry_dim, feature_names
 
 
 def readout(ckpt, entry):
@@ -58,8 +58,8 @@ def summarise(head_paths, entry='latent_signed'):
     return torch.stack(imps).mean(0), torch.stack(sps).mean(0), len(imps)
 
 
-def stamp_head_maps(head_pth, entry='stamp_power'):
-    """A stamp_power entry: features f[k, s] = log(sum_n w[s, n] (S a)^2 + (S b)^2) with S the spatial filter [K, C] and
+def atom_head_maps(head_pth, entry='atom_power'):
+    """A atom_power entry: features f[k, s] = log(sum_n w[s, n] (S a)^2 + (S b)^2) with S the spatial filter [K, C] and
     w the learned per-atom softmax time weights. -> (time weights [S, N], importance [K, S] = class-centred readout norm,
     channel map [S, C] = sum_k importance[k, s] * S[k, c]^2 / sum_k importance[k, s]: which electrodes' power the
     decision on Q-atom s reads, invariant to the order and sign of the virtual channels)."""
@@ -74,12 +74,12 @@ def stamp_head_maps(head_pth, entry='stamp_power'):
     return tw, imp, chan
 
 
-def summarise_stamps(head_paths, entry='stamp_power'):
+def summarise_atoms(head_paths, entry='atom_power'):
     """Mean over heads of one backbone (Q-atoms are that backbone's own dictionary): time weights [S, N], per-atom
     importance [S] (summed over virtual channels), channel map [S, C] (each head's rows scaled to max 1 first)."""
     tws, imps, chans = [], [], []
     for h in head_paths:
-        tw, imp, chan = stamp_head_maps(h, entry)
+        tw, imp, chan = atom_head_maps(h, entry)
         tws.append(tw); imps.append(imp.sum(0)); chans.append(chan / chan.amax(1, keepdim=True).clamp(min=1e-12))
     return torch.stack(tws).mean(0), torch.stack(imps).mean(0), torch.stack(chans).mean(0), len(tws)
 
@@ -93,15 +93,15 @@ def gain_scale(amp, spatial, n_trials=2000, seed=0):
     return x.flatten(1, 2).std(1)                                             # [2, K, S]
 
 
-def signed_stamp_head_maps(head_pth, amp, entry='signed_ab'):
+def signed_atom_head_maps(head_pth, amp, entry='signed_ab'):
     """A signed_ab entry in Q-atom space: features f[ab, k, m, r] = sum_n q[r, n] sum_s W[m, s] (S g_ab)[n, k, s], so the
     class-centred effective weight per Q-atom and patch is E[c, ab, k, n, s] = sum_{m, r} w[c, ab, k, m, r] q[r, n] W[m, s],
     times the Q-atom's filtered gain std (a weight on a quiet Q-atom moves the decision little).
     -> (importance [S, N] = norm over class, a / b and virtual channel; per-atom importance [K, S] over the rest;
-    channel map [S, C] weighted like stamp_head_maps)."""
+    channel map [S, C] weighted like atom_head_maps)."""
     ckpt = torch.load(head_pth, map_location='cpu', weights_only=False)
     sd = ckpt['model_state_dict']
-    q, W = sd[f'entries.{entry}.q'].float(), sd[f'entries.{entry}.stamp.weight'].float()   # [R, N], [M, S]
+    q, W = sd[f'entries.{entry}.q'].float(), sd[f'entries.{entry}.atom.weight'].float()   # [R, N], [M, S]
     S = sd[f'spatials.{entry}.weight'].float()                                            # [K, C]
     K, (M, R) = S.shape[0], (W.shape[0], q.shape[0])
     w = readout(ckpt, entry).view(-1, 2, K, M, R)
@@ -113,12 +113,12 @@ def signed_stamp_head_maps(head_pth, amp, entry='signed_ab'):
     return tw, imp, chan
 
 
-def summarise_signed_stamps(head_paths, amp, entry='signed_ab'):
+def summarise_signed_atoms(head_paths, amp, entry='signed_ab'):
     """Mean over heads of one backbone: importance map [S, N] (each head's map scaled to sum 1 first), per-atom
     importance [S] (each head's scaled to sum 1), channel map [S, C] (rows scaled to max 1)."""
     tws, imps, chans = [], [], []
     for h in head_paths:
-        tw, imp, chan = signed_stamp_head_maps(h, amp, entry)
+        tw, imp, chan = signed_atom_head_maps(h, amp, entry)
         tws.append(tw / tw.sum()); i = imp.sum(0); imps.append(i / i.sum())
         chans.append(chan / chan.amax(1, keepdim=True).clamp(min=1e-12))
     return torch.stack(tws).mean(0), torch.stack(imps).mean(0), torch.stack(chans).mean(0), len(tws)

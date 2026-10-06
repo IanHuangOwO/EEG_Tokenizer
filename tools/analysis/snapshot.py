@@ -10,8 +10,8 @@ import torch
 import torch.nn as nn
 
 from IO.preprocessing import slice_patches
-from model.MeSAE.MeSAE_modules import overlap_add_patches
-from model.MeSAE.plugin import MeSAETrainer
+from model.Qtome.Qtome_modules import overlap_add_patches
+from model.Qtome.plugin import QtomeTrainer
 from tools.analysis import lookup_event_onset_sample
 
 
@@ -25,7 +25,7 @@ class SnapshotBundle:
     c_in: torch.Tensor           # [1, C, 3] coords
     t_in: torch.Tensor           # [1, N] time indices
     vc_in: torch.Tensor          # [1, C] valid-channel mask
-    psd_model: nn.Module         # the model stamp_by_patch/stamp_gallery actually run on
+    psd_model: nn.Module         # the model atom_by_patch/atom_gallery actually run on
                                   # (the full model for pretrain, model.backbone for finetune)
     raw_t: torch.Tensor          # [1, C, T] full-resolution raw signal
     recon_t: torch.Tensor        # [1, C, T] full-resolution reconstruction
@@ -118,7 +118,7 @@ def build_pretrain_bundle(model, dataset, trial_idx, config, device,
                            subject_id=None, epoch=None):
     """Pretrain-stage bundle: full (masked-phase-restored) model forward, unmasked
     reconstruction, per-trial Q-atom usage for title colors. Returns (bundle, metrics)
-    where metrics = {'recon_mse': ..., **MeSAETrainer().epoch_metrics(model, out)},
+    where metrics = {'recon_mse': ..., **QtomeTrainer().epoch_metrics(model, out)},
     matching today's BaseEpochChecker.check_pretrain's returned metrics dict exactly."""
     was_training = model.training
     model.eval()
@@ -137,7 +137,7 @@ def build_pretrain_bundle(model, dataset, trial_idx, config, device,
         recon_cnl = out.recon[0].detach().cpu().numpy()
 
         metrics = {'recon_mse': float(np.mean((data['raw'] - data['recon']) ** 2))}
-        metrics.update(MeSAETrainer().epoch_metrics(model, out))
+        metrics.update(QtomeTrainer().epoch_metrics(model, out))
 
         event_onset_sec = _lookup_event_onset(config, dataset, trial_idx)
         valid_start, valid_end = _lookup_valid_range(dataset, trial_idx)
@@ -186,7 +186,7 @@ def build_finetune_bundle(model, dataset, trial_idx, config, device,
         recon_cnl = out.recon[0].reshape(C, N, L).detach().cpu().numpy()
 
         metrics = {'recon_mse': float(np.mean((raw_cnl - recon_cnl) ** 2))}
-        metrics.update(MeSAETrainer().epoch_metrics(backbone, out))
+        metrics.update(QtomeTrainer().epoch_metrics(backbone, out))
 
         bundle = SnapshotBundle(
             x_in=x_in, c_in=c_in, t_in=t_in, vc_in=vc_in, psd_model=backbone,

@@ -49,7 +49,7 @@ from IO.dataset import build_dataset_from_config, load_montage_channels, split_p
 from IO.loader import get_standard_coords
 from cache_feature import transform_coords
 from IO.masking import ChannelClusterMask, RandomChannelMask, TimeBlockMask, random_token_mask
-from model.MeSAE.MeSAE_modules import fourier_features, get_sinusoidal_pos, overlap_add_patches
+from model.Qtome.Qtome_modules import fourier_features, get_sinusoidal_pos, overlap_add_patches
 
 
 def val_config(config):

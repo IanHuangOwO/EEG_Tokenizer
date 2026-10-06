@@ -22,7 +22,7 @@ python cache_dataset.py --config configs/compile.json
 # Pretrain: one run, tokenizer phase then masked phase (docs/adr/0013)
 python train_pretrain.py --config configs/runs/<backbone>/pretrain.json
 
-# Finetune a head on the frozen backbone (stamp-code cache built on first use by cache_feature.py)
+# Finetune a head on the frozen backbone (atom-code cache built on first use by cache_feature.py)
 python train_finetune.py --config configs/runs/<backbone>/finetune/<head>/<cell>.json
 
 # Any config value can be overridden (dotted path, JSON value, repeatable; artifacts/config.json records it)
@@ -35,8 +35,8 @@ python -m tools.misc.run_queue output/queue/<plan>.plan --max-parallel 2 --threa
 
 # Analysis: one panel mechanism (tools/panels/, presets in tools/panels/__init__.py PRESETS), failures don't stop
 # the other panels. Pretrain = one backbone -> output/<backbone>/pretrain/analysis/ (standard: backbone_eval,
-# attention_range, stamp_usage, ridge_probe, stamp_vs_raw, stamp_templates, stamp_duplicates, stamp_distribution,
-# snapshot, codebook; quick: the first seven; on request: coord_robustness, stamp_maps, probe_maps). Judge each
+# attention_range, atom_usage, ridge_probe, atom_vs_raw, atom_templates, atom_duplicates, atom_distribution,
+# snapshot, codebook; quick: the first seven; on request: coord_robustness, atom_maps, probe_maps). Judge each
 # change by its own mechanism metric, not finetuning (ADR 0020).
 python analysis_pretrain.py --run <backbone> [--preset quick] [--panel <name> ...]
 python analysis_pretrain.py --panel profile [--train]     # parameter counts + timing, no checkpoint
@@ -46,7 +46,7 @@ python analysis_finetune.py --group base=<backbone> --group X=<backbone> --ref b
 python -m tools.analysis.summarize_runs 'output/<backbone>/finetune/<head>/*' [--ref <backbone>:<head>] [--rank N]
 ```
 
-No test suite: modules carry runnable self-checks (e.g. `MeSAE_modules._selfcheck_head_modules()`), and
+No test suite: modules carry runnable self-checks (e.g. `Qtome_modules._selfcheck_head_modules()`), and
 validation runs during training. Refactors here are verified by reproducing recorded results bit-identically.
 
 ### Long-running jobs: always monitor exit and errors
@@ -75,11 +75,11 @@ Shared: `configs/compile.json` (compile params + dataset list), `configs/montage
 sub-montages), `configs/finetune_protocols.json`, `configs/sweeps/`. See `configs/README.md`.
 
 Key fields (templates show defaults):
-- `model_params.MeSAE.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2), `skip_mode`
+- `model_params.Qtome.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2), `skip_mode`
   (`gated` UNet skips / `finest` only the finest skip / `none`), `skip_drop` (per-sample skip drop-path probability; a list = one per skip, finest first), `decoder_blocks`
   (per-channel temporal conv blocks after each upsample, no channel mixing),
   `temporal_bias` (true, the templates' default since 2026-10-06: a learned bias on the signed time lag in every block's temporal attention; code default false),
-  `spatial_heads`, `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (true: Fourier electrode-coordinate
+  `spatial_heads`, `moe_ffn`, `atom_bank`, `loss`, `spatial_embedding` (true: Fourier electrode-coordinate
   embedding + per-block directional relative spatial bias; false: neither -- the spatial ablation).
 - `preprocess_params`: `canonical_channels` (a `montages.json` name or a list), `channel_layout` (`native`, the
   templates' default: every EEG channel of the dataset, non-10-10 ones in free slots, > 64 channels reduced to the 64
@@ -93,13 +93,13 @@ Key fields (templates show defaults):
   runs of >= 3 patches (a lone patch leaks through the overlap); `time_block` `max_blocks` 2 (templates since 2026-10-05; the
   v2 backbones predate it): 1-2 holes splitting the ratio at random cut points, each >= 3 patches; `subsample` removes channels down to a
   `montages.json` sub-montage for part of the dense-cap windows.
-- `training_params.pretrain`: `model_name`, `output_path`, `epochs`, `tokenizer_epochs`, `freeze_stamps`,
+- `training_params.pretrain`: `model_name`, `output_path`, `epochs`, `tokenizer_epochs`, `freeze_atoms`,
   `warmup_epochs`, `batch_size`, LR fields, `train_val_split`, `seed`.
-- `model_params.MeSAE.finetune` (the head, validated at build): `features` = a list of `{"type": <entry>,
-  <per-entry keys>}`; entries are classes in `MeSAE_modules.py`'s `ENTRY_TYPES` (`stamp_power`, `stamp_band`,
+- `model_params.Qtome.finetune` (the head, validated at build): `features` = a list of `{"type": <entry>,
+  <per-entry keys>}`; entries are classes in `Qtome_modules.py`'s `ENTRY_TYPES` (`atom_power`, `atom_band`,
   `signed_ab`, `evoked`, `phase_advance`, `raw_band`, `raw_signal`, `latent_power`, `latent_signed`) -- a new
   head feature is one class + one registry line. Every entry has its own spatial filter. Per-entry keys
-  (`spatial_k`, `time_pool`, `time_rank`, `window`, `evoked_rank`, `stamp_rank`, `latent_proj`) may also be set
+  (`spatial_k`, `time_pool`, `time_rank`, `window`, `evoked_rank`, `atom_rank`, `latent_proj`) may also be set
   at the top level as defaults; plus `dropout`. Defaults: `_HEAD_DEFAULTS`.
 - `training_params.finetune`: `pretrained_checkpoint`, `protocol` (a `configs/finetune_protocols.json` entry:
   mi_loso / mi_fewshot / p300_loso / p300_fewshot, tuned on DEV sets BNCI2015001 / BNCI2014009 only; each sets
@@ -107,7 +107,7 @@ Key fields (templates show defaults):
   `loso`, `subject_kfold` (`n_folds`), `eval_subjects`, `kfold`, `blocked_kfold`, `fewshot` (`train_fraction`,
   EEG-FM-Compass calibration); all take `sessions` and `seed`, per-subject types also `purge` (P300 overlap);
   unknown keys are rejected. Plus LR fields, `epochs`, `class_weight` (`balanced`), `batch_size`, `seed`.
-  `fit`: `sgd` (default) or `closed_form` (`model/MeSAE/closed_form.py`, no SGD). Few-shot always uses closed-form with
+  `fit`: `sgd` (default) or `closed_form` (`model/Qtome/closed_form.py`, no SGD). Few-shot always uses closed-form with
   branch `structured`: the all-atom head's own factors (spatial filter x Q-atom weights x time course) set in closed
   form, one head for every paradigm, signed half at full time resolution (the protocols set it;
   docs/reports/2026-10-06-structured-fewshot-head.md). Older branches `power` / `signed` / `trca` stay for comparison.
@@ -116,13 +116,13 @@ Key fields (templates show defaults):
 
 ## Architecture
 
-**Qtome**: an EEG tokenizer. A TSA encoder feeds a static Q-atom dictionary (StampBank: every Q-atom active at
+**Qtome**: an EEG tokenizer. A TSA encoder feeds a static Q-atom dictionary (AtomBank: every Q-atom active at
 every patch; each reconstructs a patch as `a*D + b*H`, D a template and H its quadrature partner), trained by
 masked reconstruction. Routed (top-k) Q-atoms were removed (docs/adr/0022; code on the `routed-stamps`
-branch). The default downstream head reads only the Q-atoms: Q-atom power (`stamp_power`, induced band power: MI) and the
+branch). The default downstream head reads only the Q-atoms: Q-atom power (`atom_power`, induced band power: MI) and the
 signed Q-atom gains (`signed_ab`: phase-locked / P300). The stronger head swaps `signed_ab` for the signed encoder
 output z (`latent_signed`, PCA): level on loso, better on MI few-shot (BNCI2014004 +3.5)
-(docs/reports/2026-10-02-head-ablation.md, docs/reports/2026-09-29-combined-head.md). Plugged in via `model/MeSAE/plugin.py` (`model/factory.py`
+(docs/reports/2026-10-02-head-ablation.md, docs/reports/2026-09-29-combined-head.md). Plugged in via `model/Qtome/plugin.py` (`model/factory.py`
 `MODEL_REGISTRY`, docs/adr/0004).
 
 ```
@@ -139,13 +139,13 @@ datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.
                        (spatial attention + coordinate embedding on, mask curriculum starts)
 ```
 
-- `MeSAE_modules.py`: `SpatialTemporalEmbeddings`, `RelativeSpatialBias`, `TSABlock` (temporal attention ->
+- `Qtome_modules.py`: `SpatialTemporalEmbeddings`, `RelativeSpatialBias`, `TSABlock` (temporal attention ->
   spatial attention -> MoE FFN, LayerScale), `TSAEncoder` (stages of `blocks_per_stage` blocks; patch axis
   pooled by 2 between stages with a centred [1,3,3,1]/8 kernel, linear-interpolation upsample, gated skips:
   8 blocks = 4 stages, 39 -> 20 -> 10 -> 5 patches; padded channels and padded tail patches are masked out of
-  attention), `StampBank`, and the finetune side: `StampExtractor` (Q-atom codes and optionally z from the
+  attention), `AtomBank`, and the finetune side: `AtomExtractor` (Q-atom codes and optionally z from the
   frozen backbone) and `FeatureHead` (the `ENTRY_TYPES` registry).
-- `MeSAE.py`: `MeSAEPretrain` (phases, per-sample masked loss: a sample counts as masked only if every patch
+- `Qtome.py`: `QtomePretrain` (phases, per-sample masked loss: a sample counts as masked only if every patch
   covering it is masked), `FinetuneModel`.
 - `factory.py`: a pretrain checkpoint stores its `build_config`; `build_from_checkpoint` rebuilds a trained
   backbone from it, never from the editable run config.
@@ -154,7 +154,7 @@ datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.
   channels (std < 0.10 x median, dead electrodes / the recording reference) are treated as padding.
 
 **Sparsity budget, a hard ceiling:** each active Q-atom gives two free scalars per channel, so keep
-`2 * n_stamps < patch_len` with margin. Past it, the active slots fit any patch
+`2 * n_atoms < patch_len` with margin. Past it, the active slots fit any patch
 regardless of the templates and it stops being sparse coding (measured at DOF 56 > 50: recon MSE ~0 on every
 dataset, kurtosis 6.7 -> 1.2). docs/adr/0011.
 

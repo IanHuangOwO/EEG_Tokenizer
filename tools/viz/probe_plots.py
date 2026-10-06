@@ -44,7 +44,7 @@ def plot_probe_maps(out_path, maps, channel_names, title, event_s=None):
     plt.close(fig)
 
 
-def _stamp_block(fig, gs, r0, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, event_s, title, cbar_label,
+def _atom_block(fig, gs, r0, tw, imp, chan, t_axis, atom_labels, xy, channel_names, event_s, title, cbar_label,
                  top=8, ncol=4):
     """Two grid rows from r0: Q-atom x time map (rows ranked by importance) and scalp maps of the top Q-atoms."""
     order = np.argsort(-imp)
@@ -53,7 +53,7 @@ def _stamp_block(fig, gs, r0, tw, imp, chan, t_axis, stamp_labels, xy, channel_n
     ax = fig.add_subplot(gs[r0:r0 + 2, 0])
     im = ax.imshow(tw[order], aspect='auto', cmap='viridis', origin='upper',
                    extent=[t_axis[0] - dt / 2, t_axis[-1] + dt / 2, len(order) - 0.5, -0.5])
-    ax.set_yticks(range(len(order)), [f'{stamp_labels[s]} ({share[s]:.0%})' for s in order], fontsize=7)
+    ax.set_yticks(range(len(order)), [f'{atom_labels[s]} ({share[s]:.0%})' for s in order], fontsize=7)
     if event_s is not None:
         ax.axvline(0.0, color='crimson', ls='--', lw=1.5)
     ax.set_xlabel('time from event (s)' if event_s is not None else 'time in window (s)')
@@ -71,11 +71,11 @@ def _stamp_block(fig, gs, r0, tw, imp, chan, t_axis, stamp_labels, xy, channel_n
         a.set_aspect('equal'); a.set_xticks([]); a.set_yticks([])
         pad = 0.02
         a.set_xlim(xy[:, 0].min() - pad, xy[:, 0].max() + pad); a.set_ylim(xy[:, 1].min() - pad, xy[:, 1].max() + pad)
-        a.set_title(f'{stamp_labels[s]} ({share[s]:.0%})', fontsize=8)
-    fig.colorbar(sc, cax=fig.add_subplot(gs[r0:r0 + 2, -1]), label='channel weight (per head, each stamp max = 1)')
+        a.set_title(f'{atom_labels[s]} ({share[s]:.0%})', fontsize=8)
+    fig.colorbar(sc, cax=fig.add_subplot(gs[r0:r0 + 2, -1]), label='channel weight (per head, each atom max = 1)')
 
 
-def plot_stamp_maps(out_path, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, title, event_s=None, top=8,
+def plot_atom_maps(out_path, tw, imp, chan, t_axis, atom_labels, xy, channel_names, title, event_s=None, top=8,
                     z_maps=None, signed_maps=None):
     """Q-atom-power half of a head (bottom): per-atom time weights (rows = Q-atoms ranked by importance, label = Q-atom,
     template peak and importance share) and the channel map of the `top` most important Q-atoms on the scalp.
@@ -89,11 +89,11 @@ def plot_stamp_maps(out_path, tw, imp, chan, t_axis, stamp_labels, xy, channel_n
         fig = plt.figure(figsize=(16, 12))
         gs = fig.add_gridspec(4, 2 + ncol, width_ratios=[2.2] + [1] * ncol + [0.08])
         stw, simp, schan = (np.asarray(v) for v in signed_maps)
-        _stamp_block(fig, gs, 0, stw, simp, schan, t_axis, stamp_labels, xy, channel_names, event_s,
-                     'signed stamp half (signed_ab): decision weight per stamp x time (gain-scaled), ranked',
+        _atom_block(fig, gs, 0, stw, simp, schan, t_axis, atom_labels, xy, channel_names, event_s,
+                     'signed atom half (signed_ab): decision weight per atom x time (gain-scaled), ranked',
                      'importance share', top, ncol)
-        _stamp_block(fig, gs, 2, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, event_s,
-                     'stamp power half (stamp_power): time weight per stamp, ranked by importance', 'time weight',
+        _atom_block(fig, gs, 2, tw, imp, chan, t_axis, atom_labels, xy, channel_names, event_s,
+                     'atom power half (atom_power): time weight per atom, ranked by importance', 'time weight',
                      top, ncol)
         fig.suptitle(title, fontweight='bold')
         fig.tight_layout()
@@ -127,8 +127,8 @@ def plot_stamp_maps(out_path, tw, imp, chan, t_axis, stamp_labels, xy, channel_n
         asp.set_yticks(range(K), vlab, fontsize=7)
         asp.set_title('z half: spatial filter per virtual channel (sign-aligned)', fontsize=9)
         fig.colorbar(ims, ax=asp, fraction=0.03)
-    _stamp_block(fig, gs, z0, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, event_s,
-                 'stamp half (stamp_power): time weight per stamp, ranked by importance', None, top, ncol)
+    _atom_block(fig, gs, z0, tw, imp, chan, t_axis, atom_labels, xy, channel_names, event_s,
+                 'atom half (atom_power): time weight per atom, ranked by importance', None, top, ncol)
     fig.suptitle(title, fontweight='bold')
     fig.tight_layout()
     fig.savefig(out_path, dpi=110)

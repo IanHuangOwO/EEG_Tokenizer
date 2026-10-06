@@ -14,20 +14,20 @@
     }
   },
   "model_params": {
-    "MeSAE": {
+    "Qtome": {
       "finetune": {
-        "_comment": "Modular head (MeSAE_modules FeatureHead): each features entry is {type, its own keys} and gets its own spatial filter. Types: stamp_power / stamp_band (log power, time_pool flat|learned|window|none, time_rank, window), signed_ab (signed phase-locked: stamp_rank, time_rank), evoked (evoked_rank), phase_advance, raw_band, raw_signal, latent_power / latent_signed (on the encoder output z). Default: the all-stamp head, stamp_power (induced band power, MI) + signed_ab (signed stamp gains, phase-locked / P300); the stronger head swaps signed_ab for latent_signed (signed z, latent_proj pca). Any entry may set its own spatial_k (default below).",
+        "_comment": "Modular head (Qtome_modules FeatureHead): each features entry is {type, its own keys} and gets its own spatial filter. Types: atom_power / atom_band (log power, time_pool flat|learned|window|none, time_rank, window), signed_ab (signed phase-locked: atom_rank, time_rank), evoked (evoked_rank), phase_advance, raw_band, raw_signal, latent_power / latent_signed (on the encoder output z). Default: the all-atom head, atom_power (induced band power, MI) + signed_ab (signed atom gains, phase-locked / P300); the stronger head swaps signed_ab for latent_signed (signed z, latent_proj pca). Any entry may set its own spatial_k (default below).",
         "spatial_k": 8,
         "dropout": 0.3,
         "features": [
           {
-            "type": "stamp_power",
+            "type": "atom_power",
             "time_pool": "learned",
             "time_rank": 2
           },
           {
             "type": "signed_ab",
-            "stamp_rank": 4,
+            "atom_rank": 4,
             "time_rank": 2
           }
         ]
@@ -36,9 +36,9 @@
   },
   "training_params": {
     "finetune": {
-      "model_type": "MeSAE",
+      "model_type": "Qtome",
       "model_name": "learned_BNCI2014001_loso",
-      "pretrained_checkpoint": "output/mesae_vXX_small/pretrain/checkpoint/last.pth",
+      "pretrained_checkpoint": "output/qtome_vXX_small/pretrain/checkpoint/last.pth",
       "learning_rate": 0.01,
       "min_learning_rate": 0.001,
       "epochs": 100,
@@ -52,7 +52,7 @@
           0
         ]
       },
-      "output_path": "mesae_vXX_small/finetune/learned/BNCI2014001_loso",
+      "output_path": "qtome_vXX_small/finetune/learned/BNCI2014001_loso",
       "class_weight": null,
       "protocol": "mi_loso"
     },

@@ -5,8 +5,8 @@ import os
 
 import numpy as np
 
-from tools.viz.extract import extract_stamp_gallery, extract_stamp_psd_by_patch
-from tools.viz.stamp_plots import plot_stamp_by_patch, plot_stamp_gallery
+from tools.viz.extract import extract_atom_gallery, extract_atom_psd_by_patch
+from tools.viz.atom_plots import plot_atom_by_patch, plot_atom_gallery
 from tools.viz.timeseries import visualize_reconstruction
 from tools.viz.topomap import project_coords_2d
 
@@ -38,7 +38,7 @@ def render_recon(bundle, config, out_dir):
     )
 
 
-def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
+def render_atom_gallery(bundle, config, out_dir, cmap='YlOrRd'):
     """Q-atom gallery for one trial: whole-trial raw/recon PSD, then per Q-atom its topography, PSD,
     phase and waveform."""
     model = bundle.psd_model
@@ -60,7 +60,7 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
 
     # Whole-trial raw/recon PSD -- same FFT settings as the gallery's own per-atom PSD
     # (freq_resolution=fft_resolution drives both), so the header row is directly
-    # comparable to the Q-atom rows below it. n_fft must match extract_stamp_gallery's
+    # comparable to the Q-atom rows below it. n_fft must match extract_atom_gallery's
     # own n_fft (round(fs/fft_resolution)); rfft's n= transparently
     # zero-pads a short trial or truncates a long one to match.
     raw_t   = bundle.raw_t[0].numpy()
@@ -82,7 +82,7 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
     recon_power = (bundle.recon_cnl ** 2).mean(axis=(1, 2))
 
     (_, gal_importance, psd_ch_x_g, psd_x_g, gal_freqs, phase_ch_x_g,
-     waveforms_g) = extract_stamp_gallery(
+     waveforms_g) = extract_atom_gallery(
         model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
         fs=fs, freq_resolution=fft_resolution)
 
@@ -93,18 +93,18 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
         psd_raw, psd_recon = psd_raw[:, band], psd_recon[:, band]
 
     out_path = os.path.join(
-        viz_dir, f"sub{bundle.subject_id}_trial{bundle.trial_idx}{epoch_tag}_stamp_gallery.png")
-    plot_stamp_gallery(
+        viz_dir, f"sub{bundle.subject_id}_trial{bundle.trial_idx}{epoch_tag}_atom_gallery.png")
+    plot_atom_gallery(
         out_path, pos2d, raw_power, recon_power, psd_raw, psd_recon,
         psd_ch_x_g, psd_x_g, gal_freqs, gal_importance, cmap=cmap,
         phase_ch_x=phase_ch_x_g, waveforms=waveforms_g,
         subject_id=bundle.subject_id, trial_idx=bundle.trial_idx, epoch_tag=tagged_epoch_tag,
-        unit_label='Stamp',
+        unit_label='Atom',
     )
     print(f"  [snapshot] -> {out_path}")
 
 
-def render_stamp_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
+def render_atom_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
     """Per-patch Q-atom grid for one trial (not in any preset; kept for occasional use)."""
     model = bundle.psd_model
     viz_dir = out_dir
@@ -123,7 +123,7 @@ def render_stamp_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
     psd_range = viz_cfg.get('psd_freq_range')
     psd_l_freq, psd_h_freq = tuple(psd_range) if psd_range else (l_freq, h_freq)
 
-    grid = extract_stamp_psd_by_patch(
+    grid = extract_atom_psd_by_patch(
         model, bundle.x_in, bundle.c_in, time_idx=bundle.t_in, valid_channels=bundle.vc_in,
         fs=fs, freq_resolution=fft_resolution, patch_stride=5)
 
@@ -138,18 +138,18 @@ def render_stamp_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
     # index. grid.patch_ids holds the raw patch-n each displayed column represents;
     # patch n's own start time is n * model.patch_stride / fs -- searchsorted finds the
     # first displayed column at or after the onset. None (an assembled continuous
-    # window has no single event) draws nothing, see plot_stamp_by_patch's onset_col doc.
+    # window has no single event) draws nothing, see plot_atom_by_patch's onset_col doc.
     onset_col = None
     if bundle.event_onset_sec is not None and fs:
         onset_patch_n = bundle.event_onset_sec * fs / model.patch_stride
         onset_col = int(np.searchsorted(grid.patch_ids, onset_patch_n))
 
     out_path = os.path.join(
-        viz_dir, f"sub{bundle.subject_id}_trial{bundle.trial_idx}{epoch_tag}_stamp_by_patch.png")
-    plot_stamp_by_patch(
+        viz_dir, f"sub{bundle.subject_id}_trial{bundle.trial_idx}{epoch_tag}_atom_by_patch.png")
+    plot_atom_by_patch(
         out_path, pos2d, grid, cmap=cmap,
         subject_id=bundle.subject_id, trial_idx=bundle.trial_idx, epoch_tag=tagged_epoch_tag,
-        unit_label='Stamp',
+        unit_label='Atom',
         onset_col=onset_col,
     )
     print(f"  [snapshot] -> {out_path}")

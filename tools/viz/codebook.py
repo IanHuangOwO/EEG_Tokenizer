@@ -16,7 +16,7 @@ def _palette(n):
 
 
 def plot_usage_and_activity(out_path, strength, categories, category_order,
-                             unit_label='Stamp', normalize=True, max_rows_per_subplot=100):
+                             unit_label='Atom', normalize=True, max_rows_per_subplot=100):
     """Q x D heatmap of mean per-unit strength by dataset (strength [M, Q], categories [M]): how hard
     each unit works on each dataset. Rows are chunked across side-by-side subplots
     (max_rows_per_subplot each) so a large Q makes the image wide, not absurdly tall."""
@@ -62,7 +62,7 @@ def plot_usage_and_activity(out_path, strength, categories, category_order,
     print(f"  [codebook] -> {out_path}")
 
 
-def plot_embedding_scatter_by_dataset(out_path, usage_by_dataset, unit_label='Stamp',
+def plot_embedding_scatter_by_dataset(out_path, usage_by_dataset, unit_label='Atom',
                                        max_points=3000, random_state=0):
     """PCA + t-SNE of each patch's Q-atom strengths (all units concatenated), colored by
     source dataset. t-SNE runs on a PCA-reduced pre-projection for speed, standard practice
@@ -107,7 +107,7 @@ def plot_embedding_scatter_by_dataset(out_path, usage_by_dataset, unit_label='St
 
 
 def plot_embedding_scatter_by_target(out_path_combined, out_path_per_dataset, usage_by_dataset,
-                                      labels_by_dataset, unit_label='Stamp',
+                                      labels_by_dataset, unit_label='Atom',
                                       max_points=3000, random_state=0):
     """Same patch-level strengths/sampling as plot_embedding_scatter, but colored by class
     too (labels_by_dataset: dataset_name -> np.ndarray [M] int class id, one per patch,
@@ -207,7 +207,7 @@ def _patch_position_consistency_grid(codes, subjects, max_trials, rng):
     return grid, subjects
 
 
-def plot_patch_position_consistency(out_path, trial_records, unit_label='Stamp',
+def plot_patch_position_consistency(out_path, trial_records, unit_label='Atom',
                                      max_trials=90, seed=0, event_patch=None):
     """trial_records: trials from ONE dataset (usage [N, Q] each, same N across trials, so patch
     position n means the same time within the trial everywhere). Cross-trial weighted Jaccard of the
@@ -269,7 +269,7 @@ def _js_divergence(p, q, eps=1e-12):
     return 0.5 * _kl(p, m) + 0.5 * _kl(q, m)
 
 
-def plot_dataset_relation(out_path, usage_by_dataset, unit_label='Stamp'):
+def plot_dataset_relation(out_path, usage_by_dataset, unit_label='Atom'):
     """D x D Jensen-Shannon divergence between datasets' mean per-unit strength distributions
     (usage [M, Q] averaged over patches, normalized to sum 1) -- low = datasets lean on the units in
     the same proportions, high = distinct. Within-paradigm pairs (two MI or two SSVEP sets) should be
@@ -301,8 +301,8 @@ def plot_dataset_relation(out_path, usage_by_dataset, unit_label='Stamp'):
     print(f"  [codebook] -> {out_path}")
 
 
-def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, per_stamp_within,
-                                     unit_label='Stamp'):
+def plot_atom_identity_consistency(out_path, within, between, per_atom_ids, per_atom_within,
+                                     unit_label='Atom'):
     """Does a Q-atom id mean the same thing at every occurrence?
 
     The waveform half of that question is trivially yes — a Q-atom's template D_i is a
@@ -321,7 +321,7 @@ def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, pe
     (within - between) is the real readout: ~0 means the id predicts nothing about
     topography, i.e. the Q-atom is a waveform type rather than a source.
 
-    per_stamp_ids/per_stamp_within: per-id mean within-consistency, for the bar panel.
+    per_atom_ids/per_atom_within: per-id mean within-consistency, for the bar panel.
     """
     import numpy as np
     fig, axes = plt.subplots(1, 2, figsize=(10.8, 4.2), squeeze=False)
@@ -337,12 +337,12 @@ def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, pe
     ax.set_xlabel('cosine (centered columns)'); ax.set_ylabel('density'); ax.legend(fontsize=8)
 
     ax = axes[0, 1]
-    order = np.argsort(-np.asarray(per_stamp_within))
-    ax.bar(range(len(order)), np.asarray(per_stamp_within)[order], color='steelblue')
-    ax.axhline(np.mean(between), color='gray', ls='--', lw=1, label='between-stamp mean')
+    order = np.argsort(-np.asarray(per_atom_within))
+    ax.bar(range(len(order)), np.asarray(per_atom_within)[order], color='steelblue')
+    ax.axhline(np.mean(between), color='gray', ls='--', lw=1, label='between-atom mean')
     ax.set_xticks(range(len(order)))
-    ax.set_xticklabels([str(per_stamp_ids[i]) for i in order], fontsize=5, rotation=90)
-    ax.set_title('Per-stamp topographic self-consistency\n(above dashed line = id carries '
+    ax.set_xticklabels([str(per_atom_ids[i]) for i in order], fontsize=5, rotation=90)
+    ax.set_title('Per-atom topographic self-consistency\n(above dashed line = id carries '
                  'topographic meaning)', fontsize=10, fontweight='bold')
     ax.set_xlabel(f'{unit_label} id'); ax.set_ylabel('mean within-id cosine'); ax.legend(fontsize=8)
 
@@ -356,7 +356,7 @@ def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, pe
           f"separation {sep:+.3f}")
 
 
-def plot_fingerprint_similarity(out_path, matrix, unit_label='Stamp'):
+def plot_fingerprint_similarity(out_path, matrix, unit_label='Atom'):
     """Q x Q cosine similarity between each unit's own raw decoder template (content-free,
     no data dependence — see BaseCodebookChecker.decoder_fingerprint_matrix) — the direct
     structural redundancy check: two units with near-1 similarity here learned the same
@@ -377,7 +377,7 @@ def plot_fingerprint_similarity(out_path, matrix, unit_label='Stamp'):
           f"(near-1 = two atoms learned the same shape, mp_loss should keep this low)")
 
 
-def plot_stamp_phase_consistency(out_path, circ_var, fire_count, unit_label='Stamp',
+def plot_atom_phase_consistency(out_path, circ_var, fire_count, unit_label='Atom',
                                   min_fires=5):
     """Per-unit circular variance (1 - |mean(exp(i*phase))|, over all of that unit's occurrences'
     channel-summed phase atan2(b,a)) of the quadrature phase every occurrence carries but
@@ -389,7 +389,7 @@ def plot_stamp_phase_consistency(out_path, circ_var, fire_count, unit_label='Sta
     where phase carries no real information, just whatever the encoder's continuous
     quadrature gain happened to produce. Units with fewer than min_fires occurrences are
     dropped (a circular variance from 1-2 samples is meaningless)."""
-    n_stamps = len(circ_var)
+    n_atoms = len(circ_var)
     keep = fire_count >= min_fires
     idx = np.where(keep)[0]
     if len(idx) == 0:
@@ -408,15 +408,15 @@ def plot_stamp_phase_consistency(out_path, circ_var, fire_count, unit_label='Sta
     fig.savefig(out_path, dpi=120, bbox_inches='tight')
     plt.close(fig)
     print(f"  [codebook] -> {out_path}")
-    print(f"    phase circular variance ({len(order)}/{n_stamps} units with >= {min_fires} occurrences): "
+    print(f"    phase circular variance ({len(order)}/{n_atoms} units with >= {min_fires} occurrences): "
           f"mean {circ_var[order].mean():.3f} | {int((circ_var[order] < 0.3).sum())} phase-locked (<0.3)")
 
 
-def plot_topography_distance(out_path, matrices, unit_label='Stamp'):
+def plot_topography_distance(out_path, matrices, unit_label='Atom'):
     """One heatmap per dataset of pairwise cosine distance (1 - cosine similarity) between
     units' MEAN mixing column (the signed, coherently-averaged per-channel topography of
     every unit that fired at least a few times in that dataset -- see
-    MeSAECodebookChecker._render_identity_consistency, which already computes the
+    QtomeCodebookChecker._render_identity_consistency, which already computes the
     coherent per-occurrence (a,b) average this reuses). Complements
     plot_fingerprint_similarity (raw waveform shape, dataset-independent): two units can
     have very different D_i templates yet project to a similar scalp pattern, or vice

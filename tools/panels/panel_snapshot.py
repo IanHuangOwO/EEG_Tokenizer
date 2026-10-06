@@ -9,7 +9,7 @@ import random
 from IO.dataset import build_dataset_from_config
 from tools.analysis import cap_subjects, pick_trial
 from tools.analysis.snapshot import build_pretrain_bundle
-from tools.viz.snapshot import render_recon, render_stamp_gallery
+from tools.viz.snapshot import render_recon, render_atom_gallery
 
 STAGES = frozenset({'pretrain'})
 
@@ -35,5 +35,5 @@ def run(ctx):
         bundle, metrics = build_pretrain_bundle(ctx.model, ds, idx, ctx.config, ctx.device, subject_id=subject)
         bundle.filename_tag = f'_{name}'
         render_recon(bundle, ctx.config, out_dir)
-        render_stamp_gallery(bundle, ctx.config, out_dir, cmap=ctx.cmap)
+        render_atom_gallery(bundle, ctx.config, out_dir, cmap=ctx.cmap)
         print(f"  {name} subject {subject} trial {idx}: " + '  '.join(f"{k}={v:.4f}" for k, v in metrics.items()))

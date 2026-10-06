@@ -19,7 +19,7 @@ from model.base_trainer import nonfinite_step_report
 from model.factory import build_pretrain_from_config, checkpoint_build_config, optimizer_param_groups, MODEL_REGISTRY
 from tools.analysis import apply_overrides, pick_trial, resolve_output_path
 from tools.analysis.snapshot import build_pretrain_bundle
-from tools.viz.snapshot import render_recon, render_stamp_gallery
+from tools.viz.snapshot import render_recon, render_atom_gallery
 
 torch.set_float32_matmul_precision('high')
 
@@ -168,7 +168,7 @@ def validate_one_epoch(model, trainer, data_loader, device, masked, **loss_hpara
 
 
 def main():
-    parser = argparse.ArgumentParser(description='MeSAE pretraining, one run, two phases: unmasked tokenizer phase '
+    parser = argparse.ArgumentParser(description='Qtome pretraining, one run, two phases: unmasked tokenizer phase '
                                                    '(training_params.pretrain.tokenizer_epochs), then masked phase.')
     parser.add_argument('--config', type=str, default='configs/pretrain.template.json')
     parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
@@ -277,7 +277,7 @@ def main():
     train_loader = _make_loader(train_dataset, shuffle=True)
     val_loader   = _make_loader(val_dataset,   shuffle=False)
 
-    model_type = train_params.get('model_type', 'MeSAE')
+    model_type = train_params.get('model_type', 'Qtome')
     entry      = MODEL_REGISTRY[model_type]
     trainer    = entry.trainer_cls()
 
@@ -287,13 +287,13 @@ def main():
     build_config = checkpoint_build_config(config, mode='pretrain')   # saved in every checkpoint
 
     tokenizer_epochs = train_params['tokenizer_epochs']
-    freeze_stamps    = train_params.get('freeze_stamps', True)
+    freeze_atoms    = train_params.get('freeze_atoms', True)
     total_epochs     = train_params['epochs']
     model.enter_tokenizer_phase()
     model.to(device)
     logger.info(f"  [Tokenizer phase] epochs 1-{tokenizer_epochs}: every block, temporal only, unmasked; "
                 f"pool after blocks {model.encoder.pool_after}. Masked phase from epoch {tokenizer_epochs + 1}, "
-                f"freeze_stamps={freeze_stamps}")
+                f"freeze_atoms={freeze_atoms}")
 
     logger.info("Warming up with dummy pass...")
     dummy_batch = next(iter(train_loader))
@@ -328,10 +328,10 @@ def main():
     for epoch in range(1, total_epochs + 1):
         masked = epoch > tokenizer_epochs
         if epoch == tokenizer_epochs + 1:
-            model.enter_masked_phase(freeze_stamps=freeze_stamps)
+            model.enter_masked_phase(freeze_atoms=freeze_atoms)
             best_val_loss = float('inf')
             logger.info(f"  [Masked phase] epoch {epoch}: all blocks, spatial attention + coord embedding on, "
-                        f"StampBank {'frozen' if freeze_stamps else 'TRAINING (mp loss stays on)'}")
+                        f"AtomBank {'frozen' if freeze_atoms else 'TRAINING (mp loss stays on)'}")
         # Curriculum counts from the first masked epoch; masks are redrawn every masked epoch.
         # Tokenizer-phase epochs ignore the dataset's masks.
         mask_strategy.set_epoch(max(1, epoch - tokenizer_epochs))
@@ -369,7 +369,7 @@ def main():
         # time, so best_val_loss below can freeze on an early, easy-ratio epoch and never
         # update again even while the model keeps genuinely improving within each step.
         # That leaves ONLY that early checkpoint on disk if training is later interrupted —
-        # real instance: mesae_pretrain_v4 froze "best" at epoch 4/50, losing every epoch's
+        # real instance: qtome_pretrain_v4 froze "best" at epoch 4/50, losing every epoch's
         # progress after that when the run was stopped at epoch 32. last.pth is the
         # insurance: whatever epoch you actually stopped at is always recoverable.
         torch.save({'model_state_dict': model.state_dict(), 'build_config': build_config}, os.path.join(checkpoint_dir, 'last.pth'))
@@ -401,7 +401,7 @@ def main():
                         subject_id=topo_subject_id, epoch=epoch)
                     recon_dir = os.path.join(vis_dir, 'recon')
                     render_recon(bundle, config, recon_dir)
-                    render_stamp_gallery(bundle, config, recon_dir,
+                    render_atom_gallery(bundle, config, recon_dir,
                                          cmap=config.get('training_params', {}).get('visualize_params', {}).get('cmap', 'YlOrRd'))
                 except Exception as e:
                     logger.warning(f"  Topomap viz failed (epoch {epoch}, subject={topo_subject_id}, trial_idx={topo_trial_idx}): {e}")

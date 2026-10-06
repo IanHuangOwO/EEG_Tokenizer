@@ -1,12 +1,12 @@
 import torch
-from model.MeSAE.plugin import PLUGIN as MESAE_PLUGIN
+from model.Qtome.plugin import PLUGIN as QTOME_PLUGIN
 from IO.dataset import resolve_canonical_channels
 
 # Adding a model = implement model/<Name>/plugin.py (Trainer/Checker/Plotter + build_model,
 # bundled into a BasePlugin) and register the PLUGIN instance here. No other shared file
 # needs editing.
 MODEL_REGISTRY = {
-    'MeSAE': MESAE_PLUGIN,
+    'Qtome': QTOME_PLUGIN,
 }
 
 
@@ -14,7 +14,7 @@ def checkpoint_build_config(config, mode='pretrain'):
     """Everything that decides the backbone's architecture, saved inside every pretrain checkpoint:
     a trained backbone is always rebuilt from its own checkpoint, never from a config file that
     may have been edited since it was trained."""
-    model_type = config['training_params'][mode].get('model_type', 'MeSAE')
+    model_type = config['training_params'][mode].get('model_type', 'Qtome')
     if model_type not in MODEL_REGISTRY:
         raise ValueError(f"Unknown model type: {model_type}")
     canonical_channels = config.get('preprocess_params', {}).get('canonical_channels')
@@ -45,7 +45,7 @@ def build_from_checkpoint(ckpt):
 def optimizer_param_groups(model, weight_decay):
     """Splits model.parameters() into decay/no-decay groups for AdamW — ndim<=1 params
     (LayerNorm/RMSNorm weights, every bias) get weight_decay=0.0, everything else (linear/
-    conv/embedding matrices, StampBank's W_down/W_out/u, ...) gets the configured decay.
+    conv/embedding matrices, AtomBank's W_down/W_out/u, ...) gets the configured decay.
     Standard BERT/ViT-style recipe: decaying a norm's gain or a bias toward zero fights the
     norm's job and has no overfitting-prevention upside (biases have no capacity to
     memorize on their own), so excluding them is a strict improvement, not a tunable
@@ -80,7 +80,7 @@ def build_finetune_from_config(config, num_classes, mode='finetune', num_patches
     channel_idx: indices of the real (non-padded) channels the head's spatial filter acts on.
     """
     train_params = config['training_params'][mode]
-    model_type   = train_params.get('model_type', 'MeSAE')
+    model_type   = train_params.get('model_type', 'Qtome')
     if model_type not in MODEL_REGISTRY:
         raise ValueError(f"Unknown model type: {model_type}")
     plugin = MODEL_REGISTRY[model_type]
@@ -100,7 +100,7 @@ def build_finetune_from_config(config, num_classes, mode='finetune', num_patches
 def load_finetune_checkpoint(config, path, device):
     """Rebuild a finetune model from a head checkpoint: backbone from ckpt['backbone_checkpoint'],
     head from ckpt['head_config'] (no shape inference)."""
-    from model.MeSAE.MeSAE import FinetuneModel
+    from model.Qtome.Qtome import FinetuneModel
     ckpt = torch.load(path, map_location='cpu', weights_only=False)
     backbone = load_backbone(config, ckpt['backbone_checkpoint'])
     return FinetuneModel.from_checkpoint(backbone, ckpt).to(device).eval()

@@ -18,10 +18,10 @@ from sklearn.model_selection import StratifiedKFold
 
 from IO.dataset import build_dataset_from_config
 from IO.preprocessing import cache_suffix, num_patches, slice_patches
-from cache_feature import CachedStampDataset, get_stamp_cache
+from cache_feature import CachedAtomDataset, get_atom_cache
 from model.factory import MODEL_REGISTRY, load_backbone
-from model.MeSAE.MeSAE_modules import (FeatureHead, StampExtractor, make_head_checkpoint,
-                                       resolve_head_config, needs_stamp, needs_raw, needs_latent, feature_names)
+from model.Qtome.Qtome_modules import (FeatureHead, AtomExtractor, make_head_checkpoint,
+                                       resolve_head_config, needs_atom, needs_raw, needs_latent, feature_names)
 from tools.analysis import apply_overrides, load_config
 
 torch.set_float32_matmul_precision('high')
@@ -228,25 +228,25 @@ def make_runs(split, pool, subject_data, labels, session=None):
     return make(split, pool, trials, labels, split.get('seed', 42))
 
 
-class StampSource:
+class AtomSource:
     """Cached Q-atom amplitudes of the pool (cache_feature.py), moved to the device once (a
     BNCI2014008 64-channel impute cache is ~1 GB fp16): the head is tiny, so per-batch CPU
     indexing and host-to-device copies were most of a step's time."""
-    kind = 'stamp'
+    kind = 'atom'
 
     def __init__(self, config, ds_name, pool, device, latent=False):
         subs = [str(s) for s in pool]
-        self.data = CachedStampDataset(get_stamp_cache(config, ds_name, subs, device=device, latent=latent), subs)
+        self.data = CachedAtomDataset(get_atom_cache(config, ds_name, subs, device=device, latent=latent), subs)
         self.labels, self.subject_data = self.data.labels, self.data.subject_data
         self.channel_idx = self.data.channel_idx
-        self.num_patches, self.num_stamps = self.data.num_patches, self.data.num_stamps
+        self.num_patches, self.num_atoms = self.data.num_patches, self.data.num_atoms
         self.amp, self.labels_dev = self.data.amp.to(device), self.labels.to(device)
         self.z = self.data.z.to(device) if latent else None                 # [T, N', Cv, D] fp16
         self.latent_dim = self.z.shape[-1] if latent else None
 
     def get(self, idx):
         idx = idx.to(self.amp.device)
-        out = {'stamp': self.amp[idx].float()}
+        out = {'atom': self.amp[idx].float()}
         if self.z is not None:
             out['latent'] = self.z[idx].float()
         return out, self.labels_dev[idx]
@@ -269,7 +269,7 @@ class RawSource:
         self.patch_len = pp.get('patch_length', 100)
         self.patch_stride = pp.get('patch_stride', self.patch_len)
         self.num_patches = num_patches(self.x.shape[-1], self.patch_len, self.patch_stride)
-        self.num_stamps = 0
+        self.num_atoms = 0
 
     def get(self, idx):
         xp, _ = slice_patches(self.x[idx], self.patch_len, self.patch_stride)  # [B, C_valid, N', L]
@@ -277,34 +277,34 @@ class RawSource:
 
 
 class CombinedSource:
-    """Serves a StampSource and a RawSource together, for a head whose features list needs
-    both (e.g. features=['stamp_power', 'raw_band']). Exposes the union of attributes either
-    single source exposes (num_patches/num_stamps/channel_idx/labels/subject_data) --
+    """Serves a AtomSource and a RawSource together, for a head whose features list needs
+    both (e.g. features=['atom_power', 'raw_band']). Exposes the union of attributes either
+    single source exposes (num_patches/num_atoms/channel_idx/labels/subject_data) --
     both sources are built from the SAME (ds_name, pool), so their per-trial ordering,
     labels and channel_idx must already agree; asserted once at construction, not re-checked
     per batch."""
     kind = 'combined'
 
-    def __init__(self, stamp_source, raw_source):
-        assert stamp_source.channel_idx == raw_source.channel_idx, \
-            "StampSource/RawSource channel_idx mismatch -- same dataset/pool should agree"
-        assert torch.equal(stamp_source.labels, raw_source.labels), \
-            "StampSource/RawSource label order mismatch -- same dataset/pool should agree"
-        self.stamp, self.raw = stamp_source, raw_source
-        self.labels, self.subject_data = stamp_source.labels, stamp_source.subject_data
-        self.channel_idx = stamp_source.channel_idx
-        self.num_patches, self.num_stamps = stamp_source.num_patches, stamp_source.num_stamps
-        self.z, self.latent_dim = stamp_source.z, stamp_source.latent_dim
+    def __init__(self, atom_source, raw_source):
+        assert atom_source.channel_idx == raw_source.channel_idx, \
+            "AtomSource/RawSource channel_idx mismatch -- same dataset/pool should agree"
+        assert torch.equal(atom_source.labels, raw_source.labels), \
+            "AtomSource/RawSource label order mismatch -- same dataset/pool should agree"
+        self.atom, self.raw = atom_source, raw_source
+        self.labels, self.subject_data = atom_source.labels, atom_source.subject_data
+        self.channel_idx = atom_source.channel_idx
+        self.num_patches, self.num_atoms = atom_source.num_patches, atom_source.num_atoms
+        self.z, self.latent_dim = atom_source.z, atom_source.latent_dim
 
     def get(self, idx):
-        stamp_d, y = self.stamp.get(idx)
+        atom_d, y = self.atom.get(idx)
         raw_d, _ = self.raw.get(idx)
-        return {**stamp_d, **raw_d}, y
+        return {**atom_d, **raw_d}, y
 
 
 def make_source(config, ds_name, pool, device):
-    ft_cfg = dict(config['model_params']['MeSAE']['finetune'])
-    want_stamp, want_raw, latent = needs_stamp(ft_cfg), needs_raw(ft_cfg), needs_latent(ft_cfg)
+    ft_cfg = dict(config['model_params']['Qtome']['finetune'])
+    want_atom, want_raw, latent = needs_atom(ft_cfg), needs_raw(ft_cfg), needs_latent(ft_cfg)
     if latent:   # latent_source: which z the latent_* entries read ('output' = what the Q-atoms read)
         latent = ft_cfg.get('latent_source', 'output')
         if latent not in ('output', 'bottleneck'):
@@ -313,14 +313,14 @@ def make_source(config, ds_name, pool, device):
     if k > 1:   # experiment (2026-09-29): average k adjacent z tokens, for a head that reads only z
         if not all(n.startswith('latent_') for n in feature_names(ft_cfg)):
             raise ValueError("training_params.finetune.latent_pool needs a head with only latent_* entries")
-        src = StampSource(config, ds_name, pool, device, latent)
+        src = AtomSource(config, ds_name, pool, device, latent)
         src.z = pool_tokens(src.z, k)
         src.num_patches = src.z.shape[1]
         return src
-    if want_stamp and want_raw:
-        return CombinedSource(StampSource(config, ds_name, pool, device, latent), RawSource(config, ds_name, pool))
-    if want_stamp:
-        return StampSource(config, ds_name, pool, device, latent)
+    if want_atom and want_raw:
+        return CombinedSource(AtomSource(config, ds_name, pool, device, latent), RawSource(config, ds_name, pool))
+    if want_atom:
+        return AtomSource(config, ds_name, pool, device, latent)
     return RawSource(config, ds_name, pool)
 
 
@@ -343,7 +343,7 @@ def iter_batches(source, idx, batch_size, device, shuffle, gen=None):
         yield {k: v.to(device) for k, v in x.items()}, y.to(device)
 
 
-def env_stamp():
+def env_atom():
     def sh(*cmd):
         try:
             return subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True).strip()
@@ -383,19 +383,19 @@ def build_head_factory(config, source, num_classes):
     pp = config['preprocess_params']
     patch_len = pp.get('patch_length', 100)
     cfg = resolve_head_config(
-        config['model_params']['MeSAE']['finetune'], num_classes=num_classes, num_patches=source.num_patches,
-        num_channels=len(source.channel_idx), num_stamps=source.num_stamps, patch_len=patch_len,
+        config['model_params']['Qtome']['finetune'], num_classes=num_classes, num_patches=source.num_patches,
+        num_channels=len(source.channel_idx), num_atoms=source.num_atoms, patch_len=patch_len,
         latent_dim=getattr(source, 'latent_dim', None),
         patch_stride=pp.get('patch_stride', patch_len), sample_freq=float(pp['sample_freq']))
     tables = None
-    if 'stamp_band' in feature_names(cfg):   # the template spectra need the backbone, once
-        tables = StampExtractor(load_backbone(config), [0]).band_tables(cfg['sample_freq'])
+    if 'atom_band' in feature_names(cfg):   # the template spectra need the backbone, once
+        tables = AtomExtractor(load_backbone(config), [0]).band_tables(cfg['sample_freq'])
 
     def new_head():
         head = FeatureHead(cfg)
         if tables is not None:
-            head.entries['stamp_band'].E_D.copy_(tables[0])
-            head.entries['stamp_band'].E_H.copy_(tables[1])
+            head.entries['atom_band'].E_D.copy_(tables[0])
+            head.entries['atom_band'].E_H.copy_(tables[1])
         return head
     return cfg, new_head
 
@@ -415,12 +415,12 @@ def _pca_axes(z, train_idx, m, chunk=256):
 
 
 def run_closed_form(config, run, source, tag, logger):
-    """training_params.finetune.fit 'closed_form': fit ClosedFormHead (model/MeSAE/closed_form.py) on run['train'],
+    """training_params.finetune.fit 'closed_form': fit ClosedFormHead (model/Qtome/closed_form.py) on run['train'],
     no SGD; per-subject balanced accuracy + kappa on run['eval'], in run_one's format (tail = last: one fit)."""
-    from model.MeSAE.closed_form import ClosedFormHead
+    from model.Qtome.closed_form import ClosedFormHead
     tp = config['training_params']['finetune']
-    if source.kind != 'stamp':
-        raise ValueError("fit 'closed_form' reads the stamp code: the head needs a stamp entry")
+    if source.kind != 'atom':
+        raise ValueError("fit 'closed_form' reads the atom code: the head needs a atom entry")
     amp, y = source.data.amp, source.labels.numpy()
     head = ClosedFormHead(**tp.get('closed_form', {})).fit(amp[run['train']].float().numpy(), y[run['train']])
     logger.info(f"[{tag}] closed_form {tp.get('closed_form', {})} train={len(run['train'])}")
@@ -464,7 +464,7 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
         counts = np.bincount(y_all[run['train']], minlength=head_cfg['num_classes']).astype(float)
         cw = torch.tensor(counts.sum() / (len(counts) * np.maximum(counts, 1)), dtype=torch.float32, device=device)
     gen = torch.Generator().manual_seed(seed)
-    plotter = MODEL_REGISTRY[tp.get('model_type', 'MeSAE')].plotter_cls(output_dir=out_dir['vis'])
+    plotter = MODEL_REGISTRY[tp.get('model_type', 'Qtome')].plotter_cls(output_dir=out_dir['vis'])
     tail_start, hist = max(0, E - 10), {}
     logger.info(f"[{tag}] train={len(run['train'])} eval={len(ev_idx)} head_params={sum(p.numel() for p in head.parameters())}")
     for epoch in range(1, E + 1):
@@ -517,7 +517,7 @@ def run_one(config, run, source, head_cfg, new_head, tag, out_dir, logger, devic
 
 
 def main():
-    ap = argparse.ArgumentParser(description='Finetune a FeatureHead on a frozen MeSAE backbone')
+    ap = argparse.ArgumentParser(description='Finetune a FeatureHead on a frozen Qtome backbone')
     ap.add_argument('--config', default='configs/finetune.template.json')
     ap.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                     help='override a config value after base_config merging, dotted path, JSON value '
@@ -537,7 +537,7 @@ def main():
     artifact_dir = os.path.join(base, 'artifacts')
     os.makedirs(artifact_dir, exist_ok=True)
     logger, timestamp = setup_logger(artifact_dir)
-    snapshot = dict(config, env=env_stamp())
+    snapshot = dict(config, env=env_atom())
     for name in ('config.json', f'config_{timestamp}.json'):
         with open(os.path.join(artifact_dir, name), 'w') as f:
             json.dump(snapshot, f, indent=2)

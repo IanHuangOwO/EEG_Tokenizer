@@ -40,7 +40,7 @@ split keeps a person on one side for the whole cohort.
 
 ## Model
 
-**Q-atom** (quadrature atom; called *stamp* before 2026-10-06, still in code identifiers): a learned unit-norm template `D` (50 samples) plus its derived quadrature partner `H` (Hilbert:
+**Q-atom** (quadrature atom; called *stamp* before 2026-10-06; `atom` in code identifiers): a learned unit-norm template `D` (50 samples) plus its derived quadrature partner `H` (Hilbert:
 rFFT bins rotated -90 degrees). A Q-atom contributes `a*D + b*H` to a channel: amplitude `sqrt(a^2+b^2)`,
 phase `atan2(b, a)`, the shape unchanged at any phase.
 
@@ -52,7 +52,7 @@ content (evoked responses, P300).
 with its own gains -- so a Q-atom's per-channel gains form a **mixing column** (an ICA-style topography).
 Routed (top-k selected) Q-atoms were removed (docs/adr/0022; `routed-stamps` branch).
 
-**Sparsity budget**: `2 * n_stamps` free scalars per channel must stay well below
+**Sparsity budget**: `2 * n_atoms` free scalars per channel must stay well below
 `patch_len` (50), or the active slots fit any patch and it stops being sparse coding (docs/adr/0011).
 
 **Residual ordering** (`mp_loss`): matching-pursuit grading -- slots ranked by amplitude, each graded against
@@ -61,7 +61,7 @@ the residual the higher ranks leave (detached), so duplicate atoms earn nothing.
 **Stage**: a group of `blocks_per_stage` (2) encoder blocks at one temporal resolution; the patch axis is
 pooled by 2 between stages (centred, no time shift) and upsampled back through gated skips.
 
-**z**: the encoder output before the StampBank, `[N', C, 100]`. The Q-atom codes on visible input are close
+**z**: the encoder output before the AtomBank, `[N', C, 100]`. The Q-atom codes on visible input are close
 to a fixed projection of each patch onto the templates, so a head on Q-atom codes sees little of the
 encoder's context; `latent_*` head entries read z instead.
 
@@ -71,11 +71,11 @@ spatial bias, on or off together (`spatial_embedding`).
 ## Training
 
 **Tokenizer phase**: epochs 1..`tokenizer_epochs`: every block runs with temporal attention only (no
-spatial attention, no coordinate embedding), unmasked, so the StampBank learns from single-channel content
+spatial attention, no coordinate embedding), unmasked, so the AtomBank learns from single-channel content
 (docs/adr/0003, 0013).
 
 **Masked phase**: the rest of the same run: spatial attention and the coordinate embedding on, masked
-reconstruction with the mask curriculum counted from here. Q-atoms stay trainable unless `freeze_stamps`.
+reconstruction with the mask curriculum counted from here. Q-atoms stay trainable unless `freeze_atoms`.
 The phase is a checkpoint buffer, restored on load.
 
 **Mask mode / mixture**: one mask pattern per Window -- `channel_cluster` (a scalp region), `random_channel`,
@@ -109,12 +109,12 @@ What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
 |---|---|---|
 | `SpatialTemporalEmbeddings` | 0.51M | patch 50 -> 100, learnable time position embedding, Fourier coordinate MLP |
 | `TSAEncoder` | 1.74M | 8 blocks = 4 stages x 2 (39 -> 20 -> 10 -> 5 patches); block = temporal attention -> spatial attention (+ relative spatial bias) -> MoE FFN (4 routed + 1 shared, top-2), LayerScale |
-| `StampBank` | 0.01M | 16 Q-atoms (sparsity budget 32 < 50) |
+| `AtomBank` | 0.01M | 16 Q-atoms (sparsity budget 32 < 50) |
 
 Loss: patch MSE + per-atom `mp` (weight 1; Q-atoms ranked per patch by strength) + `ffn_lb` (0.01);
 visible samples weighted 0.1 in the masked phase. Removed: trial MSE (ADR 0021), STFT (0019), nested (0018).
 50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2, random_channel 0.3, time_block 0.4 max ratios)
-+ channel subsampling. Channels: native layout, MNE template positions. Finetune head: stamp_power + signed_ab (all-atom; stamp_power + latent_signed is the stronger head).
++ channel subsampling. Channels: native layout, MNE template positions. Finetune head: atom_power + signed_ab (all-atom; atom_power + latent_signed is the stronger head).
 
 **Unit**: umbrella term in shared tooling (`model/base_*`, `tools/`) for whatever a model codes per patch --
 a Q-atom for Qtome. Plugins: `model/<Name>/plugin.py`, docs/adr/0004.
