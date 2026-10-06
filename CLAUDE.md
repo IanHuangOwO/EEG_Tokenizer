@@ -5,7 +5,7 @@ Guidance for Claude Code in this repository. Canonical terms: `CONTEXT.md`. Desi
 
 ## Environment
 
-Run everything with the `eeg_fm` conda env: `/home/mamechin/anaconda3/envs/eeg_fm/bin/python` (torch, mne,
+Run everything with the `qtome` conda env: `/home/mamechin/anaconda3/envs/qtome/bin/python` (torch, mne,
 moabb). A bare `python` is `base`, which has no `mne`/`moabb`: coordinates silently fall back to flat polar
 values from `metadata.json` and MOABB loaders fail. The machine is CPU-bound (20 cores, one 12 GB GPU):
 cap threads (`--threads`, `training_params.<mode>.num_threads`). Parallel jobs: 3 for unattended (overnight) queues,

@@ -91,7 +91,7 @@ def main():
         if os.path.exists(f'{path}.failed'):
             os.remove(f'{path}.failed')
         argv = shlex.split(cmd)
-        if argv and argv[0] == 'python':                  # the queue's own interpreter (the eeg_fm env)
+        if argv and argv[0] == 'python':                  # the queue's own interpreter (the qtome env)
             argv[0] = sys.executable
         running[name] = subprocess.Popen(argv, cwd=root, env=env,
                                          stdout=open(f'{path}.log', 'w'), stderr=subprocess.STDOUT)

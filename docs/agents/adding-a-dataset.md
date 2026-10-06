@@ -378,7 +378,7 @@ try/excepts around each task and just skips it with a printed warning.
 
 ## Shortcut: datasets MOABB covers
 
-If MOABB (`moabb` in the `eeg_fm` env, 1.5.0) has the dataset, skip Steps 3-6's hand-written
+If MOABB (`moabb` in the `qtome` env, 1.5.0) has the dataset, skip Steps 3-6's hand-written
 parsing and use `IO/loader.py` (MoabbLoader, write_moabb_metadata):
 
 - `loader.py` is just `class Loader(MoabbLoader): pass`.
