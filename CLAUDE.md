@@ -181,7 +181,7 @@ with `python -m tools.misc.dataset_inventory`. Read `docs/finetune-caveats.md` b
 
 ## Agent docs
 
-- Issues: GitHub Issues (IanHuangOwO/EEG_Tokenizer) via `gh`; labels `needs-triage` / `needs-info` /
+- Issues: GitHub Issues (IanHuangOwO/Qtome) via `gh`; labels `needs-triage` / `needs-info` /
   `ready-for-agent` / `ready-for-human` / `wontfix` -- `docs/agents/issue-tracker.md`, `triage-labels.md`.
 - Adding a dataset / model / montage / tool: `docs/agents/adding-a-*.md`. Raw downloads (NEMAR / MOABB, resumable,
   checksummed): `python -m tools.misc.fetch_datasets`. `tools/` = `analysis/`
