@@ -1,0 +1,29 @@
+{
+  "_comment": "EEGNet baseline settings for train_baseline.py, from EEG-FM-Compass (github.com/Dingkun0817/EEG-FM-Benchmark). 'loso' = their README 'LOSO for DL baselines (EEGNet on BNCI2014001)' command plus argparse defaults; 'fewshot' = their config/BNCI2014004.json EEGNet.full with the booleans as that json records them (their published reproduce_command strings turn every '--flag False' on, argparse type=bool). 'cells' overrides per dataset: 'published' = Compass's own setting for that dataset, 'ours' = chosen by us because Compass publishes no EEGNet setting for it. Checked 2026-10-06: all MI cells and the P300 / SSVEP loso cells within 1.7 points of Compass (docs/reports/2026-10-06-eegnet-compass-check.md).",
+  "loso": {
+    "batch_size": 32, "epochs": 100, "class_weights": true, "lr": 0.001, "weight_decay": 0.01, "dropout": 0.5,
+    "filter_bias_and_bn": false, "warmup_epochs": 5, "min_lr": 1e-06,
+    "sample_freq": 250, "band": [8.0, 32.0], "norm": "car", "time_length": 5.0
+  },
+  "fewshot": {
+    "batch_size": 16, "epochs": 100, "class_weights": false, "lr": 0.002, "weight_decay": 0.05, "dropout": 0.1,
+    "filter_bias_and_bn": true, "warmup_epochs": 5, "min_lr": 1e-06,
+    "sample_freq": 250, "band": [8.0, 32.0], "norm": "none", "time_length": 4.0
+  },
+  "cells": {
+    "BNCI2014004": {"loso": {"norm": "none", "time_length": 4.0, "_source": "published (their BNCI2014004 config: no CAR, 4 s)"}},
+    "BNCI2014008": {
+      "loso": {"band": [0.5, 40.0], "norm": "none", "time_length": 1.0, "_source": "ours (P300 band, 1 s trials)"},
+      "fewshot": {"band": [0.5, 40.0], "norm": "none", "time_length": 1.0, "class_weights": true,
+                  "_source": "ours (P300 band, 1 s trials, targets 1:5)"}
+    },
+    "BNCI2014009": {
+      "loso": {"band": [0.5, 40.0], "norm": "none", "time_length": 1.0, "_source": "ours, as BNCI2014008"},
+      "fewshot": {"band": [0.5, 40.0], "norm": "none", "time_length": 1.0, "class_weights": true, "_source": "ours, as BNCI2014008"}
+    },
+    "Nakanishi2015": {
+      "loso": {"band": [6.0, 90.0], "norm": "none", "time_length": 4.0, "_source": "ours (SSVEP band, 4 s trials)"},
+      "fewshot": {"band": [6.0, 90.0], "norm": "none", "time_length": 4.0, "_source": "ours (SSVEP band, 4 s trials)"}
+    }
+  }
+}

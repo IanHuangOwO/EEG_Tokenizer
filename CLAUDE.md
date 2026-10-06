@@ -25,6 +25,10 @@ python train_pretrain.py --config configs/runs/<backbone>/pretrain.json
 # Finetune a head on the frozen backbone (atom-code cache built on first use by cache_feature.py)
 python train_finetune.py --config configs/runs/<backbone>/finetune/<head>/<cell>.json
 
+# From-scratch baseline (model/EEGNet/, settings configs/baselines/EEGNet.json, Compass-checked) on one cell, same
+# splits and group_eval.json as a Qtome cell -> output/EEGNet/finetune/compass/<dataset>_<mode>_seed<k>/
+python train_baseline.py --model EEGNet --dataset BNCI2014004 --protocol mi_fewshot
+
 # Any config value can be overridden (dotted path, JSON value, repeatable; artifacts/config.json records it)
 python train_finetune.py --config <cfg> --set training_params.finetune.learning_rate=0.003
 
@@ -147,6 +151,8 @@ datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.
   frozen backbone) and `FeatureHead` (the `ENTRY_TYPES` registry).
 - `Qtome.py`: `QtomePretrain` (phases, per-sample masked loss: a sample counts as masked only if every patch
   covering it is masked), `FinetuneModel`.
+- `model/EEGNet/EEGNet.py`: the EEGNet baseline (Compass's architecture), trained from scratch by `train_baseline.py`;
+  not a plugin (no backbone). Finetune caches store volts: raw-input baselines multiply by 1e6.
 - `factory.py`: a pretrain checkpoint stores its `build_config`; `build_from_checkpoint` rebuilds a trained
   backbone from it, never from the editable run config.
 - `train_pretrain.py`: subject split by `IO/dataset.py`'s `split_pretrain_subjects` -- person-disjoint per

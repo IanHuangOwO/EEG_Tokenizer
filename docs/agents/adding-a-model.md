@@ -6,6 +6,15 @@
 
 # Adding a new model
 
+**Two kinds of model live under `model/`.** A *pretrained backbone* (Qtome) follows the plugin protocol below and is
+registered in `model/factory.py`. A *from-scratch baseline* (EEGNet) has no backbone and no plugin: put the
+architecture in `model/<Name>/<Name>.py` (citation at the top, an assert-based `_selfcheck()`), register the class in
+`train_baseline.py`'s `BASELINES`, and give it `configs/baselines/<Name>.json` (training and preprocessing settings per
+split mode, per-dataset overrides marked published or ours). `train_baseline.py` runs it through the same caches,
+protocol splits (`train_finetune.make_runs`) and `group_eval.json` format as a Qtome cell. Feed it microvolts: the
+caches store volts.
+
+
 Protocol for wiring a third (or Nth) tokenizer model into the shared training/viz
 infrastructure. Read `docs/adr/0004-model-plugin-base-classes.md` first — this doc is the
 mechanical checklist that ADR's design implies.
