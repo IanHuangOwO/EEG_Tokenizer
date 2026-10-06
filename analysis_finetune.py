@@ -3,7 +3,7 @@ the finetune runs of every group's backbone under one head label (output/<backbo
 
     python analysis_finetune.py --group base=qtome_tiny_base --group AB=qtome_tiny_ab --ref base
     python analysis_finetune.py --group AB=qtome_tiny_ab --panel class_snapshots \\
-        --checkpoint output/qtome_tiny_ab/finetune/frozen_learned/BNCI2014001_loso/finetune/run_fold0/head.pth
+        --checkpoint output/Qtome/qtome_tiny_ab/finetune/frozen_learned/BNCI2014001_loso/finetune/run_fold0/head.pth
 
 Output: --out, default output/analysis/<group names joined by _>/. Presets: tools/panels PRESETS.
 """

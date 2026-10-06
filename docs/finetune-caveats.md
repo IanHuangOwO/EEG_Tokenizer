@@ -30,7 +30,7 @@ not a best-epoch pick on the test set.
    calibration trials per class (BNCI2014001: ~86 trials, ~750 head parameters). Seed-1 patch-50 z probe,
    last-10-epoch mean over the 9 subjects: 001 few-shot train 0.955 vs held-out 0.317, 004 few-shot 0.998 vs
    0.670 (001 loso: 0.545 vs 0.456). A smaller head (spatial_k 2) did not help: 001 held-out 0.309, 004
-   0.605 (pilot 2026-09-29, output/qtome_tiny_p50_s16_s1/finetune/patch_probe_k2/), so spatial_k stays 8.
+   0.605 (pilot 2026-09-29, output/Qtome/qtome_tiny_p50_s16_s1/finetune/patch_probe_k2/), so spatial_k stays 8.
    Few-shot differences between backbones partly measure how a head copes with tiny calibration sets.
 9. **MI few-shot is limited by feature form, not regularization.** A closed-form ridge with its shrinkage
    picked inside each subject's calibration trials (tools/analysis/ridge_probe.fewshot_ridge) does not beat the
