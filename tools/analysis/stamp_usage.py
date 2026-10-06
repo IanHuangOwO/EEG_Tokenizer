@@ -1,14 +1,14 @@
 """
-Stamp usage on held-out pretrain windows (unmasked, CPU): the direct measures of whether the stamp
+Q-atom usage on held-out pretrain windows (unmasked, CPU): the direct measures of whether the Q-atom
 dictionary's slots are distinct and all used -- what mp_loss (and any dedup change) is for.
 
-Per stamp:
-  first       share of patches where it is the strongest stamp (per-patch ranking by strength h)
-  rank_ent    entropy of its rank across patches / log(#stamps): high = its rank moves with content
+Per Q-atom:
+  first       share of patches where it is the strongest Q-atom (per-patch ranking by strength h)
+  rank_ent    entropy of its rank across patches / log(#Q-atoms): high = its rank moves with content
   energy      its share of the total reconstructed energy
-  remove_cost rise in reconstruction MSE when only this stamp is dropped, / the model's MSE
-              (~0 = redundant: another stamp covers it, e.g. a near-duplicate)
-Summary: stamps ranked first in >= 5% of patches, redundant stamps (remove_cost < 1%).
+  remove_cost rise in reconstruction MSE when only this Q-atom is dropped, / the model's MSE
+              (~0 = redundant: another Q-atom covers it, e.g. a near-duplicate)
+Summary: Q-atoms ranked first in >= 5% of patches, redundant Q-atoms (remove_cost < 1%).
 
 Panel: `python analysis_pretrain.py --run <backbone> --panel stamp_usage` writes
 output/<backbone>/pretrain/analysis/stamp_usage.json.

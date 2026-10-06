@@ -1,7 +1,7 @@
 """
-Per-stamp feature extraction for the snapshot and codebook panels: each stamp's decoded content,
+Per-atom feature extraction for the snapshot and codebook panels: each Q-atom's decoded content,
 signed topography, phase, PSD and whole-trial waveform on one trial. Model-coupled (runs the frozen
-backbone through MeSAEPretrain.encode_stamps), unlike viz/topomap.py. Every stamp is active at every
+backbone through MeSAEPretrain.encode_stamps), unlike viz/topomap.py. Every Q-atom is active at every
 patch (static dictionary), so nothing here tracks selection.
 """
 
@@ -13,11 +13,11 @@ import torch
 
 @dataclass
 class PatchGridResult:
-    """Per-patch stamp content, no cross-patch averaging (see extract_stamp_psd_by_patch).
-    patch_ids: [P] sampled patch indices. S = n_stamps; column s is stamp s.
-    topo: [P, S, C] signed per-channel amp (the mixing column) of stamp s at that patch.
-    psd: [P, S, C, F] per-channel power spectrum of stamp s's decoded content at that patch.
-    h: [P, S] stamp strength at that patch.
+    """Per-patch Q-atom content, no cross-patch averaging (see extract_stamp_psd_by_patch).
+    patch_ids: [P] sampled patch indices. S = n_stamps; column s is Q-atom s.
+    topo: [P, S, C] signed per-channel amp (the mixing column) of Q-atom s at that patch.
+    psd: [P, S, C, F] per-channel power spectrum of Q-atom s's decoded content at that patch.
+    h: [P, S] Q-atom strength at that patch.
     recon_topo / recon_psd: [P, C] / [P, C, F] norm and spectrum of the patch's full
       reconstruction (computed from the summed signal: norm and FFT are not linear).
     raw_topo / raw_psd: [P, C] / [P, C, F] the same for the raw input patch.
@@ -78,12 +78,12 @@ def extract_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
                           time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
                           fs: float = None, freq_resolution: float = None):
     """
-    Everything the whole-trial stamp gallery (tools/viz/stamp_plots.plot_stamp_gallery) needs, from
+    Everything the whole-trial Q-atom gallery (tools/viz/stamp_plots.plot_stamp_gallery) needs, from
     one _stamp_summary call. Returns (ids [S], importance [S], psd_ch_x [C, S] SIGNED trial-mean amp
     per channel (the mixing column, rendered as a diverging topo), psd_x [S, C, F], freqs [F],
     phase_ch_x [C, S] raw per-channel phase (radians), and waveforms: S arrays of the real trial length
-    T = (N-1)*patch_stride + patch_len -- stamp s's decoded content at ONE pinned channel (the channel
-    with the most total energy for that stamp), overlapping patches averaged.
+    T = (N-1)*patch_stride + patch_len -- Q-atom s's decoded content at ONE pinned channel (the channel
+    with the most total energy for that Q-atom), overlapping patches averaged.
     """
     importance, fp, amp_topo, phase_topo, out = _stamp_summary(
         model, x, coords, time_idx=time_idx, valid_channels=valid_channels)
@@ -93,7 +93,7 @@ def extract_stamp_gallery(model, x: torch.Tensor, coords: torch.Tensor,
     psd_x = (fft_c.real.pow(2) + fft_c.imag.pow(2)).cpu().numpy()
     freqs = np.fft.rfftfreq(n_fft, d=(1.0 / fs) if fs else 1.0)
 
-    # --- whole-trial waveform per stamp ---
+    # --- whole-trial waveform per Q-atom ---
     D, H = model.stamps.templates()                                       # [S, L]
     N = out.amp.shape[0]
     stride = getattr(model, 'patch_stride', None) or L
@@ -119,7 +119,7 @@ def extract_stamp_psd_by_patch(model, x: torch.Tensor, coords: torch.Tensor,
                                time_idx: torch.Tensor = None, valid_channels: torch.Tensor = None,
                                fs: float = None, freq_resolution: float = None,
                                patch_stride: int = 1) -> PatchGridResult:
-    """Every patch_stride-th patch of one trial (B=1): each stamp's signed topography, strength h and
+    """Every patch_stride-th patch of one trial (B=1): each Q-atom's signed topography, strength h and
     decoded-content spectrum at that patch, plus the patch's raw and full-reconstruction spectra."""
     out = model.encode_stamps(x, coords, time_idx=time_idx, valid_channels=valid_channels)
     contribution = model.stamps.decode(out.amp)                           # [N, C, S, L]

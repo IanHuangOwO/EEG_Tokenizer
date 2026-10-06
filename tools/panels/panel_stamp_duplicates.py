@@ -1,5 +1,5 @@
-"""stamp_duplicates: are stamps copies of each other up to phase (tools.analysis.stamp_dist.
-stamp_similarity)? Prints pairs above --dup-threshold (default 0.9) and each stamp's nearest neighbour
+"""stamp_duplicates: are Q-atoms copies of each other up to phase (tools.analysis.stamp_dist.
+stamp_similarity)? Prints pairs above --dup-threshold (default 0.9) and each Q-atom's nearest neighbour
 -> analysis/stamp_duplicates.png."""
 import os
 

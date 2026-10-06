@@ -1,5 +1,5 @@
-"""Stamp dictionary statistics: templates, phase-invariant similarity, learned time-pool weights of
-a finetune head, and per-stamp (a, b) samples for panel_stamp_distribution.py's violins (every raw
+"""Q-atom dictionary statistics: templates, phase-invariant similarity, learned time-pool weights of
+a finetune head, and per-atom (a, b) samples for panel_stamp_distribution.py's violins (every raw
 per-(patch, channel) pair kept -- the point there is the spread, not a summary statistic)."""
 import numpy as np
 import torch
@@ -8,8 +8,8 @@ import torch
 @torch.no_grad()
 def accumulate_stamp_ab(model, pretrain_dataset, trial_indices, device, max_stamps=30):
     """Runs the frozen tokenizer (no masking) over pretrain_dataset[trial_indices] and collects every
-    (patch, channel)'s post-rms (a, b) pair per stamp (StampBank's quadrature gain). Returns
-    {stamp_id: (a [n], b [n])} np.ndarray pairs for the max_stamps stamps with the largest mean
+    (patch, channel)'s post-rms (a, b) pair per Q-atom (StampBank's quadrature gain). Returns
+    {stamp_id: (a [n], b [n])} np.ndarray pairs for the max_stamps Q-atoms with the largest mean
     amplitude, in that order."""
     was_training = model.training
     model.eval()
@@ -29,15 +29,15 @@ def accumulate_stamp_ab(model, pretrain_dataset, trial_indices, device, max_stam
 
 
 def stamp_templates(model):
-    """-> D, H ([n_stamps, patch_len] numpy), ids (every stamp)."""
+    """-> D, H ([n_stamps, patch_len] numpy), ids (every Q-atom)."""
     D, H = (t.detach().cpu().numpy() for t in model.stamps.templates())
     return D, H, np.arange(D.shape[0])
 
 
 def stamp_similarity(model):
-    """Phase-invariant template similarity: a stamp presents a*D + b*H, so stamp j can show stamp i's
+    """Phase-invariant template similarity: a Q-atom presents a*D + b*H, so Q-atom j can show Q-atom i's
     waveform at any phase; sim(i, j) = sqrt(<D_i,D_j>^2 + <D_i,H_j>^2) in [0, 1] (1 = the same atom at
-    some phase), symmetrised by max, diagonal NaN. -> (sim over the stamps, their labels)."""
+    some phase), symmetrised by max, diagonal NaN. -> (sim over the Q-atoms, their labels)."""
     D, H, ids = stamp_templates(model)
     sim = np.sqrt((D[ids] @ D[ids].T) ** 2 + (D[ids] @ H[ids].T) ** 2)
     sim = np.maximum(sim, sim.T)

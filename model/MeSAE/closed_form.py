@@ -1,25 +1,25 @@
-"""Closed-form finetune head (2026-10-04): fit without SGD on the frozen stamp code (a, b), for few-shot.
+"""Closed-form finetune head (2026-10-04): fit without SGD on the frozen Q-atom code (a, b), for few-shot.
 
 training_params.finetune.fit = "closed_form", closed_form = {"branch": ..., "nfilter": 4}:
-  power  -- induced power (MI): per stamp, the channel covariance of its a and b over the trial's patches (OAS
-            shrinkage) -> CSP log-variance (nfilter filters) -> all stamps concatenated -> shrinkage LDA.
+  power  -- induced power (MI): per Q-atom, the channel covariance of its a and b over the trial's patches (OAS
+            shrinkage) -> CSP log-variance (nfilter filters) -> all Q-atoms concatenated -> shrinkage LDA.
             The current head's stamp_power is the same form (power of a spatially filtered code) with SGD filters.
-  signed -- phase-locked (P300): signed a, b per channel (stamps x patches as the time axis) -> xDAWN covariances
+  signed -- phase-locked (P300): signed a, b per channel (Q-atoms x patches as the time axis) -> xDAWN covariances
             (nfilter per class, OAS) -> tangent space -> logistic regression, L2 strength by 3-fold CV.
-  trca   -- phase-locked, many classes (SSVEP, 2026-10-05): per stamp, ensemble TRCA (Nakanishi 2018) on the signed
+  trca   -- phase-locked, many classes (SSVEP, 2026-10-05): per Q-atom, ensemble TRCA (Nakanishi 2018) on the signed
             a, b per channel (patches as the time axis): per class the nfilter spatial filters that maximise the
             covariance between that class's trials; a trial's score for a class is the correlation of its filtered
-            code with the filtered class mean, summed over stamps (the stamps play TRCA's filter-bank role); argmax.
-  structured -- the loso all-stamp head (stamp_power + signed_ab, MeSAE_modules.FeatureHead) with every factor
+            code with the filtered class mean, summed over Q-atoms (the Q-atoms play TRCA's filter-bank role); argmax.
+  structured -- the loso all-atom head (stamp_power + signed_ab, MeSAE_modules.FeatureHead) with every factor
             set in closed form instead of by SGD, same ranks (2026-10-05, user: few-shot keeps the head's structure so
-            its factors read as stamp events, not a generic probe):
-              stamp_power: spatial filter C -> spatial_k shared over stamps and a/b (CSP on the trial covariance of
-                the code, patches x stamps x {a, b} as samples) -> a^2 + b^2 -> per-stamp time weights w[s, n]
-                (non-negative, rank time_rank: the leading SVD components of the per-(stamp, patch) Fisher score of
-                log-power, clipped at 0, summed to 1 per stamp) -> log -> [K * S].
+            its factors read as Q-atom events, not a generic probe):
+              stamp_power: spatial filter C -> spatial_k shared over Q-atoms and a/b (CSP on the trial covariance of
+                the code, patches x Q-atoms x {a, b} as samples) -> a^2 + b^2 -> per-atom time weights w[s, n]
+                (non-negative, rank time_rank: the leading SVD components of the per-(Q-atom, patch) Fisher score of
+                log-power, clipped at 0, summed to 1 per Q-atom) -> log -> [K * S].
               signed_ab: spatial filter C -> spatial_k (generalised eigenvectors of the class-mean code covariance vs
-                the trial covariance, xDAWN-style) -> stamp pooling S -> stamp_rank and time filters N' -> time_rank,
-                the leading eigenvectors of the class-mean difference scatter over stamps and over patches
+                the trial covariance, xDAWN-style) -> Q-atom pooling S -> stamp_rank and time filters N' -> time_rank,
+                the leading eigenvectors of the class-mean difference scatter over Q-atoms and over patches
                 (HOSVD of the centred class means) -> [2 * K * stamp_rank * time_rank].
               both concatenated -> shrinkage LDA, equal priors.
 Every step is a formula, an eigen-decomposition or one convex solve: the same training trials give the same head
@@ -48,7 +48,7 @@ class ClosedFormHead:
         # 2026-10-06 (MI / P300 / SSVEP power / SSVEP phase-locked, mean): rank 2 53.2, 4 54.9, 8 56.7, full 59.7.
         self.Rs = None if signed_time_rank == 'full' else int(signed_time_rank) if signed_time_rank else self.R
 
-    # ---- structured: the all-stamp head's factors in closed form ----
+    # ---- structured: the all-atom head's factors in closed form ----
     @staticmethod
     def _top_geig(P, Q, k):
         """Leading k generalised eigenvectors of P w = l Q w (Q shrunk 1e-6 of its trace) -> [C, k]."""
@@ -96,8 +96,8 @@ class ClosedFormHead:
         return np.concatenate([fp, fs], 1)
 
     def _views(self, amp):
-        """amp [n, N', C, S, 2] -> power: [n, S, C, 2N'] (a and b over patches, per stamp);
-        signed: [n, C, S*2*N'] (the signed code of every stamp as one long time axis)."""
+        """amp [n, N', C, S, 2] -> power: [n, S, C, 2N'] (a and b over patches, per Q-atom);
+        signed: [n, C, S*2*N'] (the signed code of every Q-atom as one long time axis)."""
         n, P, C, S, _ = amp.shape
         if self.branch in ('power', 'trca'):
             return amp.transpose(0, 3, 2, 4, 1).reshape(n, S, C, 2 * P)
@@ -118,7 +118,7 @@ class ClosedFormHead:
         return Li.T @ vecs[:, ::-1][:, :nfilter]
 
     def _trca_scores(self, X):
-        """X [n, S, C, T] -> [n, K]: per stamp, the correlation of W^T x with W^T (class mean), summed over stamps."""
+        """X [n, S, C, T] -> [n, K]: per Q-atom, the correlation of W^T x with W^T (class mean), summed over Q-atoms."""
         out = np.zeros((len(X), len(self.classes)))
         for s, (W, tmpl) in enumerate(self.blocks):
             z = np.einsum('ck,nct->nkt', W, X[:, s]).reshape(len(X), -1)
@@ -172,7 +172,7 @@ class ClosedFormHead:
 
 
 def _selfcheck():
-    """Separable synthetic data: class 1 has extra power on channel 0 in stamp 0 (power branch) / a fixed signed
+    """Separable synthetic data: class 1 has extra power on channel 0 in Q-atom 0 (power branch) / a fixed signed
     offset on channel 1 (signed branch); both branches must classify held-out trials well above chance."""
     rng = np.random.default_rng(0)
     n, P, C, S = 80, 6, 4, 3

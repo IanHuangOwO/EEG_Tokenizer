@@ -1,5 +1,5 @@
 """
-Closed-form linear probe on the frozen pre-stamp z: a deterministic readout of how linearly usable
+Closed-form linear probe on the frozen pre-atom z: a deterministic readout of how linearly usable
 the representation is, without SGD head training (the finetune heads' run-to-run noise).
 
 Per dataset (BNCI2014004 / BNCI2014001 / BNCI2014008), Compass LOSO split (the protocol's session
@@ -47,8 +47,8 @@ def _stamp_bank(checkpoint):
 
 @torch.no_grad()
 def stamp_hidden(z, bank, chunk=256):
-    """z [T, N', Cv, D] (the cached encoder output the stamps read) -> stamp hidden u [T, N', Cv, S * K]:
-    every stamp's MLP hidden GELU(LN(z) W_down_s + b_down_s), stamps concatenated (StampBank._amp's first map)."""
+    """z [T, N', Cv, D] (the cached encoder output the Q-atoms read) -> Q-atom hidden u [T, N', Cv, S * K]:
+    every Q-atom's MLP hidden GELU(LN(z) W_down_s + b_down_s), Q-atoms concatenated (StampBank._amp's first map)."""
     out = []
     for c in z.split(chunk):
         u = F.gelu(torch.einsum('tncd,sdk->tncsk', bank.input_norm(c.float()), bank.W_down) + bank.b_down)
@@ -59,7 +59,7 @@ def stamp_hidden(z, bank, chunk=256):
 @torch.no_grad()
 def token_rms(amp, u, bank):
     """Per-token input rms [T, N', Cv, 1], recovered from the cached amp = (u w_amp + b_amp) * rms by least
-    squares over the stamps (the cache keeps amp and z, not rms)."""
+    squares over the Q-atoms (the cache keeps amp and z, not rms)."""
     out = []
     for a, h in zip(amp.split(256), u.split(256)):
         pre = torch.einsum('tncsk,skj->tncsj', h.unflatten(-1, (bank.W_down.shape[0], -1)), bank.w_amp) + bank.b_amp
@@ -69,8 +69,8 @@ def token_rms(amp, u, bank):
 
 def _features(feature, data, checkpoint):
     """The token features a probe reads [T, N', Cv, F]: 'z' (as cached), 'stamp_hidden' (u), 'ln_z' (z after the
-    stamp bank's LayerNorm: z without its scale), 'stamp_hidden_rms' (u times the token's input rms: scale put
-    back) or 'ab' (the cached signed stamp gains a, b, rms included)."""
+    Q-atom bank's LayerNorm: z without its scale), 'stamp_hidden_rms' (u times the token's input rms: scale put
+    back) or 'ab' (the cached signed Q-atom gains a, b, rms included)."""
     z = data.z.float()
     if feature == 'z':
         return z
@@ -89,7 +89,7 @@ def _features(feature, data, checkpoint):
 
 def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1, feature='z'):
     """pool > 1: average `pool` adjacent z tokens first (train_finetune.pool_tokens). feature: 'z' or
-    'stamp_hidden' (the probe reads every stamp's MLP hidden instead of z; same PCA pipeline)."""
+    'stamp_hidden' (the probe reads every Q-atom's MLP hidden instead of z; same PCA pipeline)."""
     from train_finetune import pool_tokens
     res = {}
     for ds, proto in datasets:
@@ -130,7 +130,7 @@ def ridge_probe(config, checkpoint, out_path, n_pca=8, datasets=DATASETS, pool=1
     return res
 
 
-# ---------- stamp power vs raw band power: does the stamp code carry more than a filterbank? ----------
+# ---------- Q-atom power vs raw band power: does the Q-atom code carry more than a filterbank? ----------
 
 N_SEG = 4                                                   # time segments per trial (mean power in each)
 BANDS_HZ = ((0.5, 4), (4, 8), (8, 13), (13, 30), (30, 45))
@@ -151,8 +151,8 @@ def _loso_ridge(X, y, subj, keep, subs):
 
 def stamp_vs_raw(config, checkpoint, out_path, datasets=DATASETS):
     """Per dataset, the same closed-form loso ridge on two fixed feature sets of the same trials:
-    log stamp power (a^2 + b^2 per channel x stamp, mean over N_SEG time segments) and log raw band
-    power (per channel x band, same segments). stamp - raw > 0: the stamp code carries class
+    log Q-atom power (a^2 + b^2 per channel x Q-atom, mean over N_SEG time segments) and log raw band
+    power (per channel x band, same segments). Q-atom - raw > 0: the Q-atom code carries class
     information a raw spectral filterbank does not."""
     from train_finetune import RawSource
     res = {}
@@ -210,7 +210,7 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
     probe instead of a trained head: RidgeClassifierCV, its shrinkage picked by efficient leave-one-out on the
     subject's calibration trials only. Two compact fixed feature sets per trial: 'z' = z tokens projected on
     n_pca principal axes (fit on the calibration tokens), averaged over n_seg time segments; 'z_power' = log mean
-    square of the same projections per segment (power, what MI carries); 'stamp' = log stamp
+    square of the same projections per segment (power, what MI carries); 'Q-atom' = log Q-atom
     power (a^2 + b^2) averaged over the same segments. -> {dataset: {feature: {mean, per_subject}}}."""
     from sklearn.linear_model import RidgeClassifierCV
     from train_finetune import make_runs
@@ -252,18 +252,18 @@ def fewshot_ridge(config, checkpoint, out_path, n_pca=8, n_seg=4, datasets=FEWSH
     return res
 
 
-# ---------- stamp hidden: does each stamp's MLP hidden carry more than z? ----------
+# ---------- Q-atom hidden: does each Q-atom's MLP hidden carry more than z? ----------
 
 @torch.no_grad()
 def stamp_hidden_stats(config, checkpoint, out_path, datasets=DATASETS, n_tokens=20000, seed=0):
     """Per dataset, on n_tokens random (trial, patch, channel) tokens of the cached z:
     check -- the cached amp is u w_amp + b_amp times one per-token scalar (the rms), i.e. u is what the StampBank
     computed (relative residual, fp16-level expected);
-    free_share -- per stamp, share of centred u_s variance outside the column space of w_amp_s (never read by the
+    free_share -- per Q-atom, share of centred u_s variance outside the column space of w_amp_s (never read by the
     reconstruction; random directions: 1 - 2 / hidden_width);
     copy_r2 -- held-out R^2 of a least-squares map [z, 1] -> u (1 = a linear copy of z);
     rank -- participation-ratio effective rank of u and of z;
-    pair_cc -- mean over stamp pairs of the top canonical correlation between u_s and u_t (1 = same subspace)."""
+    pair_cc -- mean over Q-atom pairs of the top canonical correlation between u_s and u_t (1 = same subspace)."""
     bank = _stamp_bank(checkpoint)
     S, K = bank.W_down.shape[0], bank.W_down.shape[2]
     g = torch.Generator().manual_seed(seed)

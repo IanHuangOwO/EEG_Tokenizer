@@ -14,7 +14,7 @@ class BaseTrainer:
 
     def update_diagnostics(self, model, out):
         """Called once per step (train and val alike), right after compute_loss, with
-        that same step's `out`. Mutates model-side EMA buffers (e.g. MeSAE's
+        that same step's `out`. Mutates model-side EMA buffers (e.g. Qtome's
         update_head_metrics) — the one place per-step diagnostic state gets touched.
         Default: no-op, for models with nothing to track here."""
         pass

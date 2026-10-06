@@ -1,4 +1,4 @@
-"""SnapshotBundle: one trial's input, reconstruction and stamp view, built per stage
+"""SnapshotBundle: one trial's input, reconstruction and Q-atom view, built per stage
 (build_pretrain_bundle / build_finetune_bundle: how to patchify and forward that stage's model) and
 rendered by tools/viz/snapshot.py. predict_all: a finetune model's predictions over a dataset (the
 class_snapshots panel picks correct / wrong trials from it)."""
@@ -117,7 +117,7 @@ def _run_reconstruction(model, dataset, trial_idx, device):
 def build_pretrain_bundle(model, dataset, trial_idx, config, device,
                            subject_id=None, epoch=None):
     """Pretrain-stage bundle: full (masked-phase-restored) model forward, unmasked
-    reconstruction, per-trial stamp usage for title colors. Returns (bundle, metrics)
+    reconstruction, per-trial Q-atom usage for title colors. Returns (bundle, metrics)
     where metrics = {'recon_mse': ..., **MeSAETrainer().epoch_metrics(model, out)},
     matching today's BaseEpochChecker.check_pretrain's returned metrics dict exactly."""
     was_training = model.training

@@ -1,5 +1,5 @@
 """time_weights: where in the trial a learned time pool reads from (tools.analysis.stamp_dist.
-time_pool_weights). Per cell, one stamp x patch heatmap per group and head entry, averaged over the
+time_pool_weights). Per cell, one Q-atom x patch heatmap per group and head entry, averaged over the
 cell's fold/subject heads (each trains its own) -> time_weights_<cell>.png, event onset marked."""
 import glob
 import json

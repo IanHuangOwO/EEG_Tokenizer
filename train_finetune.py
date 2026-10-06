@@ -1,6 +1,6 @@
-"""Finetune a FeatureHead on a frozen MeSAE backbone.
+"""Finetune a FeatureHead on a frozen Qtome backbone.
 
-The backbone never trains: stamp features come from the amplitude cache (cache_feature.py), raw
+The backbone never trains: Q-atom features come from the amplitude cache (cache_feature.py), raw
 features from the compiled dataset; only the head is optimised (fp32, batches indexed from RAM).
 training_params.finetune.split picks a split type (SPLITS: loso, subject_kfold, eval_subjects,
 kfold, blocked_kfold, fewshot). Every run writes artifacts/group_eval.json: per-subject tail (mean of the last 10
@@ -229,7 +229,7 @@ def make_runs(split, pool, subject_data, labels, session=None):
 
 
 class StampSource:
-    """Cached stamp amplitudes of the pool (cache_feature.py), moved to the device once (a
+    """Cached Q-atom amplitudes of the pool (cache_feature.py), moved to the device once (a
     BNCI2014008 64-channel impute cache is ~1 GB fp16): the head is tiny, so per-batch CPU
     indexing and host-to-device copies were most of a step's time."""
     kind = 'stamp'
@@ -305,7 +305,7 @@ class CombinedSource:
 def make_source(config, ds_name, pool, device):
     ft_cfg = dict(config['model_params']['MeSAE']['finetune'])
     want_stamp, want_raw, latent = needs_stamp(ft_cfg), needs_raw(ft_cfg), needs_latent(ft_cfg)
-    if latent:   # latent_source: which z the latent_* entries read ('output' = what the stamps read)
+    if latent:   # latent_source: which z the latent_* entries read ('output' = what the Q-atoms read)
         latent = ft_cfg.get('latent_source', 'output')
         if latent not in ('output', 'bottleneck'):
             raise ValueError(f"latent_source must be output|bottleneck, got {latent!r}")

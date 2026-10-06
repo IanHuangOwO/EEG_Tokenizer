@@ -1,5 +1,5 @@
-"""stamp_vs_raw: closed-form loso ridge on log stamp power vs on log raw band power, same trials and split
-(tools/analysis/ridge_probe.py stamp_vs_raw) -> analysis/stamp_vs_raw.json. Positive stamp - raw: the stamp
+"""stamp_vs_raw: closed-form loso ridge on log Q-atom power vs on log raw band power, same trials and split
+(tools/analysis/ridge_probe.py stamp_vs_raw) -> analysis/stamp_vs_raw.json. Positive Q-atom - raw: the Q-atom
 code carries class information a raw spectral filterbank does not."""
 import os
 

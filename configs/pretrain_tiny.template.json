@@ -4883,7 +4883,7 @@
           0.25
         ],
         "decoder_blocks": 0,
-        "temporal_bias": false
+        "temporal_bias": true
       }
     }
   },

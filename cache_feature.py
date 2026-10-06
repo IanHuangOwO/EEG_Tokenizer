@@ -1,11 +1,11 @@
-"""Stamp-amplitude cache for the frozen backbone (finetune restructure, sub-project B).
+"""Q-atom-amplitude cache for the frozen backbone (finetune restructure, sub-project B).
 Pipeline stage between the compiled data (cache_dataset.py) and the finetune head, hence a root script:
     python cache_feature.py --config configs/runs/<backbone>/finetune/<head>/<dataset>_<mode>.json
 
-The backbone never changes during finetuning, so its stamp amplitudes are computed once per
+The backbone never changes during finetuning, so its Q-atom amplitudes are computed once per
 (checkpoint, dataset, preprocessing) and stored next to the backbone:
     <backbone run folder>/feature_cache/<dataset>/<key>/<subject>.npz
-Only stamp features use it (StampExtractor output); raw features never touch the backbone."""
+Only Q-atom features use it (StampExtractor output); raw features never touch the backbone."""
 import argparse
 import hashlib
 import json
@@ -183,7 +183,7 @@ def get_stamp_cache(config, dataset_name, subjects, device=None, batch_size=64, 
 
 
 class CachedStampDataset(Dataset):
-    """Stamp amplitudes of the given subjects, in RAM. See the plan's Interfaces section."""
+    """Q-atom amplitudes of the given subjects, in RAM. See the plan's Interfaces section."""
     def __init__(self, folder, subjects):
         parts = []
         for s in subjects:

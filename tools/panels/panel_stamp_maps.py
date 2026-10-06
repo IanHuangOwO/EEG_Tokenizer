@@ -1,10 +1,10 @@
 """stamp_maps: where a head with a stamp_power entry reads from, per cell and group (a latent_signed entry of the
 same head, if any, is drawn on top: virtual channel x time and spatial filters, as probe_maps; a signed_ab entry is
-drawn on top in stamp space instead -- stamp x time, gain-scaled, scalp maps of its top stamps): each stamp's learned time weights
-(stamps ranked by decision importance, labelled with their template's peak frequency) and, for the most important
-stamps, which electrodes' power the decision uses (tools/analysis/probe_maps.py stamp_head_maps), over every fold and
+drawn on top in Q-atom space instead -- Q-atom x time, gain-scaled, scalp maps of its top Q-atoms): each Q-atom's learned time weights
+(Q-atoms ranked by decision importance, labelled with their template's peak frequency) and, for the most important
+Q-atoms, which electrodes' power the decision uses (tools/analysis/probe_maps.py stamp_head_maps), over every fold and
 finetune seed of the cell -> stamp_maps_<cell>_<group>.png. Run it with --head <a label whose head has stamp_power>,
-e.g. combined or cw_stamp. One figure per group: stamps are each backbone's own dictionary, not comparable across."""
+e.g. combined or cw_stamp. One figure per group: Q-atoms are each backbone's own dictionary, not comparable across."""
 import glob
 import json
 import os
@@ -25,7 +25,7 @@ STAGES = frozenset({'finetune'})
 
 
 def _stamp_labels(backbone_ckpt, sample_freq):
-    """'s<i> <peak> Hz' per stamp, from the backbone's unit templates."""
+    """'s<i> <peak> Hz' per Q-atom, from the backbone's unit templates."""
     stamps = build_from_checkpoint(torch.load(backbone_ckpt, map_location='cpu', weights_only=False)).stamps
     with torch.no_grad():
         D, _ = stamps.templates()
@@ -55,7 +55,7 @@ def run(ctx):
             except KeyError:
                 pass
             if any(f['type'] == 'signed_ab' for f in torch.load(heads[0], map_location='cpu', weights_only=False)['head_config']['features']):
-                ds = next(iter(cfg['dataset_params']['finetune']))   # signed_ab half in stamp space, gain-scaled
+                ds = next(iter(cfg['dataset_params']['finetune']))   # signed_ab half in Q-atom space, gain-scaled
                 subs = list(json.load(open(cfg['dataset_params']['finetune'][ds]['dataset_path'] + '/metadata.json'))['data_structure'])
                 amp = CachedStampDataset(get_stamp_cache(cfg, ds, subs), subs).amp
                 s_tw, s_imp, s_chan, _ = summarise_signed_stamps(heads, amp)

@@ -1,4 +1,4 @@
-"""stamp_distribution: per-stamp a / b / amplitude / phase violins over real trials, one plot per
+"""stamp_distribution: per-atom a / b / amplitude / phase violins over real trials, one plot per
 dataset (tools/analysis/stamp_dist.py) -> analysis/stamp_distribution/<dataset>.png.
 Options: --datasets (default: every pretrain dataset), --max-trials (per dataset)."""
 import copy

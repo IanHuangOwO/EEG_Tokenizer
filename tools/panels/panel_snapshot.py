@@ -1,4 +1,4 @@
-"""snapshot: one real trial per target, original vs reconstruction (band-filtered grid) and the stamp
+"""snapshot: one real trial per target, original vs reconstruction (band-filtered grid) and the Q-atom
 gallery -> analysis/snapshot/. Targets: training_params.visualize_params.pretrain.targets (the same
 {dataset, subject, trial} list the periodic training visualisation uses), or --datasets (trial 0 of the
 first subject loaded). Only a few subjects per dataset are loaded (tools.analysis.cap_subjects)."""

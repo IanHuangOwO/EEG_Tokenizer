@@ -1,10 +1,10 @@
 # EEG Tokenizer
 
 An EEG foundation model that turns multi-channel EEG into interpretable per-patch features.
-The model is **MeSAE**: a temporal-spatial attention (TSA) encoder feeds a **stamp dictionary**
+The model is **Qtome**: a temporal-spatial attention (TSA) encoder feeds a **Q-atom dictionary**
 (StampBank), and each patch is reconstructed as a linear sum of learned waveform templates. It is
 pretrained with masked reconstruction on a multi-dataset corpus, then frozen. Downstream tasks read
-either the encoder output directly (a linear probe) or the stamp codes (a structured head).
+either the encoder output directly (a linear probe) or the Q-atom codes (a structured head).
 
 > An earlier discrete tokenizer, MeFSQ (FSQ/VQ), has been removed.
 
@@ -30,25 +30,25 @@ raw dataset files
   embedding and a relative spatial bias in every block; an optional relative temporal bias does the
   same for time lags. During training each skip is dropped per sample (graded drop-path, strongest
   on the finest skip), so the deeper stages have to carry patch detail too.
-- **Stamps.** A stamp is a unit-norm temporal template `D` plus its quadrature partner `H`. Each
-  stamp adds `a·D + b·H` to a channel, which gives an amplitude and a phase per channel; the
-  per-channel gains of one stamp form a topography. The dictionary is static: 16 stamps, all active
-  on every patch (routed top-k stamps were removed, `docs/adr/0022`). Downstream heads read the
-  encoder output z; the stamps are the reconstruction objective and an interpretable view.
+- **Q-atoms.** A Q-atom is a unit-norm temporal template `D` plus its quadrature partner `H`. Each
+  Q-atom adds `a·D + b·H` to a channel, which gives an amplitude and a phase per channel; the
+  per-channel gains of one Q-atom form a topography. The dictionary is static: 16 Q-atoms, all active
+  on every patch (routed top-k Q-atoms were removed, `docs/adr/0022`). Downstream heads read the
+  encoder output z; the Q-atoms are the reconstruction objective and an interpretable view.
 - **Sparsity budget (a hard limit).** Keep `2·n_stamps < patch_len` with
-  margin. Past that line the active stamps can fit any patch exactly and the model stops doing
+  margin. Past that line the active Q-atoms can fit any patch exactly and the model stops doing
   sparse coding (`docs/adr/0011`). The current budget is 2·16 = 32 against a `patch_len` of 50.
 - **Two-phase pretraining** (`docs/adr/0013`). In the *tokenizer phase* every block runs with
   temporal attention only and no masking. In the *masked phase* spatial attention and the
   coordinate embedding switch on and the masking curriculum starts (channel clusters, random
   channels, time blocks, plus channel subsampling to sparse montages).
-- **Loss.** Patch MSE (visible patches count at 0.1 of masked ones) + a per-stamp matching-pursuit
-  term (`mp`: stamps ranked per patch by strength, each trained on what the stronger ones left, so a
+- **Loss.** Patch MSE (visible patches count at 0.1 of masked ones) + a per-atom matching-pursuit
+  term (`mp`: Q-atoms ranked per patch by strength, each trained on what the stronger ones left, so a
   duplicate earns nothing) + MoE load balance. Tested and removed: an overlap-added trial MSE
   (`docs/adr/0021`: without it neighbouring patches agree better), a masked STFT loss (`0019`: it
   restores masked band power but did not reach the tasks), and a merged nested loss (`0018`).
 - **Evaluation.** Each backbone change is judged by its own mechanism metric on held-out windows
-  (`docs/adr/0020`: coordinate / time / skip ablations, seam disagreement, stamp usage, masked band
+  (`docs/adr/0020`: coordinate / time / skip ablations, seam disagreement, Q-atom usage, masked band
   power, a closed-form ridge probe), not by single-seed finetuning, which runs only when a recipe is
   frozen.
 
@@ -100,9 +100,9 @@ configs go in `configs/runs/`, which is git-ignored because every run saves its 
 in `output/.../artifacts/config.json`. See `configs/README.md`.
 
 **Finetune.** A head is a list of feature entries (`model_params.MeSAE.finetune.features`), each
-with its own spatial filter: stamp-code entries (`stamp_power`, `signed_ab`, ...), latent entries
+with its own spatial filter: Q-atom-code entries (`stamp_power`, `signed_ab`, ...), latent entries
 on the encoder output z (`latent_signed` is the linear probe), and raw-signal baselines. The default head
-reads only the stamps: `stamp_power` (MI) and `signed_ab` (signed gains, P300); swapping `signed_ab` for
+reads only the Q-atoms: `stamp_power` (MI) and `signed_ab` (signed gains, P300); swapping `signed_ab` for
 `latent_signed` gives a stronger head on MI few-shot. Splits
 (`training_params.finetune.split.type`): `loso`, `subject_kfold`, `eval_subjects`, `kfold`,
 `blocked_kfold`, `fewshot`. Frozen protocols (`configs/finetune_protocols.json`: `mi_loso`,
@@ -150,7 +150,7 @@ Pretraining splits train/val by person, per cohort, so no subject's data appears
 ## Further reading
 
 - `CONTEXT.md`: canonical terms
-- `docs/adr/`: architecture decisions (stamp dictionary 0009, matching-pursuit loss 0011,
+- `docs/adr/`: architecture decisions (Q-atom dictionary 0009, matching-pursuit loss 0011,
   two-phase run 0013, loss trimming 0015, finetune heads 0016, nested loss 0018)
 - `docs/agents/`: how-tos for adding a model, dataset, montage or tool, plus reshape pitfalls
 - `CLAUDE.md`: detailed developer and agent reference

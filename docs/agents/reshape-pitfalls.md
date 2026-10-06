@@ -47,7 +47,7 @@ preceding permute:
    only ever combines the now-adjacent `N`,`T`.
 
 2 & 3. **`model/MeSAE/MeSAE.py` `_patch_pyramid_levels`** (feeds
-   `_hierarchical_recon_loss`, the actual training loss for MeSAE tokenizer +
+   `_hierarchical_recon_loss`, the actual training loss for Qtome tokenizer +
    pretrain stages) — two separate instances in the same function:
    - `recon.reshape(B*C, L, N)` on a `(B, C, N, L)` tensor, intending to swap `N`
      and `L` to put the patch axis last for `avg_pool1d`. Scrambled within-patch

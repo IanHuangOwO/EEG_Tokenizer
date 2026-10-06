@@ -32,7 +32,7 @@ def build_pretrain_from_config(config, mode='pretrain'):
 
 def build_from_checkpoint(ckpt):
     """The backbone exactly as trained: built from ckpt['build_config'], weights loaded (the load
-    restores its phase flags, MeSAE _restore_phase)."""
+    restores its phase flags, Qtome _restore_phase)."""
     if 'build_config' not in ckpt:
         raise ValueError("checkpoint has no build_config: trained before the 2026-09-26 encoder redesign, "
                          "the current code cannot rebuild it")

@@ -48,7 +48,7 @@ class BasePlotter:
 
     def router_health_series(self, prefix='', entropy_label='Router entropy (higher=balanced)'):
         """MoE router-health panel shape shared by every router in this codebase (Expert,
-        Stamp, FFN, ...): router_entropy + gate_entropy on the main axis, router_load_std
+        Q-atom, FFN, ...): router_entropy + gate_entropy on the main axis, router_load_std
         + lb_loss on a twin axis. History keys are f'{prefix}_<key>' (e.g. 'ffn_router_entropy',
         'ffn_lb_loss'), unprefixed for prefix=''.
         Returns (main_series, twin_series) — pass twin_series into a panel's twin dict

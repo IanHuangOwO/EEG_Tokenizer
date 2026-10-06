@@ -1,5 +1,5 @@
 """class_snapshots: for one finetune head (--checkpoint .../<cell>/finetune/run_<fold>/head.pth), per
-class one correctly and one wrongly classified trial, each rendered as the recon grid and stamp gallery
+class one correctly and one wrongly classified trial, each rendered as the recon grid and Q-atom gallery
 -> class_snapshots/<cell>_<fold>/. The config is the run's artifacts/config.json; trials come from the
 fold's held-out subjects (group_eval.json), so for a within-subject split they include its train trials."""
 import copy

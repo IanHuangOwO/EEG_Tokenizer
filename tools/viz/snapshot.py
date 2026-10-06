@@ -1,5 +1,5 @@
 """Per-trial snapshot figures from a SnapshotBundle (tools/analysis/snapshot.py): the band-filtered
-original-vs-reconstruction grid, the stamp gallery, and the per-patch stamp grid. Called by
+original-vs-reconstruction grid, the Q-atom gallery, and the per-patch Q-atom grid. Called by
 train_pretrain.py's periodic visualisation and by the snapshot / class_snapshots panels."""
 import os
 
@@ -39,7 +39,7 @@ def render_recon(bundle, config, out_dir):
 
 
 def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
-    """Stamp gallery for one trial: whole-trial raw/recon PSD, then per stamp its topography, PSD,
+    """Q-atom gallery for one trial: whole-trial raw/recon PSD, then per Q-atom its topography, PSD,
     phase and waveform."""
     model = bundle.psd_model
     viz_dir = out_dir
@@ -58,9 +58,9 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
     psd_range = viz_cfg.get('psd_freq_range')
     psd_l_freq, psd_h_freq = tuple(psd_range) if psd_range else (l_freq, h_freq)
 
-    # Whole-trial raw/recon PSD -- same FFT settings as the gallery's own per-stamp PSD
+    # Whole-trial raw/recon PSD -- same FFT settings as the gallery's own per-atom PSD
     # (freq_resolution=fft_resolution drives both), so the header row is directly
-    # comparable to the stamp rows below it. n_fft must match extract_stamp_gallery's
+    # comparable to the Q-atom rows below it. n_fft must match extract_stamp_gallery's
     # own n_fft (round(fs/fft_resolution)); rfft's n= transparently
     # zero-pads a short trial or truncates a long one to match.
     raw_t   = bundle.raw_t[0].numpy()
@@ -105,7 +105,7 @@ def render_stamp_gallery(bundle, config, out_dir, cmap='YlOrRd'):
 
 
 def render_stamp_by_patch(bundle, config, out_dir, cmap='YlOrRd'):
-    """Per-patch stamp grid for one trial (not in any preset; kept for occasional use)."""
+    """Per-patch Q-atom grid for one trial (not in any preset; kept for occasional use)."""
     model = bundle.psd_model
     viz_dir = out_dir
     os.makedirs(viz_dir, exist_ok=True)

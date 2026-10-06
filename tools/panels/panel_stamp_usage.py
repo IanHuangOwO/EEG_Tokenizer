@@ -1,4 +1,4 @@
-"""stamp_usage: per-stamp ranking, energy share and remove-one-stamp cost on held-out windows
+"""stamp_usage: per-atom ranking, energy share and remove-one-stamp cost on held-out windows
 (tools/analysis/stamp_usage.py) -> analysis/stamp_usage.json. Options: --max-windows (capped at 256)."""
 import os
 

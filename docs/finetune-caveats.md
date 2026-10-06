@@ -2,7 +2,7 @@
 
 Read before reporting or comparing finetune numbers. No label leak was found (audit 2026-09-24): subjects are
 disjoint across LOSO folds, normalisation is per trial, the head's BatchNorm statistics update only in
-training, stamp codes come from the frozen backbone without labels, and the score is `tail` (last 10 epochs),
+training, Q-atom codes come from the frozen backbone without labels, and the score is `tail` (last 10 epochs),
 not a best-epoch pick on the test set.
 
 1. **Data compiled before 2026-09-26 was filtered per epoch.** Bandpass and resample ran on each cut 1-5 s
@@ -34,7 +34,7 @@ not a best-epoch pick on the test set.
    Few-shot differences between backbones partly measure how a head copes with tiny calibration sets.
 9. **MI few-shot is limited by feature form, not regularization.** A closed-form ridge with its shrinkage
    picked inside each subject's calibration trials (tools/analysis/ridge_probe.fewshot_ridge) does not beat the
-   trained z head: seed-1 patch 50, 001 few-shot z 26.7 / z log-power 27.7 / stamp log-power 32.3 vs head 31.7,
-   all near chance; 004 stamp log-power 72.5 vs head 67.0 is the one gain. Compass's CSP + shrinkage LDA reaches
+   trained z head: seed-1 patch 50, 001 few-shot z 26.7 / z log-power 27.7 / Q-atom log-power 32.3 vs head 31.7,
+   all near chance; 004 Q-atom log-power 72.5 vs head 67.0 is the one gain. Compass's CSP + shrinkage LDA reaches
    60.6 on 001 few-shot: it contrasts variance ACROSS channels (spatial filters before log-power), which
    per-channel features cannot form. A few-shot MI head would need a channel-mixing step before power.

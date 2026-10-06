@@ -1,4 +1,4 @@
-"""stamp_templates: every stamp's template D and quadrature partner H
+"""stamp_templates: every Q-atom's template D and quadrature partner H
 (tools.analysis.stamp_dist.stamp_templates) -> analysis/stamp_templates.png."""
 import os
 

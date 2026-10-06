@@ -78,7 +78,7 @@ Key fields (templates show defaults):
 - `model_params.MeSAE.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2), `skip_mode`
   (`gated` UNet skips / `finest` only the finest skip / `none`), `skip_drop` (per-sample skip drop-path probability; a list = one per skip, finest first), `decoder_blocks`
   (per-channel temporal conv blocks after each upsample, no channel mixing),
-  `temporal_bias` (true: a learned bias on the signed time lag in every block's temporal attention),
+  `temporal_bias` (true, the templates' default since 2026-10-06: a learned bias on the signed time lag in every block's temporal attention; code default false),
   `spatial_heads`, `moe_ffn`, `stamp_bank`, `loss`, `spatial_embedding` (true: Fourier electrode-coordinate
   embedding + per-block directional relative spatial bias; false: neither -- the spatial ablation).
 - `preprocess_params`: `canonical_channels` (a `montages.json` name or a list), `channel_layout` (`native`, the
@@ -108,7 +108,7 @@ Key fields (templates show defaults):
   EEG-FM-Compass calibration); all take `sessions` and `seed`, per-subject types also `purge` (P300 overlap);
   unknown keys are rejected. Plus LR fields, `epochs`, `class_weight` (`balanced`), `batch_size`, `seed`.
   `fit`: `sgd` (default) or `closed_form` (`model/MeSAE/closed_form.py`, no SGD). Few-shot always uses closed-form with
-  branch `structured`: the all-stamp head's own factors (spatial filter x stamp weights x time course) set in closed
+  branch `structured`: the all-atom head's own factors (spatial filter x Q-atom weights x time course) set in closed
   form, one head for every paradigm, signed half at full time resolution (the protocols set it;
   docs/reports/2026-10-06-structured-fewshot-head.md). Older branches `power` / `signed` / `trca` stay for comparison.
   Loso uses SGD (closed-form loses there). SSVEP DEV sets: Kalunga2016 (not phase-locked), Wang2016_dev (phase-locked,
@@ -116,11 +116,11 @@ Key fields (templates show defaults):
 
 ## Architecture
 
-**MeSAE**: an EEG tokenizer. A TSA encoder feeds a static stamp dictionary (StampBank: every stamp active at
+**Qtome**: an EEG tokenizer. A TSA encoder feeds a static Q-atom dictionary (StampBank: every Q-atom active at
 every patch; each reconstructs a patch as `a*D + b*H`, D a template and H its quadrature partner), trained by
-masked reconstruction. Routed (top-k) stamps were removed (docs/adr/0022; code on the `routed-stamps`
-branch). The default downstream head reads only the stamps: stamp power (`stamp_power`, induced band power: MI) and the
-signed stamp gains (`signed_ab`: phase-locked / P300). The stronger head swaps `signed_ab` for the signed encoder
+masked reconstruction. Routed (top-k) Q-atoms were removed (docs/adr/0022; code on the `routed-stamps`
+branch). The default downstream head reads only the Q-atoms: Q-atom power (`stamp_power`, induced band power: MI) and the
+signed Q-atom gains (`signed_ab`: phase-locked / P300). The stronger head swaps `signed_ab` for the signed encoder
 output z (`latent_signed`, PCA): level on loso, better on MI few-shot (BNCI2014004 +3.5)
 (docs/reports/2026-10-02-head-ablation.md, docs/reports/2026-09-29-combined-head.md). Plugged in via `model/MeSAE/plugin.py` (`model/factory.py`
 `MODEL_REGISTRY`, docs/adr/0004).
@@ -143,7 +143,7 @@ datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.
   spatial attention -> MoE FFN, LayerScale), `TSAEncoder` (stages of `blocks_per_stage` blocks; patch axis
   pooled by 2 between stages with a centred [1,3,3,1]/8 kernel, linear-interpolation upsample, gated skips:
   8 blocks = 4 stages, 39 -> 20 -> 10 -> 5 patches; padded channels and padded tail patches are masked out of
-  attention), `StampBank`, and the finetune side: `StampExtractor` (stamp codes and optionally z from the
+  attention), `StampBank`, and the finetune side: `StampExtractor` (Q-atom codes and optionally z from the
   frozen backbone) and `FeatureHead` (the `ENTRY_TYPES` registry).
 - `MeSAE.py`: `MeSAEPretrain` (phases, per-sample masked loss: a sample counts as masked only if every patch
   covering it is masked), `FinetuneModel`.
@@ -153,7 +153,7 @@ datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.
   cohort (`metadata.json` `data_metadata.cohort`) and independent of dataset order; a subject's near-flat
   channels (std < 0.10 x median, dead electrodes / the recording reference) are treated as padding.
 
-**Sparsity budget, a hard ceiling:** each active stamp gives two free scalars per channel, so keep
+**Sparsity budget, a hard ceiling:** each active Q-atom gives two free scalars per channel, so keep
 `2 * n_stamps < patch_len` with margin. Past it, the active slots fit any patch
 regardless of the templates and it stops being sparse coding (measured at DOF 56 > 50: recon MSE ~0 on every
 dataset, kurtosis 6.7 -> 1.2). docs/adr/0011.

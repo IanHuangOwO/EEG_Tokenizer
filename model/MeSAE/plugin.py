@@ -1,4 +1,4 @@
-"""MeSAE's implementation of the shared model-plugin contract (model/base_trainer.py,
+"""Qtome's implementation of the shared model-plugin contract (model/base_trainer.py,
 model/base_checker.py, model/base_plotter.py)."""
 
 import os
@@ -22,8 +22,8 @@ from IO.preprocessing import slice_patches
 
 
 def build_model(bp, num_channels):
-    """bp: config['model_params']['MeSAE']['pretrain']. stamp_bank: n_stamps, hidden_width (a static
-    checkpoint's build_config from before routed stamps were removed names them n_shared_stamps /
+    """bp: config['model_params']['Qtome']['pretrain']. stamp_bank: n_stamps, hidden_width (a static
+    checkpoint's build_config from before routed Q-atoms were removed names them n_shared_stamps /
     stamp_shared_hidden_width, with n_routed_stamps 0 -- still read)."""
     sb = bp.get('stamp_bank', {})
     moe_ffn = bp.get('moe_ffn', {})
@@ -91,12 +91,12 @@ class MeSAETrainer(BaseTrainer):
 
 class MeSAECodebookChecker(BaseCodebookChecker):
     unit_label = 'Stamp'
-    needs_raw_tensors = True  # identity consistency and event dynamics re-run the stamp bank on a
+    needs_raw_tensors = True  # identity consistency and event dynamics re-run the Q-atom bank on a
     # subsample of trials (see needs_raw_tensors' docstring on the base class)
 
     @torch.no_grad()
     def extract_usage(self, model, x_in, c_in, t_in, vc_in):
-        """[N, n_stamps] usage, one row per PATCH POSITION: each stamp's post-rms amp magnitude
+        """[N, n_stamps] usage, one row per PATCH POSITION: each Q-atom's post-rms amp magnitude
         (StampBank.forward's h; G = N for a B=1 trial)."""
         return model.encode_stamps(x_in, c_in, time_idx=t_in, valid_channels=vc_in).h.cpu().numpy()
 
@@ -113,24 +113,24 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
     @torch.no_grad()
     def _render_unit_consistency(self, trial_records, viz_dir, model, device, seed):
-        """Identity, phase and topography consistency of the stamps on a subsample of trials."""
+        """Identity, phase and topography consistency of the Q-atoms on a subsample of trials."""
         rng = random.Random(seed)
         sample = trial_records if len(trial_records) <= 60 else rng.sample(trial_records, 60)
         self._render_identity_consistency(sample, viz_dir, model, device)
 
     @torch.no_grad()
     def _render_identity_consistency(self, trial_records, viz_dir, model, device):
-        """Does one stamp id mean one thing across patches/trials? The waveform half is
+        """Does one Q-atom id mean one thing across patches/trials? The waveform half is
         trivially yes (D_s is a fixed parameter), so this measures the TOPOGRAPHY: every
         occurrence's mixing column, compared within-id vs between-id. Nothing in the
-        architecture ties a stamp's topography across patches, so this is a real open
+        architecture ties a Q-atom's topography across patches, so this is a real open
         question, not a formality. See
         viz.codebook.plot_stamp_identity_consistency for the metric's construction (and
         the two biases it has to avoid)."""
         from collections import defaultdict
         from tools.viz.codebook import plot_stamp_identity_consistency
 
-        # Keyed by (dataset, stamp id): channel-validity differs per dataset (e.g. Nakanishi2015
+        # Keyed by (dataset, Q-atom id): channel-validity differs per dataset (e.g. Nakanishi2015
         # maps 8 of 64 channels, BETA_4s 58), so mixing columns from different datasets
         # have different lengths AND live in different channel subspaces — comparing
         # them would be meaningless even if the shapes matched. Statistics are computed
@@ -231,14 +231,14 @@ class MeSAECodebookChecker(BaseCodebookChecker):
 
     @torch.no_grad()
     def _render_event_stamp_dynamics(self, ds_trials, ds_name, viz_dir, model, device, seed, config):
-        """Event-locked stamp-strength / power trajectory -> event_stamp_dynamics_<ds_name>.png.
+        """Event-locked Q-atom-strength / power trajectory -> event_stamp_dynamics_<ds_name>.png.
 
-        The tokenizer was trained at one patch stride; to read stamp strength/power on a finer
+        The tokenizer was trained at one patch stride; to read Q-atom strength/power on a finer
         time axis WITHOUT an out-of-distribution token spacing, this does a sliding-window
         eval: for each sub-stride offset it re-patchifies the raw trial at the NATIVE
-        stride (every forward pass in-distribution), runs the stamp bank, and places each
+        stride (every forward pass in-distribution), runs the Q-atom bank, and places each
         patch's result at its true sample time. Pooled over trials x offsets -> per-time-bin
-        stamp strength h and power. Trials are onset-aligned (assemble_trials=False in the
+        Q-atom strength h and power. Trials are onset-aligned (assemble_trials=False in the
         analysis path), so a fixed time within the trial is comparable across trials.
 
         Event onset per dataset: this dataset's own metadata.json event_onset_sample (see
@@ -340,7 +340,7 @@ class MeSAEPlotter(BasePlotter):
             dict(title='Train Recon MSE\n(skip drop-path active, so above val by design)',
                  ylabel='MSE', series=[dict(key=k, color=c, train_only=True) for k, c in recon]),
         ]
-        if self.has_signal('mse_mp'):   # the per-stamp anti-duplicate term, when trained
+        if self.has_signal('mse_mp'):   # the per-atom anti-duplicate term, when trained
             loss_panels[1]['series'].append(dict(key='mse_mp', color='gray', val_only=True, style_val='-', label='mp_loss'))
 
         # FFN Router Health — the MoEFFN routers inside every TSABlock (averaged across blocks),

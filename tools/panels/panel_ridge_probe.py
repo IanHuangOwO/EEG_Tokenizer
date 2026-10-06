@@ -1,4 +1,4 @@
-"""ridge_probe: deterministic closed-form linear probe on the frozen pre-stamp z, Compass LOSO on
+"""ridge_probe: deterministic closed-form linear probe on the frozen pre-atom z, Compass LOSO on
 BNCI2014004 / 001 / 008 (tools/analysis/ridge_probe.py) -> analysis/ridge_probe.json."""
 import os
 

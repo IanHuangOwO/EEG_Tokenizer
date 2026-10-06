@@ -303,7 +303,7 @@ def main():
         model(x, coords, time_idx, bool_masked_pos=None, valid_channels=valid_channels)
 
     # Built once, while every param is trainable: bypassed blocks and (later) frozen
-    # stamps just get grad=None, which AdamW skips.
+    # Q-atoms just get grad=None, which AdamW skips.
     scaler    = torch.cuda.amp.GradScaler()
     optimizer = optim.AdamW(optimizer_param_groups(model, train_params['weight_decay']), lr=train_params['learning_rate'])
     cosine_t_max     = max(1, train_params['epochs'] - train_params['warmup_epochs'])

@@ -1,6 +1,6 @@
-"""Cross-dataset stamp panels for BaseCodebookChecker.check_codebook (model/base_codebook_checker.py).
+"""Cross-dataset Q-atom panels for BaseCodebookChecker.check_codebook (model/base_codebook_checker.py).
 usage_by_dataset: dict of dataset_name -> np.ndarray [M, Q] (M patches sampled from that dataset, Q
-units: each stamp's strength h at that patch) built by the checker's extract_usage() hook.
+units: each Q-atom's strength h at that patch) built by the checker's extract_usage() hook.
 """
 
 import math
@@ -64,7 +64,7 @@ def plot_usage_and_activity(out_path, strength, categories, category_order,
 
 def plot_embedding_scatter_by_dataset(out_path, usage_by_dataset, unit_label='Stamp',
                                        max_points=3000, random_state=0):
-    """PCA + t-SNE of each patch's stamp strengths (all units concatenated), colored by
+    """PCA + t-SNE of each patch's Q-atom strengths (all units concatenated), colored by
     source dataset. t-SNE runs on a PCA-reduced pre-projection for speed, standard practice
     at this corpus size."""
     from sklearn.decomposition import PCA
@@ -303,13 +303,13 @@ def plot_dataset_relation(out_path, usage_by_dataset, unit_label='Stamp'):
 
 def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, per_stamp_within,
                                      unit_label='Stamp'):
-    """Does a stamp id mean the same thing at every occurrence?
+    """Does a Q-atom id mean the same thing at every occurrence?
 
-    The waveform half of that question is trivially yes — a stamp's template D_i is a
+    The waveform half of that question is trivially yes — a Q-atom's template D_i is a
     fixed parameter, so its temporal shape is identical at every occurrence up to
     amplitude and phase. The open half is the TOPOGRAPHY: the mixing column is
     recomputed per (channel, patch) from the data, and nothing in the architecture ties
-    one occurrence to the next. If stamp identity carries topographic meaning, two occurrences of
+    one occurrence to the next. If Q-atom identity carries topographic meaning, two occurrences of
     the same id should be more alike than two occurrences of different ids.
 
     within/between: 1-D arrays of cosine similarities between per-occurrence mixing
@@ -319,7 +319,7 @@ def plot_stamp_identity_consistency(out_path, within, between, per_stamp_ids, pe
     toward 1 regardless of structure, and comparing individual columns against averaged
     ones makes the averaged side look artificially self-similar. The separation
     (within - between) is the real readout: ~0 means the id predicts nothing about
-    topography, i.e. the stamp is a waveform type rather than a source.
+    topography, i.e. the Q-atom is a waveform type rather than a source.
 
     per_stamp_ids/per_stamp_within: per-id mean within-consistency, for the bar panel.
     """
@@ -381,7 +381,7 @@ def plot_stamp_phase_consistency(out_path, circ_var, fire_count, unit_label='Sta
                                   min_fires=5):
     """Per-unit circular variance (1 - |mean(exp(i*phase))|, over all of that unit's occurrences'
     channel-summed phase atan2(b,a)) of the quadrature phase every occurrence carries but
-    nothing in the loss ever reads directly (see CONTEXT.md's Stamp definition —
+    nothing in the loss ever reads directly (see CONTEXT.md's Q-atom definition —
     contribution is a*D + b*H, amplitude sqrt(a^2+b^2), phase atan2(b,a)). Low variance
     (near 0) = phase-locked -- plausible for a genuine oscillatory source (e.g. line
     noise) that really does arrive at a consistent phase relative to the patch window.

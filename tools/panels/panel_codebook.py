@@ -1,4 +1,4 @@
-"""codebook: cross-dataset stamp-usage diagnostics (model/base_codebook_checker.py via the plugin's
+"""codebook: cross-dataset Q-atom-usage diagnostics (model/base_codebook_checker.py via the plugin's
 codebook_checker_cls) -> analysis/. One dataset per pretrain entry (usage stays attributable to its
 source), real trials with their labels, each capped at --max-trials trials (tools.analysis.cap_subjects).
 Options: --datasets, --max-trials."""

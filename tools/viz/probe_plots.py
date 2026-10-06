@@ -46,7 +46,7 @@ def plot_probe_maps(out_path, maps, channel_names, title, event_s=None):
 
 def _stamp_block(fig, gs, r0, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, event_s, title, cbar_label,
                  top=8, ncol=4):
-    """Two grid rows from r0: stamp x time map (rows ranked by importance) and scalp maps of the top stamps."""
+    """Two grid rows from r0: Q-atom x time map (rows ranked by importance) and scalp maps of the top Q-atoms."""
     order = np.argsort(-imp)
     share = imp / imp.sum()
     dt = (t_axis[1] - t_axis[0]) if len(t_axis) > 1 else 1.0
@@ -77,12 +77,12 @@ def _stamp_block(fig, gs, r0, tw, imp, chan, t_axis, stamp_labels, xy, channel_n
 
 def plot_stamp_maps(out_path, tw, imp, chan, t_axis, stamp_labels, xy, channel_names, title, event_s=None, top=8,
                     z_maps=None, signed_maps=None):
-    """Stamp-power half of a head (bottom): per-stamp time weights (rows = stamps ranked by importance, label = stamp,
-    template peak and importance share) and the channel map of the `top` most important stamps on the scalp.
+    """Q-atom-power half of a head (bottom): per-atom time weights (rows = Q-atoms ranked by importance, label = Q-atom,
+    template peak and importance share) and the channel map of the `top` most important Q-atoms on the scalp.
     The same head's signed half, if any, on top on the same time axis:
     z_maps (importance [K, N], spatial [K, C]) of a latent_signed entry -- virtual channel x time and spatial filters
-    (z has no stamp axis); signed_maps (importance [S, N], per-stamp importance [S], channel map [S, C]) of a signed_ab
-    entry -- drawn in stamp space like the power half, so the two halves read side by side."""
+    (z has no Q-atom axis); signed_maps (importance [S, N], per-atom importance [S], channel map [S, C]) of a signed_ab
+    entry -- drawn in Q-atom space like the power half, so the two halves read side by side."""
     tw, imp, chan, t_axis, xy = (np.asarray(v) for v in (tw, imp, chan, t_axis, xy))
     ncol = 4
     if signed_maps is not None:

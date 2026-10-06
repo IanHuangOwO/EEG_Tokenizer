@@ -27,13 +27,13 @@ def _ema_update(buf, val, decay=0.99):
 _ROUTED_STATE = ('stamps.W_down_routed', 'stamps.b_down_routed', 'stamps.w_amp_routed', 'stamps.b_amp_routed',
                  'stamps.D_routed', 'stamps.fire_ema', 'ema_stamp_router_entropy', 'ema_stamp_router_load_std',
                  'ema_stamp_gate_entropy')
-_RENAMED_STATE = ('W_down', 'b_down', 'w_amp', 'b_amp', 'D')   # were stamps.<name>_shared
+_RENAMED_STATE = ('W_down', 'b_down', 'w_amp', 'b_amp', 'D')   # were Q-atoms.<name>_shared
 
 
 def _legacy_state(state_dict, prefix, *args):
-    """load_state_dict pre-hook for checkpoints trained before routed stamps were removed: drop the empty routed
-    tensors and routing EMAs of a static checkpoint, and rename stamps.<name>_shared to stamps.<name>.
-    A checkpoint with routed stamps cannot be rebuilt here: it needs the `routed-stamps` branch."""
+    """load_state_dict pre-hook for checkpoints trained before routed Q-atoms were removed: drop the empty routed
+    tensors and routing EMAs of a static checkpoint, and rename Q-atoms.<name>_shared to Q-atoms.<name>.
+    A checkpoint with routed Q-atoms cannot be rebuilt here: it needs the `routed-stamps` branch."""
     for k in _ROUTED_STATE:
         v = state_dict.pop(prefix + k, None)
         if v is not None and k.startswith('stamps.') and v.numel() > 0:
@@ -55,7 +55,7 @@ def _restore_phase(module, incompatible_keys):
 
 class MeSAEPretrain(nn.Module):
     """
-    Spatiotemporal stamp-dictionary EEG tokenizer. Goal is explainable, per-patch embeddings (not a discrete vocabulary):
+    Spatiotemporal Q-atom-dictionary EEG tokenizer. Goal is explainable, per-patch embeddings (not a discrete vocabulary):
     channel-count invariant (cross-dataset unification still matters) but NOT
     length-invariant (each patch keeps its own embedding, for temporal localization of
     events within a trial).
@@ -63,13 +63,13 @@ class MeSAEPretrain(nn.Module):
     Pipeline: encoder -> StampBank (dictionary of fixed per-atom waveform templates, each
     presented at a per-channel, per-atom amplitude/phase read off that atom's own
     bottleneck) -> reconstruction, summed directly in patch space (no separate decoder
-    stage); the dictionary is static (every stamp active everywhere).
+    stage); the dictionary is static (every Q-atom active everywhere).
 
     Trains in two phases of one run (train_pretrain.py, CONTEXT.md:
     Tokenizer stage / Masked stage):
     - enter_tokenizer_phase(): every block runs with temporal mixing only (spatial
       attention and the coordinate embedding off), no masking (bool_masked_pos=None) —
-      encoder + StampBank train jointly on single-channel features, so the stamp dictionary
+      encoder + StampBank train jointly on single-channel features, so the Q-atom dictionary
       isn't built from cross-channel-mixed input.
     - enter_masked_phase(freeze_stamps): every block runs, spatial attention + coord
       embedding on, bool_masked_pos set. StampBank optionally frozen.
@@ -144,7 +144,7 @@ class MeSAEPretrain(nn.Module):
         own architecture was fixed, because per-channel content already differentiates
         channels enough for that stage's loss without it).
 
-        Was originally meant to let amp_i(z_c) become position-aware even while stamps
+        Was originally meant to let amp_i(z_c) become position-aware even while Q-atoms
         stay single-channel (StampBank can't otherwise tell "alpha at Oz" from "alpha at
         Fz" when the raw content happens to coincide) — a real idea, just not one the
         Tokenizer stage's own reconstruction objective rewards learning. enable_spatial
@@ -166,7 +166,7 @@ class MeSAEPretrain(nn.Module):
 
     def enter_masked_phase(self, freeze_stamps=True):
         """Freeze before enable_spatial: a frozen dictionary never sees mixed z. With
-        freeze_stamps=False it trains on mixed z, so per-stamp amp is no longer a
+        freeze_stamps=False it trains on mixed z, so per-atom amp is no longer a
         source topomap (mp_loss stays on — get_loss gates it on stamps_frozen)."""
         self.masked_phase.fill_(True)
         if freeze_stamps:
@@ -206,7 +206,7 @@ class MeSAEPretrain(nn.Module):
 
     @torch.no_grad()
     def encode_stamps(self, x, coords, time_idx=None, valid_channels=None):
-        """Unmasked stamp code for analysis/viz: StampBank output (recon [G, C, L], amp
+        """Unmasked Q-atom code for analysis/viz: StampBank output (recon [G, C, L], amp
         [G, C, n_stamps, 2] with rms, h [G, n_stamps]; G = B*N positions, b*N + n), no mp_loss.
         Same per-channel rms as forward() -- without it amp lacks its raw-amplitude factor."""
         B, C, N, L = x.shape
@@ -222,13 +222,13 @@ class MeSAEPretrain(nn.Module):
         x: [B, C, N, L], coords: [B, C, 3]
         bool_masked_pos: [B, C, N] bool — None during the Tokenizer stage (no masking);
         pass real masks only in the Masked stage, once temporal/spatial mixing are enabled
-        and the stamps are frozen (see enable_temporal/enable_spatial/freeze_stamps).
+        and the Q-atoms are frozen (see enable_temporal/enable_spatial/freeze_stamps).
         valid_channels: [B, C] bool, True=real (not zero-padded) channel, or None. Passed into
         StampBank (padded channels stay out of h and mp_loss) and carried through on the returned
         SimpleNamespace so get_loss/_recon_loss can exclude padded channels from the loss — a
         zero-padded channel's "reconstruction" is meaningless signal, not a real target. Padded
         channels still decode/reconstruct like any other.
-        returns SimpleNamespace(recon [B,C,N,L], h [G, n_stamps] stamp strengths and amp
+        returns SimpleNamespace(recon [B,C,N,L], h [G, n_stamps] Q-atom strengths and amp
         [G, C, n_stamps, 2] (G = B*N patch positions, b*N + n; StampBank.decode re-expands amp),
         mp_loss/mp_map, ffn_lb_loss scalar (TSABlock MoEFFN routers, summed across blocks), FFN
         router health.
@@ -368,7 +368,7 @@ class MeSAEPretrain(nn.Module):
         placeholder (nothing masked yet).
 
         Dictionary shaping is mp_loss's job (see StampBank.forward): the residual-ordered term
-        that stops stamps being rewarded for re-explaining what a higher-ranked stamp already
+        that stops Q-atoms being rewarded for re-explaining what a higher-ranked Q-atom already
         covered. Earlier attempts at this — spectral whitening, then activation
         decorrelation/negentropy — were measured and dropped.
 
@@ -445,7 +445,7 @@ class MeSAEPretrain(nn.Module):
 
 
 class FinetuneModel(nn.Module):
-    """Frozen MeSAE backbone + one FeatureHead (MeSAE_modules finetune section). Call signature
+    """Frozen Qtome backbone + one FeatureHead (MeSAE_modules finetune section). Call signature
     matches the old finetune classes so train_finetune.py is unchanged: forward -> (logits, None, None)."""
     def __init__(self, backbone, head_cfg, channel_idx):
         super().__init__()
@@ -489,7 +489,7 @@ class FinetuneModel(nn.Module):
     def from_checkpoint(cls, backbone, ckpt):
         cfg = dict(ckpt['head_config'])
         channel_idx = cfg.pop('channel_idx')
-        cfg.pop('keep', None)   # heads saved before routed stamps were removed list the alive stamps: now all of them
+        cfg.pop('keep', None)   # heads saved before routed Q-atoms were removed list the alive Q-atoms: now all of them
         model = cls(backbone, cfg, channel_idx)
         model.head.load_state_dict(ckpt['model_state_dict'])
         return model

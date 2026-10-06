@@ -1,7 +1,7 @@
 > **Stale since `docs/adr/0013`:** `train_tokenizer.py`, `on_tokenizer_start` and
 > `on_pretrain_start` are gone. Training phases are now model methods
 > (`enter_tokenizer_phase` / `enter_masked_phase`) plus a persisted `masked_phase`
-> buffer, called directly by `train_pretrain.py`. MeSAE is the only model; update this
+> buffer, called directly by `train_pretrain.py`. Qtome is the only model; update this
 > protocol when a second one is actually added.
 
 # Adding a new model
@@ -28,7 +28,7 @@ stage owns, then trains masked.
 Answer these — they shape steps 2-3 below:
 
 - Does the model need a **Tokenizer-stage-only component to freeze** before masked
-  training (MeSAE: the StampBank, `freeze_stamps`)? If not, `on_pretrain_start` can be a
+  training (Qtome: the StampBank, `freeze_stamps`)? If not, `on_pretrain_start` can be a
   no-op.
 - What per-Expert/Stamp/Unit **health metrics** does it need on the dashboard? List them
   now — they become `MeXXXPlotter`'s panel specs in step 3.
@@ -106,7 +106,7 @@ def forward(self, x, coords, time_idx=None, pad_mask=None):
 
 One file, three things: a `build_model` function, and two classes subclassing the
 bases in `model/base_trainer.py` / `model/base_plotter.py`.
-MeSAE's `plugin.py` is the reference example — copy the shape, not
+Qtome's `plugin.py` is the reference example — copy the shape, not
 necessarily the content.
 
 ```python

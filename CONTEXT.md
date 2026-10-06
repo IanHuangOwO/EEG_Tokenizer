@@ -1,6 +1,6 @@
 # EEG Tokenizer
 
-An EEG foundation model: **MeSAE** turns multi-channel EEG into per-patch sparse stamp codes, pretrained by
+An EEG foundation model: **Qtome** (called MeSAE before 2026-10-06) turns multi-channel EEG into per-patch sparse Q-atom codes, pretrained by
 masked reconstruction, then read by a small head on a frozen backbone. The retired MeFSQ model (discrete
 FSQ codes; terms Expert, Code, Codebook, Expert View, pre-/post-VQ feature) is documented in
 `docs/adr/0001`, `0002`, `0013` -- only relevant when reading those.
@@ -40,29 +40,29 @@ split keeps a person on one side for the whole cohort.
 
 ## Model
 
-**Stamp**: a learned unit-norm template `D` (50 samples) plus its derived quadrature partner `H` (Hilbert:
-rFFT bins rotated -90 degrees). A stamp contributes `a*D + b*H` to a channel: amplitude `sqrt(a^2+b^2)`,
+**Q-atom** (quadrature atom; called *stamp* before 2026-10-06, still in code identifiers): a learned unit-norm template `D` (50 samples) plus its derived quadrature partner `H` (Hilbert:
+rFFT bins rotated -90 degrees). A Q-atom contributes `a*D + b*H` to a channel: amplitude `sqrt(a^2+b^2)`,
 phase `atan2(b, a)`, the shape unchanged at any phase.
 
-**Stamp code**: the `(a, b)` pair per patch, channel and stamp: `[N', C, S, 2]`. `a^2+b^2` is
+**Q-atom code**: the `(a, b)` pair per patch, channel and Q-atom: `[N', C, S, 2]`. `a^2+b^2` is
 phase-invariant power (induced activity, e.g. motor-imagery ERD); signed `(a, b)` keeps phase-locked
 content (evoked responses, P300).
 
-**Static dictionary**: every stamp is active at every patch position, shared by all channels, each channel
-with its own gains -- so a stamp's per-channel gains form a **mixing column** (an ICA-style topography).
-Routed (top-k selected) stamps were removed (docs/adr/0022; `routed-stamps` branch).
+**Static dictionary**: every Q-atom is active at every patch position, shared by all channels, each channel
+with its own gains -- so a Q-atom's per-channel gains form a **mixing column** (an ICA-style topography).
+Routed (top-k selected) Q-atoms were removed (docs/adr/0022; `routed-stamps` branch).
 
 **Sparsity budget**: `2 * n_stamps` free scalars per channel must stay well below
 `patch_len` (50), or the active slots fit any patch and it stops being sparse coding (docs/adr/0011).
 
 **Residual ordering** (`mp_loss`): matching-pursuit grading -- slots ranked by amplitude, each graded against
-the residual the higher ranks leave (detached), so duplicate atoms earn nothing. Only while stamps train.
+the residual the higher ranks leave (detached), so duplicate atoms earn nothing. Only while Q-atoms train.
 
 **Stage**: a group of `blocks_per_stage` (2) encoder blocks at one temporal resolution; the patch axis is
 pooled by 2 between stages (centred, no time shift) and upsampled back through gated skips.
 
-**z**: the encoder output before the StampBank, `[N', C, 100]`. The stamp codes on visible input are close
-to a fixed projection of each patch onto the templates, so a head on stamp codes sees little of the
+**z**: the encoder output before the StampBank, `[N', C, 100]`. The Q-atom codes on visible input are close
+to a fixed projection of each patch onto the templates, so a head on Q-atom codes sees little of the
 encoder's context; `latent_*` head entries read z instead.
 
 **Spatial embedding**: the Fourier electrode-coordinate embedding plus the per-block directional relative
@@ -75,7 +75,7 @@ spatial attention, no coordinate embedding), unmasked, so the StampBank learns f
 (docs/adr/0003, 0013).
 
 **Masked phase**: the rest of the same run: spatial attention and the coordinate embedding on, masked
-reconstruction with the mask curriculum counted from here. Stamps stay trainable unless `freeze_stamps`.
+reconstruction with the mask curriculum counted from here. Q-atoms stay trainable unless `freeze_stamps`.
 The phase is a checkpoint buffer, restored on load.
 
 **Mask mode / mixture**: one mask pattern per Window -- `channel_cluster` (a scalp region), `random_channel`,
@@ -101,7 +101,7 @@ windows).
 **tail**: a run's score -- balanced accuracy averaged over the last 10 epochs, per subject, then over
 subjects. Differences within +-3 points are ties at one pretrain seed.
 
-## Current MeSAE defaults
+## Current Qtome defaults
 
 What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
 
@@ -109,12 +109,12 @@ What `configs/pretrain_tiny.template.json` builds (2.26M parameters):
 |---|---|---|
 | `SpatialTemporalEmbeddings` | 0.51M | patch 50 -> 100, learnable time position embedding, Fourier coordinate MLP |
 | `TSAEncoder` | 1.74M | 8 blocks = 4 stages x 2 (39 -> 20 -> 10 -> 5 patches); block = temporal attention -> spatial attention (+ relative spatial bias) -> MoE FFN (4 routed + 1 shared, top-2), LayerScale |
-| `StampBank` | 0.01M | 16 stamps (sparsity budget 32 < 50) |
+| `StampBank` | 0.01M | 16 Q-atoms (sparsity budget 32 < 50) |
 
-Loss: patch MSE + per-stamp `mp` (weight 1; stamps ranked per patch by strength) + `ffn_lb` (0.01);
+Loss: patch MSE + per-atom `mp` (weight 1; Q-atoms ranked per patch by strength) + `ffn_lb` (0.01);
 visible samples weighted 0.1 in the masked phase. Removed: trial MSE (ADR 0021), STFT (0019), nested (0018).
 50 epochs, 10 tokenizer. Masking: mixture (channel_cluster 0.2, random_channel 0.3, time_block 0.4 max ratios)
-+ channel subsampling. Channels: native layout, MNE template positions. Finetune head: stamp_power + signed_ab (all-stamp; stamp_power + latent_signed is the stronger head).
++ channel subsampling. Channels: native layout, MNE template positions. Finetune head: stamp_power + signed_ab (all-atom; stamp_power + latent_signed is the stronger head).
 
 **Unit**: umbrella term in shared tooling (`model/base_*`, `tools/`) for whatever a model codes per patch --
-a Stamp for MeSAE. Plugins: `model/<Name>/plugin.py`, docs/adr/0004.
+a Q-atom for Qtome. Plugins: `model/<Name>/plugin.py`, docs/adr/0004.
