@@ -107,10 +107,12 @@ Key fields (templates show defaults):
   `loso`, `subject_kfold` (`n_folds`), `eval_subjects`, `kfold`, `blocked_kfold`, `fewshot` (`train_fraction`,
   EEG-FM-Compass calibration); all take `sessions` and `seed`, per-subject types also `purge` (P300 overlap);
   unknown keys are rejected. Plus LR fields, `epochs`, `class_weight` (`balanced`), `batch_size`, `seed`.
-  `fit`: `sgd` (default) or `closed_form` (`model/MeSAE/closed_form.py`, no SGD: per-stamp CSP + shrinkage LDA for MI,
-  stamp xDAWN covariances + tangent space + LR for P300; `closed_form` = `{"branch": "power"|"signed", "nfilter"}`).
-  Few-shot always uses closed-form (the mi_fewshot / p300_fewshot protocols set it); loso uses SGD (closed-form loses
-  there). docs/reports/2026-10-04-closed-form-fewshot.md.
+  `fit`: `sgd` (default) or `closed_form` (`model/MeSAE/closed_form.py`, no SGD). Few-shot always uses closed-form with
+  branch `structured`: the all-stamp head's own factors (spatial filter x stamp weights x time course) set in closed
+  form, one head for every paradigm, signed half at full time resolution (the protocols set it;
+  docs/reports/2026-10-06-structured-fewshot-head.md). Older branches `power` / `signed` / `trca` stay for comparison.
+  Loso uses SGD (closed-form loses there). SSVEP DEV sets: Kalunga2016 (not phase-locked), Wang2016_dev (phase-locked,
+  in the pretraining corpus as unlabelled windows).
 
 ## Architecture
 

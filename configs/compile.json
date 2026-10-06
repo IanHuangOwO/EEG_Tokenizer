@@ -200,6 +200,12 @@
       },
       "Liu2024": {
         "dataset_path": "datas/pretrain/Liu2024"
+      },
+      "Kalunga2016": {
+        "dataset_path": "datas/finetune/Kalunga2016"
+      },
+      "Wang2016_dev": {
+        "dataset_path": "datas/finetune/Wang2016_dev"
       }
     }
   }

@@ -1,0 +1,119 @@
+{
+    "data_metadata": {
+        "dataset_name": "Kalunga2016",
+        "dataset_info": {
+            "source_url": "https://moabb.neurotechx.com/docs/generated/moabb.datasets.Kalunga2016.html",
+            "reference": "Kalunga et al., Online SSVEP-based BCI using Riemannian geometry, Neurocomputing 2016 (doi 10.1016/j.neucom.2016.01.007)",
+            "file_format": "via MOABB",
+            "description": "SSVEP DEV set, not reported. 12 subjects, 8 occipital EEG at 256 Hz, 4 classes (13 / 17 / 21 Hz, rest), 16 trials per class; window [2, 4] s from the cue (MOABB interval)."
+        },
+        "event_onset_seconds": -2.0,
+        "moabb": {
+            "class": "Kalunga2016",
+            "kwargs": {},
+            "code": "Kalunga2016",
+            "window": [
+                2.0,
+                4.0
+            ]
+        },
+        "acquisition": {
+            "sample_frequency": 256.0,
+            "window_size_seconds": 2.0,
+            "num_subjects": 12
+        },
+        "targets": {
+            "count": 4,
+            "type": "ssvep",
+            "0": {
+                "label": "13 Hz",
+                "moabb_event": "13"
+            },
+            "1": {
+                "label": "17 Hz",
+                "moabb_event": "17"
+            },
+            "2": {
+                "label": "21 Hz",
+                "moabb_event": "21"
+            },
+            "3": {
+                "label": "rest",
+                "moabb_event": "rest"
+            }
+        },
+        "channels": {
+            "count": 8,
+            "1": {
+                "label": "Oz",
+                "original_label": "Oz"
+            },
+            "2": {
+                "label": "O1",
+                "original_label": "O1"
+            },
+            "3": {
+                "label": "O2",
+                "original_label": "O2"
+            },
+            "4": {
+                "label": "PO3",
+                "original_label": "PO3"
+            },
+            "5": {
+                "label": "POz",
+                "original_label": "POz"
+            },
+            "6": {
+                "label": "PO7",
+                "original_label": "PO7"
+            },
+            "7": {
+                "label": "PO8",
+                "original_label": "PO8"
+            },
+            "8": {
+                "label": "PO4",
+                "original_label": "PO4"
+            }
+        }
+    },
+    "data_structure": {
+        "1": {
+            "moabb_subject": 1
+        },
+        "2": {
+            "moabb_subject": 2
+        },
+        "3": {
+            "moabb_subject": 3
+        },
+        "4": {
+            "moabb_subject": 4
+        },
+        "5": {
+            "moabb_subject": 5
+        },
+        "6": {
+            "moabb_subject": 6
+        },
+        "7": {
+            "moabb_subject": 7
+        },
+        "8": {
+            "moabb_subject": 8
+        },
+        "9": {
+            "moabb_subject": 9
+        },
+        "10": {
+            "moabb_subject": 10
+        },
+        "11": {
+            "moabb_subject": 11
+        },
+        "12": {
+            "moabb_subject": 12
+        }
+    }
+}

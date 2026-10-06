@@ -11,7 +11,7 @@ Benchmark: B = EEG-FM-Bench (arXiv 2508.17742), C = EEG-FM-Compass (arXiv 2601.1
 Event: where the event (cue / flash / stimulus) sits inside each compiled trial, seconds from the
 trial start -- the line time-axis plots draw. — = no event (windows cut from continuous recordings).
 
-## finetune (21 datasets, 2027.6 h compiled)
+## finetune (23 datasets, 2037.2 h compiled)
 
 | Dataset | Paradigm | Benchmark | Subjects | Ch | Native Hz | Classes | Event | Hours | Status |
 |---|---|---|---|---|---|---|---|---|---|
@@ -23,6 +23,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | BNCI2015001 | Motor imagery (hand/feet) | C | 12 | 13 | 512 | 2 | 1 s | 7.8 | compiled (MOABB) |
 | CHB_MIT | Seizure detection (pediatric) | C | 24 | 16 | 256 | 2 | — | 6.1 | compiled |
 | EEGMAT | Mental workload (arithmetic) | B, C | 36 | 19 | 500 | 2 | — | 0.6 | compiled |
+| Kalunga2016 | SSVEP (4-class incl. rest; DEV) |  | 12 | 8 | 256 | 4 | -2 s | 0.5 | compiled (MOABB) |
 | Lee2019_ERP | P300 speller (continuous) |  | 54 | 62 | 1000 | none | — | 57.9 | compiled (MOABB) |
 | Nakanishi2015 | SSVEP (12-class) | C | 9 | 8 | 256 | 12 | 0 s | 1.8 | compiled (MOABB) |
 | PhysionetMI | Motor imagery (5-class) | B | 109 | 64 | 160 | 5 | 0 s | 21.1 | compiled (MOABB) |
@@ -36,6 +37,7 @@ trial start -- the line time-axis plots draw. — = no event (windows cut from c
 | TUAB | Abnormal EEG (clinical) | B, C |  |  |  |  |  |  | gated, not fetched (2026-09-22) |
 | TUEV | Event classification (clinical) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
 | TUSL | Slowing classification (clinical) | B |  |  |  |  |  |  | gated, not fetched (2026-09-24) |
+| Wang2016_dev | SSVEP (40-class, phase-locked; DEV, raw shared with pretrain Wang2016) |  | 34 | 64 | 250 | 40 | -0.5 s | 9.1 | compiled (MOABB) |
 | Mimul-11 | Motor imagery (upper limb, 3-class) | B |  |  |  |  |  |  | open (GigaDB, Jeong 2020), not fetched |
 | HMC | Sleep staging | B |  |  |  |  |  |  | open (PhysioNet hmc-sleep-staging), not fetched |
 
