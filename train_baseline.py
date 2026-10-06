@@ -6,6 +6,7 @@ epochs, last = Compass's number).
 
     python train_baseline.py --model EEGNet --dataset BNCI2014004 --protocol mi_fewshot [--seeds 1 2 3] [--set k=v]
     -> output/EEGNet/finetune/compass/<dataset>_<loso|fewshot>_seed<k>/artifacts/{config.json, group_eval.json}
+    --tag NAME writes to output/EEGNet/finetune/<NAME>/ instead (variants, e.g. --set settings.norm='"ztrial"')
 """
 import argparse, copy, glob, json, math, os
 
@@ -54,6 +55,8 @@ def preprocess(x, s):
     x = signal.filtfilt(b, a, x, axis=-1)
     if s['norm'] == 'car':
         x = x - x.mean(1, keepdims=True)
+    elif s['norm'] == 'ztrial':      # Qtome's input normalisation: one mean / std per trial over channels and samples
+        x = (x - x.mean((1, 2), keepdims=True)) / (x.std((1, 2), keepdims=True) + 1e-8)
     return np.ascontiguousarray(x, dtype=np.float32)
 
 
@@ -122,6 +125,7 @@ def main():
     ap.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                     help='override a setting (dotted path into {"settings": ..., "split": ...}), JSON value')
     ap.add_argument('--device', default='cuda')
+    ap.add_argument('--tag', default='compass', help='head-label folder under output/<model>/finetune/')
     a = ap.parse_args()
 
     split = protocol_split(a.protocol, [a.dataset])     # the shared split of a Qtome cell (sessions, fraction, purge)
@@ -137,7 +141,7 @@ def main():
     pool = sorted(np.unique(subject_data).tolist())
     runs = make_runs(split, pool, subject_data, y, session)
     for seed in a.seeds:
-        base = f'output/{a.model}/finetune/compass/{a.dataset}_{mode}_seed{seed}/artifacts'
+        base = f'output/{a.model}/finetune/{a.tag}/{a.dataset}_{mode}_seed{seed}/artifacts'
         os.makedirs(base, exist_ok=True)
         json.dump({'model': a.model, 'dataset': a.dataset, 'protocol': a.protocol, 'seed': seed, **run_cfg},
                   open(f'{base}/config.json', 'w'), indent=2)
