@@ -4837,7 +4837,7 @@
           "10-20",
           "bci-22"
         ],
-        "prob": 0.2,
+        "prob": 0.1,
         "start_epoch": 11,
         "ramp_epochs": 10,
         "dense_min_channels": 32,
