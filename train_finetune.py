@@ -236,7 +236,7 @@ class AtomSource:
 
     def __init__(self, config, ds_name, pool, device, latent=False):
         subs = [str(s) for s in pool]
-        self.data = CachedAtomDataset(get_atom_cache(config, ds_name, subs, device=device, latent=latent), subs)
+        self.data = CachedAtomDataset(get_atom_cache(config, ds_name, subs, latent=latent), subs)
         self.labels, self.subject_data = self.data.labels, self.data.subject_data
         self.channel_idx = self.data.channel_idx
         self.num_patches, self.num_atoms = self.data.num_patches, self.data.num_atoms

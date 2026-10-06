@@ -161,9 +161,13 @@ def _build_subject(config, dataset_name, subject, backbone, device, batch_size, 
     return amp.shape
 
 
-def get_atom_cache(config, dataset_name, subjects, device=None, batch_size=64, latent=False):
-    """Build any missing or stale per-subject file and return the cache folder."""
-    device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+def get_atom_cache(config, dataset_name, subjects, batch_size=64, latent=False):
+    """Build any missing or stale per-subject file and return the cache folder. Always extracted on the GPU, whatever
+    device the caller trains on: CPU and GPU codes differ in the last bits, which moved closed-form few-shot results by
+    0.1-0.4 points depending on which job built the cache first (found 2026-10-06; the key does not record the device)."""
+    if not torch.cuda.is_available():
+        raise RuntimeError('the atom cache is built on the GPU only (CPU codes differ slightly); no CUDA device found')
+    device = 'cuda'
     ckpt = config['training_params']['finetune']['pretrained_checkpoint']
     ckpt_dict = torch.load(ckpt, map_location='cpu', weights_only=False)
     backbone = build_from_checkpoint(ckpt_dict).to(device).eval()
