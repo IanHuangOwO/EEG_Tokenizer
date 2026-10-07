@@ -14,13 +14,13 @@ schemes are compared on one task.
    channels -- the sparse-cap imputation BNCI2014004 needs). Also split sparse (<= 22 real
    channels) vs dense windows.
 2. Ablations under every test mask: coords shuffled across channels, all channels at the mean
-   position, time_idx shuffled, time_idx constant, and skips_off (the encoder's UNet skips removed
+   position, and skips_off (the encoder's UNet skips removed
    at eval: what the deep path alone reconstructs -- a small rise = the deep path carries the
    content), and coordinate jitter (2 / 5 / 10 mm per channel) and left-right mirror (cache_feature.
    transform_coords). Masked MSE per mask type;
    ablation_masked_mse keeps the token_runs row for older readers.
 3. Structure: coordinate-embedding similarity vs electrode closeness (Spearman, 10-10
-   channels); pos_emb drift from its sinusoidal init; with a RelativeSpatialBias, per block
+   channels); with a RelativeSpatialBias, per block
    the Spearman correlation of the head-averaged bias with closeness (> 0: prefers
    neighbours) and its mean |value|.
 4. Masked spectrum, per test mask: log-spectral distance on the masked samples (multi-resolution
@@ -49,7 +49,7 @@ from IO.dataset import build_dataset_from_config, load_montage_channels, split_p
 from IO.loader import get_standard_coords
 from cache_feature import transform_coords
 from IO.masking import ChannelClusterMask, RandomChannelMask, TimeBlockMask, random_token_mask
-from model.Qtome.Qtome_modules import fourier_features, get_sinusoidal_pos, overlap_add_patches
+from model.Qtome.Qtome_modules import fourier_features, overlap_add_patches
 
 
 def val_config(config):
@@ -122,7 +122,7 @@ def batches(ds, idx, bs=32):
 
 def make_mask(kind, valid_tok, coords, window_id, names_idx, named=None):
     """valid_tok [C, N] bool -> (mask [C, N], score [C, N]); score = tokens that count. named [C] bool: slots that hold
-    their canonical-name channel (EEGDataset.all_named_slots; under channel_layout 'native' other channels sit in free
+    their canonical-name channel (EEGDataset.all_named_slots; non-canonical channels sit in free
     slots) -- the name-based motor3_to_bci22 test reads only those."""
     torch.manual_seed(1_000_003 * window_id + zlib.crc32(kind.encode()) % 997)   # stable across processes
     C, N = valid_tok.shape
@@ -179,13 +179,13 @@ KINDS = ['token_runs', 'random_channel', 'channel_cluster', 'time_block', 'motor
 # ---------- ablations ----------
 
 class skips_removed:
-    """Context manager: the encoder runs without its UNet skips (skip_mode 'none') while inside."""
+    """Context manager: the encoder runs without its UNet skips (use_skips False) while inside."""
     def __init__(self, model):
         self.enc = model.encoder
     def __enter__(self):
-        self.mode, self.enc.skip_mode = self.enc.skip_mode, 'none'
+        self.enc.use_skips = False
     def __exit__(self, *exc):
-        self.enc.skip_mode = self.mode
+        self.enc.use_skips = True
 
 
 def ablate(name, coords, t, valid):
@@ -198,14 +198,10 @@ def ablate(name, coords, t, valid):
             coords[b, v] = coords[b, v].mean(0)
     if name.startswith('coords_jitter') or name == 'coords_mirror':
         coords = torch.stack([transform_coords(c, name[len('coords_'):], seed=b) for b, c in enumerate(coords)])
-    if name == 'time_shuffle':
-        t = torch.stack([row[torch.randperm(len(row))] for row in t])
-    elif name == 'time_const':
-        t.zero_()
     return coords, t
 
 
-ABLATIONS = ['baseline', 'coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const', 'skips_off',
+ABLATIONS = ['baseline', 'coords_shuffle', 'coords_mean', 'skips_off',   # time_idx ablations dropped 2026-10-07: FoPE ignores it
              'coords_jitter_2mm', 'coords_jitter_5mm', 'coords_jitter_10mm', 'coords_mirror']
 
 
@@ -292,10 +288,6 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
         ce = emb.coord_proj(fourier_features(pos))
         ce = ce / ce.norm(dim=-1, keepdim=True).clamp_min(1e-8)
         struct['coord_sim_vs_closeness_spearman'] = float(spearmanr((ce @ ce.T)[iu[0], iu[1]], closeness[iu[0], iu[1]]).correlation)
-    Np = 39
-    pe = emb.pos_emb[0, :Np]
-    init = get_sinusoidal_pos(emb.pos_emb.shape[1], emb.pos_emb.shape[2], torch.device('cpu'))[0, :Np]
-    struct['pos_emb_drift'] = float((pe - init).norm() / init.norm())
     if getattr(model, 'spatial_bias', None) is not None:
         bias = model.spatial_bias(pos[None])[0].mean(1)                    # [depth, C, C], heads averaged
         off = ~torch.eye(len(labels), dtype=torch.bool)
@@ -335,7 +327,7 @@ def evaluate(model, config, out_path, max_windows=512, name=''):
     for k, d in res['masked_spectrum'].items():
         print(f'  {"":26} {k:17} ' + ' '.join(f'{d["error_ratio"][b]:6.2f}' for b in SPEC_BANDS))
     print(f'  seam disagreement (unmasked, / signal power): {res["seam_disagreement"]:.4f}')
-    print(f'  coord sim vs closeness {struct.get("coord_sim_vs_closeness_spearman", float("nan")):.3f} | pos_emb drift {struct["pos_emb_drift"]:.1%}')
+    print(f'  coord sim vs closeness {struct.get("coord_sim_vs_closeness_spearman", float("nan")):.3f}')
     if 'spatial_bias_per_block' in struct:
         print('  spatial bias per block (closeness rho / mean|b|): ' +
               ' '.join(f'{d["closeness_spearman"]:+.2f}/{d["mean_abs"]:.2f}' for d in struct['spatial_bias_per_block']))

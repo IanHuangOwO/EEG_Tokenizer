@@ -22,6 +22,7 @@ import math
 import torch
 import torch.nn.functional as F
 
+from model.Qtome.Qtome_modules import _rotate_half
 from tools.analysis.backbone_eval import batches, eval_windows
 
 
@@ -52,20 +53,20 @@ def attention_range(model, config, out_path, max_windows=256):
 
     def temporal_wrap(block):
         orig = block._temporal_attention
-        def f(x, kpm, temporal_bias):
-            record_temporal(block, x, kpm, temporal_bias)
-            return orig(x, kpm, temporal_bias)
+        def f(x, kpm, temporal_rot):
+            record_temporal(block, x, kpm, temporal_rot)
+            return orig(x, kpm, temporal_rot)
         return f
 
-    def record_temporal(block, x, kpm, temporal_bias):
+    def record_temporal(block, x, kpm, temporal_rot):
         mha = block.temporal_attn
         BC, N, D = x.shape
         H = mha.num_heads
         q, k, _ = F.linear(x, mha.in_proj_weight, mha.in_proj_bias).chunk(3, dim=-1)
         q, k = (t.reshape(BC, N, H, D // H).transpose(1, 2) for t in (q, k))            # [BC, H, N, d]
+        cos, sin = (t.to(q.dtype)[None] for t in temporal_rot)                         # FoPE, as TSABlock applies it
+        q, k = q * cos + _rotate_half(q) * sin, k * cos + _rotate_half(k) * sin
         logit = q @ k.transpose(-1, -2) / math.sqrt(D // H)
-        if temporal_bias is not None:
-            logit = logit + temporal_bias[None]
         if kpm is not None:
             logit = logit.masked_fill(kpm[:, None, None, :], float('-inf'))
         w = logit.softmax(-1).mean(1)                                        # [B*C, N, N], heads averaged

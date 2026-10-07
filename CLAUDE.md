@@ -82,19 +82,20 @@ sub-montages), `configs/finetune_protocols.json` (evaluation splits per protocol
 `configs/EEGNet/settings.json`. See `configs/README.md`.
 
 Key fields (templates show defaults):
-- `model_params.Qtome.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2), `skip_mode`
-  (`gated` UNet skips / `finest` only the finest skip / `none`), `skip_drop` (per-sample skip drop-path probability; a list = one per skip, finest first), `decoder_blocks`
-  (per-channel temporal conv blocks after each upsample, no channel mixing),
-  `temporal_bias` (true, the templates' default since 2026-10-06: a learned bias on the signed time lag in every block's temporal attention; code default false),
+- `model_params.Qtome.pretrain`: `patch_len`, `embed_dim`, `enc_depth`, `blocks_per_stage` (2), `skip_drop`
+  (per-sample drop-path probability of the gated UNet skips; a list = one per skip, finest first),
+  (time position: FoPE on every block's temporal attention, the only option since 2026-10-07 -- it replaced the learned
+  absolute time table and the `temporal_bias` lag bias; checkpoints from before, v2 / v3, can no longer be rebuilt,
+  their results stay in their output dirs; `time_idx` is still passed but unused by Qtome; block order is sequential,
+  temporal -> spatial -> FFN: parallel attention was screened and rejected 2026-10-07),
   `spatial_heads`, `moe_ffn`, `atom_bank`, `loss`, `spatial_embedding` (true: Fourier electrode-coordinate
   embedding + per-block directional relative spatial bias; false: neither -- the spatial ablation).
-- `preprocess_params`: `canonical_channels` (a `montages.json` name or a list), `channel_layout` (`native`, the
-  templates' default: every EEG channel of the dataset, non-10-10 ones in free slots, > 64 channels reduced to the 64
-  sites; `grid`: 10-10 names only -- the code default, so configs without the key reproduce; docs/adr/0023), `coords`
-  (`template`, the default: MNE's position for the channel name; `recorded`: the dataset's own positions, aligned --
-  tested and rejected; old values `real` / `dataset` still accepted), `window_length`,
+- `preprocess_params`: `canonical_channels` (a `montages.json` name or a list; every EEG channel
+  of the dataset is kept, non-10-10 ones in free slots, > 64 channels reduced to the 64 sites, coordinates = MNE's
+  template position for the channel name -- docs/adr/0023; the 10-10-only `grid` layout and the datasets' own
+  `recorded` positions were removed 2026-10-07), `window_length`,
   `window_min_real`, `window_fraction`, `patch_length` 50, `patch_stride` 25 (50% overlap), `sample_freq` 200,
-  `bandpass_filter`, `normalization_type`, and `mask` (`IO/masking.py`): `masking_strategy` `mixture` (one
+  `bandpass_filter` (input normalisation: per-trial z-score, the only option), and `mask` (`IO/masking.py`): `masking_strategy` `mixture` (one
   MaskMode per window -- channel_cluster / random_channel / time_block / random_token -- on a shared ratio
   ramp; the default) or `random` (the masking baseline); masks redrawn every masked epoch; `time_run` masks
   runs of >= 3 patches (a lone patch leaks through the overlap); `time_block` `max_blocks` 2 (templates since 2026-10-05; the
@@ -106,10 +107,11 @@ Key fields (templates show defaults):
 - `training_params.pretrain`: `model_name`, `output_path`, `epochs`, `tokenizer_epochs`, `freeze_atoms`,
   `warmup_epochs`, `batch_size`, LR fields, `train_val_split`, `seed`.
 - `model_params.Qtome.finetune` (the head, validated at build): `features` = a list of `{"type": <entry>,
-  <per-entry keys>}`; entries are classes in `Qtome_modules.py`'s `ENTRY_TYPES` (`atom_power`, `atom_band`,
-  `signed_ab`, `evoked`, `phase_advance`, `raw_band`, `raw_signal`, `latent_power`, `latent_signed`) -- a new
+  <per-entry keys>}`; entries are classes in `Qtome_modules.py`'s `ENTRY_TYPES` (`atom_power`, `signed_ab`,
+  `latent_signed`, and the raw-input baseline `raw_band` / `raw_signal`; `atom_band` / `evoked` / `phase_advance` /
+  `latent_power` removed 2026-10-07) -- a new
   head feature is one class + one registry line. Every entry has its own spatial filter. Per-entry keys
-  (`spatial_k`, `time_pool`, `time_rank`, `window`, `evoked_rank`, `atom_rank`, `latent_proj`) may also be set
+  (`spatial_k`, `time_pool`, `time_rank`, `window`, `atom_rank`, `latent_proj`) may also be set
   at the top level as defaults; plus `dropout`. Defaults: `_HEAD_DEFAULTS`.
 - `training_params.finetune`: `pretrained_checkpoint`, `protocol` (a `configs/finetune_protocols.json` split + its `configs/Qtome/protocol_heads.json` head:
   mi_loso / mi_fewshot / p300_loso / p300_fewshot, tuned on DEV sets BNCI2015001 / BNCI2014009 only; each sets
@@ -117,10 +119,10 @@ Key fields (templates show defaults):
   `loso`, `subject_kfold` (`n_folds`), `eval_subjects`, `kfold`, `blocked_kfold`, `fewshot` (`train_fraction`,
   EEG-FM-Compass calibration); all take `sessions` and `seed`, per-subject types also `purge` (P300 overlap);
   unknown keys are rejected. Plus LR fields, `epochs`, `class_weight` (`balanced`), `batch_size`, `seed`.
-  `fit`: `sgd` (default) or `closed_form` (`model/Qtome/closed_form.py`, no SGD). Few-shot always uses closed-form with
-  branch `structured`: the all-atom head's own factors (spatial filter x Q-atom weights x time course) set in closed
+  `fit`: `sgd` (default) or `closed_form` (`model/Qtome/closed_form.py`, no SGD). Few-shot always uses the closed-form
+  structured head: the all-atom head's own factors (spatial filter x Q-atom weights x time course) set in closed
   form, one head for every paradigm, signed half at full time resolution (the protocols set it;
-  docs/reports/2026-10-06-structured-fewshot-head.md). Older branches `power` / `signed` / `trca` stay for comparison.
+  docs/reports/2026-10-06-structured-fewshot-head.md). (The per-paradigm CSP / xDAWN / TRCA heads it replaced were removed 2026-10-07.)
   Loso uses SGD (closed-form loses there). SSVEP DEV sets: Kalunga2016 (not phase-locked), Wang2016_dev (phase-locked,
   in the pretraining corpus as unlabelled windows).
 
@@ -153,7 +155,7 @@ datas/<split>/<Name>/loader.py  compile time only; MOABB datasets use IO/loader.
  │                     sets use EEG-FM-Compass post-event windows via metadata moabb.onset_window/window, or fixed windows); drops
  │                     flat-line dropout windows -> datas/<split>/<Name>/cache/*.npz. BETA_3s/4s ship
  │                     pre-epoched and are filtered per epoch.
- └ IO/dataset.py       EEGDataset maps channels onto the 64 slots (channel_layout native / grid; missing -> zero
+ └ IO/dataset.py       EEGDataset maps channels onto the 64 slots (non-canonical channels in free slots; missing -> zero
  │                     padding, valid_channels marks real ones), normalises per trial; PretrainDataset cuts
  │                     windows -> patches and draws masks; MontageBatchSampler makes one-montage batches
  └ train_pretrain.py   tokenizer phase (every block, temporal attention only, unmasked) -> masked phase
@@ -199,7 +201,7 @@ pipeline scripts it cites) and delete the generated `output/analysis/` and queue
 
 `datas/<split>/<name>/metadata.json`: `data_metadata` (`acquisition.sample_frequency`, 1-indexed `channels`
 with labels and, where the dataset ships them, its own positions -- polar `coordinates` with
-`polar_equator_radius`, or `xyz`; per-subject `channel_xyz` in `data_structure` -- read only by `coords: recorded`;
+`polar_equator_radius`, or `xyz`; per-subject `channel_xyz` in `data_structure` -- not read by training (template positions only);
 `event_onset_seconds`, `moabb` class/kwargs/window, optional `cohort`) and
 `data_structure` (per-subject files or `moabb_subject`). `datas/DATASETS.md` lists every dataset; regenerate
 with `python -m tools.misc.dataset_inventory`. Read `docs/finetune-caveats.md` before reporting finetune numbers.

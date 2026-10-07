@@ -50,7 +50,7 @@ class Normalizer:
     """Online (train-time) — normalization only. Bandpass/resample already
     baked into the compiled cache by BandpassResample, so the training
     pipeline never carries that logic. Batched: __call__ takes (N, C, T) and
-    normalizes each of the N trials independently (its own mean/std/median,
+    normalizes each of the N trials independently (its own mean/std,
     not one pooled across the batch) -- same per-trial semantics a Python
     loop of N single-trial calls would give, but computed in one vectorized
     pass instead. IO/dataset.py's _load_task used to do exactly that loop
@@ -60,37 +60,22 @@ class Normalizer:
     copied them into one buffer -- a real, avoidable memory spike across a
     whole dataset's worth of subjects, not just a speed cost (see check_model.py
     OOM investigation)."""
-    def __init__(self, normalization_type='fixed'):
-        self.normalization_type = str(normalization_type).lower() if normalization_type else 'none'
-
-        valid_norms = ['fixed', 'zscore', 'robust', 'none']
-        if self.normalization_type not in valid_norms:
-            raise ValueError(f"normalization_type must be one of {valid_norms}")
-
     def __call__(self, x):
         if isinstance(x, torch.Tensor):
             x = x.cpu().numpy()
         return torch.from_numpy(self._normalize(x)).float()
 
-    def _normalize(self, x):
-        # x: (N, C, T) -- reduce over (C, T) per trial (axis 0), never pooled across N.
-        if self.normalization_type == 'fixed':
-            return x / 100.0
-        elif self.normalization_type == 'zscore':
-            mean = np.mean(x, axis=(-2, -1), keepdims=True)
-            std  = np.std(x, axis=(-2, -1), keepdims=True)
-            return (x - mean) / (std + 1e-8)
-        elif self.normalization_type == 'robust':
-            median = np.median(x, axis=(-2, -1), keepdims=True)
-            q75 = np.percentile(x, 75, axis=(-2, -1), keepdims=True)
-            q25 = np.percentile(x, 25, axis=(-2, -1), keepdims=True)
-            return (x - median) / ((q75 - q25) + 1e-8)
-        return x
+    @staticmethod
+    def _normalize(x):
+        """Per-trial z-score: x (N, C, T), one mean / std per trial over (C, T), never pooled across N."""
+        mean = np.mean(x, axis=(-2, -1), keepdims=True)
+        std = np.std(x, axis=(-2, -1), keepdims=True)
+        return (x - mean) / (std + 1e-8)
 
 
 def build_normalizer_from_config(config: dict) -> Normalizer:
-    signal_params = config.get('preprocess_params', {'normalization_type': 'zscore'})
-    return Normalizer(normalization_type=signal_params['normalization_type'])
+    """The per-trial z-score (the only normalisation since 2026-10-07; fixed / robust / none were never used)."""
+    return Normalizer()
 
 
 def build_bandpass_resample_from_config(config: dict, fs_orig: Optional[float] = None) -> BandpassResample:

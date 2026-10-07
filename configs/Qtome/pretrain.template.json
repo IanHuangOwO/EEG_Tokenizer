@@ -4779,7 +4779,6 @@
   },
   "preprocess_params": {
     "canonical_channels": "10-10",
-    "channel_layout": "native",
     "window_length": 1000,
     "patch_length": 100,
     "patch_stride": 50,
@@ -4790,7 +4789,6 @@
     },
     "pre_event_seconds": 1.0,
     "post_event_seconds": 4.0,
-    "normalization_type": "zscore",
     "mask": {
       "masking_strategy": "mixture",
       "time_run": 3,
@@ -4876,14 +4874,11 @@
         },
         "spatial_embedding": true,
         "blocks_per_stage": 2,
-        "skip_mode": "gated",
         "skip_drop": [
           0.75,
           0.5,
           0.25
-        ],
-        "decoder_blocks": 0,
-        "temporal_bias": true
+        ]
       }
     }
   },

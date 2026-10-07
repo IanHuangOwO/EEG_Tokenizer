@@ -18,8 +18,8 @@ from sklearn.metrics import balanced_accuracy_score, cohen_kappa_score, f1_score
 from IO.dataset import build_dataset_from_config
 from IO.preprocessing import num_patches, slice_patches
 from cache_feature import CachedAtomDataset, get_atom_cache
-from model.factory import MODEL_REGISTRY, load_backbone
-from model.Qtome.Qtome_modules import (FeatureHead, AtomExtractor, make_head_checkpoint,
+from model.factory import MODEL_REGISTRY
+from model.Qtome.Qtome_modules import (FeatureHead, make_head_checkpoint,
                                        resolve_head_config, needs_atom, needs_raw, needs_latent, feature_names)
 from tools.analysis import apply_overrides, load_config, model_output_root
 from IO.splits import SPLITS, all_subjects, load_sessions, make_runs, protocol_split, resolve_subjects
@@ -219,17 +219,7 @@ def build_head_factory(config, source, num_classes):
         num_channels=len(source.channel_idx), num_atoms=source.num_atoms, patch_len=patch_len,
         latent_dim=getattr(source, 'latent_dim', None),
         patch_stride=pp.get('patch_stride', patch_len), sample_freq=float(pp['sample_freq']))
-    tables = None
-    if 'atom_band' in feature_names(cfg):   # the template spectra need the backbone, once
-        tables = AtomExtractor(load_backbone(config), [0]).band_tables(cfg['sample_freq'])
-
-    def new_head():
-        head = FeatureHead(cfg)
-        if tables is not None:
-            head.entries['atom_band'].E_D.copy_(tables[0])
-            head.entries['atom_band'].E_H.copy_(tables[1])
-        return head
-    return cfg, new_head
+    return cfg, lambda: FeatureHead(cfg)
 
 
 @torch.no_grad()

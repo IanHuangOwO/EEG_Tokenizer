@@ -55,14 +55,6 @@ def fold_sum(patches, stride):
 # Embeddings
 # ==========================================
 
-def get_sinusoidal_pos(seq_len, dim, device):
-    t = torch.arange(seq_len, device=device, dtype=torch.float32)
-    inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2, device=device).float() / dim))
-    sin_inp = torch.einsum("i,j->ij", t, inv_freq)
-    pos_emb = torch.cat((sin_inp.sin(), sin_inp.cos()), dim=-1)
-    return pos_emb.unsqueeze(0)  # [1, SeqLen, Dim]
-
-
 # Fixed log-spaced wavelengths for electrode positions in metres (a head is ~0.2 m across):
 # 40 cm ~ hemisphere scale down to 2.5 cm ~ a dense cap's electrode spacing.
 FOURIER_WAVELENGTHS_M = (0.40, 0.20, 0.10, 0.05, 0.025)
@@ -101,45 +93,45 @@ class RelativeSpatialBias(nn.Module):
         return b.view(B, C, C, self.depth, self.heads).permute(0, 3, 4, 1, 2)                # [B, depth, H, C, C]
 
 
-TEMPORAL_WAVELENGTHS = (2.0, 4.0, 8.0, 16.0, 32.0, 64.0)   # in fine patches (x patch_stride samples)
-
-
-class RelativeTemporalBias(nn.Module):
-    """Per-block, per-head bias added to temporal attention scores from the SIGNED time lag of
-    the two tokens, b(i, j) = MLP([lag, sin/cos(2 pi lag / wavelength)]), lag in fine-patch units
-    so it means the same time at every pooling stage (coarse tokens sit at their patches' mean
-    position). Signed: past and future can differ. Last layer zero-initialised: training starts
-    exactly as without it. lag [n, n] -> [depth, H, n, n]."""
-    def __init__(self, depth, num_heads, hidden=32):
+class FoPE(nn.Module):
+    """Fourier Position Embedding (Hua et al., ICML 2025): RoPE on temporal attention's q and k in which every
+    frequency slot is a fixed Fourier series of all the frequencies (identity + N(0, sigma) mixing, separate
+    for cos and sin and per head, not trained) and frequencies whose period exceeds the training length are
+    clipped to zero. Frequencies: head_dim/2 periods spaced geometrically from 2 to 2 * train_len fine patches
+    (RoPE's base-10000 spacing would leave 2 of 10 below the clip at our 19-patch windows). Positions are in
+    fine patches, a pooled token at its patches' mean, so a lag means the same time at every stage. The only time
+    position since 2026-10-07 (it replaced the learned absolute time table + RelativeTemporalBias: level masked MSE
+    at 5 s, inputs 2x / 4x the training length degrade x1.00-1.11 instead of up to x2.72). pos [n] -> (cos, sin) [H, n, head_dim]."""
+    def __init__(self, num_heads, head_dim, train_len=19, sigma=0.3):
         super().__init__()
-        self.depth, self.heads = depth, num_heads
-        out = nn.Linear(hidden, depth * num_heads)
-        nn.init.zeros_(out.weight)
-        nn.init.zeros_(out.bias)
-        self.mlp = nn.Sequential(nn.Linear(1 + 2 * len(TEMPORAL_WAVELENGTHS), hidden), nn.GELU(), out)
+        assert head_dim % 2 == 0, head_dim
+        m = head_dim // 2
+        tau = torch.logspace(math.log10(2.0), math.log10(2.0 * train_len), m)
+        omega = 2 * math.pi / tau
+        omega[tau > train_len] = 0.0                     # under-trained: never a full period in training
+        self.register_buffer('omega', omega)
+        std = sigma * math.sqrt(2.0 / (m + m))           # Xavier-normal std at gain sigma, as the reference code
+        self.register_buffer('cos_coef', torch.randn(num_heads, m, m) * std + torch.eye(m))
+        self.register_buffer('sin_coef', torch.randn(num_heads, m, m) * std + torch.eye(m))
 
-    def forward(self, lag):
-        w = 2 * math.pi / torch.tensor(TEMPORAL_WAVELENGTHS, device=lag.device, dtype=lag.dtype)
-        ang = lag[..., None] * w
-        b = self.mlp(torch.cat([lag[..., None], ang.sin(), ang.cos()], dim=-1))              # [n, n, depth*H]
-        n = lag.shape[0]
-        return b.view(n, n, self.depth, self.heads).permute(2, 3, 0, 1)                       # [depth, H, n, n]
+    def forward(self, pos):
+        ang = pos[:, None] * self.omega                                                      # [n, m]
+        cos = torch.einsum('nm,hmk->hnk', ang.cos(), self.cos_coef)
+        sin = torch.einsum('nm,hmk->hnk', ang.sin(), self.sin_coef)
+        return torch.cat([cos, cos], -1), torch.cat([sin, sin], -1)                          # [H, n, head_dim]
+
+
+def _rotate_half(x):
+    x1, x2 = x.chunk(2, dim=-1)
+    return torch.cat([-x2, x1], dim=-1)
 
 
 class SpatialTemporalEmbeddings(nn.Module):
-    def __init__(self, patch_len, dim, max_patches=5000, spatial=True):
+    def __init__(self, patch_len, dim, spatial=True):
         super().__init__()
         self.proj = nn.Linear(patch_len, dim)
         self.norm = nn.LayerNorm(dim)
-        # Learnable, warm-started from the sinusoidal code (not random init) - an
-        # ablation showed the FIXED sinusoidal version was measurably inert (shuffling
-        # or zeroing time_idx changed reconstruction MSE by <0.1%, noise-level, despite
-        # carrying real magnitude comparable to the content embedding). A fixed code
-        # assumes a generic Transformer inductive bias this task never demonstrably
-        # used; starting from the same values and letting gradient move them gives it
-        # a chance to find something this task actually rewards, without losing
-        # whatever structure the sinusoidal init already provides for free.
-        self.pos_emb = nn.Parameter(get_sinusoidal_pos(max_patches, dim, torch.device('cpu')))
+        # No absolute time term: time enters temporal attention through FoPE (TSAEncoder).
         self.spatial_active = False
         # spatial=False: no coordinate embedding at all (the spatial-embedding ablation; the model
         # then pairs it with no RelativeSpatialBias either, see QtomePretrain).
@@ -155,19 +147,12 @@ class SpatialTemporalEmbeddings(nn.Module):
     def enable_spatial(self):
         self.spatial_active = True
 
-    def forward(self, x, coords=None, time_idx=None, bool_masked_pos=None, mask_token=None):
+    def forward(self, x, coords=None, bool_masked_pos=None, mask_token=None):
         B, C, N, L = x.shape
         z = self.proj(x.reshape(B * C, N, L))  # [B*C, N, D]
         if bool_masked_pos is not None:
             # masked content -> mask_token BEFORE the position terms below (see QtomePretrain)
             z = torch.where(bool_masked_pos.reshape(B * C, N, 1), mask_token.reshape(1, 1, -1).to(z.dtype), z)
-
-        if time_idx is not None:
-            t = time_idx.clamp(0, self.pos_emb.shape[1] - 1)
-            temp_emb = self.pos_emb[0][t]       # [B, N, D]
-            z = z + temp_emb.unsqueeze(1).expand(B, C, N, -1).reshape(B * C, N, -1)
-        else:
-            z = z + self.pos_emb[:, :N, :]
 
         if coords is not None and self.spatial_active and self.coord_proj is not None:
             s = self.coord_proj(fourier_features(coords).reshape(B * C, -1)).unsqueeze(1)  # [B*C, 1, D]
@@ -304,8 +289,7 @@ class TSABlock(nn.Module):
         # instead of the channel axis C — so temporal mixing goes through PyTorch's
         # fused SDPA/flash kernels too. Softmax attention is a convex combination of v,
         # so its output is bounded by v's own range regardless of block depth or scale
-        # drift. Position comes from SpatialTemporalEmbeddings' sinusoidal time
-        # embedding, which MHA needs.
+        # drift. Time position comes from FoPE on q and k (TSAEncoder passes the rotation).
         self.temporal_attn = nn.MultiheadAttention(dim, num_heads, dropout=dropout, batch_first=True)
         self.drop_t = nn.Dropout(dropout)
         # Bounds this branch's raw output BEFORE scale_t multiplies it (applied to
@@ -423,26 +407,26 @@ class TSABlock(nn.Module):
                                              dropout_p=mha.dropout if self.training else 0.0)
         return mha.out_proj(out.transpose(2, 3).reshape(B, N, C, D))
 
-    def _temporal_attention(self, x, kpm, temporal_bias):
+    def _temporal_attention(self, x, kpm, temporal_rot):
         """x [B*C, N, D] -> [B*C, N, D]. Without a bias: temporal_attn as a plain MHA call. With
         one ([H, N, N]): the same weights through scaled_dot_product_attention, the bias and the
         padded-patch key mask broadcast over B*C."""
         mha = self.temporal_attn
-        if temporal_bias is None:
-            return mha(x, x, x, key_padding_mask=kpm)[0]
         BC, N, D = x.shape
         H = mha.num_heads
         q, k, v = F.linear(x, mha.in_proj_weight, mha.in_proj_bias).chunk(3, dim=-1)
         q, k, v = (t.reshape(BC, N, H, D // H).transpose(1, 2) for t in (q, k, v))       # [BC, H, N, d]
-        mask = temporal_bias.to(q.dtype)[None]                                            # [1, H, N, N]
+        cos, sin = (t.to(q.dtype)[None] for t in temporal_rot)                            # FoPE, [1, H, N, d]
+        q, k = q * cos + _rotate_half(q) * sin, k * cos + _rotate_half(k) * sin
+        mask = None
         if kpm is not None:
-            mask = mask + torch.zeros(BC, 1, 1, N, dtype=q.dtype, device=q.device).masked_fill(
+            mask = torch.zeros(BC, 1, 1, N, dtype=q.dtype, device=q.device).masked_fill(
                 kpm[:, None, None, :], float('-inf'))
         out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask,
                                              dropout_p=mha.dropout if self.training else 0.0)
         return mha.out_proj(out.transpose(1, 2).reshape(BC, N, D))
 
-    def forward(self, x, valid_channels=None, spatial_bias=None, valid_patches=None, temporal_bias=None):
+    def forward(self, x, valid_channels=None, spatial_bias=None, valid_patches=None, temporal_rot=None):
         """valid_channels [B, C] bool (optional): zero-padded channels are left out of
         spatial attention as keys, so a montage's missing channels can't dilute the
         softmax (their own rows still get computed, then ignored downstream).
@@ -456,7 +440,7 @@ class TSABlock(nn.Module):
             x_norm_t = self.norm_time(x_flat)
             kpm_t = None if valid_patches is None else \
                 (~valid_patches.bool()).repeat_interleave(C, dim=0)             # [B*C, N], True = ignore
-            attn_out_t = self._temporal_attention(x_norm_t, kpm_t, temporal_bias)
+            attn_out_t = self._temporal_attention(x_norm_t, kpm_t, temporal_rot)
             self._watch(attn_out_t)
             attn_out_t = self.norm_time_out(attn_out_t)
             x_flat = x_flat + self.drop_t(self.scale_t * attn_out_t)
@@ -478,31 +462,6 @@ class TSABlock(nn.Module):
         return x_flat.view(B, C, N, D), ffn_lb_loss
 
 
-class TemporalUpBlock(nn.Module):
-    """Decoder block after an upsample: per channel (weights shared, channels never mix), two
-    1-D convs along the patch axis, residual, pre/post LayerNorm and LayerScale as in TSABlock.
-    x [B, C, N, D]; valid_patches [B, N] bool keeps padded tail patches out of the convs."""
-    def __init__(self, dim, kernel=3, layerscale_init=1e-4):
-        super().__init__()
-        self.norm_in, self.norm_out = nn.LayerNorm(dim), nn.LayerNorm(dim)
-        self.conv1 = nn.Conv1d(dim, dim, kernel, padding=kernel // 2)
-        self.conv2 = nn.Conv1d(dim, dim, kernel, padding=kernel // 2)
-        self.scale = nn.Parameter(torch.full((dim,), layerscale_init))
-
-    def forward(self, x, valid_patches=None):
-        B, C, N, D = x.shape
-        y = self.norm_in(x)
-        keep = None if valid_patches is None else valid_patches[:, None, :, None].to(y.dtype)  # [B, 1, N, 1]
-        if keep is not None:
-            y = y * keep
-        y = y.reshape(B * C, N, D).transpose(1, 2)                      # [B*C, D, N]: merges adjacent B, C
-        y = self.conv2(F.gelu(self.conv1(y))).transpose(1, 2).reshape(B, C, N, D)
-        y = self.norm_out(y)
-        if keep is not None:
-            y = y * keep
-        return x + self.scale * y
-
-
 class TSAEncoder(nn.Module):
     """TSABlocks in stages of blocks_per_stage: the patch axis N is pooled by 2 after every stage
     but the last (depth 8, 2 per stage: 4 stages at N, N/2, N/4, N/8 -- 39 -> 20 -> 10 -> 5), and
@@ -510,40 +469,28 @@ class TSAEncoder(nn.Module):
     deeper result. Pooling is centred ([1,3,3,1]/8, coarse token i sits between fine patches 2i and
     2i+1) and upsampling interpolates linearly at the same positions, so no level shifts time.
 
-    skip_mode 'gated' (the default) adds the skips; 'none' drops them, so everything reaching the
-    output passes through the deepest stage; 'finest' keeps only the finest skip (per-patch detail)
-    and drops the deeper ones, so everything coarser than a patch must pass the deep path. skip_drop p (training only, gated): each skip is
-    dropped per sample with probability p and kept ones scaled by 1/(1-p) (drop-path), so the
-    deep path must carry the patch detail part of the time; a list gives one p per skip, finest
-    first (the skip_gate_0/1/2 order). decoder_blocks > 0 puts that many
-    TemporalUpBlocks (per-channel temporal convs, no channel mixing) after each upsample.
-    temporal_bias: a RelativeTemporalBias on every block's temporal attention (signed lag)."""
+    skip_drop p (training only): each skip is dropped per sample with probability p and kept ones scaled
+    by 1/(1-p) (drop-path), so the deep path must carry the patch detail part of the time; a list gives
+    one p per skip, finest first (the skip_gate_0/1/2 order). use_skips = False (an analysis switch,
+    backbone_eval's skips_removed) runs without them.
+    Time position: FoPE on every block's temporal attention (fope_train_len = fine patches per training window)."""
     def __init__(self, dim, depth=8, num_heads=8, mlp_ratio=4., dropout=0.0, blocks_per_stage=2,
                  n_routed_ffn_experts=4, n_shared_ffn_experts=1, ffn_top_k=2,
-                 skip_mode='gated', decoder_blocks=0, skip_drop=0.0, temporal_bias=False):
+                 skip_drop=0.0, fope_train_len=19):
         super().__init__()
         assert depth % blocks_per_stage == 0, f"depth {depth} is not a multiple of blocks_per_stage {blocks_per_stage}"
-        assert skip_mode in ('gated', 'finest', 'none'), f"skip_mode {skip_mode!r}: 'gated', 'finest' or 'none'"
         block = lambda: TSABlock(dim, num_heads=num_heads, mlp_ratio=mlp_ratio, dropout=dropout,
                                  n_routed_ffn_experts=n_routed_ffn_experts,
                                  n_shared_ffn_experts=n_shared_ffn_experts, ffn_top_k=ffn_top_k)
         self.blocks = nn.ModuleList([block() for _ in range(depth)])
         self.pool_after = [i for i in range(blocks_per_stage - 1, depth - 1, blocks_per_stage)]
-        self.skip_mode = skip_mode
-        self.temporal_bias = RelativeTemporalBias(depth, num_heads) if temporal_bias else None
+        self.use_skips = True
+        self.fope = FoPE(num_heads, dim // num_heads, fope_train_len)
         drops = list(skip_drop) if isinstance(skip_drop, (list, tuple)) else [skip_drop] * len(self.pool_after)
         assert len(drops) == len(self.pool_after), f"skip_drop {skip_drop}: one p per skip ({len(self.pool_after)})"
-        assert all(0.0 <= p < 1.0 for p in drops) and (not any(drops) or skip_mode != 'none'), \
-            f"skip_drop {skip_drop} needs skips (skip_mode 'gated' / 'finest') and 0 <= p < 1"
+        assert all(0.0 <= p < 1.0 for p in drops), f"skip_drop {skip_drop}: 0 <= p < 1"
         self.skip_drop = [float(p) for p in drops]       # finest skip first
-        if skip_mode != 'none':   # 'finest': one gate, for the finest skip (index 0)
-            n_gates = len(self.pool_after) if skip_mode == 'gated' else 1
-            self.skip_gates = nn.ParameterList([nn.Parameter(torch.tensor(3.0)) for _ in range(n_gates)])
-        else:
-            self.skip_gates = None
-        # one list per upsample level, deepest level first (the order they run in)
-        self.dec_blocks = nn.ModuleList([nn.ModuleList([TemporalUpBlock(dim) for _ in range(decoder_blocks)])
-                                         for _ in self.pool_after]) if decoder_blocks else None
+        self.skip_gates = nn.ParameterList([nn.Parameter(torch.tensor(3.0)) for _ in self.pool_after])
 
     def enable_spatial(self):
         for block in self.blocks:
@@ -606,15 +553,15 @@ class TSAEncoder(nn.Module):
         record_norms = not self.training
         if record_norms:
             self.last_block_norms = []
-            gate_for_block = dict(zip(self.pool_after, self.skip_gates)) if self.skip_gates is not None else {}
+            gate_for_block = dict(zip(self.pool_after, self.skip_gates))
         ffn_lb_loss = x.new_zeros(())
         vp = valid_patches
         pos = torch.arange(x.shape[2], device=x.device, dtype=torch.float32)            # token times, fine patches
-        tb = self.temporal_bias(pos[:, None] - pos[None, :]) if self.temporal_bias is not None else None
+        rot = self.fope(pos)
         for i, block in enumerate(self.blocks):
             x_in = x
             x, blk_ffn_lb = block(x, valid_channels, None if spatial_bias is None else spatial_bias[:, i], vp,
-                                  None if tb is None else tb[i])
+                                  rot)
             ffn_lb_loss = ffn_lb_loss + blk_ffn_lb
             if record_norms:
                 with torch.no_grad():
@@ -626,29 +573,19 @@ class TSAEncoder(nn.Module):
                 skips.append(x)
                 x = self._pool(x)
                 vp = None if vp is None else self._pool_valid(vp)
-                if tb is not None:     # coarse token i sits at the mean time of fine tokens 2i, 2i+1
-                    pos = torch.cat([pos, pos[-1:]]) if pos.shape[0] % 2 else pos
-                    pos = (pos[0::2] + pos[1::2]) / 2
-                    tb = self.temporal_bias(pos[:, None] - pos[None, :])
+                pos = torch.cat([pos, pos[-1:]]) if pos.shape[0] % 2 else pos   # coarse token i sits at the
+                pos = (pos[0::2] + pos[1::2]) / 2                                # mean time of fine 2i, 2i+1
+                rot = self.fope(pos)
 
         self.last_bottleneck = x                                                        # [B, C, N_deep, D]
-        vps = [valid_patches]                  # valid patches per level, finest first
-        for _ in skips[1:]:
-            vps.append(None if vps[-1] is None else self._pool_valid(vps[-1]))
         for level, skip in enumerate(reversed(skips)):
             x = self._upsample(x, skip.shape[2])
             i = len(skips) - 1 - level                                       # this skip's index, finest = 0
-            if self.skip_mode == 'gated' or (self.skip_mode == 'finest' and i == 0):
+            if self.use_skips:
                 if self.training and self.skip_drop[i] > 0:
                     keep = (torch.rand(skip.shape[0], 1, 1, 1, device=skip.device) >= self.skip_drop[i])
                     skip = skip * keep.to(skip.dtype) / (1 - self.skip_drop[i])
                 x = x + torch.sigmoid(self.skip_gates[i]) * skip
-            for block in (self.dec_blocks[level] if self.dec_blocks is not None else []):
-                x_in = x
-                x = block(x, vps[-1 - level])
-                if record_norms:
-                    with torch.no_grad():
-                        self.last_block_norms.append((x - x_in).norm(dim=-1).mean().item())
 
         # Router health and the worst interior branch magnitude (TSABlock._watch), over every block.
         with torch.no_grad():
@@ -685,16 +622,9 @@ class AtomBank(nn.Module):
     (no per-token shape warping). A free [patch_len] template's frequency content is
     bound to the patch_len FFT grid (Df = fs/patch_len); oscillator atoms were withdrawn (0010).
     """
-    def __init__(self, dim, patch_len, n_atoms=16, hidden_width=16, spatial_rank=0):
+    def __init__(self, dim, patch_len, n_atoms=16, hidden_width=16):
         super().__init__()
         self.n_atoms = n_atoms
-        # spatial_rank K > 0: source-factorized gains. Each Q-atom's
-        # [C] gain column is forced to rank K: src_sk = mean_c W_s[c, k] * g_cs (unmixing), g_cs <- sum_k
-        # A_s[c, k] * src_sk (mixing). W and A are functions of the electrode position only (fixed scalp
-        # fields, any montage); A_s[:, k] is source (s, k)'s topography, src_sk its (a, b) activation.
-        self.spatial_rank = spatial_rank
-        if spatial_rank:
-            self.topo = nn.Sequential(nn.Linear(FOURIER_DIM, 64), nn.GELU(), nn.Linear(64, 2 * n_atoms * spatial_rank))
         # Normalizes z before it's used (z inherits whatever scale the encoder drifts to).
         self.input_norm = nn.LayerNorm(dim)
         # amp_s(z): per-atom MLP z -> hidden (GELU) -> quadrature gain pair (a, b). Because H is derived
@@ -741,25 +671,14 @@ class AtomBank(nn.Module):
         D, H = self.templates()
         return amp[..., 0, None] * D + amp[..., 1, None] * H
 
-    def _factorize(self, amp, coords, valid_channels):
-        """amp [G, C, S, 2] per-channel gains (rms included), coords [G, C, 3] -> (amp with every Q-atom's
-        column rank-K across channels [G, C, S, 2], src [G, S, K, 2] source activations). Unmixing is a mean
-        over valid channels, so the scale doesn't depend on the montage size."""
-        G, C, S, _ = amp.shape
-        W, A = self.topo(fourier_features(coords.float())).view(G, C, 2, S, self.spatial_rank).to(amp.dtype).unbind(2)
-        m = amp.new_ones(G, C) if valid_channels is None else valid_channels.to(amp.dtype)
-        src = torch.einsum('gcsk,gcsp->gskp', W * m[..., None, None], amp) / m.sum(1).clamp(min=1)[:, None, None, None]
-        return torch.einsum('gcsk,gskp->gcsp', A, src), src
-
     @torch.no_grad()
-    def dense_amp(self, z, rms=None, coords=None, valid_channels=None):
+    def dense_amp(self, z, rms=None):
         """z: [G, C, D] channel-grouped embeddings (same input forward() takes) -> amp [G, C, n_atoms, 2],
-        input_norm'd, rms-scaled and (spatial_rank > 0) factorized the same way forward() is."""
+        input_norm'd and rms-scaled the same way forward() is."""
         amp = self._amp(self.input_norm(z))
-        amp = amp if rms is None else amp * rms.unsqueeze(-1)
-        return self._factorize(amp, coords, valid_channels)[0] if self.spatial_rank else amp
+        return amp if rms is None else amp * rms.unsqueeze(-1)
 
-    def forward(self, z, x_target=None, rms=None, valid_channels=None, coords=None):
+    def forward(self, z, x_target=None, rms=None, valid_channels=None):
         """
         z: [G, C, D] channel-grouped token embeddings (G = B*N patch positions), x_target: [G, C, patch_len]
         the real patch content (for mp_loss; None skips it), rms: [G, C, 1] per-channel raw-input RMS or
@@ -777,9 +696,6 @@ class AtomBank(nn.Module):
         amp = self._amp(self.input_norm(z))                                 # [G, C, S, 2]
         if rms is not None:
             amp = amp * rms.unsqueeze(-1)                                   # restores raw amplitude
-        src = None
-        if self.spatial_rank:
-            amp, src = self._factorize(amp, coords, valid_channels)
 
         energy = amp.pow(2).sum(dim=-1)                                     # [G, C, S]
         if valid_channels is not None:
@@ -811,7 +727,7 @@ class AtomBank(nn.Module):
             else:
                 mp_loss = mp_map.mean()
 
-        return SimpleNamespace(recon=recon, amp=amp, h=h, mp_loss=mp_loss, mp_map=mp_map, src=src)
+        return SimpleNamespace(recon=recon, amp=amp, h=h, mp_loss=mp_loss, mp_map=mp_map)
 
 
 # ==========================================
@@ -864,39 +780,12 @@ class LearnedTimePool(nn.Module):
         return torch.einsum('sn,bnks->bks', self.weights(), power)
 
 
-class EvokedBranch(nn.Module):
-    """Signed low-rank time filter T[s, n] = 1/N' + sum_r p[r, s] q[r, n] applied LINEARLY to
-    a and b (phase-locked content survives a linear functional, not power)."""
-    def __init__(self, rank, num_atoms, num_patches):
-        super().__init__()
-        self.p = nn.Parameter(torch.randn(rank, num_atoms) * 0.02)
-        self.q = nn.Parameter(torch.randn(rank, num_patches) * 0.02)
-
-    def forward(self, a, b):                                     # -> [B, K, 2*S]
-        T = 1.0 / a.shape[1] + torch.einsum('rs,rn->sn', self.p, self.q)
-        return torch.cat([torch.einsum('sn,bnks->bks', T, a),
-                          torch.einsum('sn,bnks->bks', T, b)], dim=-1)
-
-
-def phase_advance(a, b):
-    """z[k, s] = sum_n u[n+1] conj(u[n]), u = a + i b, as real/imag parts (no complex dtype).
-    Returns cat([z_re, z_im], -1) [B, K, 2*S]."""
-    a_next, a_prev, b_next, b_prev = a[:, 1:], a[:, :-1], b[:, 1:], b[:, :-1]
-    z_re = (a_next * a_prev + b_next * b_prev).sum(1)
-    z_im = (b_next * a_prev - a_next * b_prev).sum(1)
-    return torch.cat([z_re, z_im], dim=-1)
-
-
 def _selfcheck_head_modules():
     """Runnable check against independent formulas; not run on import."""
     # self-check against independent formulas (complex dtype, explicit softmax)
     torch.manual_seed(0)
     B, N, K, S, R = 3, 39, 8, 25, 2
     a, b = torch.randn(B, N, K, S), torch.randn(B, N, K, S)
-    u = torch.complex(a, b)
-    z = (u[:, 1:] * u[:, :-1].conj()).sum(1)
-    pa = phase_advance(a, b)
-    assert torch.allclose(pa[..., :S], z.real, atol=1e-5) and torch.allclose(pa[..., S:], z.imag, atol=1e-5)
     ltp = LearnedTimePool(R, S, N)
     nn.init.normal_(ltp.p); nn.init.normal_(ltp.q)
     w = ltp.weights()
@@ -906,14 +795,10 @@ def _selfcheck_head_modules():
     assert torch.allclose(ltp(power), ref, atol=1e-6)
     nn.init.zeros_(ltp.p)                                        # zero logits => uniform => flat mean
     assert torch.allclose(ltp(power), FlatTimePool()(power), atol=1e-5)
-    ev = EvokedBranch(R, S, N)
-    nn.init.zeros_(ev.p)                                         # T = 1/N' => trial mean of a, b
-    out = ev(a, b)
-    assert torch.allclose(out[..., :S], a.mean(1), atol=1e-5) and torch.allclose(out[..., S:], b.mean(1), atol=1e-5)
     lin = nn.Linear(64, K, bias=False)
     t = torch.randn(B, N, 64, S)
     assert spatial_mix(lin, t, 2).shape == (B, N, K, S) and spatial_mix(None, t, 2) is t
-    assert [n for n, _ in ltp.named_parameters()] == ['p', 'q'] and [n for n, _ in ev.named_parameters()] == ['p', 'q']
+    assert [n for n, _ in ltp.named_parameters()] == ['p', 'q']
 
     # -- head config: one form, features = [{"type": ...}] with top-level defaults --
     base = dict(num_channels=22, num_atoms=25, sample_freq=200.0, patch_len=50, patch_stride=50)
@@ -931,7 +816,7 @@ def _selfcheck_head_modules():
         except ValueError:
             pass
     hcfg = resolve_head_config(dict(features=[{'type': 'atom_power', 'spatial_k': 4}, {'type': 'raw_band'},
-                                              {'type': 'signed_ab'}, {'type': 'evoked', 'evoked_rank': 2}],
+                                              {'type': 'signed_ab'}],
                                     time_pool='flat', dropout=0.0, time_rank=2),
                                num_patches=8, num_channels=6, num_classes=3, num_atoms=S,
                                sample_freq=200.0, patch_len=50, patch_stride=50)
@@ -952,10 +837,10 @@ def _selfcheck_head_modules():
 
 BANDS = ((8.0, 13.0), (13.0, 30.0))   # mu, beta
 # Per-entry keys: set at the top level as the default for every entry, or inside one entry.
-_ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'evoked_rank', 'spatial_k', 'atom_rank', 'latent_proj',
+_ENTRY_KEYS = ('time_pool', 'time_rank', 'window', 'spatial_k', 'atom_rank', 'latent_proj',
                'spatial_per_atom')
 _HEAD_DEFAULTS = dict(features=[{'type': 'atom_power'}], spatial_k=8, time_pool='learned', time_rank=2,
-                      window=None, evoked_rank=0, atom_rank=4, latent_proj='learned', spatial_per_atom=False, dropout=0.5,
+                      window=None, atom_rank=4, latent_proj='learned', spatial_per_atom=False, dropout=0.5,
                       latent_source='output')
 
 
@@ -1089,9 +974,7 @@ class AtomExtractor(nn.Module):
                                             valid_channels=vmask)                       # [B, C, N, D]
         zg = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
         rg = rms.permute(0, 2, 1).reshape(B * N, C, 1)
-        cg = coords.unsqueeze(1).expand(B, N, C, 3).reshape(B * N, C, 3)
-        vg = vmask.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
-        amp = self.backbone.atoms.dense_amp(zg, rms=rg, coords=cg, valid_channels=vg)
+        amp = self.backbone.atoms.dense_amp(zg, rms=rg)
         amp = amp.reshape(B, N, C, -1, 2).float() * vmask.float()[:, None, :, None, None]
         amp = amp[:, :, self.channel_idx]                                                 # [B, N, Cv, S, 2]
         if return_z:   # z for the latent_* head entries: [B, N, Cv, D]
@@ -1099,16 +982,6 @@ class AtomExtractor(nn.Module):
                 z = self.backbone.encoder.upsample_bottleneck(N)
             return amp, z.permute(0, 2, 1, 3)[:, :, self.channel_idx].float()
         return amp
-
-    def band_tables(self, sample_freq):
-        """Per-atom template band energies (E_D, E_H), each [S, len(BANDS)], for feature='atom_band'."""
-        with torch.no_grad():
-            D_tab, H_tab = (t.float() for t in self.backbone.atoms.templates())
-            fr = torch.fft.rfftfreq(D_tab.shape[-1], 1.0 / sample_freq)
-            sel = [((fr >= lo) & (fr < hi)).to(D_tab.device) for lo, hi in BANDS]
-            spec = lambda T: torch.stack([torch.fft.rfft(T, dim=-1).abs().pow(2)[:, m].sum(-1) for m in sel], -1)
-            return spec(D_tab), spec(H_tab)
-
 
 class NoTimePool(nn.Module):
     """Keep the patch axis: the features stay [B, N', K, F] and are flattened by the head."""
@@ -1181,25 +1054,6 @@ class AtomPowerEntry(_Entry):
         return torch.log(self.time(a.pow(2) + b.pow(2)) + 1e-12).flatten(1)
 
 
-class AtomBandEntry(_Entry):
-    """Q-atom power projected onto each Q-atom's template band energy (E_D/E_H, set from the
-    backbone by the caller) -> mu / beta power."""
-    def __init__(self, e):
-        super().__init__(e)
-        self.time = _time_pool(e, len(BANDS))
-        self.register_buffer('E_D', torch.zeros(e['num_atoms'], len(BANDS)))
-        self.register_buffer('E_H', torch.zeros(e['num_atoms'], len(BANDS)))
-
-    @staticmethod
-    def dim(e, K):
-        return _pooled_dim(e, K, len(BANDS))
-
-    def forward(self, a, b):
-        a, b = _window(self.e, a, b)
-        p = torch.einsum('bnks,sq->bnkq', a.pow(2), self.E_D) + torch.einsum('bnks,sq->bnkq', b.pow(2), self.E_H)
-        return torch.log(self.time(p) + 1e-12).flatten(1)
-
-
 class RawBandEntry(_Entry):
     """FFT band power (BANDS) of the mixed raw patches."""
     source = 'raw'
@@ -1249,43 +1103,6 @@ class RawSignalEntry(_Entry):
         return torch.nn.functional.avg_pool1d(sig, self.pool_k, self.pool_k).flatten(1)
 
 
-class PhaseAdvanceEntry(_Entry):
-    """Phase advance between neighbouring patches, windowed by its own time_pool."""
-
-    @staticmethod
-    def dim(e, K):
-        return 2 * K * e['num_atoms']
-
-    def forward(self, a, b):
-        return phase_advance(*_window(self.e, a, b)).flatten(1)
-
-
-class EvokedEntry(_Entry):
-    """Signed low-rank time filter over a and b; needs the full patch axis."""
-
-    def __init__(self, e):
-        super().__init__(e)
-        self.branch = EvokedBranch(int(e['evoked_rank']), e['num_atoms'], e['num_patches'])
-
-    @staticmethod
-    def check(e):
-        if e['time_pool'] == 'window':
-            raise ValueError("features entry 'evoked' needs the full patch axis, not time_pool='window'")
-        if int(e['evoked_rank']) < 1:
-            raise ValueError("features entry 'evoked' requires evoked_rank >= 1 (effective)")
-
-    @staticmethod
-    def needs_patches(e):
-        return True
-
-    @staticmethod
-    def dim(e, K):
-        return 2 * K * e['num_atoms']
-
-    def forward(self, a, b):
-        return self.branch(a, b).flatten(1)
-
-
 class SignedABEntry(_Entry):
     """signed_ab (2026-09-25): the signed, phase-locked counterpart of atom_power. Fully linear
     and factored: spatially mixed a and b (kept signed, so polarity and phase survive) ->
@@ -1328,26 +1145,6 @@ def _latent_proj(e, m):
     return proj
 
 
-class LatentPowerEntry(_Entry):
-    """The atom_power pipeline on the encoder output z instead of the Q-atom codes: a learned
-    projection shared over channels and time (D -> num_atoms, so the width equals atom_power's),
-    squared, time-pooled, log."""
-    source = 'latent'
-
-    def __init__(self, e):
-        super().__init__(e)
-        self.proj = _latent_proj(e, e['num_atoms'])
-        self.time = _time_pool(e, e['num_atoms'])
-
-    @staticmethod
-    def dim(e, K):
-        return _pooled_dim(e, K, e['num_atoms'])
-
-    def forward(self, z):
-        z = _window(self.e, z, z)[0]
-        return torch.log(self.time(self.proj(z).pow(2)) + 1e-12).flatten(1)
-
-
 class LatentSignedEntry(_Entry):
     """The signed_ab pipeline on z: learned projection D -> 2 * atom_rank (signed_ab has a and b
     at atom_rank each, so the width matches), learned time filters -> time_rank."""
@@ -1370,9 +1167,8 @@ class LatentSignedEntry(_Entry):
         return torch.einsum('rn,bnkm->bkmr', self.q, self.proj(z)).flatten(1)
 
 
-ENTRY_TYPES = {'atom_power': AtomPowerEntry, 'atom_band': AtomBandEntry, 'raw_band': RawBandEntry,
-               'raw_signal': RawSignalEntry, 'phase_advance': PhaseAdvanceEntry, 'evoked': EvokedEntry,
-               'signed_ab': SignedABEntry, 'latent_power': LatentPowerEntry, 'latent_signed': LatentSignedEntry}
+ENTRY_TYPES = {'atom_power': AtomPowerEntry, 'signed_ab': SignedABEntry, 'latent_signed': LatentSignedEntry,
+               'raw_band': RawBandEntry, 'raw_signal': RawSignalEntry}
 FEATURES_ALL = tuple(ENTRY_TYPES)
 
 

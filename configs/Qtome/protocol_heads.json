@@ -47,7 +47,6 @@
     "training_params.finetune.epochs": 50,
     "training_params.finetune.fit": "closed_form",
     "training_params.finetune.closed_form": {
-      "branch": "structured",
       "spatial_k": 8,
       "atom_rank": 4,
       "time_rank": 2,
@@ -101,7 +100,6 @@
     "training_params.finetune.epochs": 50,
     "training_params.finetune.fit": "closed_form",
     "training_params.finetune.closed_form": {
-      "branch": "structured",
       "spatial_k": 8,
       "atom_rank": 4,
       "time_rank": 2,

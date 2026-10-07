@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from model.Qtome.Qtome_modules import (SpatialTemporalEmbeddings, TSAEncoder, AtomBank, RelativeSpatialBias,
                                          fold_sum,
                                          spatial_mix, FlatTimePool, LearnedTimePool,
-                                         EvokedBranch, phase_advance, AtomExtractor, FeatureHead,
+                                         AtomExtractor, FeatureHead,
                                          resolve_head_config, make_head_checkpoint,
                                          needs_atom, needs_raw, needs_latent, feature_names)
 
@@ -22,26 +22,6 @@ def _ema_update(buf, val, decay=0.99):
     recovered from. Skipping non-finite updates lets the EMA keep tracking real values."""
     if torch.isfinite(val):
         buf.mul_(decay).add_(val, alpha=1 - decay)
-
-
-_ROUTED_STATE = ('atoms.W_down_routed', 'atoms.b_down_routed', 'atoms.w_amp_routed', 'atoms.b_amp_routed',
-                 'atoms.D_routed', 'atoms.fire_ema', 'ema_atom_router_entropy', 'ema_atom_router_load_std',
-                 'ema_atom_gate_entropy')
-_RENAMED_STATE = ('W_down', 'b_down', 'w_amp', 'b_amp', 'D')   # were Q-atoms.<name>_shared
-
-
-def _legacy_state(state_dict, prefix, *args):
-    """load_state_dict pre-hook for checkpoints trained before routed Q-atoms were removed: drop the empty routed
-    tensors and routing EMAs of a static checkpoint, and rename Q-atoms.<name>_shared to Q-atoms.<name>.
-    A checkpoint with routed Q-atoms cannot be rebuilt here: it needs the `routed-stamps` branch."""
-    for k in _ROUTED_STATE:
-        v = state_dict.pop(prefix + k, None)
-        if v is not None and k.startswith('atoms.') and v.numel() > 0:
-            raise ValueError("checkpoint has routed atoms, which were removed: "
-                             "load it from the `routed-stamps` branch")
-    for k in _RENAMED_STATE:
-        if prefix + f'atoms.{k}_shared' in state_dict:
-            state_dict[prefix + f'atoms.{k}'] = state_dict.pop(prefix + f'atoms.{k}_shared')
 
 
 def _restore_phase(module, incompatible_keys):
@@ -88,15 +68,11 @@ class QtomePretrain(nn.Module):
         spatial_embedding=True,
         n_atoms=16,
         atom_hidden_width=16,
-        atom_spatial_rank=0,
         n_routed_ffn_experts=4,
         n_shared_ffn_experts=1,
         ffn_top_k=2,
         patch_stride=None,
-        skip_mode='gated',
-        decoder_blocks=0,
         skip_drop=0.0,
-        temporal_bias=False,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -110,8 +86,7 @@ class QtomePretrain(nn.Module):
         self.encoder = TSAEncoder(embed_dim, depth=enc_depth, num_heads=spatial_heads, mlp_ratio=mlp_ratio,
                                    dropout=dropout, blocks_per_stage=blocks_per_stage,
                                    n_routed_ffn_experts=n_routed_ffn_experts, n_shared_ffn_experts=n_shared_ffn_experts,
-                                   ffn_top_k=ffn_top_k, skip_mode=skip_mode, decoder_blocks=decoder_blocks,
-                                   skip_drop=skip_drop, temporal_bias=temporal_bias)
+                                   ffn_top_k=ffn_top_k, skip_drop=skip_drop)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, 1, embed_dim))
         nn.init.normal_(self.mask_token, std=0.02)
         # Masked tokens swap their CONTENT for mask_token before the time/coord embeddings
@@ -121,13 +96,11 @@ class QtomePretrain(nn.Module):
         # every block's spatial attention (RelativeSpatialBias), on or off together (the ablation).
         self.spatial_bias = RelativeSpatialBias(enc_depth, spatial_heads) if spatial_embedding else None
 
-        self.atoms = AtomBank(embed_dim, patch_len, n_atoms=n_atoms, hidden_width=atom_hidden_width,
-                                spatial_rank=atom_spatial_rank)
+        self.atoms = AtomBank(embed_dim, patch_len, n_atoms=n_atoms, hidden_width=atom_hidden_width)
         # convenience alias — viz/checker code reads it off the model directly
         self.n_atoms = self.atoms.n_atoms
         self.atoms_frozen = False
         self.register_buffer('masked_phase', torch.tensor(False))
-        self._register_load_state_dict_pre_hook(_legacy_state)
         self.register_load_state_dict_post_hook(_restore_phase)
 
         # EMA health of the FFN MoE routers (MoEFFN/FFNRouter, one per TSABlock, averaged
@@ -197,7 +170,7 @@ class QtomePretrain(nn.Module):
     def stage_features(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """Returns (z [B, C, N, D], ffn_lb_loss scalar) — ffn_lb_loss is the summed
         load-balance loss of every TSABlock's MoEFFN (see Qtome_modules.TSAEncoder)."""
-        z = self.embed(x, coords=coords, time_idx=time_idx, bool_masked_pos=bool_masked_pos,
+        z = self.embed(x, coords=coords, bool_masked_pos=bool_masked_pos,
                        mask_token=self.mask_token)  # [B, C, N, D]
         bias = self.spatial_bias(coords) if self.spatial_bias is not None and coords is not None else None
         # a window's zero-padded tail patches (zero on every channel) are left out of temporal attention
@@ -214,8 +187,7 @@ class QtomePretrain(nn.Module):
         z_g = z.permute(0, 2, 1, 3).reshape(B * N, C, -1)
         rms = x.permute(0, 2, 1, 3).reshape(B * N, C, L).pow(2).mean(dim=-1, keepdim=True).sqrt()
         vc_g = None if valid_channels is None else valid_channels.unsqueeze(1).expand(B, N, C).reshape(B * N, C)
-        c_g = None if coords is None else coords.unsqueeze(1).expand(B, N, C, 3).reshape(B * N, C, 3)
-        return self.atoms(z_g, rms=rms, valid_channels=vc_g, coords=c_g)
+        return self.atoms(z_g, rms=rms, valid_channels=vc_g)
 
     def forward(self, x, coords, time_idx=None, bool_masked_pos=None, valid_channels=None):
         """
@@ -269,8 +241,7 @@ class QtomePretrain(nn.Module):
                 mask_g = mask_g & vc_g.unsqueeze(-1)
             rms = torch.where(mask_g, torch.ones_like(rms), rms)
 
-        c_g = None if coords is None else coords.unsqueeze(1).expand(B, N, C, 3).reshape(G, C, 3)   # [G, C, 3]
-        out = self.atoms(z_g, x_target=x_g, rms=rms, valid_channels=vc_g, coords=c_g)
+        out = self.atoms(z_g, x_target=x_g, rms=rms, valid_channels=vc_g)
 
         recon = out.recon.reshape(B, N, C, L).permute(0, 2, 1, 3)  # back to [B, C, N, L]
 
@@ -278,7 +249,6 @@ class QtomePretrain(nn.Module):
             recon=recon,
             h=out.h,
             amp=out.amp,   # [G, C, n_atoms, 2] (G = B*N), for AtomBank.decode
-            src=out.src,   # [G, n_atoms, K, 2] source activations, or None (spatial_rank 0)
             mp_loss=out.mp_loss,
             # [B, C, N], same layout as bool_masked_pos (G = B*N rows were b*N + n)
             mp_map=None if out.mp_map is None else out.mp_map.reshape(B, N, C).permute(0, 2, 1),
@@ -461,10 +431,6 @@ class FinetuneModel(nn.Module):
         if atom:
             assert head_cfg['num_atoms'] == backbone.n_atoms, "num_atoms must equal the atom count"
         self.head = FeatureHead(head_cfg)
-        if 'atom_band' in feature_names(head_cfg):
-            E_D, E_H = self.extractor.band_tables(head_cfg['sample_freq'])
-            self.head.entries['atom_band'].E_D.copy_(E_D)
-            self.head.entries['atom_band'].E_H.copy_(E_H)
 
     def train(self, mode=True):
         super().train(mode)
@@ -489,7 +455,6 @@ class FinetuneModel(nn.Module):
     def from_checkpoint(cls, backbone, ckpt):
         cfg = dict(ckpt['head_config'])
         channel_idx = cfg.pop('channel_idx')
-        cfg.pop('keep', None)   # heads saved before routed Q-atoms were removed list the alive Q-atoms: now all of them
         model = cls(backbone, cfg, channel_idx)
         model.head.load_state_dict(ckpt['model_state_dict'])
         return model

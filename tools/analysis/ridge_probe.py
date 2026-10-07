@@ -41,7 +41,7 @@ def _pca_axes(tokens, n):
 
 
 def _atom_bank(checkpoint):
-    """The trained AtomBank of a pretrain checkpoint (rebuilt from its build_config, legacy names mapped)."""
+    """The trained AtomBank of a pretrain checkpoint (rebuilt from its build_config)."""
     from model.factory import build_from_checkpoint
     return build_from_checkpoint(torch.load(checkpoint, map_location='cpu', weights_only=False)).atoms.eval()
 

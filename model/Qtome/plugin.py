@@ -22,14 +22,9 @@ from IO.preprocessing import slice_patches
 
 
 def build_model(bp, num_channels):
-    """bp: config['model_params']['Qtome']['pretrain']. atom_bank: n_atoms, hidden_width (a static
-    checkpoint's build_config from before routed Q-atoms were removed names them n_shared_atoms /
-    atom_shared_hidden_width, with n_routed_atoms 0 -- still read)."""
+    """bp: config['model_params']['Qtome']['pretrain']."""
     sb = bp.get('atom_bank', {})
     moe_ffn = bp.get('moe_ffn', {})
-    if sb.get('n_routed_atoms', 0):
-        raise ValueError("routed atoms were removed: use the `routed-stamps` branch, "
-                         "or set atom_bank to {n_atoms, hidden_width}")
 
     return QtomePretrain(
         embed_dim=bp.get('embed_dim', 100),
@@ -41,9 +36,8 @@ def build_model(bp, num_channels):
         blocks_per_stage=bp.get('blocks_per_stage', 2),
         num_channels=num_channels,
         spatial_embedding=bp.get('spatial_embedding', True),
-        n_atoms=sb.get('n_atoms', sb.get('n_shared_atoms', 16)),
-        atom_hidden_width=sb.get('hidden_width', sb.get('atom_shared_hidden_width', 16)),
-        atom_spatial_rank=sb.get('spatial_rank', 0),
+        n_atoms=sb.get('n_atoms', 16),
+        atom_hidden_width=sb.get('hidden_width', 16),
         n_routed_ffn_experts=moe_ffn.get('n_routed_experts', 4),
         n_shared_ffn_experts=moe_ffn.get('n_shared_experts', 1),
         ffn_top_k=moe_ffn.get('top_k', 2),
@@ -51,22 +45,12 @@ def build_model(bp, num_channels):
         # above) — the shared build_model(bp, num_channels) interface
         # (model/factory.py) doesn't pass preprocess_params through.
         patch_stride=bp.get('patch_stride'),
-        # 'gated' UNet skips (default), 'finest' (only the finest skip) or 'none'; decoder_blocks per-channel temporal conv blocks after each upsample
-        skip_mode=bp.get('skip_mode', 'gated'),
-        decoder_blocks=bp.get('decoder_blocks', 0),
         skip_drop=bp.get('skip_drop', 0.0),   # per-sample skip drop-path p (training); a list = one per skip, finest first
-        temporal_bias=bp.get('temporal_bias', False),   # RelativeTemporalBias on temporal attention
     )
 
 
 class QtomeTrainer(BaseTrainer):
     def compute_loss(self, model, x, out, mp, **hparams):
-        removed = {'hierarchical_mse_weight': '0011', 'mse_trial_weight': '0021', 'stft_weight': '0019',
-                   'stft_sizes': '0019', 'nested_sizes': '0018', 'nested_weights': '0018', 'aux_weight': '0022'}
-        stale = sorted(k for k in hparams if k in removed and hparams[k])
-        if stale:   # a removed loss term: fail loudly rather than train a silently different loss
-            raise ValueError(f"loss keys {stale} were removed (ADR {', '.join(sorted({removed[k] for k in stale}))}); "
-                             "drop them from the config")
         ffn_lb_weight = hparams.get('ffn_lb_weight', 0.01)
         mp_weight = hparams.get('mp_weight', 0.0)
         return model.get_loss(x, out.recon, bool_masked_pos=mp,

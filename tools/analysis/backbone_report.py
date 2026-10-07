@@ -147,12 +147,6 @@ def report(allg, ref_name, head='frozen_learned', tables=None):
             w(f'| {g} | spatial bias is used (block rho > {BIAS_RHO:g} and mean abs > {BIAS_MAG:g}) | '
               f'{len(used)}/{len(sb)} blocks: {used} | {verdict(bool(used))} |')
 
-        e = (evs.get(g) or {}).get('ablation_by_mask', {}).get('time_block')
-        er = (evs.get(ref_name) or {}).get('ablation_by_mask', {}).get('time_block')
-        if e and er:
-            t, tr = e['time_shuffle'] / e['baseline'] - 1, er['time_shuffle'] / er['baseline'] - 1
-            w(f'| {g} | (diagnostic) uses time under time_block masks | time_shuffle {t:+.0%} vs {ref_name} {tr:+.0%} | - |')
-
     if 'AB' in groups and 'A' in groups and 'B' in groups and all(summary[x][1] is not None for x in ('A', 'B', 'AB')):
         a, b, ab = summary['A'][1], summary['B'][1], summary['AB'][1]
         w(f'| AB | stacks: mean diff >= max(A, B) and AB wins overall | AB {ab:+.1f} vs A {a:+.1f} / B {b:+.1f} | '
@@ -193,13 +187,13 @@ def backbone_tables(groups):
                         f' | {np.mean(ms):>22.3f}' if ms else f' | {"-":>22}')
             if any_ms:
                 print(row)
-    for a in ('coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const'):
+    for a in ('coords_shuffle', 'coords_mean'):
         print(f'  ablation {a:15}' + ''.join(
             f' | {np.mean([e["ablation_masked_mse"][a] / e["ablation_masked_mse"]["baseline"] - 1 for e in ev]):>+21.0%}'
             if ev else f' | {"-":>22}' for ev in evals.values()))
     if all(ev and 'ablation_by_mask' in ev[0] for ev in evals.values()):
         print('\n## Embedding ablation, masked MSE change vs intact embeddings, per test mask')
-        for a in ('coords_shuffle', 'coords_mean', 'time_shuffle', 'time_const'):
+        for a in ('coords_shuffle', 'coords_mean'):
             print(f'  {a}')
             for k in kinds:
                 print(f'    {k:17}' + ''.join(

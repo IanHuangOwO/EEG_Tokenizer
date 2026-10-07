@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset, Sampler
 from typing import List, Dict, Optional, Tuple, Callable, Any
 
-from .loader import load_coords_from_metadata, get_standard_coords
+from .loader import get_standard_coords
 from IO.preprocessing import build_normalizer_from_config, cache_suffix, slice_patches, num_patches, window_continuous_signal
 from IO.masking import MaskingStrategy, build_masking_strategy_from_config
 
@@ -26,9 +26,9 @@ HEAD_RADIUS_M = 0.095   # polar metadata coordinates are projected onto a sphere
 
 
 def channel_xyz(ch_info: Dict) -> Optional[np.ndarray]:
-    """Native-layout template coordinate of one metadata channel: MNE's standard_1020 position for the
-    label, else standard_1005, else the polar topomap coordinates projected onto a head sphere (radius 0.5 = the
-    equator), else None. A dataset's own 'xyz' (any frame) is read only by coords 'recorded' (own_xyz)."""
+    """Template coordinate of one metadata channel: MNE's standard_1020 position for the label, else
+    standard_1005, else the polar topomap coordinates projected onto a head sphere (radius 0.5 = the equator), else
+    None. A dataset's own recorded positions are never used (tested and rejected, docs/adr/0023)."""
     p = get_standard_coords(ch_info.get('label', ''))
     if p is None:
         p = _standard_1005().get(ch_info.get('label', '').strip().lower())   # 10-05 names (FFC1h, TPP9h, AFp3h, ...)
@@ -39,39 +39,6 @@ def channel_xyz(ch_info: Dict) -> Optional[np.ndarray]:
         th, el = np.deg2rad(c.get('polar_angle_deg', 0.0)), np.pi * c.get('polar_radius', 0.0)
         return HEAD_RADIUS_M * np.array([np.sin(el) * np.sin(th), np.sin(el) * np.cos(th), np.cos(el)])
     return None
-
-
-def own_xyz(ch_info: Dict, equator_radius: Optional[float]) -> Optional[np.ndarray]:
-    """preprocess_params.coords 'recorded': the position the dataset
-    itself records for this channel -- 'xyz' (any frame and unit; aligned later by align_similarity), else its polar
-    table when the dataset states its convention (channels.polar_equator_radius, the radius of the equator: EEGLAB
-    .loc 0.5, idealised tables e.g. 0.36 / 0.406), projected onto the HEAD_RADIUS_M sphere -- else None."""
-    if isinstance(ch_info.get('xyz'), (list, tuple)):
-        return np.asarray(ch_info['xyz'], dtype=np.float64)
-    c = ch_info.get('coordinates')
-    if c and equator_radius:
-        th = np.deg2rad(c.get('polar_angle_deg', 0.0))
-        el = 0.5 * np.pi * c.get('polar_radius', 0.0) / equator_radius          # angle from the vertex
-        return HEAD_RADIUS_M * np.array([np.sin(el) * np.sin(th), np.sin(el) * np.cos(th), np.cos(el)])
-    return None
-
-
-def align_similarity(src: np.ndarray, dst: np.ndarray) -> Tuple[np.ndarray, float, np.ndarray]:
-    """Least-squares similarity transform (rotation, uniform scale, translation; no reflection -- Umeyama 1991) taking
-    the points src [n, 3] onto dst [n, 3] -> (M, mean residual in dst units, t): x -> x @ M.T + t, M = scale * R."""
-    mu_s, mu_d = src.mean(0), dst.mean(0)
-    a, b = src - mu_s, dst - mu_d
-    U, S, Vt = np.linalg.svd(b.T @ a / len(src))
-    D = np.diag([1.0, 1.0, np.sign(np.linalg.det(U @ Vt))])
-    R = U @ D @ Vt
-    scale = np.trace(np.diag(S) @ D) / (a ** 2).sum(1).mean()
-    M = scale * R
-    t = mu_d - mu_s @ M.T
-    resid = float(np.linalg.norm(src @ M.T + t - dst, axis=1).mean())
-    return M, resid, t
-
-
-ALIGN_MAX_RESIDUAL_M = 0.015   # a dataset whose aligned named channels sit farther from the template falls back to it
 
 
 _STD1005 = None
@@ -156,23 +123,9 @@ class EEGDataset(Dataset):
         self.config = config
         self.channel_names = desired_channels
         self.Nc = len(desired_channels)
-        # 'grid' (every channel matched to its canonical 10-10 slot by name, the rest dropped) or 'native' (every EEG
-        # channel of the dataset kept; > Nc channels reduced to the canonical sites)
-        # Old names stay accepted so archived configs reproduce: 'real' = 'native', coords 'dataset' = 'recorded'.
-        pp = config.get('preprocess_params', {})
-        self.channel_layout = pp.get('channel_layout', 'grid')
-        self.channel_layout = 'native' if self.channel_layout == 'real' else self.channel_layout
-        if self.channel_layout not in ('grid', 'native'):
-            raise ValueError(f"preprocess_params.channel_layout must be grid|native, got {self.channel_layout!r}")
-        # 'template' (MNE's position for each channel name) or 'recorded' (native layout only: the dataset's own recorded
-        # positions, aligned to MNE's head frame; template where it has none)
-        self.coords_source = pp.get('coords', 'template')
-        self.coords_source = 'recorded' if self.coords_source == 'dataset' else self.coords_source
-        if self.coords_source not in ('template', 'recorded'):
-            raise ValueError(f"preprocess_params.coords must be template|recorded, got {self.coords_source!r}")
-        if self.coords_source == 'recorded' and self.channel_layout != 'native':
-            raise ValueError("preprocess_params.coords 'recorded' needs channel_layout 'native'")
-        self.coord_report = {}
+        # Channel layout (docs/adr/0023): every EEG channel of the dataset is kept, canonical-name channels on their
+        # slot, the others in free slots; > Nc channels are reduced to the canonical sites. Coordinates: MNE's template
+        # position for each channel name (channel_xyz).
         self._plans = {}
         self.assemble_trials = assemble_trials
         self.assembly_params = assembly_params or {}
@@ -227,8 +180,7 @@ class EEGDataset(Dataset):
         self.dataset_names = all_dataset_names
         self.all_coords = all_coords
         self.all_valid_channels = all_valid_channels
-        # Which valid slots hold the channel their canonical name says: everything valid under 'grid'; under 'native'
-        # a non-grid channel sits in a free slot. Name-based logic (channel subsampler, backbone_eval's motor-3 ->
+        # Which valid slots hold the channel their canonical name says (a non-canonical channel sits in a free slot). Name-based logic (channel subsampler, backbone_eval's motor-3 ->
         # bci-22 test) reads only these.
         self.all_named_slots = all_named_slots
         self.all_valid_length = all_valid_length
@@ -259,19 +211,10 @@ class EEGDataset(Dataset):
         transform = task['transform']
         ds_config = task['dataset_config']
 
-        plan = None
-        if self.channel_layout == 'native':
-            sub_xyz = None
-            if self.coords_source == 'recorded':     # per-subject digitized positions (data_structure.<id>.channel_xyz)
-                sub_xyz = (ds_config.get('data_structure', {}).get(str(subject_id)) or {}).get('channel_xyz')
-            key = (ds_name, str(subject_id)) if sub_xyz else ds_name
-            if key not in self._plans:
-                self._plans[key] = self._real_plan(desired_channels, ds_config, sub_xyz, name='/'.join(
-                    [ds_name] + ([str(subject_id)] if sub_xyz else [])))
-            plan = self._plans[key]
-            ds_indices, target_pos = plan['src'], plan['slots']
-        else:
-            ds_indices, target_pos = self._map_channels(desired_channels, ds_config['data_metadata']['channels'])
+        if ds_name not in self._plans:
+            self._plans[ds_name] = self._channel_plan(desired_channels, ds_config)
+        plan = self._plans[ds_name]
+        ds_indices, target_pos = plan['src'], plan['slots']
 
         # Train-time read: compiled cache only (see cache_dataset.py) — dataset-specific
         # loading code (datas/<Name>/loader.py) never runs at train time. The cached
@@ -291,8 +234,8 @@ class EEGDataset(Dataset):
         data_np = npz['data'][:, ds_indices, :]
         if data_np.shape[0] == 0:
             return None
-        coords_np = plan['coords'] if plan else load_coords_from_metadata(ds_config['data_metadata'], ds_indices)
-        src_names = plan['labels'] if plan else [desired_channels[p] for p in target_pos]
+        coords_np = plan['coords']
+        src_names = plan['labels']
 
         raw_data = torch.from_numpy(data_np.astype(np.float32))  # (N, C, T)
         N, _, T = raw_data.shape
@@ -306,8 +249,8 @@ class EEGDataset(Dataset):
             if flat.any():
                 print(f"  [{ds_name} S{subject_id}] flat channels -> padding: "
                       f"{[src_names[i] for i in flat.nonzero().flatten().tolist()]}")
-        named = plan['named'] if plan else [True] * len(target_pos)
-        if plan and plan['interp']:
+        named = plan['named']
+        if plan['interp']:
             # > Nc channels: every canonical site, copied where the recording has it (and it is not flat),
             # IDW-interpolated from its good electrodes where not. Dead electrodes are left out of the interpolation.
             W, coords_np = self._interp_matrix(plan, ~flat.numpy(), desired_channels)
@@ -413,30 +356,9 @@ class EEGDataset(Dataset):
         up = label.strip().upper()
         return self._LABEL_ALIASES.get(up, up)
 
-    def _map_channels(self, desired_channels: List[str], channel_config: Dict) -> Tuple[List[int], List[int]]:
-        """Returns (dataset_channel_indices, positions_in_desired_list)."""
-        name_to_index = {}
-        for key, info in channel_config.items():
-            if isinstance(key, str) and key.isdigit() and isinstance(info, dict) and 'label' in info:
-                norm = self._normalize_label(info['label'])
-                name_to_index[norm] = int(key) - 1  # metadata is 1-indexed
-
-        ds_indices, target_pos, missing = [], [], []
-        for i, name in enumerate(desired_channels):
-            norm = self._normalize_label(name)
-            if norm in name_to_index:
-                ds_indices.append(name_to_index[norm])
-                target_pos.append(i)
-            else:
-                missing.append(name)
-        print(f"  [channel map] matched {len(ds_indices)}/{len(desired_channels)}"
-              + (f" | zero-padded: {missing}" if missing else ""))
-        return ds_indices, target_pos
-
-    def _real_plan(self, desired_channels: List[str], ds_config: Dict, sub_xyz=None, name: str = '') -> Dict:
-        """channel_layout 'native': which cached channels to read and where they go. A channel whose
-        label (with the 10-20 aliases) is a canonical name keeps that slot, exactly as under 'grid'; every other EEG
-        channel with a known position fills a free slot. More than Nc channels -> 'interp': all of them feed
+    def _channel_plan(self, desired_channels: List[str], ds_config: Dict) -> Dict:
+        """Which cached channels to read and where they go. A channel whose label (with the 10-20 aliases) is a
+        canonical name keeps that slot; every other EEG channel with a known position fills a free slot. More than Nc channels -> 'interp': all of them feed
         _interp_matrix. -> {src, slots, labels, coords, named, interp, pos}."""
         chans = ds_config['data_metadata']['channels']
         include_non_eeg = ds_config['dataset_params'].get('include_non_eeg_channels', False)
@@ -458,10 +380,8 @@ class EEGDataset(Dataset):
             src.append(int(k) - 1); labels.append(label); pos.append(p); slot.append(s)
         if dropped:
             print(f"  [channel map] no position, dropped: {dropped}")
-        if self.coords_source == 'recorded':
-            pos = self._dataset_positions(chans, src, labels, pos, sub_xyz, name)
-        # canonical-slot order first (as 'grid' reads them, so a canonical-only dataset normalises bit-identically:
-        # the per-trial z-score sums channels in read order), the other channels after in metadata order
+        # canonical-slot order first, the other channels after in metadata order (the per-trial z-score sums channels
+        # in read order)
         order = sorted(range(len(src)), key=lambda j: (slot[j] is None, slot[j] if slot[j] is not None else j))
         src, labels, pos, slot = ([v[j] for j in order] for v in (src, labels, pos, slot))
         named = [s is not None for s in slot]
@@ -474,37 +394,6 @@ class EEGDataset(Dataset):
               + (f", > {self.Nc}: interpolated to the canonical sites" if interp else ""))
         return {'src': src, 'slots': slot, 'labels': labels, 'coords': pos.astype(np.float32), 'named': named,
                 'interp': interp, 'pos': pos}
-
-    def _dataset_positions(self, chans: Dict, src: List[int], labels: List[str], pos: List[np.ndarray], sub_xyz,
-                           name: str) -> List[np.ndarray]:
-        """coords 'recorded': each channel's own recorded position (own_xyz, or the subject's channel_xyz row), all of a
-        dataset's (or subject's) own positions mapped onto MNE's head frame by one similarity transform fitted on its
-        channels that also have a template position; channels without an own position keep the template one. A fit
-        residual above ALIGN_MAX_RESIDUAL_M -> the whole dataset keeps the template (reported)."""
-        eq = chans.get('polar_equator_radius')
-        own = []
-        for i, lab in zip(src, labels):
-            info = chans.get(str(i + 1), {})
-            p = np.asarray(sub_xyz[i], dtype=np.float64) if sub_xyz else own_xyz(info, eq)
-            own.append(p)
-        tmpl = [channel_xyz({'label': lab}) for lab in labels]
-        fit = [j for j, (o, t) in enumerate(zip(own, tmpl)) if o is not None and t is not None]
-        n_own = sum(o is not None for o in own)
-        if n_own == 0:
-            return pos
-        if len(fit) < 4:
-            self.coord_report[name] = {'own': n_own, 'fit': len(fit), 'residual_mm': None, 'used': False}
-            print(f"  [coords dataset] {name}: {n_own} own positions but {len(fit)} named for the fit -> template")
-            return pos
-        M, resid, t = align_similarity(np.array([own[j] for j in fit]), np.array([tmpl[j] for j in fit]))
-        used = resid <= ALIGN_MAX_RESIDUAL_M
-        self.coord_report[name] = {'own': n_own, 'fit': len(fit), 'residual_mm': resid * 1000, 'used': used,
-                                   'scale': float(np.cbrt(abs(np.linalg.det(M))))}
-        print(f"  [coords dataset] {name}: {n_own} own positions, aligned on {len(fit)} named, mean residual "
-              f"{resid * 1000:.1f} mm" + ("" if used else " > limit -> template"))
-        if not used:
-            return pos
-        return [o @ M.T + t if o is not None else p for o, p in zip(own, pos)]
 
     def _interp_matrix(self, plan: Dict, good: np.ndarray, desired_channels: List[str]) -> Tuple[np.ndarray, np.ndarray]:
         """> Nc channels -> (W [Nc, n_src] mapping the recording to the Nc canonical sites, coords [Nc, 3]). A site
